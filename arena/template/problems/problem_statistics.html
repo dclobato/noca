@@ -1,0 +1,113 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Statistics for #{{ problem.arena_number }} {{ problem.title }}{% endblock %}
+{% block nav_problems %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3 d-flex flex-column flex-grow-1"
+         data-arena-problem-stats
+         data-stats-url="{{ stats_data_url }}">
+        {# ── Header strip ──────────────────────────────────────────────── #}
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap align-items-center gap-3">
+                <a href="{{ detail_url }}" class="btn btn-outline-secondary btn-sm">{{ render_icon(icon="arrow_back") }}</a>
+                <h1 class="h5 mb-0">
+                    {{ render_icon(icon="bar_chart") }}
+                    Statistics &mdash; #{{ problem.arena_number }} {{ problem.title }}
+                </h1>
+                <span class="text-muted small ms-auto" data-stats-computed-at></span>
+            </div>
+        </div>
+        {# ── Rating evolution (reuses the rating-history chart, full mode) ── #}
+        <div class="arena-card mb-3">
+            <h2 class="h6 mb-2">Difficulty since start</h2>
+            <div id="problem-stats-rating-chart"
+                 class="arena-stats-chart arena-stats-chart--line"
+                 data-arena-rating-chart
+                 data-rating-chart-url="{{ rating_history_url }}"
+                 data-rating-chart-mode="full"
+                 data-rating-chart-value-kind="difficulty"></div>
+        </div>
+        {# ── Distribution doughnuts ───────────────────────────────────── #}
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <div class="arena-card h-100">
+                    <h2 class="h6 mb-2">Verdict distribution</h2>
+                    <div id="problem-stats-verdicts"
+                         class="arena-stats-chart arena-stats-chart--pie"></div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="arena-card h-100">
+                    <h2 class="h6 mb-2">Language distribution</h2>
+                    <div id="problem-stats-languages"
+                         class="arena-stats-chart arena-stats-chart--pie"></div>
+                </div>
+            </div>
+        </div>
+        {# ── Per-language tables (AC only) ────────────────────────────── #}
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <div class="arena-card h-100">
+                    <h2 class="h6 mb-2">
+                        Average wall time per language <span class="text-muted small">(accepted)</span>
+                    </h2>
+                    <div class="table-responsive">
+                        <table class="table table-sm small mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Language</th>
+                                    <th class="text-end">Solutions</th>
+                                    <th class="text-end">Avg (ms)</th>
+                                    <th class="text-end">Std dev (ms)</th>
+                                </tr>
+                            </thead>
+                            <tbody data-stats-time-table>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="arena-card h-100">
+                    <h2 class="h6 mb-2">
+                        Average peak memory per language <span class="text-muted small">(accepted)</span>
+                    </h2>
+                    <div class="table-responsive">
+                        <table class="table table-sm small mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Language</th>
+                                    <th class="text-end">Solutions</th>
+                                    <th class="text-end">Avg (KB)</th>
+                                    <th class="text-end">Std dev (KB)</th>
+                                </tr>
+                            </thead>
+                            <tbody data-stats-memory-table>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {# ── Wall-time distribution (AC only) ─────────────────────────── #}
+        <div class="arena-card mb-3">
+            <h2 class="h6 mb-2">
+                Solution running time distribution <span class="text-muted small">(accepted)</span>
+            </h2>
+            <div id="problem-stats-histogram"
+                 class="arena-stats-chart arena-stats-chart--bar"></div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-rating-history-chart.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-problem-statistics.js') }}?v={{ app_version }}"></script>
+{% endblock %}

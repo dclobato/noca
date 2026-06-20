@@ -1,0 +1,72 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<section class="arena-progress-list">
+    <div class="arena-progress-list-header">
+        <h2>Credit Statement</h2>
+        {% if credit_transactions and credit_transactions.total > 0 %}
+            <span>{{ credit_transactions.first }}&ndash;{{ credit_transactions.last }} of {{ credit_transactions.total }}</span>
+        {% endif %}
+    </div>
+    {% if credit_transactions and credit_transactions.items %}
+        {% with pagination=credit_transactions, heading="Credit Statement", page_param="credits_page", nav_margin="mb-2" %}
+            {% include "users/_pagination.html" %}
+        {% endwith %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle arena-progress-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Date</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Amount</th>
+                        <th scope="col">Balance After</th>
+                        <th scope="col">Reference</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for tx in credit_transactions.items %}
+                        <tr>
+                            <td class="text-nowrap">{{ arena_format_datetime(tx.created_at, current_user) }}</td>
+                            <td>
+                                {% if tx.transaction_type == 'topup' %}
+                                    <span class="badge bg-success">Top-up</span>
+                                {% elif tx.transaction_type == 'refund' %}
+                                    <span class="badge bg-info">Refund</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Consumption</span>
+                                {% endif %}
+                            </td>
+                            <td class="fw-semibold {% if tx.amount > 0 %}text-success{% else %}text-secondary{% endif %}">
+                                {% if tx.amount > 0 %}
+                                    +{{ tx.amount }}
+                                {% else %}
+                                    {{ tx.amount }}
+                                {% endif %}
+                            </td>
+                            <td>{{ tx.balance_after }}</td>
+                            <td>
+                                {% if tx.transaction_type == 'topup' and tx.admin %}
+                                    <span class="text-arena-muted small">by {{ tx.admin.nome }}</span>
+                                {% elif tx.submission_id %}
+                                    <a href="{{ request.url_for('arena_submission_detail', submission_id=tx.submission_id) }}"
+                                       class="text-decoration-none small">Submission</a>
+                                {% else %}
+                                    <span class="text-arena-muted">&mdash;</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="arena-empty-state">No credit transactions yet.</p>
+    {% endif %}
+    {% with pagination=credit_transactions, heading="Credit Statement", page_param="credits_page" %}
+        {% include "users/_pagination.html" %}
+    {% endwith %}
+</section>

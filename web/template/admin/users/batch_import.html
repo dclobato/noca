@@ -1,0 +1,248 @@
+{% extends "_base.html" %}
+{% block title_suffix %}— Batch Import{% endblock %}
+{% block extra_head %}
+    <script src="{{ request.url_for('static_js', path='batch-import-users.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('manage_users', slug=contest.login_slug) }}">Users</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Batch Import</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Batch User Import</h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        {% if is_locked %}
+            <div class="alert alert-warning py-2 small">Contest has ended — users cannot be batch imported.</div>
+        {% endif %}
+        {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+        {% if email_delivery_summary %}<div class="alert alert-info py-2 small">{{ email_delivery_summary }}</div>{% endif %}
+        <div class="row g-4">
+            {% if result %}
+                <div class="col-12">
+                    <div class="card shadow-sm">
+                        <div class="card-header d-flex align-items-center gap-3">
+                            <span>Import results</span>
+                            <span class="badge bg-success ms-1">{{ result.created }} created</span>
+                            <span class="badge bg-primary">{{ result.updated }} updated</span>
+                            <span class="badge bg-danger">{{ result.failed }} failed</span>
+                            <span class="badge bg-secondary">{{ result.skipped }} skipped</span>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-sm mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Username</th>
+                                            <th>Full name</th>
+                                            <th>Role</th>
+                                            <th>Email</th>
+                                            <th>Site</th>
+                                            <th>Location</th>
+                                            <th>Status</th>
+                                            <th>Password</th>
+                                            <th>Details</th>
+                                            <th>Email delivery</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for r in result.results %}
+                                            <tr class="{% if r.status == 'failed' %} table-danger {% elif r.status == 'created' %} table-success {% elif r.status == 'updated' %} table-primary {% endif %}">
+                                                <td>
+                                                    <code>{{ r.username }}</code>
+                                                </td>
+                                                <td>{{ r.fullname }}</td>
+                                                <td>{{ r.role }}</td>
+                                                <td>{{ r.email or "-" }}</td>
+                                                <td>{{ r.site or "-" }}</td>
+                                                <td>{{ r.location or "-" }}</td>
+                                                <td>
+                                                    <span class="badge {% if r.status == 'created' %} bg-success {% elif r.status == 'updated' %} bg-primary {% elif r.status == 'failed' %} bg-danger {% else %} bg-secondary {% endif %}">{{ r.status }}</span>
+                                                </td>
+                                                <td>
+                                                    {% if r.password %}
+                                                        <code>{{ r.password }}</code>
+                                                    {% else %}
+                                                        -
+                                                    {% endif %}
+                                                </td>
+                                                <td class="text-muted small">{{ r.detail or "" }}</td>
+                                                <td>
+                                                    {% if r.email_delivery_status == "sent" %}
+                                                        <span class="badge bg-success">sent</span>
+                                                    {% elif r.email_delivery_status == "failed" %}
+                                                        <span class="badge bg-danger" title="{{ r.email_delivery_detail or '' }}">failed</span>
+                                                    {% else %}
+                                                        -
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        {% if result.results and download_json_str %}
+                            <div class="card-footer">
+                                <form method="post"
+                                      action="{{ request.url_for('download_batch_results', slug=contest.login_slug) }}">
+                                    <input type="hidden" name="results_json" value="{{ download_json_str | e }}">
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <button type="submit" class="btn btn-outline-secondary btn-sm">Download results JSON</button>
+                                    </div>
+                                </form>
+                                {% if has_emailable_credentials %}
+                                    <form method="post"
+                                          action="{{ request.url_for('send_batch_credentials_email', slug=contest.login_slug) }}"
+                                          class="d-inline-block ms-2">
+                                        <input type="hidden" name="results_json" value="{{ download_json_str | e }}">
+                                        <button type="submit" class="btn btn-outline-primary btn-sm">Send credentials by email</button>
+                                    </form>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+            <div class="col-12 col-lg-7">
+                <div class="card shadow-sm">
+                    <div class="card-header">Upload file</div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            Upload a <strong>CSV</strong> or <strong>JSON</strong> file (max 5 MB).
+                        </p>
+                        <form method="post"
+                              action="{{ request.url_for('batch_import_submit', slug=contest.login_slug) }}"
+                              enctype="multipart/form-data"
+                              id="batch-form"
+                              onsubmit="return validateBatchFile(this)">
+                            <div class="mb-3">
+                                <input class="form-control"
+                                       type="file"
+                                       id="file"
+                                       name="file"
+                                       accept=".csv,.json"
+                                       required>
+                                <div id="file-error" class="invalid-feedback"></div>
+                            </div>
+                            <button type="submit"
+                                    class="btn btn-primary btn-sm"
+                                    id="submit-btn"
+                                    {% if is_locked %}disabled{% endif %}>Import</button>
+                            <span id="spinner" class="ms-2 d-none">
+                                <span class="spinner-border spinner-border-sm" role="status"></span>
+                                Processing…
+                            </span>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-5">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body p-4">
+                        <h3 class="h6 text-uppercase text-muted mb-3">File Format</h3>
+                        <p class="small fw-semibold mb-1">CSV example</p>
+                        <pre class="bg-light rounded p-2 small noca-code-example">username,fullname,role,password,email,site,location
+alice,Alice Smith,team,,alice@example.com,Campus A,Room 3
+bob,Bob Jones,judge,SuperStrong1!,bob@example.com,,
+charlie,Charlie James,staff,weakpassword,,Campus B,Lab 2</pre>
+                        <p class="small fw-semibold mb-1 mt-3">JSON example</p>
+                        <pre class="bg-light rounded p-2 small noca-code-example">[
+  {
+    "username": "alice",
+    "fullname": "Alice Smith",
+    "role": "team",
+    "email": "alice@example.com",
+    "site": "Campus A",
+    "location": "Room 3"
+  },
+  {
+    "username": "bob",
+    "fullname": "Bob Jones",
+    "role": "judge",
+    "email": "bob@example.com",
+    "password": "SuperStrong1!"
+  }
+]</pre>
+                        <hr class="my-3">
+                        <h3 class="h6 text-uppercase text-muted mb-2">Valid values</h3>
+                        <table class="table table-sm small mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Field</th>
+                                    <th>Accepted values</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>
+                                        <code>role</code>
+                                    </td>
+                                    <td>
+                                        <code>admin</code>, <code>judge</code>, <code>staff</code>, <code>team</code>, <code>user</code>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <code>password</code>
+                                    </td>
+                                    <td>Optional. Strong password or leave blank.</td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <code>email</code>
+                                    </td>
+                                    <td>Optional. Must be a valid email address.</td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <code>site</code>
+                                    </td>
+                                    <td>
+                                        Required for <code>staff</code> and <code>team</code>. Optional for other roles.
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <code>location</code>
+                                    </td>
+                                    <td>Optional. Physical location within the site (max 16 chars).</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <p class="text-muted small mt-2 mb-0">
+                            If <code>password</code> is omitted or blank, a random password is generated
+                            and shown in the results. If the provided password does not meet the complexity
+                            requirements, it is also discarded and a new one is generated.
+                        </p>
+                        <p class="text-muted small mt-2 mb-0">
+                            JSON imports also accept an object with optional <code>contest-slug</code> and a required
+                            <code>users</code> list.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

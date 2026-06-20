@@ -1,0 +1,69 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% from "_macros.html" import render_icon with context %}
+<div id="arena-tc-management">
+    <div id="arena-tc-section" class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold">Test Cases</div>
+        <div class="card-body">
+            {% if has_submissions %}
+                <div class="alert alert-warning d-flex align-items-start gap-2 mb-3"
+                     role="alert">
+                    {{ render_icon(icon="warning", classes="flex-shrink-0 mt-1") }}
+                    <div>
+                        This problem already has submissions. If you add, edit, or remove test cases,
+                        you must <strong>rejudge all submissions</strong> to keep verdicts consistent.
+                        Use the <em>Rejudge all submissions</em> button in the Danger Zone below after
+                        making test case changes.
+                    </div>
+                </div>
+            {% endif %}
+            <form method="post"
+                  action="{{ request.url_for('arena_admin_problem_tc_zip_replace', problem_id=problem.id) }}"
+                  enctype="multipart/form-data"
+                  class="d-flex align-items-center gap-2 mb-1">
+                <input type="file"
+                       class="form-control form-control-sm"
+                       name="zip_file"
+                       accept=".zip"
+                       required>
+                <button type="submit" class="btn btn-sm btn-outline-secondary text-nowrap">
+                    {{ render_icon(icon="upload", classes="me-1") }}Upload ZIP
+                </button>
+            </form>
+            <div class="form-text mb-3">
+                ZIP may use directory layout (<code>in/001.in</code> / <code>out/001.out</code> or <code>out/001.sol</code>) or flat layout (<code>001.in</code> / <code>001.out</code> or <code>001.sol</code>). <strong>Replaces all existing test cases.</strong>
+            </div>
+            {% include "_partials/testcase_list_table.html" %}
+            <div id="tc-add-rows"></div>
+            <div class="d-flex flex-wrap gap-2 align-items-center mt-1">
+                <button type="button"
+                        class="btn btn-outline-primary btn-sm"
+                        id="tc-add-row-btn">{{ render_icon(icon="add", classes="me-1") }}Add test case</button>
+                <form method="post"
+                      action="{{ request.url_for('arena_admin_problem_tc_add_from_zip', problem_id=problem.id) }}"
+                      enctype="multipart/form-data">
+                    <input type="file"
+                           name="zip_file"
+                           accept=".zip"
+                           class="d-none"
+                           data-tc-replace-input>
+                    <button type="button"
+                            class="btn btn-outline-secondary btn-sm"
+                            data-tc-replace-trigger>
+                        {{ render_icon(icon="upload", classes="me-1") }}Upload test case
+                    </button>
+                </form>
+            </div>
+            <div class="form-text mt-1">
+                New test cases are saved only after clicking <strong>Save</strong>.
+                Use <em>Upload test case</em> for cases too large to edit inline — the ZIP must contain
+                <code>input.txt</code> and <code>output.txt</code> (optionally <code>explanation.txt</code>).
+            </div>
+        </div>
+    </div>
+</div>

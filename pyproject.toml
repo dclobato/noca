@@ -1,0 +1,119 @@
+[project]
+name = "noca-workspace"
+version = "12.1.0"
+description = "We took the core principles of BOCA -- the backbone of Brazilian programming marathons -- and rebuilt it for the modern era. NOCA (Next Online Contest Administrator) introduces a streamlined developer experience using Python and FastAPI, providing a modular, Docker-based infrastructure that makes running a contest easier than ever."
+authors = [
+    { name = "Daniel Correa Lobato", email = "daniel@lobato.org" }
+]
+license = { file = "LICENSE" }
+requires-python = ">=3.14"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["shared", "web", "arena", "autojudge", "rating", "aiassistant"]
+
+[tool.uv.sources]
+noca-shared = { workspace = true }
+noca-web = { workspace = true }
+noca-arena = { workspace = true }
+noca-autojudge = { workspace = true }
+noca-rating = { workspace = true }
+noca-aiassistant = { workspace = true }
+
+[tool.assets]
+vendor_dir = "shared/static/vendor"
+webfonts_dir = "shared/static/webfonts"
+ace = "1.44.0"
+bootstrap = "5.3.8"
+confetti = "3.9.1"
+cropperjs = "1.6.2"
+devicon = "2.17.0"
+dompurify = "3.3.3"
+easymde = "2.20.0"
+echarts = "6.0.0"
+flatpickr = "4.6.13"
+fontawesome = "7.0.1"
+highlightjs = "11.11.1"
+highlightjs_line_numbers = "2.9.0"
+htmx = "2.0.8"
+inter_weights = "400;700"
+katex = "0.16.45"
+marked = "15.0.12"
+mermaid = "11.14.0"
+public_sans_weights = "400;600;700"
+sortablejs = "1.15.7"
+country_flags_sha = "c09927e63705529bbf59ca6684cd9b23225dddad"
+country_flags_sha256 = "fe3e40259e3d26f130e1516d988f5454cb3b47b66bba97ec3b8a17079d0ca183"
+
+[dependency-groups]
+dev = [
+    "aiosqlite==0.22.1",
+    "djlint==1.36.4",
+    "faker==40.19.1",
+    "httpx==0.28.1",
+    "mypy==2.1.0",
+    "pip-licenses==5.5.5",
+    "pytest-asyncio==1.4.0",
+    "pytest==9.0.3",
+    "relative-datetime==0.1.4",
+    "ruff==0.15.16",
+    "sqlalchemy[mypy]==2.0.50",
+    "watchfiles==1.2.0",
+]
+
+[tool.djlint]
+profile = "jinja"
+indent = 2
+max_line_length = 100
+ignore = "H030,H031"
+blank_line_after_tag = "load,extends"
+format_attribute_template_tags = true
+
+[tool.djlint.css]
+indent_size = 2
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow-running performance checks",
+    "real_db: tests that exercise a real SQL database engine via test fixtures",
+    "real_valkey: tests that exercise a real Valkey instance",
+    "real_docker: tests that exercise a real Docker daemon",
+    "real_openai: tests that exercise the real OpenAI API and require NOCA_AI_OPENAI_API_KEY",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+exclude = ["migrations", "samples"]
+
+[tool.ruff.format]
+exclude = ["migrations", "samples"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    "B008",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["web", "shared", "autojudge", "arena", "rating", "aiassistant"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+plugins = ["sqlalchemy.ext.mypy.plugin"]
+exclude = ["migrations/"]
+disable_error_code = ["import-untyped"]
+
+[[tool.mypy.overrides]]
+module = ["jwtservice"]
+ignore_missing_imports = true
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["secrets_manager"]
+ignore_missing_imports = true

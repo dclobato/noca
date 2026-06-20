@@ -1,0 +1,136 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— Affected Rejudge Batch{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('manage_problems', slug=contest.login_slug) }}">Problems</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('edit_problem_form', slug=contest.login_slug, problem_id=problem.id) }}?tab=limits">{{ problem.title }}</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Affected Rejudge Batch</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+            <div>
+                <h1 class="h3 mb-1">Affected Rejudge Batch</h1>
+                <p class="text-muted mb-0">{{ problem.title }} · created {{ batch.created_at }}</p>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="{{ request.url_for('edit_problem_form', slug=contest.login_slug, problem_id=problem.id) }}?tab=limits"
+                   class="btn btn-outline-secondary btn-sm">Back to Problem</a>
+                <form method="post"
+                      action="{{ request.url_for('problem_limit_change_batch_rejudge_all', slug=contest.login_slug, problem_id=problem.id, batch_id=batch.id) }}">
+                    <button type="submit"
+                            class="btn btn-primary btn-sm"
+                            {% if total_pending == 0 %}disabled{% endif %}>
+                        {{ render_icon(icon="refresh-cw", classes="me-1") }}Rejudge All Pending
+                    </button>
+                </form>
+            </div>
+        </div>
+        <div class="alert alert-info py-2 small mb-4">
+            <strong>{{ total_pending }}</strong> pending submissions still match the captured limit-change batch.
+            Rows already processed are marked as queued or stale.
+        </div>
+        {% for group in language_groups %}
+            <div class="card shadow-sm mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div class="fw-semibold">
+                        <i class="{{ group.language.icon }} me-1"></i>{{ group.language.name }}
+                    </div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <span class="badge text-bg-secondary">{{ group.change_kind }}</span>
+                        <span class="badge text-bg-light">Pending {{ group.pending_count }}</span>
+                        <span class="badge text-bg-light">Queued {{ group.queued_count }}</span>
+                        <span class="badge text-bg-light">Stale {{ group.stale_count }}</span>
+                        <form method="post"
+                              action="{{ request.url_for('problem_limit_change_batch_rejudge_language', slug=contest.login_slug, problem_id=problem.id, batch_id=batch.id, language_id=group.language.id) }}">
+                            <button type="submit"
+                                    class="btn btn-outline-primary btn-sm"
+                                    {% if group.pending_count == 0 %}disabled{% endif %}>
+                                Rejudge Pending {{ group.language.name }}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <div class="small text-muted mb-1">Before</div>
+                            <div class="small">
+                                Time {{ group.before_limits.time_limit_ms }} ms ·
+                                Memory {{ group.before_limits.memory_limit_kb }} KB ·
+                                PIDs {{ group.before_limits.pids_limit }} ·
+                                Output {{ group.before_limits.output_limit_in_bytes if group.before_limits.output_limit_in_bytes is not none else 'none' }} ·
+                                Reps {{ group.before_limits.repetitions }}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="small text-muted mb-1">After</div>
+                            <div class="small">
+                                Time {{ group.after_limits.time_limit_ms }} ms ·
+                                Memory {{ group.after_limits.memory_limit_kb }} KB ·
+                                PIDs {{ group.after_limits.pids_limit }} ·
+                                Output {{ group.after_limits.output_limit_in_bytes if group.after_limits.output_limit_in_bytes is not none else 'none' }} ·
+                                Reps {{ group.after_limits.repetitions }}
+                            </div>
+                        </div>
+                    </div>
+                    {% if group.rows %}
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Submission</th>
+                                        <th>Team</th>
+                                        <th>Original verdict</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in group.rows %}
+                                        {% set submission = row.submission %}
+                                        {% set team = submission.team %}
+                                        <tr>
+                                            <td>
+                                                <a class="text-decoration-none"
+                                                   href="{{ request.url_for('submission_review', slug=contest.login_slug, submission_id=submission.id) }}">
+                                                    {{ submission.id }}
+                                                </a>
+                                            </td>
+                                            <td class="small">
+                                                {% if team.site %}{{ team.site.sitename }} ·{% endif %}
+                                                {{ team.fullname or team.username }}
+                                            </td>
+                                            <td>{{ row.original_final_verdict.value }}</td>
+                                            <td>
+                                                {% if row.rejudge_status == 'PENDING' %}
+                                                    <span class="badge text-bg-warning">PENDING</span>
+                                                {% elif row.rejudge_status == 'QUEUED' %}
+                                                    <span class="badge text-bg-success">QUEUED</span>
+                                                {% else %}
+                                                    <span class="badge text-bg-secondary">STALE</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="text-muted small mb-0">No captured submissions for this language.</p>
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% endblock %}

@@ -1,0 +1,110 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+.category-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: #e9ecef;
+    font-size: 0.82em;
+}
+
+.category-chip .remove-chip {
+    cursor: pointer;
+    font-weight: bold;
+    border: none;
+    background: none;
+    padding: 0;
+    color: #6c757d;
+    line-height: 1;
+}
+
+.category-chip .remove-chip:hover {
+    color: #dc3545;
+}
+
+.category-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-top: 0;
+    border-radius: 0 0 0.25rem 0.25rem;
+    max-height: 220px;
+    overflow-y: auto;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.category-suggestions button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: #fff;
+    padding: 0.4rem 0.65rem;
+    font-size: 0.875rem;
+}
+
+.category-suggestions button:hover,
+.category-suggestions button:focus-visible {
+    background: #f8f9fa;
+    outline: none;
+}
+
+textarea.tc-content {
+    font-family: monospace;
+    font-size: 0.85em;
+    resize: vertical;
+    white-space: pre;
+    overflow-wrap: normal;
+    overflow-x: auto;
+}
+
+.noca-date-input {
+    width: 7rem;
+}
+
+.noca-datetime-input {
+    width: 12rem;
+}
+
+.tc-preview {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.78em;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-width: 52ch;
+    margin: 0;
+}
+
+/* Category chip — close button */
+.noca-chip-close {
+    font-size: .6rem;
+}
+
+/* Category autocomplete dropdown */
+.noca-category-dropdown {
+    max-height: 200px;
+    overflow-y: auto;
+    position: absolute;
+    z-index: 1000;
+    top: 100%;
+}
+
+/* `.noca-tc-preview-cell` moved to shared/static/css/common.css */
+
+/* Test case pending removal */
+.tc-pending-removal {
+    opacity: 0.4;
+    text-decoration: line-through;
+}

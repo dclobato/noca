@@ -1,0 +1,185 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; User Management{% endblock %}
+{% block nav_admin_users %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="manage_accounts") }}
+                    User Management
+                </h1>
+            </div>
+            <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+                {% with label="Search", input_type="text", value=search, placeholder="Name or email" %}
+                    {% include "_partials/filter_search_field.html" %}
+                {% endwith %}
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="role">Role</label>
+                    <select class="form-select form-select-sm" id="role" name="role">
+                        <option value="" {% if role_filter is none %}selected{% endif %}>All roles</option>
+                        {% for r in ArenaRole %}
+                            <option value="{{ r.value }}" {% if role_filter == r %}selected{% endif %}>{{ arena_role_labels[r] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-check align-self-center mt-3">
+                    <input class="form-check-input"
+                           type="checkbox"
+                           value="1"
+                           id="can_edit"
+                           name="can_edit"
+                           {% if can_edit_filter %}checked{% endif %}>
+                    <label class="form-check-label form-label-sm" for="can_edit">Can edit problems</label>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="per_page">Per page</label>
+                    <select class="form-select form-select-sm"
+                            id="per_page"
+                            name="per_page"
+                            onchange="this.form.submit()">
+                        {% for n in [10, 25, 50, 100, 500] %}
+                            <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% include "_partials/filter_submit_button.html" %}
+                {% set _filters_active = search or role_filter or can_edit_filter or per_page != 25 %}
+                {% with clear_url=request.url_for("arena_admin_user_list"), filters_active=_filters_active %}
+                    {% include "_partials/filter_clear_link.html" %}
+                {% endwith %}
+            </form>
+            <p class="text-muted small mb-2">{{ pagination.total }} user{{ 's' if pagination.total != 1 else '' }}</p>
+            {% with pagination=pagination, page_param="page", label="User list pagination", nav_margin="mb-2" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Role</th>
+                            <th>Location</th>
+                            <th>Last Login</th>
+                            <th>2FA</th>
+                            <th>Email</th>
+                            <th>Consent</th>
+                            <th>Problems</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in pagination.items %}
+                            <tr>
+                                <td>
+                                    {% if user.ativo %}
+                                        <span class="text-success arena-icon-sm me-1"
+                                              title="Active account"
+                                              aria-label="Active account">{{ render_icon(icon="check_circle") }}</span>
+                                    {% else %}
+                                        <span class="text-danger arena-icon-sm me-1"
+                                              title="Inactive account"
+                                              aria-label="Inactive account">{{ render_icon(icon="block") }}</span>
+                                    {% endif %}
+                                    <a href="{{ request.url_for('arena_admin_user_profile', user_id=user.id) }}?search={{ search }}&page={{ pagination.page }}&per_page={{ per_page }}&role={{ role_filter.value if role_filter else '' }}">
+                                        {{ user.nome }}
+                                    </a>
+                                    {% if user.precisa_trocar_senha %}<span class="badge bg-warning text-dark ms-1">PW Reset</span>{% endif %}
+                                </td>
+                                <td>{{ arena_role_labels[user.role] }}</td>
+                                <td class="text-nowrap">
+                                    {% if user.country_code %}
+                                        <img src="{{ request.url_for('static_vendor', path='img/flags/' + user.country_code.lower() + '.svg') }}"
+                                             class="arena-country-flag"
+                                             alt="">
+                                        {{ user.country_name }}
+                                        {% if user.subdivision_name %}
+                                            ,
+                                            {{ user.subdivision_name }}
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-nowrap">
+                                    {% if user.ultimo_login %}
+                                        {{ arena_format_datetime(user.ultimo_login, current_user) }}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if user.usa_2fa %}
+                                        <span class="text-arena-primary"
+                                              title="2FA enabled"
+                                              aria-label="2FA enabled">{{ render_icon(icon="shield_lock") }}</span>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if user.email_confirmado %}
+                                        <span class="text-success"
+                                              title="Email confirmed"
+                                              aria-label="Email confirmed">{{ render_icon(icon="mark_email_read") }}</span>
+                                    {% else %}
+                                        <span class="text-danger"
+                                              title="Email not confirmed"
+                                              aria-label="Email not confirmed">{{ render_icon(icon="schedule_send") }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if user.email_responsavel_legal %}
+                                        {% if user.consentimento_responsavel %}
+                                            <span class="text-success"
+                                                  title="Parental consent granted"
+                                                  aria-label="Parental consent granted">{{ render_icon(icon="verified_user") }}</span>
+                                        {% else %}
+                                            <span class="text-warning"
+                                                  title="Parental consent pending"
+                                                  aria-label="Parental consent pending">{{ render_icon(icon="pending") }}</span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if user.role == ArenaRole.ARENA_ADMIN %}
+                                        <span class="text-arena-primary"
+                                              title="Admin — always may edit problems"
+                                              aria-label="Admin — always may edit problems">{{ render_icon(icon="edit") }}</span>
+                                    {% elif user.can_edit %}
+                                        <span class="text-success"
+                                              title="May edit problems"
+                                              aria-label="May edit problems">{{ render_icon(icon="edit") }}</span>
+                                    {% else %}
+                                        <span class="text-muted"
+                                              title="May not edit problems"
+                                              aria-label="May not edit problems">{{ render_icon(icon="edit_off") }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="8" class="arena-empty-state">No users found.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% with pagination=pagination, page_param="page", label="User list pagination" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('arena_static_js', path='admin-user-list.js') }}?v={{ app_version }}"></script>
+{% endblock %}

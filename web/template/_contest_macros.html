@@ -1,0 +1,49 @@
+{% macro contest_tile(contest, badge_label=None, badge_class=None, btn_class=None, show_login=True, show_languages=True, show_uberadmin_access=False, show_deactivate=False, width=None) %}
+    <div class="{{ 'col-12 col-md-6 col-lg-4' if width is none else width }}">
+        <div class="card shadow-sm h-100">
+            <div class="card-body d-flex flex-column">
+                <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                    <div>
+                        <div class="fw-semibold lead">{{ contest.contest_name }}</div>
+                        <div class="text-muted small">/c/{{ contest.login_slug }}</div>
+                    </div>
+                    {% if badge_label is not none and badge_class is not none %}
+                        <span class="badge {{ badge_class }} text-nowrap">{{ badge_label }}</span>
+                    {% endif %}
+                </div>
+                <div class="text-muted small mb-2">{{ caller() }}</div>
+                {% if show_languages and contest.allowed_languages %}
+                    <div class="noca-language-icons noca-language-icons-card text-muted mb-3"
+                         role="list"
+                         aria-label="Allowed languages">
+                        {% for lang in contest.allowed_languages %}
+                            <span class="noca-language-icon" role="listitem" title="{{ lang.name }}">
+                                <img src="{{ request.url_for('static_vendor', path='img/devicon/' ~ lang.icon.split('-')[1] ~ '-original.svg') }}"
+                                     class="noca-language-icon-img"
+                                     alt="{{ lang.name }}">
+                                <span class="visually-hidden">{{ lang.name }}</span>
+                            </span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+                {% if show_login %}
+                    <a href="{{ request.url_for('contest_login_get', slug=contest.login_slug) }}"
+                       class="btn {{ btn_class if btn_class is not none else '' }} btn-sm mt-auto">Sign in</a>
+                {% endif %}
+                {% if show_uberadmin_access %}
+                    <div class="mt-1 d-flex flex-wrap gap-2">
+                        <a href="{{ request.url_for('view', slug=contest.login_slug) }}"
+                           class="btn btn-outline-secondary btn-xs py-0 px-1 small">Administration</a>
+                        {% if show_deactivate %}
+                            <form method="post"
+                                  action="{{ request.url_for('uberadmin_deactivate_contest', contest_id=contest.id) }}"
+                                  data-confirm="Make this contest inactive? Contest-scoped access will be blocked.">
+                                <button type="submit" class="btn btn-outline-danger btn-xs py-0 px-1 small">Make inactive</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endmacro %}

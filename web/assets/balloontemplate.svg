@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 280">
+  <circle
+    cx="120"
+    cy="140"
+    r="100"
+    fill="white"
+    stroke="#000000"
+    stroke-width="6"
+  />
+  <path
+    d="M 120 222 C 118 230, 116 236, 120 240"
+    fill="none"
+    stroke="#000000"
+    stroke-width="2"
+    stroke-linecap="round"
+  />
+  <!-- knot FIRST (behind) -->
+  <path
+    d="M 112 224 L 128 224 L 120 212 Z"
+    fill="{fill_color}"
+    stroke="#000000"
+    stroke-width="6"
+    stroke-linejoin="round"
+  />
+  <!-- balloon AFTER (in front) -->
+  <ellipse
+    cx="120"
+    cy="135"
+    rx="58"
+    ry="82"
+    fill="{fill_color}"
+    stroke="#000000"
+    stroke-width="6"
+  />
+  <path
+    d="M 96 78 C 84 88, 78 104, 78 122"
+    fill="none"
+    stroke="{line_color}"
+    stroke-width="8"
+    stroke-linecap="round"
+    opacity="0.7"
+  />
+</svg>
+

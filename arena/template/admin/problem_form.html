@@ -1,0 +1,506 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}
+    &mdash; {{ 'New Problem' if mode == 'create' else 'Edit Problem #' ~ problem.arena_number }}
+{% endblock %}
+{% block nav_admin_problems %}active{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='easymde.min.css') }}">
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='fontawesome-all.min.css') }}">
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='katex.min.css') }}">
+{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <form id="edit-form"
+              method="post"
+              action="{{ request.url_for("arena_admin_problem_create") if mode == 'create' else request.url_for('arena_admin_problem_update', problem_id=problem.id) }}"
+              enctype="multipart/form-data">
+            {% if return_state is defined %}
+                <input type="hidden" name="return_page" value="{{ return_state.page }}">
+                <input type="hidden"
+                       name="return_per_page"
+                       value="{{ return_state.per_page }}">
+                <input type="hidden" name="return_search" value="{{ return_state.search }}">
+                <input type="hidden"
+                       name="return_sort_by"
+                       value="{{ return_state.sort_by }}">
+                <input type="hidden"
+                       name="return_owner_id"
+                       value="{{ return_state.owner_id }}">
+                {% for category_slug in return_state.category_slugs %}
+                    <input type="hidden"
+                           name="return_category_slugs"
+                           value="{{ category_slug }}">
+                {% endfor %}
+            {% endif %}
+            <input type="hidden" name="next_url" value="{{ next_url | default("") }}">
+            <div class="arena-card mb-3">
+                <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                    <h1 class="arena-card-title mb-0">
+                        {{ render_icon(icon="assignment") }}
+                        {{ 'New Problem' if mode == 'create' else 'Edit Problem #' ~ problem.arena_number }}
+                    </h1>
+                    <div class="d-flex gap-2">
+                        <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm">
+                            {{ render_icon(icon="arrow_back") }}
+                            Back
+                        </a>
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            {{ render_icon(icon="save") }}
+                            Save
+                        </button>
+                    </div>
+                </div>
+                {% if mode == 'edit' %}
+                    <div class="arena-rating-sparkline mb-3">
+                        <span class="arena-rating-sparkline-label">
+                            {{ render_icon(icon="show_chart") }}
+                            Difficulty
+                        </span>
+                        {% with chart_id="problem-rating-chart", data_url=rating_history_url %}
+                            {% include "_partials/problem_rating_chart.html" %}
+                        {% endwith %}
+                    </div>
+                {% endif %}
+                {% if mode == 'edit' and is_admin and problem_owner %}
+                    <div class="arena-list-item-meta mb-3">
+                        <span class="fw-semibold">
+                            {{ render_icon(icon="person") }}
+                            Owner
+                        </span>
+                        <a href="{{ request.url_for('arena_admin_user_profile', user_id=problem_owner.id) }}">{{ problem_owner.nome }}</a>
+                    </div>
+                {% endif %}
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="title">
+                            Title <span class="text-danger">*</span>
+                        </label>
+                        <input type="text"
+                               class="form-control"
+                               id="title"
+                               name="title"
+                               value="{{ form.title }}"
+                               maxlength="256"
+                               required>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="source">Source</label>
+                        <input type="text"
+                               class="form-control"
+                               id="source"
+                               name="source"
+                               value="{{ form.source }}"
+                               maxlength="256"
+                               placeholder="e.g. contest name or university">
+                    </div>
+                    <div class="col-12">
+                        <div class="d-flex flex-wrap gap-3 align-items-end">
+                            <div class="form-check mb-2">
+                                <input type="checkbox"
+                                       class="form-check-input"
+                                       id="author_is_owner"
+                                       name="author_is_owner"
+                                       value="true"
+                                       aria-controls="author-field"
+                                       {% if form.author_is_owner %}checked{% endif %}>
+                                <label class="form-check-label" for="author_is_owner">I'm problem author</label>
+                            </div>
+                            <div class="flex-grow-1"
+                                 id="author-field"
+                                 {% if form.author_is_owner %}hidden{% endif %}>
+                                <label class="form-label" for="author">
+                                    Author <span class="text-danger">*</span>
+                                </label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="author"
+                                       name="author"
+                                       value="{{ form.author }}"
+                                       maxlength="80"
+                                       {% if not form.author_is_owner %}required{% endif %}>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label" for="time_limit_ms">
+                            Time limit (ms) <span class="text-danger">*</span>
+                        </label>
+                        <input type="number"
+                               class="form-control"
+                               id="time_limit_ms"
+                               name="time_limit_ms"
+                               value="{{ form.time_limit_ms }}"
+                               min="100"
+                               required>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label" for="memory_limit_kb">
+                            Memory limit (KB) <span class="text-danger">*</span>
+                        </label>
+                        <input type="number"
+                               class="form-control"
+                               id="memory_limit_kb"
+                               name="memory_limit_kb"
+                               value="{{ form.memory_limit_kb }}"
+                               min="1024"
+                               required>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label" for="pids_limit">
+                            PIDs limit <span class="text-danger">*</span>
+                        </label>
+                        <input type="number"
+                               class="form-control"
+                               id="pids_limit"
+                               name="pids_limit"
+                               value="{{ form.pids_limit }}"
+                               min="1"
+                               required>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label" for="output_limit_in_bytes">
+                            Output limit (bytes) <span class="text-danger">*</span>
+                        </label>
+                        <input type="number"
+                               class="form-control"
+                               id="output_limit_in_bytes"
+                               name="output_limit_in_bytes"
+                               value="{{ form.output_limit_in_bytes }}"
+                               min="1"
+                               required>
+                    </div>
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input type="checkbox"
+                                   class="form-check-input"
+                                   id="hide_author_show_source"
+                                   name="hide_author_show_source"
+                                   value="true"
+                                   {% if form.hide_author_show_source %}checked{% endif %}>
+                            <label class="form-check-label" for="hide_author_show_source">Hide author name and show source instead</label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="stmt-md-editor">
+                            Statement (Markdown) <span class="text-danger">*</span>
+                        </label>
+                        <textarea id="stmt-md-editor" name="problem_statement">{{ form.problem_statement }}</textarea>
+                        <div class="form-text small">Only text and formatting. External links and images are not allowed.</div>
+                        <div class="form-text small mt-1">
+                            Support for <span class="fw-semibold">LaTeX</span> (
+                            <span class="text-muted">$x^n + 3 = 0$</span>
+                            )
+                            and <span class="fw-semibold">Mermaid diagrams</span> (
+                            <span class="text-muted arena-monospace">```mermaid ...```</span>
+                            )
+                            <a href="#"
+                               class="ms-1"
+                               data-bs-toggle="modal"
+                               data-bs-target="#syntaxModal">View syntax examples</a>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="image">Problem image (optional)</label>
+                        {% if mode == 'edit' and problem.problem_image_base64 %}
+                            <div class="mb-2">
+                                <img src="data:{{ problem.problem_image_mime }};base64,{{ problem.problem_image_base64 }}"
+                                     alt="Problem image"
+                                     class="img-thumbnail"
+                                     style="max-height:120px">
+                            </div>
+                            <div class="form-check mb-2">
+                                <input type="checkbox"
+                                       class="form-check-input"
+                                       id="clear_image"
+                                       name="clear_image"
+                                       value="true">
+                                <label class="form-check-label text-danger" for="clear_image">Remove current image</label>
+                            </div>
+                        {% endif %}
+                        <input type="file"
+                               class="form-control"
+                               id="image"
+                               name="image"
+                               accept="image/*">
+                        <div class="form-text">JPEG, PNG, GIF or WebP; max 2 MB.</div>
+                        <label class="form-label mt-2" for="image_caption">Image caption (optional)</label>
+                        <input type="text"
+                               class="form-control"
+                               id="image_caption"
+                               name="image_caption"
+                               value="{{ form.image_caption }}"
+                               maxlength="512"
+                               placeholder="Caption displayed below the image">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="cat-input">Categories</label>
+                        <div class="arena-cat-picker"
+                             id="cat-picker"
+                             data-search-url="{{ request.url_for("arena_admin_problem_categories_search") }}">
+                            <script type="application/json" id="cat-selected-data">{{ selected_cats_data | tojson }}</script>
+                            <div id="cat-hidden"></div>
+                            <div class="d-flex flex-wrap mb-1" id="cat-pills"></div>
+                            <div class="arena-cat-picker-input-wrap">
+                                <input type="search"
+                                       id="cat-input"
+                                       class="form-control form-control-sm"
+                                       placeholder="Search and add categories…"
+                                       autocomplete="off">
+                            </div>
+                            <div class="arena-cat-dropdown" id="cat-dropdown"></div>
+                        </div>
+                        <div class="form-text small">Type to search for categories and click to add them.</div>
+                    </div>
+                </div>
+                <div class="row g-3 mt-0">
+                    <div class="col-12">
+                        <label class="form-label" for="notes">Internal note (optional)</label>
+                        <input type="text"
+                               class="form-control"
+                               id="notes"
+                               name="notes"
+                               value="{{ form.notes }}"
+                               maxlength="256"
+                               placeholder="Management-only note, not visible to users">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="license">License (optional)</label>
+                        <input type="text"
+                               class="form-control"
+                               id="license"
+                               name="license"
+                               value="{{ form.license }}"
+                               maxlength="256"
+                               placeholder="License name or terms shown on the problem page">
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    <button type="submit" class="btn btn-primary">
+                        {{ render_icon(icon="save") }}
+                        Save
+                    </button>
+                    <a href="{{ back_url }}" class="btn btn-outline-secondary">Cancel</a>
+                </div>
+            </div>
+        </form>
+        {% if mode == 'edit' %}
+            <input type="hidden"
+                   id="tc_remove_ids"
+                   name="tc_remove_ids"
+                   value=""
+                   form="edit-form">
+            {% include "_partials/problem_tc_list.html" %}
+            <div class="arena-card mb-3 border-danger">
+                <div class="arena-card-header">
+                    <h2 class="arena-card-title mb-0 text-danger">Danger zone</h2>
+                </div>
+                <div class="arena-card-body mt-3">
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button"
+                                class="btn btn-outline-danger btn-sm arena-icon-button"
+                                data-problem-delete-button
+                                data-action="{{ request.url_for('arena_admin_problem_delete', problem_id=problem.id) }}"
+                                data-problem-number="{{ problem.arena_number }}">
+                            {{ render_icon("delete") }} Delete problem
+                        </button>
+                        <button type="button"
+                                class="btn btn-outline-warning btn-sm arena-icon-button"
+                                data-problem-rejudge-button
+                                data-action="{{ request.url_for('arena_admin_problem_rejudge_all', problem_id=problem.id) }}"
+                                data-problem-number="{{ problem.arena_number }}">
+                            {{ render_icon("replay") }} Rejudge all submissions
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal fade" id="problem-delete-modal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <form method="post" data-problem-delete-form>
+                            <div class="modal-header">
+                                <h2 class="modal-title fs-5 text-danger">Delete problem</h2>
+                                <button type="button"
+                                        class="btn-close"
+                                        data-bs-dismiss="modal"
+                                        aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p>
+                                    Permanently delete problem <strong data-problem-delete-number></strong>?
+                                </p>
+                                <p class="text-muted small">
+                                    All test cases, submissions, judgments, and solve/attempt/favourite records
+                                    will be removed. This action cannot be undone.
+                                </p>
+                                <div class="mb-3">
+                                    <label class="form-label" for="delete_password">Current password</label>
+                                    <input type="password"
+                                           class="form-control"
+                                           id="delete_password"
+                                           name="password"
+                                           autocomplete="current-password"
+                                           required>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button"
+                                        class="btn btn-outline-secondary"
+                                        data-bs-dismiss="modal">Cancel</button>
+                                <button type="submit" class="btn btn-danger arena-icon-button">{{ render_icon("delete") }} Delete permanently</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="modal fade" id="problem-rejudge-modal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <form method="post" data-problem-rejudge-form>
+                            <div class="modal-header">
+                                <h2 class="modal-title fs-5">Rejudge all submissions</h2>
+                                <button type="button"
+                                        class="btn-close"
+                                        data-bs-dismiss="modal"
+                                        aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p>
+                                    Re-enqueue all submissions for problem
+                                    <strong data-problem-rejudge-number></strong>?
+                                </p>
+                                <p class="text-muted small">
+                                    Every existing submission will be queued for a new judgment.
+                                    Useful after test case changes.
+                                </p>
+                                <div class="mb-3">
+                                    <label class="form-label" for="rejudge_password">Current password</label>
+                                    <input type="password"
+                                           class="form-control"
+                                           id="rejudge_password"
+                                           name="password"
+                                           autocomplete="current-password"
+                                           required>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button"
+                                        class="btn btn-outline-secondary"
+                                        data-bs-dismiss="modal">Cancel</button>
+                                <button type="submit" class="btn btn-warning arena-icon-button">{{ render_icon("replay") }} Rejudge all</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+        <div class="modal fade"
+             id="syntaxModal"
+             tabindex="-1"
+             aria-labelledby="syntaxModalLabel"
+             aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title fs-5" id="syntaxModalLabel">LaTeX and Mermaid Syntax</h2>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h3 class="fs-6 fw-semibold">LaTeX</h3>
+                                <p class="small text-muted">
+                                    Use inline math with single <code>$</code>:
+                                </p>
+                                <pre class="small bg-light p-2 rounded">$x^2 + y^2 = z^2$</pre>
+                                <p class="small text-muted mb-2">Common symbols:</p>
+                                <div class="small">
+                                    <div>
+                                        <code>\frac{a}{b}</code> → fraction
+                                    </div>
+                                    <div>
+                                        <code>x_2</code> → subscript
+                                    </div>
+                                    <div>
+                                        <code>\neq, \le, \ge</code> → ≠, ≤, ≥
+                                    </div>
+                                    <div>
+                                        <code>\alpha, \beta, \Omega</code> → Greek letters
+                                    </div>
+                                    <div>
+                                        <code>\sum, \int</code> → Σ, ∫
+                                    </div>
+                                    <div>
+                                        <code>\sqrt{x}</code> → square root
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h3 class="fs-6 fw-semibold">Mermaid</h3>
+                                <p class="small text-muted">
+                                    Use fenced code block with <code>mermaid</code>:
+                                </p>
+                                <pre class="small bg-light p-2 rounded"><code>```mermaid&#10;graph TD&#10;    A[Start] --&gt; B{Decision}&#10;    B --&gt;|Yes| C[End]&#10;    B --&gt;|No| D[Loop]&#10;    D --&gt; B&#10;```</code></pre>
+                                <p class="small text-muted mb-2">Keywords:</p>
+                                <div class="small">
+                                    <div>
+                                        <code>flowchart, sequenceDiagram, classDiagram</code>
+                                    </div>
+                                    <div>
+                                        <code>-->, ---, ==></code> → arrows
+                                    </div>
+                                    <div>
+                                        <code>[], {}, ()</code> → shapes
+                                    </div>
+                                    <div>
+                                        <code>|text|</code> → labels
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='easymde.min.js') }}"></script>
+    {% if mode == 'edit' %}
+        <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+        <script src="{{ request.url_for('arena_static_js', path='arena-rating-history-chart.js') }}?v={{ app_version }}"></script>
+    {% endif %}
+    <script src="{{ request.url_for('static_shared_js', path='problem-statement-editor-core.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='problem-statement-editor.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='admin-problem-form.js') }}?v={{ app_version }}"></script>
+    {% if mode == 'edit' %}
+        <script src="{{ request.url_for('static_vendor', path='Sortable.min.js') }}"></script>
+        <script src="{{ request.url_for('static_shared_js', path='tc-reorder-sortable.js') }}?v={{ app_version }}"></script>
+        <script src="{{ request.url_for('static_shared_js', path='tc-add-row.js') }}?v={{ app_version }}"></script>
+        <script src="{{ request.url_for('static_shared_js', path='tc-pending-remove.js') }}?v={{ app_version }}"></script>
+        <script src="{{ request.url_for('static_shared_js', path='tc-replace-row.js') }}?v={{ app_version }}"></script>
+        <script src="{{ request.url_for('static_shared_js', path='problem-edit-unsaved-guard.js') }}?v={{ app_version }}"></script>
+        <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"></script>
+        <script src="{{ request.url_for('arena_static_js', path='admin-problem-danger-zone.js') }}?v={{ app_version }}"></script>
+    {% endif %}
+{% endblock %}

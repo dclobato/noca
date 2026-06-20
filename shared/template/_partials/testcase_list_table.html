@@ -1,0 +1,134 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Shared test-case list table, rendered by both the Web (contest admin) and
+  Arena modules. Required context:
+    rows             list[shared.services.testcase_view.TestCaseRowView]
+    is_edit_allowed  bool
+    reorder_target   DOM id the move endpoint re-renders (defaults to "tc-list")
+  All per-row URLs are pre-built in the view model so this partial never resolves
+  module-specific url_for names. render_icon is called without `title=` so it
+  resolves under either module's _macros.html.
+#}
+{% from "_macros.html" import render_icon with context %}
+{% set reorder_target = reorder_target | default("tc-list") %}
+<div id="tc-list">
+    {% if rows %}
+        <div class="table-responsive mb-3">
+            <table class="table table-sm align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th class="noca-tc-order-col">Order</th>
+                        <th>#</th>
+                        <th>Input (preview)</th>
+                        <th>Output (preview)</th>
+                        <th>Type</th>
+                        <th>Explanation?</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody data-reorder-sortable="true"
+                       data-reorder-target="{{ reorder_target }}"
+                       data-reorder-disabled="{{ 'false' if is_edit_allowed else 'true' }}">
+                    {% for tc in rows %}
+                        <tr id="tc-{{ tc.id }}"
+                            class="tc-row"
+                            data-id="tc-{{ tc.id }}"
+                            data-ordinal="{{ tc.ordinal }}"
+                            data-move-url="{{ tc.move_url }}">
+                            <td>
+                                <span class="btn btn-sm btn-outline-secondary p-1 noca-icon-btn noca-drag-handle {% if not is_edit_allowed %}disabled{% endif %}"
+                                      role="button"
+                                      tabindex="{% if is_edit_allowed %} 0 {% else %} -1 {% endif %}"
+                                      aria-label="Drag to reorder test case"
+                                      title="{% if is_edit_allowed %} Drag to reorder {% else %} Not editable {% endif %}">{{ render_icon(icon="drag_indicator") }}</span>
+                            </td>
+                            <td>{{ tc.ordinal }}</td>
+                            <td>
+                                <pre class="tc-preview noca-tc-preview-cell">{{ tc.input_preview }}</pre>
+                                <span class="badge bg-light text-dark border">{{ tc.input_size_bytes | filesizeformat(true) }}</span>
+                            </td>
+                            <td>
+                                <pre class="tc-preview noca-tc-preview-cell">{{ tc.output_preview }}</pre>
+                                <span class="badge bg-light text-dark border">{{ tc.output_size_bytes | filesizeformat(true) }}</span>
+                            </td>
+                            <td>
+                                {% if tc.is_sample %}
+                                    <span class="badge bg-success">sample</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">secret</span>
+                                {% endif %}
+                                {% if tc.is_large %}
+                                    <div class="mt-1">
+                                        <span class="badge bg-warning text-dark"
+                                              title="Too large to edit inline; edit offline via download/replace.">offline only</span>
+                                    </div>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if tc.has_explanation %}{{ render_icon(icon="check") }}{% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group btn-group-sm noca-icon-btn-group"
+                                     role="group"
+                                     aria-label="Test case actions">
+                                    <a href="{{ tc.edit_url }}"
+                                       class="btn btn-outline-secondary noca-icon-btn"
+                                       title="{{ 'Edit' if is_edit_allowed else 'View' }}">
+                                        {{ render_icon(icon="edit" if is_edit_allowed else "visibility") }}
+                                    </a>
+                                    <a href="{{ tc.download_url }}"
+                                       class="btn btn-outline-secondary noca-icon-btn"
+                                       title="Download (ZIP)">{{ render_icon(icon="download") }}</a>
+                                    {% if is_edit_allowed %}
+                                        <form method="post"
+                                              action="{{ tc.replace_url }}"
+                                              enctype="multipart/form-data"
+                                              class="noca-icon-btn-wrap">
+                                            <input type="file"
+                                                   name="zip_file"
+                                                   accept=".zip"
+                                                   class="d-none"
+                                                   data-tc-replace-input>
+                                            <button type="button"
+                                                    class="btn btn-outline-secondary noca-icon-btn"
+                                                    title="Replace from ZIP"
+                                                    data-tc-replace-trigger>{{ render_icon(icon="upload") }}</button>
+                                        </form>
+                                        <form method="post"
+                                              action="{{ tc.toggle_sample_url }}"
+                                              class="noca-icon-btn-wrap">
+                                            <button type="submit"
+                                                    class="btn btn-outline-secondary noca-icon-btn"
+                                                    title="{{ 'Make secret' if tc.is_sample else 'Make sample' }}">
+                                                {{ render_icon(icon="swap_horiz") }}
+                                            </button>
+                                        </form>
+                                        <button type="button"
+                                                class="btn btn-outline-danger noca-icon-btn tc-remove-btn"
+                                                title="Remove"
+                                                data-tc-id="{{ tc.id }}"
+                                                data-tc-ordinal="{{ tc.ordinal }}">
+                                            {{ render_icon(icon="delete") }}
+                                        </button>
+                                        <button type="button"
+                                                class="btn btn-outline-secondary noca-icon-btn tc-undo-btn d-none"
+                                                title="Undo removal"
+                                                data-tc-id="{{ tc.id }}">{{ render_icon(icon="undo") }}</button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div id="tc-remove-warning" class="alert alert-warning d-none mt-2 small"></div>
+    {% else %}
+        <p class="text-muted small">No test cases yet.</p>
+    {% endif %}
+</div>

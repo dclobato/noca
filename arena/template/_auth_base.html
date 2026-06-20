@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+{% from "_macros.html" import render_flash_messages with context %}
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Noca Arena
+            {% block title_suffix %}{% endblock %}
+        </title>
+        {# ── Noca Arena favicons ── #}
+        <link rel="icon" type="image/x-icon" href="/favicon.ico">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png">
+        <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png">
+        <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180x180.png">
+        <link rel="manifest" href="/site.webmanifest">
+        <meta name="theme-color" content="#2f9e41">
+        <meta name="msapplication-TileColor" content="#2f9e41">
+        <meta name="msapplication-config" content="/browserconfig.xml">
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='bootstrap.min.css') }}">
+        <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('arena_static_css', path='arena.css') }}?v={{ app_version }}"
+              rel="stylesheet">
+        {% block extra_head %}{% endblock %}
+    </head>
+    <body>
+        {{ render_flash_messages() }}
+        <div class="arena-auth-wrapper">
+            {% block auth_content %}{% endblock %}
+        </div>
+        {% include "_partials/_footer.html" %}
+        <script src="{{ request.url_for('static_vendor', path='bootstrap.bundle.min.js') }}"></script>
+        {% block extra_script %}{% endblock %}
+    </body>
+</html>

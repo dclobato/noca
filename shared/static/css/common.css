@@ -1,0 +1,127 @@
+/* NOCA -- Next Online Contest Administrator */
+/* Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org> */
+/* This program is distributed in the hope that it will be useful, */
+/* but WITHOUT ANY WARRANTY; without even the implied warranty of */
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. */
+
+/*
+ * Shared styles common to the web (contest) and arena modules. Imported from
+ * each module's stylesheet via `@import url('/static/shared-css/common.css')`.
+ * Only rules that are byte-identical in both modules belong here; module-specific
+ * design tokens (`:root`, `.material-symbols-outlined`, `.live-feed-summary`)
+ * stay in the per-module stylesheets.
+ */
+
+/* ── Icon button group ───────────────────────────────────────────────────────
+   Pairs with the shared `.noca-icon-btn` segmented button rows. */
+.noca-icon-btn-group > .noca-icon-btn-wrap {
+    display: inline-flex;
+}
+
+/* Right-side button: remove left radius and compensate border overlap */
+.noca-icon-btn-group > .noca-icon-btn-wrap:not(:first-child) > .btn {
+    margin-left: calc(-1 * var(--bs-border-width));
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+/* Middle button: also remove right radius when more siblings follow the wrap */
+.noca-icon-btn-group > .noca-icon-btn-wrap:not(:last-child) > .btn {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+/* Left-side button: remove right radius */
+.noca-icon-btn-group > :not(.noca-icon-btn-wrap):has(+ .noca-icon-btn-wrap) {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+/* ── Live submission feed ─────────────────────────────────────────────────────
+   Pairs with the shared `live-feed-core.js` engine. The `.live-feed-summary`
+   rule stays per-module because it references a module-specific border token. */
+.live-feed-table {
+    font-size: 0.75rem;
+}
+
+.live-feed-lang-icon {
+    width: 1.2rem;
+    height: 1.2rem;
+}
+
+.live-feed-row-new td {
+    animation: live-feed-row-flash 2s ease-out;
+}
+
+.live-feed-row-fade-3 {
+    opacity: 0.72;
+}
+
+.live-feed-row-fade-2 {
+    opacity: 0.48;
+}
+
+.live-feed-row-fade-1 {
+    opacity: 0.26;
+}
+
+@keyframes live-feed-row-flash {
+    from {
+        background-color: var(--bs-warning-bg-subtle, #fff3cd);
+    }
+    to {
+        background-color: transparent;
+    }
+}
+
+.noca-small-text {
+    font-size: 0.725rem;
+}
+
+/* ── Test-case management (shared by web + arena) ─────────────────────────────
+   Drag-to-reorder handle, segmented icon buttons, Sortable.js drag states, and
+   the test-case preview cell. Emitted by
+   `shared/template/_partials/testcase_list_table.html` so both modules need
+   these classes regardless of their own design tokens. */
+.noca-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem 0.5rem;
+}
+
+.noca-icon-btn .material-symbols-outlined {
+    font-size: 1rem;
+}
+
+.noca-drag-handle {
+    cursor: grab;
+    touch-action: none;
+}
+
+.noca-drag-handle.disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.noca-sortable-active .noca-drag-handle {
+    cursor: grabbing;
+}
+
+.noca-sortable-ghost {
+    opacity: 0.45;
+}
+
+.noca-sortable-chosen {
+    background: var(--bs-light);
+}
+
+.noca-tc-order-col {
+    width: 5rem;
+}
+
+.noca-tc-preview-cell {
+    max-width: 200px;
+    white-space: pre-wrap;
+    font-family: monospace;
+}

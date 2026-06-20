@@ -1,0 +1,229 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Profile stub
+   ============================================================ */
+.arena-profile-avatar {
+    width: 4rem;
+    height: 4rem;
+}
+
+.arena-avatar-change-trigger {
+    cursor: pointer;
+    margin-bottom: 0;
+}
+
+.arena-profile-name {
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--arena-on-surface);
+}
+
+.arena-profile-details {
+    margin: 0;
+}
+
+.arena-profile-details dt {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--arena-on-surface-variant);
+    text-transform: uppercase;
+}
+
+.arena-profile-details dd {
+    margin-bottom: 0.75rem;
+    color: var(--arena-on-surface);
+}
+
+.arena-profile-details dd:last-child {
+    margin-bottom: 0;
+}
+
+.arena-profile-rating {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-family: 'Public Sans', sans-serif;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--arena-primary);
+    margin-top: 0.25rem;
+}
+
+.arena-pending-indicator {
+    color: var(--arena-secondary);
+    font-size: 0.75rem;
+    font-weight: 700;
+    margin-left: 0.25rem;
+}
+
+.arena-tab-dirty-dot {
+    display: inline-block;
+    width: 0.45rem;
+    height: 0.45rem;
+    background-color: var(--arena-secondary);
+    border-radius: 50%;
+    margin-left: 0.35rem;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+.arena-profile-rating .material-symbols-outlined {
+    font-size: 1rem;
+}
+
+.arena-rating-chart-container {
+    width: 100%;
+    height: 320px;
+}
+
+.arena-submission-heatmap-container {
+    display: block;
+    margin: 0 auto;
+    height: 185px;
+}
+
+.arena-rating-clickable {
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+}
+
+/* Problem statistics page chart containers */
+.arena-stats-chart {
+    width: 100%;
+}
+
+.arena-stats-chart--line {
+    height: 280px;
+}
+
+.arena-stats-chart--pie {
+    height: 320px;
+}
+
+.arena-stats-chart--bar {
+    height: 420px;
+}
+
+.arena-rating-sparkline {
+    display: grid;
+    grid-template-columns: auto minmax(10rem, 1fr);
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius-sm);
+    background: var(--arena-surface-container-low);
+}
+
+.arena-rating-sparkline-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--arena-on-surface-variant);
+    white-space: nowrap;
+}
+
+.arena-rating-sparkline-label .material-symbols-outlined {
+    font-size: 1rem;
+    color: var(--arena-primary);
+}
+
+.arena-rating-chart-container--sparkline {
+    min-width: 0;
+    height: 3rem;
+}
+
+.arena-rating-sparkline--half {
+    flex: 0 1 auto;
+    max-width: 75%;
+    min-width: 10rem;
+}
+
+.arena-profile-tabs {
+    gap: 0.25rem;
+    border-bottom-color: var(--arena-outline-variant);
+}
+
+.arena-profile-tabs .nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--arena-on-surface-variant);
+    font-weight: 600;
+}
+
+.arena-profile-tabs .nav-link.active {
+    color: var(--arena-primary);
+    background-color: var(--arena-surface-container-lowest);
+    border-color: var(--arena-outline-variant) var(--arena-outline-variant)
+        var(--arena-surface-container-lowest);
+}
+
+.arena-profile-tab-content {
+    padding-top: 1rem;
+}
+
+.arena-progress-list {
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+    padding: 1rem;
+    background-color: var(--arena-surface-container-lowest);
+    min-height: 100%;
+}
+
+.arena-progress-list-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.arena-progress-list-header h2 {
+    margin: 0;
+    color: var(--arena-on-surface);
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.arena-progress-list-header span {
+    color: var(--arena-on-surface-variant);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+}
+
+.arena-progress-table {
+    margin-bottom: 0.75rem;
+}
+
+.arena-progress-table th {
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+}
+
+.arena-progress-table td {
+    color: var(--arena-on-surface);
+}
+
+.arena-empty-state {
+    color: var(--arena-on-surface-variant);
+    margin-bottom: 0.75rem;
+}
+
+.arena-pagination {
+    display: flex;
+    justify-content: flex-end;
+}

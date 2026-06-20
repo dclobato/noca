@@ -1,0 +1,505 @@
+{% extends "_base.html" %}
+{% block title_suffix %}
+    — Edit Metadata
+{% endblock title_suffix %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
+    <script src="{{ request.url_for('static_js', path='contest-metadata-edit.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock extra_head %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item active" aria-current="page">Edit Metadata</li>
+        </ol>
+    </nav>
+{% endblock breadcrumb %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Edit Metadata</h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        <div class="row g-4">
+            <div class="col-12 col-lg-8">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        {% if is_locked %}
+                            <div class="alert alert-warning py-2 small" role="alert">Contest is running — only timing fields can be edited.</div>
+                        {% endif %}
+                        <form method="post"
+                              id="edit-metadata-form"
+                              action="{{ request.url_for('edit_metadata_submit', slug=contest.login_slug) }}"
+                              novalidate>
+                            {# ── IDENTIFICATION ─────────────────────────────────────────── #}
+                            <p class="noca-section-heading">Identification</p>
+                            <div class="mb-3">
+                                <label class="form-label">Contest name</label>
+                                <p class="form-control-plaintext">{{ form_data.contest_name }}</p>
+                            </div>
+                            <div class="row g-3 mb-3">
+                                <div class="col-12 col-sm-4">
+                                    <label class="form-label">Slug</label>
+                                    <p class="form-control-plaintext">
+                                        <code>/c/{{ form_data.login_slug }}/</code>
+                                    </p>
+                                </div>
+                                <div class="col-12 col-sm-8">
+                                    <label for="contest_url" class="form-label">Contest website URL</label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="contest_url"
+                                           name="contest_url"
+                                           value="{{ form_data.contest_url }}"
+                                           placeholder="https://contest.example.com"
+                                           {% if is_locked %}disabled{% endif %}>
+                                </div>
+                            </div>
+                            {# ── WHEN ───────────────────────────────────────────────────── #}
+                            <p class="noca-section-heading">When</p>
+                            <div class="row g-3 mb-3">
+                                <div class="col-12 col-sm-5">
+                                    <label for="start_time" class="form-label">Start date/time</label>
+                                    <input type="text"
+                                           class="form-control noca-datetime-input"
+                                           id="start_time"
+                                           name="start_time"
+                                           value="{{ form_data.start_time }}"
+                                           data-fp-datetime
+                                           {% if is_locked %}disabled{% endif %}>
+                                </div>
+                                <div class="col-12 col-sm-4">
+                                    <label for="contest_timezone" class="form-label">Contest timezone</label>
+                                    <select class="form-select"
+                                            id="contest_timezone"
+                                            name="contest_timezone"
+                                            {% if is_locked %}disabled{% endif %}>
+                                        <option value=""
+                                                disabled
+                                                {% if not form_data.contest_timezone %}selected{% endif %}>
+                                            Select timezone…
+                                        </option>
+                                        {% for iana, label in timezone_choices %}
+                                            <option value="{{ iana }}"
+                                                    {% if form_data.contest_timezone == iana %}selected{% endif %}>
+                                                {{ label }}
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-12 col-sm-3">
+                                    <label for="duration_minutes" class="form-label">Duration</label>
+                                    <div class="input-group">
+                                        <input type="number"
+                                               class="form-control"
+                                               id="duration_minutes"
+                                               name="duration_minutes"
+                                               value="{{ form_data.duration_minutes }}"
+                                               min="1">
+                                        <span class="input-group-text">minutes</span>
+                                    </div>
+                                </div>
+                            </div>
+                            {# ── TIMING ─────────────────────────────────────────────────── #}
+                            <p class="noca-section-heading">Timing</p>
+                            <div class="row g-3 mb-3">
+                                <div class="col-12 col-sm-6">
+                                    <label for="stop_updating_scoreboard" class="form-label">Stop updating scoreboard</label>
+                                    <div class="input-group">
+                                        <input type="number"
+                                               class="form-control"
+                                               id="stop_updating_scoreboard"
+                                               name="stop_updating_scoreboard"
+                                               value="{{ form_data.stop_updating_scoreboard }}"
+                                               min="1">
+                                        <span class="input-group-text">minutes</span>
+                                    </div>
+                                </div>
+                                <div class="col-12 col-sm-6">
+                                    <label for="stop_answers_after" class="form-label">Stop answers after</label>
+                                    <div class="input-group">
+                                        <input type="number"
+                                               class="form-control"
+                                               id="stop_answers_after"
+                                               name="stop_answers_after"
+                                               value="{{ form_data.stop_answers_after }}"
+                                               min="1">
+                                        <span class="input-group-text">minutes</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row g-3 mb-3">
+                                <div class="col-12 col-sm-4">
+                                    <label for="clarifications_timeout_minutes" class="form-label">Clarifications timeout</label>
+                                    <div class="input-group">
+                                        <input type="number"
+                                               class="form-control"
+                                               id="clarifications_timeout_minutes"
+                                               name="clarifications_timeout_minutes"
+                                               value="{{ form_data.clarifications_timeout_minutes }}"
+                                               min="0"
+                                               placeholder="0 = until contest end">
+                                        <span class="input-group-text">minutes</span>
+                                    </div>
+                                    <div class="form-text">0 = until contest end</div>
+                                </div>
+                                <div class="col-12 col-sm-4">
+                                    <label for="tasks_timeout_minutes" class="form-label">Tasks timeout</label>
+                                    <div class="input-group">
+                                        <input type="number"
+                                               class="form-control"
+                                               id="tasks_timeout_minutes"
+                                               name="tasks_timeout_minutes"
+                                               value="{{ form_data.tasks_timeout_minutes }}"
+                                               min="0"
+                                               placeholder="0 = until contest end">
+                                        <span class="input-group-text">minutes</span>
+                                    </div>
+                                    <div class="form-text">0 = until contest end</div>
+                                </div>
+                                <div class="col-12 col-sm-4">
+                                    <label for="review_timeout_minutes" class="form-label">Review timeout</label>
+                                    <div class="input-group">
+                                        <input type="number"
+                                               class="form-control"
+                                               id="review_timeout_minutes"
+                                               name="review_timeout_minutes"
+                                               value="{{ form_data.review_timeout_minutes }}"
+                                               min="0"
+                                               placeholder="0 = until contest end">
+                                        <span class="input-group-text">minutes</span>
+                                    </div>
+                                    <div class="form-text">0 = until contest end</div>
+                                </div>
+                            </div>
+                            {% include "_timing_timeline.html" %}
+                            {# ── RULES ──────────────────────────────────────────────────── #}
+                            <p class="noca-section-heading">Rules</p>
+                            <div class="row g-3 mb-3">
+                                <div class="col-6">
+                                    <label for="wa_penalty" class="form-label">"Wrong answer" penalty</label>
+                                    <div class="input-group">
+                                        <input type="number"
+                                               class="form-control"
+                                               id="wa_penalty"
+                                               name="wa_penalty"
+                                               value="{{ form_data.wa_penalty }}"
+                                               min="0"
+                                               {% if is_locked %}disabled{% endif %}>
+                                        <span class="input-group-text">minutes</span>
+                                    </div>
+                                    <label for="max_problem_file_size_bytes" class="form-label">Max problem file size</label>
+                                    <div class="input-group">
+                                        <input type="number"
+                                               class="form-control"
+                                               id="max_problem_file_size_bytes"
+                                               name="max_problem_file_size_bytes"
+                                               value="{{ form_data.max_problem_file_size_bytes }}"
+                                               min="0"
+                                               placeholder="0 = no limit"
+                                               {% if is_locked %}disabled{% endif %}>
+                                        <span class="input-group-text">bytes</span>
+                                    </div>
+                                    <div class="form-text">0 = no limit</div>
+                                </div>
+                                <div class="col-6">
+                                    <table class="table table-sm table-borderless mb-3 mx-auto w-auto">
+                                        <tbody>
+                                            <th>Criteria</th>
+                                            <th class="noca-rules-radio-col">Yes</th>
+                                            <th class="noca-rules-radio-col">No</th>
+                                            <tr>
+                                                <td class="align-middle">Accept PE as AC</td>
+                                                <td class="align-middle noca-rules-radio-col">
+                                                    <div class="form-check mb-0">
+                                                        <input class="form-check-input"
+                                                               type="radio"
+                                                               id="accept_pe_yes"
+                                                               name="accept_pe"
+                                                               value="yes"
+                                                               {% if form_data.accept_pe %}checked{% endif %}
+                                                               {% if is_locked %}disabled{% endif %}>
+                                                    </div>
+                                                </td>
+                                                <td class="align-middle noca-rules-radio-col">
+                                                    <div class="form-check mb-0">
+                                                        <input class="form-check-input"
+                                                               type="radio"
+                                                               id="accept_pe_no"
+                                                               name="accept_pe"
+                                                               value="no"
+                                                               {% if not form_data.accept_pe %}checked{% endif %}
+                                                               {% if is_locked %}disabled{% endif %}>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td class="align-middle">Show problem's limits</td>
+                                                <td class="align-middle noca-rules-radio-col">
+                                                    <div class="form-check mb-0">
+                                                        <input class="form-check-input"
+                                                               type="radio"
+                                                               id="show_limits_yes"
+                                                               name="show_limits"
+                                                               value="yes"
+                                                               {% if form_data.show_limits %}checked{% endif %}
+                                                               {% if is_locked %}disabled{% endif %}>
+                                                    </div>
+                                                </td>
+                                                <td class="align-middle noca-rules-radio-col">
+                                                    <div class="form-check mb-0">
+                                                        <input class="form-check-input"
+                                                               type="radio"
+                                                               id="show_limits_no"
+                                                               name="show_limits"
+                                                               value="no"
+                                                               {% if not form_data.show_limits %}checked{% endif %}
+                                                               {% if is_locked %}disabled{% endif %}>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td class="align-middle">CE adds penalty</td>
+                                                <td class="align-middle noca-rules-radio-col">
+                                                    <div class="form-check mb-0">
+                                                        <input class="form-check-input"
+                                                               type="radio"
+                                                               id="ce_adds_penalty_yes"
+                                                               name="ce_adds_penalty"
+                                                               value="yes"
+                                                               {% if form_data.ce_adds_penalty %}checked{% endif %}
+                                                               {% if is_locked %}disabled{% endif %}>
+                                                    </div>
+                                                </td>
+                                                <td class="align-middle noca-rules-radio-col">
+                                                    <div class="form-check mb-0">
+                                                        <input class="form-check-input"
+                                                               type="radio"
+                                                               id="ce_adds_penalty_no"
+                                                               name="ce_adds_penalty"
+                                                               value="no"
+                                                               {% if not form_data.ce_adds_penalty %}checked{% endif %}
+                                                               {% if is_locked %}disabled{% endif %}>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td class="align-middle">Final verdict from autojudge</td>
+                                                <td class="align-middle noca-rules-radio-col">
+                                                    <div class="form-check mb-0">
+                                                        <input class="form-check-input"
+                                                               type="radio"
+                                                               id="autojudge_only_yes"
+                                                               name="autojudge_only"
+                                                               value="yes"
+                                                               {% if form_data.autojudge_only %}checked{% endif %}
+                                                               {% if is_locked %}disabled{% endif %}>
+                                                    </div>
+                                                </td>
+                                                <td class="align-middle noca-rules-radio-col">
+                                                    <div class="form-check mb-0">
+                                                        <input class="form-check-input"
+                                                               type="radio"
+                                                               id="autojudge_only_no"
+                                                               name="autojudge_only"
+                                                               value="no"
+                                                               {% if not form_data.autojudge_only %}checked{% endif %}
+                                                               {% if is_locked %}disabled{% endif %}>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td class="align-middle">Allow print task</td>
+                                                <td class="align-middle noca-rules-radio-col">
+                                                    <div class="form-check mb-0">
+                                                        <input class="form-check-input"
+                                                               type="radio"
+                                                               id="allow_print_requests_yes"
+                                                               name="allow_print_requests"
+                                                               value="yes"
+                                                               {% if form_data.allow_print_requests %}checked{% endif %}>
+                                                    </div>
+                                                </td>
+                                                <td class="align-middle noca-rules-radio-col">
+                                                    <div class="form-check mb-0">
+                                                        <input class="form-check-input"
+                                                               type="radio"
+                                                               id="allow_print_requests_no"
+                                                               name="allow_print_requests"
+                                                               value="no"
+                                                               {% if not form_data.allow_print_requests %}checked{% endif %}>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {# ── ENABLED LANGUAGES ──────────────────────────────────────── #}
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold">Enabled languages</label>
+                                {% if contest.upcoming and contest.active and not available_languages %}
+                                    <div class="alert alert-warning py-2 small" role="alert">No active languages are configured for this contest.</div>
+                                {% elif contest.upcoming and contest.active %}
+                                    <div class="form-text mb-2">
+                                        Select which languages teams may use. This selection remains editable until the contest starts.
+                                    </div>
+                                    <div class="row g-2">
+                                        {% for lang in available_languages %}
+                                            <div class="col-6 col-sm-4 col-md-3">
+                                                <div class="form-check">
+                                                    <input class="form-check-input"
+                                                           type="checkbox"
+                                                           id="lang_{{ lang.id }}"
+                                                           name="language_ids"
+                                                           value="{{ lang.id }}"
+                                                           {% if lang.id in selected_language_ids %}checked{% endif %}>
+                                                    <label class="form-check-label d-inline-flex align-items-center gap-1"
+                                                           for="lang_{{ lang.id }}">
+                                                        <i class="{{ lang.icon }}" aria-hidden="true"></i>{{ lang.name }}
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                {% elif not languages %}
+                                    <div class="alert alert-warning py-2 small" role="alert">No active languages are configured for this contest.</div>
+                                {% else %}
+                                    <div class="form-text mb-2">Allowed languages can no longer be changed after contest start.</div>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        {% for lang in languages %}
+                                            <span class="badge rounded-pill bg-secondary fs-6 d-inline-flex align-items-center gap-1">
+                                                <i class="{{ lang.icon }}" aria-hidden="true"></i>{{ lang.name }}
+                                            </span>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                            <hr class="my-4">
+                            <div class="mb-4">
+                                <input type="hidden"
+                                       name="site_names"
+                                       id="site_names_input"
+                                       value='{{ site_names | tojson }}'>
+                                <input type="hidden"
+                                       id="site_entries_input"
+                                       value='{{ site_entries | tojson }}'>
+                            </div>
+                            {% if is_running %}
+                                <button type="button"
+                                        class="btn btn-primary btn-sm"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#confirmModal">Save changes</button>
+                            {% else %}
+                                <button type="submit" class="btn btn-primary btn-sm">Save changes</button>
+                            {% endif %}
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-4">
+                <div class="card shadow-sm">
+                    <div class="card-header fw-semibold">Sites</div>
+                    <div class="card-body">
+                        <div id="site-list">
+                            <template id="site-remove-icon-template">{{ render_icon("delete") }}</template>
+                            <div class="table-responsive mb-3">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Name</th>
+                                            <th class="text-center">Users</th>
+                                            <th class="text-end">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="site-table-body">
+                                        {% for site in site_entries %}
+                                            <tr>
+                                                <td class="site-name-cell">{{ site.name }}</td>
+                                                <td class="text-center site-user-count-cell">{{ site.user_count }}</td>
+                                                <td class="text-end">
+                                                    {% if not is_locked %}
+                                                        <button type="button" class="btn btn-sm btn-outline-danger site-remove-btn">{{ render_icon("delete") }}</button>
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div id="site-remove-warning"
+                                 class="alert alert-warning d-none mt-2 small"></div>
+                        </div>
+                        {% if not is_locked %}
+                            <div class="d-flex align-items-center gap-2">
+                                <input type="text"
+                                       class="form-control form-control-sm"
+                                       id="site_add_input"
+                                       placeholder="Add site">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-primary d-inline-flex align-items-center justify-content-center"
+                                        id="site-add-btn">{{ render_icon("add_location") }}</button>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center justify-content-center"
+                                        id="site-reset-btn">{{ render_icon("settings_backup_restore") }}</button>
+                            </div>
+                            <div class="form-text mt-2">Site changes are buffered and will only be applied after clicking Save changes.</div>
+                        {% else %}
+                            <div class="form-text">Site changes are locked while the contest is running or finished.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% if is_running %}
+        <div class="modal fade"
+             id="confirmModal"
+             tabindex="-1"
+             aria-labelledby="confirmModalLabel"
+             aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="confirmModalLabel">Confirm changes</h5>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">The contest is currently running. Are you sure you want to apply these changes?</div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="button"
+                                class="btn btn-primary btn-sm"
+                                onclick="document.getElementById('edit-metadata-form').submit()">Confirm</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+{% endblock content %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/l10n/default.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/plugins/rangePlugin.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='flatpickr-init.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('static_js', path='contest-timing-timeline.js') }}"
+            defer></script>
+{% endblock extra_script %}

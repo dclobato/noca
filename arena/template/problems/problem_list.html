@@ -1,0 +1,234 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Problems{% endblock %}
+{% block nav_problems %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="code") }}
+                    Problems
+                </h1>
+            </div>
+            <form method="get"
+                  class="d-flex flex-wrap gap-2 align-items-end mb-3"
+                  id="problem-filter-form">
+                {% with label="Search", value=search, placeholder="Number, title, author, source…" %}
+                    {% include "_partials/filter_search_field.html" %}
+                {% endwith %}
+                <div>
+                    <label class="form-label form-label-sm mb-1">Categories</label>
+                    <div class="dropdown">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm dropdown-toggle"
+                                id="cat-filter-btn"
+                                data-bs-toggle="dropdown"
+                                data-bs-auto-close="outside"
+                                aria-expanded="false">
+                            Categories
+                            {% if selected_category_slugs | length > 0 %}
+                                <span class="badge text-bg-secondary ms-1" id="cat-filter-count">{{ selected_category_slugs | length }}</span>
+                            {% else %}
+                                <span class="badge text-bg-secondary ms-1 d-none" id="cat-filter-count">0</span>
+                            {% endif %}
+                        </button>
+                        <div class="dropdown-menu arena-cat-filter-menu p-2"
+                             aria-labelledby="cat-filter-btn">
+                            <input type="search"
+                                   class="form-control form-control-sm mb-2"
+                                   id="cat-filter-search"
+                                   placeholder="Filter…"
+                                   autocomplete="off">
+                            <div id="cat-filter-list">
+                                {% for cat in all_categories %}
+                                    <div class="arena-cat-filter-item">
+                                        <label>
+                                            <input type="checkbox"
+                                                   name="category_slugs"
+                                                   value="{{ cat.slug }}"
+                                                   {% if cat.slug in selected_category_slugs %}checked{% endif %}>
+                                            {# Category pill colours are dynamic (user-defined hex) and
+                                               cannot be expressed as static CSS classes. #}
+                                            <span class="badge rounded-pill"
+                                                  style="background:{{ cat.color }};
+                                                         color:{{ cat.foreground_color }}">{{ cat.name }}</span>
+                                        </label>
+                                    </div>
+                                {% else %}
+                                    <span class="text-muted small">No categories defined.</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <input type="hidden" name="sort_by" value="{{ sort_by }}">
+                <input type="hidden" name="page" value="1">
+                {% include "_partials/filter_submit_button.html" %}
+                {% set _filters_active = search or (selected_category_slugs | length > 0) or sort_by != 'number_asc' %}
+                {% with clear_url=request.url_for("arena_problem_list"), filters_active=_filters_active %}
+                    {% include "_partials/filter_clear_link.html" %}
+                {% endwith %}
+            </form>
+            <p class="text-muted small mb-2">{{ pagination.total }} problem{{ 's' if pagination.total != 1 else '' }}</p>
+            {% with pagination=pagination, page_param="page", label="Problem list pagination", nav_margin="mb-2" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            {% if current_user %}<th class="arena-col-favorite column-width-tiny" aria-label="Favorite"></th>{% endif %}
+                            <th class="arena-col-sortable column-width-tiny">
+                                <a href="{{ request.url.include_query_params(sort_by='number_desc' if sort_by == 'number_asc' else 'number_asc', page=1) }}"
+                                   class="text-decoration-none text-reset d-flex align-items-center gap-1">
+                                    #
+                                    {% if sort_by == 'number_asc' %}
+                                        {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
+                                    {% elif sort_by == 'number_desc' %}
+                                        {{ render_icon(icon='arrow_downward', classes='arena-sort-icon arena-sort-icon--active') }}
+                                    {% else %}
+                                        {{ render_icon(icon='unfold_more', classes='arena-sort-icon arena-sort-icon--idle') }}
+                                    {% endif %}
+                                </a>
+                            </th>
+                            <th class="arena-col-sortable arena-col-title">
+                                <a href="{{ request.url.include_query_params(sort_by='title_desc' if sort_by == 'title_asc' else 'title_asc', page=1) }}"
+                                   class="text-decoration-none text-reset d-flex align-items-center gap-1">
+                                    Title
+                                    {% if sort_by == 'title_asc' %}
+                                        {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
+                                    {% elif sort_by == 'title_desc' %}
+                                        {{ render_icon(icon='arrow_downward', classes='arena-sort-icon arena-sort-icon--active') }}
+                                    {% else %}
+                                        {{ render_icon(icon='unfold_more', classes='arena-sort-icon arena-sort-icon--idle') }}
+                                    {% endif %}
+                                </a>
+                            </th>
+                            <th class="column-width-medium">Categories</th>
+                            <th class="arena-col-sortable column-width-tiny">
+                                <a href="{{ request.url.include_query_params(sort_by='solvers_desc' if sort_by == 'solvers_asc' else 'solvers_asc', page=1) }}"
+                                   class="text-decoration-none text-reset d-flex align-items-center gap-1">
+                                    User Solves
+                                    {% if sort_by == 'solvers_asc' %}
+                                        {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
+                                    {% elif sort_by == 'solvers_desc' %}
+                                        {{ render_icon(icon='arrow_downward', classes='arena-sort-icon arena-sort-icon--active') }}
+                                    {% else %}
+                                        {{ render_icon(icon='unfold_more', classes='arena-sort-icon arena-sort-icon--idle') }}
+                                    {% endif %}
+                                </a>
+                            </th>
+                            <th class="column-width-tiny">AC&nbsp;Rate</th>
+                            {% if current_user %}<th class="column-width-tiny">Solved?</th>{% endif %}
+                            <th class="arena-col-sortable column-width-narrow">
+                                <a href="{{ request.url.include_query_params(sort_by='rating_desc' if sort_by == 'rating_asc' else 'rating_asc', page=1) }}"
+                                   class="text-decoration-none text-reset d-flex align-items-center gap-1">
+                                    Difficulty
+                                    {% if sort_by == 'rating_asc' %}
+                                        {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
+                                    {% elif sort_by == 'rating_desc' %}
+                                        {{ render_icon(icon='arrow_downward', classes='arena-sort-icon arena-sort-icon--active') }}
+                                    {% else %}
+                                        {{ render_icon(icon='unfold_more', classes='arena-sort-icon arena-sort-icon--idle') }}
+                                    {% endif %}
+                                </a>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in pagination.items %}
+                            <tr id="{{ item.problem.id }}"
+                                class="arena-clickable-row"
+                                data-href="{{ request.url_for('arena_problem_detail', arena_number=item.problem.arena_number) }}?{{ back_params_qs }}">
+                                {% if current_user %}
+                                    <td class="arena-col-favorite">
+                                        {% if item.is_favorite %}
+                                            {{ render_icon(icon='favorite', filled=True, classes='arena-favorite-icon arena-favorite-icon--active') }}
+                                        {% endif %}
+                                    </td>
+                                {% endif %}
+                                <td class="column-width-tiny">
+                                    <a href="{{ request.url_for('arena_problem_detail', arena_number=item.problem.arena_number) }}?{{ back_params_qs }}"
+                                       class="text-decoration-none">{{ item.problem.arena_number }}</a>
+                                </td>
+                                <td>
+                                    <a href="{{ request.url_for('arena_problem_detail', arena_number=item.problem.arena_number) }}?{{ back_params_qs }}"
+                                       class="text-decoration-none fw-medium">{{ item.problem.title }}</a>
+                                </td>
+                                <td class="column-width-medium">
+                                    {% for cat in item.categories %}
+                                        <span class="arena-category-color-swatch"
+                                              data-category-color="{{ cat.color }}"
+                                              title="{{ cat.name }}"
+                                              aria-label="{{ cat.name }}"></span>
+                                    {% endfor %}
+                                </td>
+                                <td class="column-width-tiny noca-small-text">
+                                    {% if item.solved is not none and item.solved > 0 %}
+                                        {{ item.solved }}
+                                    {% else %}
+                                        <span class="text-muted">&nbsp;</span>
+                                    {% endif %}
+                                </td>
+                                <td class="column-width-tiny noca-small-text">
+                                    {% if (item.ac_rate is not none) and (item.solved is not none and item.solved > 0) %}
+                                        {{ "%.0f"|format(item.ac_rate * 100) }}%
+                                    {% else %}
+                                        <span class="text-muted">&nbsp;</span>
+                                    {% endif %}
+                                </td>
+                                {% if current_user %}
+                                    <td class="column-width-tiny">
+                                        {% if item.is_solved %}
+                                            {{ render_icon(icon="done_all", classes="text-success", title="Solved") }}
+                                        {% else %}
+                                            &nbsp;
+                                        {% endif %}
+                                    </td>
+                                {% endif %}
+                                <td class="column-width-narrow">
+                                    {% if item.rating is not none %}
+                                        <div class="progress arena-rating-progress"
+                                             role="progressbar"
+                                             aria-valuenow="{{ item.rating }}"
+                                             aria-valuemin="0.1"
+                                             aria-valuemax="10"
+                                             aria-label="Difficulty {{ '%.1f'|format(item.rating) }} out of 10"
+                                             title="Difficulty: {{ '%.1f'|format(item.rating) }}/10">
+                                            <div class="progress-bar arena-rating-bar-{{ (item.rating | round) | int }}"
+                                                 style="width:{{ item.rating * 10 }}%">
+                                                {{ "%.1f"|format(item.rating) }}
+                                            </div>
+                                        </div>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="{{ 8 if current_user else 6 }}" class="arena-empty-state">No problems found.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% with pagination=pagination, page_param="page", label="Problem list pagination" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='problem-list.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-row-href.js') }}?v={{ app_version }}"></script>
+{% endblock %}

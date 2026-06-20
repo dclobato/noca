@@ -1,0 +1,228 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Import Problem{% endblock %}
+{% block nav_admin_problems %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="upload") }}
+                    Import Problem
+                </h1>
+                <a href="{{ request.url_for("arena_admin_problem_list") }}"
+                   class="btn btn-outline-secondary btn-sm">
+                    {{ render_icon(icon="arrow_back") }}
+                    Back
+                </a>
+            </div>
+            <form method="post"
+                  action="{{ request.url_for("arena_admin_problem_import_submit") }}"
+                  enctype="multipart/form-data"
+                  class="mb-2">
+                <div class="mb-3">
+                    <label class="form-label form-label-sm mb-1" for="package">Problem package (.zip)</label>
+                    <input type="file"
+                           class="form-control form-control-sm"
+                           id="package"
+                           name="package"
+                           accept=".zip"
+                           required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">
+                    {{ render_icon(icon="upload") }}
+                    Import
+                </button>
+            </form>
+            <p class="text-muted small mb-0">
+                You become the owner of the imported problem. Its packaged author is preserved,
+                it is created disabled, and all test cases are imported as secret.
+            </p>
+        </div>
+        <div class="arena-card mb-3">
+            <h2 class="arena-card-title mb-3">
+                {{ render_icon(icon="folder_zip") }}
+                Expected package contents
+            </h2>
+            <pre class="small mb-3">/
+├── problem.json
+├── statement.md
+├── image.png            (optional)
+├── in/
+│   ├── 001.in
+│   └── 002.in
+├── out/
+│   ├── 001.out          (or 001.sol)
+│   └── 002.out          (or 002.sol)
+└── explanation/         (optional)
+    └── 001.txt</pre>
+            <p class="text-muted small mb-3">
+                A flat test-case layout (<code>001.in</code> / <code>001.out</code> or
+                <code>001.sol</code> at the root) is also accepted.
+            </p>
+            <h3 class="h6 text-uppercase text-muted mb-2">
+                <code>problem.json</code> fields
+            </h3>
+            <div class="table-responsive mb-3">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th>Field</th>
+                            <th>Type</th>
+                            <th>Required</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>
+                                <code>title</code>
+                            </td>
+                            <td>string</td>
+                            <td>
+                                <span class="badge text-bg-danger">required</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <code>author</code>
+                            </td>
+                            <td>string (maximum 80 characters)</td>
+                            <td>
+                                <span class="badge text-bg-secondary">optional</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <code>time_limit_ms</code>
+                            </td>
+                            <td>integer</td>
+                            <td>
+                                <span class="badge text-bg-danger">required</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <code>memory_limit_kb</code>
+                            </td>
+                            <td>integer</td>
+                            <td>
+                                <span class="badge text-bg-danger">required</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <code>pids_limit</code>
+                            </td>
+                            <td>integer</td>
+                            <td>
+                                <span class="badge text-bg-danger">required</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <code>output_limit_in_bytes</code>
+                            </td>
+                            <td>integer or null</td>
+                            <td>
+                                <span class="badge text-bg-secondary">optional</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <code>source</code>
+                            </td>
+                            <td>string or null</td>
+                            <td>
+                                <span class="badge text-bg-secondary">optional</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <code>hide_author_show_source</code>
+                            </td>
+                            <td>boolean</td>
+                            <td>
+                                <span class="badge text-bg-secondary">optional</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <code>categories</code>
+                            </td>
+                            <td>array of strings</td>
+                            <td>
+                                <span class="badge text-bg-secondary">optional</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <code>image</code>
+                            </td>
+                            <td>filename string or null</td>
+                            <td>
+                                <span class="badge text-bg-secondary">optional</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <code>image_caption</code>
+                            </td>
+                            <td>string or null</td>
+                            <td>
+                                <span class="badge text-bg-secondary">optional</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <code>notes</code>
+                            </td>
+                            <td>string or null</td>
+                            <td>
+                                <span class="badge text-bg-secondary">optional</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <code>license</code>
+                            </td>
+                            <td>string (maximum 256 characters) or null</td>
+                            <td>
+                                <span class="badge text-bg-secondary">optional</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <h3 class="h6 text-uppercase text-muted mb-2">Validation rules</h3>
+            <ul class="small mb-0">
+                <li>
+                    <code>statement.md</code> is required and must not contain external links, images, or URLs.
+                </li>
+                <li>At least one input/output test-case pair is required (ordinals 1–999, up to 1000 pairs).</li>
+                <li>
+                    Optional <code>explanation/NNN.txt</code> (UTF-8, ≤1024 chars) adds an explanation
+                    for the test case of the same number; shown to contestants below the sample.
+                </li>
+                <li>
+                    Every test case is imported as <strong>secret</strong>.
+                </li>
+                <li>
+                    A non-empty <code>author</code> is preserved. If omitted, you are recorded as
+                    both owner and author.
+                </li>
+                <li>A packaged image must pass the same upload rules as the manual upload (PNG, JPEG, or WEBP, max 2&nbsp;MB).</li>
+                <li>Categories are linked only when they already exist (matched by name); unknown categories are dropped.</li>
+                <li>
+                    Web-only fields (<code>color</code>, <code>language_limits</code>) are accepted and ignored.
+                </li>
+            </ul>
+        </div>
+    </div>
+{% endblock %}

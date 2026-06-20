@@ -1,0 +1,33 @@
+{# ── TIMING TIMELINE ─────────────────────────────────────────── #}
+<div id="timing-timeline-wrapper" class="mb-3">
+    <p class="form-text mb-1">Contest timing overview</p>
+    <div class="progress timing-timeline-bar">
+        <div class="progress-bar timeline-seg-fallback timing-timeline-seg-full"
+             id="timeline-seg-fallback"
+             role="progressbar"
+             aria-label="Contest duration"></div>
+        <div class="progress-bar timeline-seg-live timing-timeline-seg d-none"
+             id="timeline-seg-live"
+             role="progressbar"
+             aria-label="Live scoreboard"></div>
+        <div class="progress-bar timeline-seg-frozen timing-timeline-seg d-none"
+             id="timeline-seg-frozen"
+             role="progressbar"
+             aria-label="Frozen scoreboard"></div>
+        <div class="progress-bar timeline-seg-silence timing-timeline-seg d-none"
+             id="timeline-seg-silence"
+             role="progressbar"
+             aria-label="Full silence"></div>
+    </div>
+    <div class="d-flex gap-3 small mt-1 timing-timeline-legend">
+        <span class="timeline-legend-live">
+            <span class="timeline-legend-swatch timeline-seg-live"></span> Live scoreboard
+        </span>
+        <span class="timeline-legend-frozen">
+            <span class="timeline-legend-swatch timeline-seg-frozen"></span> Frozen scoreboard
+        </span>
+        <span class="timeline-legend-silence">
+            <span class="timeline-legend-swatch timeline-seg-silence"></span> Full silence
+        </span>
+    </div>
+</div>

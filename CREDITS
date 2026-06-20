@@ -1,0 +1,35 @@
+Credits and Acknowledgments
+
+NOCA stands on the shoulders of giants. This project is made possible 
+thanks to the following open-source technologies and the dedicated 
+communities behind them:
+
+Core Frameworks
+
+- FastAPI
+  Author: Sebastián Ramírez (@tiangolo)
+  License: MIT
+  NOCA utilizes FastAPI for its high-performance asynchronous API and 
+  robust type-safety capabilities.
+
+- HTMX
+  Author: Big Sky Software (@bigskysoftware)
+  License: BSD 2-Clause "Simplified"
+  NOCA leverages HTMX to provide a modern, reactive user experience 
+  without the overhead of heavy client-side frameworks.
+
+Supporting Ecosystem
+
+- Python Ecosystem: We are grateful to the contributors of SQLAlchemy, 
+Pydantic, Uvicorn, and Starlette, which form the backbone of our 
+backend services.
+
+- Country Flags SVG
+  Author: Hampus Borgos (@hampusborgos)
+  License: Unlicense / Public Domain
+  NOCA uses this collection of ISO 3166-1 country flag SVGs to display
+  national flags throughout the Arena interface.
+
+- The Competitive Programming Community: Special thanks to the creators
+of the original BOCA Online Contest Administrator, whose legacy
+inspired the development of NOCA.

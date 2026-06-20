@@ -1,0 +1,47 @@
+{% extends "_auth_base.html" %}
+{% block title_suffix %}&mdash; Terms of Service{% endblock %}
+{% block auth_content %}
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-12 col-md-6 col-lg-5 col-xl-4">
+                {# Brand header #}
+                <div class="text-center mb-4 pt-4">
+                    <h1 class="arena-auth-logo">Noca Arena</h1>
+                    <p class="arena-auth-tagline">Competitive Judge</p>
+                </div>
+                {# Acceptance card #}
+                <div class="arena-auth-card">
+                    <h2 class="arena-auth-title">Terms of Service &amp; Privacy Policy</h2>
+                    <p class="arena-auth-subtitle">Before you continue, please review and accept our terms.</p>
+                    <form method="post"
+                          action="{{ request.url_for("arena_accept_terms_submit") }}"
+                          novalidate>
+                        <div class="form-check mb-4">
+                            <input type="checkbox"
+                                   class="form-check-input"
+                                   id="terms"
+                                   name="terms"
+                                   required>
+                            <label for="terms" class="form-check-label small">
+                                I have read and accept the
+                                <a href="{{ request.url_for("arena_terms_of_service") }}"
+                                   class="arena-auth-link">Terms of Service</a>
+                                and the
+                                <a href="{{ request.url_for("arena_privacy_policy") }}"
+                                   class="arena-auth-link">Privacy Policy</a>.
+                            </label>
+                        </div>
+                        <button type="submit" class="btn arena-btn-primary w-100">Accept &amp; Continue</button>
+                    </form>
+                    <p class="text-center mt-3 mb-0">
+                        <a href="{{ request.url_for("arena_login") }}" class="arena-auth-link">Cancel and go back to login</a>
+                    </p>
+                </div>
+                {# Arena label #}
+                <div class="text-center mt-4">
+                    <span class="arena-auth-section-label">ARENA</span>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

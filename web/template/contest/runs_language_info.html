@@ -1,0 +1,22 @@
+{% if language %}
+    <div class="mt-2">
+        {% if language.version %}
+            <div>
+                <span class="fw-bold">Compiler/interpreter version:</span>
+                <code>{{ language.version }}</code>
+            </div>
+        {% endif %}
+        {% if language.compile_cmd %}
+            <div>
+                <span class="fw-bold">Compile:</span>
+                <code>{{ language.compile_cmd | join(" ") }}</code>
+            </div>
+        {% endif %}
+        {% if language.run_cmd %}
+            <div>
+                <span class="fw-bold">Run:</span>
+                <code>{{ language.run_cmd | join(" ") }}</code>
+            </div>
+        {% endif %}
+    </div>
+{% endif %}

@@ -1,0 +1,48 @@
+{% extends "_base.html" %}
+{% block title_suffix %}- {{ module_label }}{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+                {% if is_admin_placeholder %}
+                    <li class="breadcrumb-item">
+                        <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+                    </li>
+                {% endif %}
+            {% endif %}
+            <li class="breadcrumb-item active" aria-current="page">{{ module_label }}</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8 col-lg-6 text-center py-5">
+                <div class="display-1 mb-4" aria-hidden="true">&#128679;</div>
+                <h1 class="h3 mb-2">{{ module_label }}</h1>
+                <p class="text-muted mb-4">This module is not yet implemented in the current version.</p>
+                <span class="badge bg-secondary fs-6 mb-4">Coming soon</span>
+                <div>
+                    {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                        <a href="{{ request.url_for("uberadmin_dashboard") }}"
+                           class="btn btn-outline-secondary">&larr; Back to Uberadmin Dashboard</a>
+                    {% elif is_admin_placeholder %}
+                        <a href="{{ request.url_for('view', slug=contest.login_slug) }}"
+                           class="btn btn-outline-secondary">&larr; Back to Administration</a>
+                    {% else %}
+                        <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}"
+                           class="btn btn-outline-secondary">&larr; Back to Contest Dashboard</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

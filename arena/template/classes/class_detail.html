@@ -1,0 +1,145 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; {{ class_detail.name }}{% endblock %}
+{% block nav_classes %}active{% endblock %}
+{% block nav_classes_registered %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="school") }}
+                    {{ class_detail.name }}
+                </h1>
+                <div class="d-flex flex-wrap gap-2">
+                    {% if is_registered %}
+                        <span class="badge text-bg-success d-inline-flex align-items-center gap-1">
+                            {{ render_icon(icon="check_circle", filled=True) }}
+                            Registered
+                        </span>
+                    {% elif class_detail.allow_self_registration and current_user %}
+                        <form method="post"
+                              action="{{ request.url_for('arena_class_request_registration', class_id=class_detail.class_id) }}">
+                            <button type="submit" class="btn btn-primary btn-sm">
+                                {{ render_icon(icon="how_to_reg") }}
+                                Ask registration
+                            </button>
+                        </form>
+                    {% endif %}
+                    <a href="{{ request.url_for("arena_classes_registered") }}#class-{{ class_detail.class_id }}"
+                       class="btn btn-secondary btn-sm">
+                        {{ render_icon(icon="arrow_back") }}
+                        Back to classes
+                    </a>
+                </div>
+            </div>
+            <div class="row g-3">
+                <div class="col-12 col-lg-7">
+                    <h2 class="h6">Details</h2>
+                    <p class="mb-0">{{ class_detail.description or "No description." }}</p>
+                </div>
+                <div class="col-12 col-lg-5">
+                    <dl class="row small mb-0">
+                        <dt class="col-sm-5">Starts</dt>
+                        <dd class="col-sm-7">
+                            {{ class_detail.starts_on.isoformat() }}
+                        </dd>
+                        <dt class="col-sm-5">Finishes</dt>
+                        <dd class="col-sm-7">
+                            {{ class_detail.finishes_on.isoformat() }}
+                        </dd>
+                        <dt class="col-sm-5">Teacher</dt>
+                        <dd class="col-sm-7">
+                            {{ class_detail.teacher_name }}
+                        </dd>
+                        <dt class="col-sm-5">Affiliation</dt>
+                        <dd class="col-sm-7">
+                            {{ class_detail.teacher_affiliation or "No affiliation" }}
+                        </dd>
+                        <dt class="col-sm-5">Registered users</dt>
+                        <dd class="col-sm-7">
+                            {{ class_detail.member_count }}
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+            <div class="mt-4">
+                <h2 class="h6 mb-2">Problem sets</h2>
+                {% if problem_sets is not none %}
+                    {% if problem_sets.items %}
+                        <div class="table-responsive">
+                            <table class="arena-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th class="column-width-shrink text-center">Problems</th>
+                                        {% if is_registered %}
+                                            <th class="column-width-shrink text-center">AC'd</th>
+                                            <th class="column-width-shrink text-center">No submission</th>
+                                        {% endif %}
+                                        <th class="column-width-medium text-center">Start date</th>
+                                        <th class="column-width-medium text-center">Deadline</th>
+                                        <th class="column-width-shrink"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in problem_sets.items %}
+                                        <tr class="arena-clickable-row"
+                                            data-href="{{ request.url_for('arena_student_class_problem_set_detail', class_id=class_detail.class_id, set_id=row.set_id) }}">
+                                            <td>
+                                                <span class="fw-semibold">{{ row.name }}</span>
+                                                {% if row.description %}<div class="small text-muted">{{ row.description }}</div>{% endif %}
+                                            </td>
+                                            <td class="column-width-shrink text-center">{{ row.problem_count }}</td>
+                                            {% if is_registered %}
+                                                <td class="column-width-shrink text-center">
+                                                    {% if row.problem_count > 0 %}
+                                                        <span class="{% if row.user_ac_count == row.problem_count %}text-success fw-semibold{% endif %}">
+                                                            {{ row.user_ac_count }}
+                                                        </span>
+                                                    {% else %}
+                                                        &mdash;
+                                                    {% endif %}
+                                                </td>
+                                                <td class="column-width-shrink text-center">
+                                                    {% if row.problem_count > 0 %}
+                                                        {{ row.user_no_submission_count }}
+                                                    {% else %}
+                                                        &mdash;
+                                                    {% endif %}
+                                                </td>
+                                            {% endif %}
+                                            <td class="column-width-medium text-center text-nowrap">
+                                                {{ arena_format_datetime(row.starts_on, current_user) if row.starts_on else '—' }}
+                                            </td>
+                                            <td class="column-width-medium text-center text-nowrap">
+                                                {{ arena_format_datetime(row.deadline, current_user) if row.deadline else '—' }}
+                                            </td>
+                                            <td class="column-width-shrink text-center">
+                                                {% if row.is_accepting %}<span class="badge text-bg-success">Accepting</span>{% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="text-muted small mb-0">No problem sets yet.</p>
+                    {% endif %}
+                {% else %}
+                    <p class="text-muted small mb-0">Register for this class to see its problem sets.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('arena_static_js', path='arena-row-href.js') }}?v={{ app_version }}"></script>
+{% endblock %}

@@ -1,0 +1,328 @@
+{% macro verdict_short_badge(v) %}
+    {% set cls = contest_verdict_badge_class(v, contest) %}
+    <span class="badge {{ cls }}">{{ v }}</span>
+{% endmacro %}
+{% set is_chief = (
+    current_user.role == RoleEnum.JUDGE.value
+    and contest.chief_judge_id is not none
+    and current_user.id == contest.chief_judge_id
+) %}
+{% set is_privileged = current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) or is_chief %}
+{% set is_judge_or_above = current_user.role in (RoleEnum.JUDGE.value, RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) %}
+{% from "_macros.html" import render_icon %}
+<div id="runs-list-wrapper"
+     data-accept-pe="{{ 'true' if contest.accept_pe else 'false' }}"
+     {% if not contest.is_past %} hx-get="{{ request.url_for('contest_runs_list', slug=contest.login_slug) }}" hx-trigger="every 60s, verdict-update" hx-swap="outerHTML" {% if is_judge_or_above %}hx-include="#runs-filter-form"{% endif %}
+     data-sse-url="{{ request.url_for('contest_runs_events', slug=contest.login_slug) }}"
+     {% endif %}>
+    {% if not lock_service_available and is_judge_or_above %}
+        <div class="alert alert-warning small">Lock service unavailable. Possible double work/rework.</div>
+    {% endif %}
+    {% if is_judge_or_above %}
+        {# Collect unique teams for team filter #}
+        {% set ns = namespace(team_ids=[], team_names={}) %}
+        {% for s in submissions %}
+            {% if s.team_id not in ns.team_ids %}
+                {% set ns.team_ids = ns.team_ids + [s.team_id] %}
+                {% set team_label = format_site_identity(
+                                    s.team.site.sitename if s.team and s.team.site else none,
+                                    s.team.fullname or s.team.username,
+                                ) %}
+                {% set _ = ns.team_names.update({s.team_id: team_label}) %}
+            {% endif %}
+        {% endfor %}
+        <form id="runs-filter-form" class="mb-3">
+            <div class="row g-2 align-items-end">
+                <div class="col-auto">
+                    <label for="filter_problem_id" class="form-label form-label-sm mb-1">Problem</label>
+                    <select id="filter_problem_id"
+                            name="filter_problem_id"
+                            class="form-select form-select-sm"
+                            data-filter-attr="problem-id">
+                        <option value="">All problems</option>
+                        {% for pid, plabel in problem_map.items() %}
+                            <option value="{{ pid }}"
+                                    {% if filter_problem_id == pid %}selected{% endif %}>{{ plabel }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label for="filter_autojudge" class="form-label form-label-sm mb-1">Autojudge</label>
+                    <select id="filter_autojudge"
+                            name="filter_autojudge"
+                            class="form-select form-select-sm"
+                            data-filter-attr="autojudge">
+                        <option value="">All</option>
+                        {% for v in Verdict %}
+                            <option value="{{ v.value }}"
+                                    {% if filter_autojudge == v.value %}selected{% endif %}>{{ v.value }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label for="filter_final_verdict" class="form-label form-label-sm mb-1">Final verdict</label>
+                    <select id="filter_final_verdict"
+                            name="filter_final_verdict"
+                            class="form-select form-select-sm"
+                            data-filter-attr="final-verdict">
+                        <option value="">All</option>
+                        {% for v in Verdict %}
+                            <option value="{{ v.value }}"
+                                    {% if filter_final_verdict == v.value %}selected{% endif %}>{{ v.value }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% if is_privileged %}
+                    <div class="col-auto">
+                        <label for="filter_team_id" class="form-label form-label-sm mb-1">Team</label>
+                        <select id="filter_team_id"
+                                name="filter_team_id"
+                                class="form-select form-select-sm"
+                                data-filter-attr="team-id">
+                            <option value="">All teams</option>
+                            {% for tid in ns.team_ids %}
+                                <option value="{{ tid }}" {% if filter_team_id == tid %}selected{% endif %}>{{ ns.team_names[tid] }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                {% endif %}
+            </div>
+        </form>
+    {% endif %}
+    {% if submissions %}
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="text-end noca-col-8">Time</th>
+                                <th class="text-center noca-col-8">Status</th>
+                                <th class="text-start">Problem</th>
+                                <th class="text-start noca-col-12">Language</th>
+                                {% if is_judge_or_above %}
+                                    {% if is_privileged %}<th class="text-start text-nowrap">Team</th>{% endif %}
+                                    <th class="text-center noca-col-8">Autojudge</th>
+                                    {% if is_privileged %}
+                                        <th class="text-center noca-col-8">Judge 1</th>
+                                        <th class="text-center noca-col-8">Judge 2</th>
+                                        <th class="text-center noca-col-8">CJ Override</th>
+                                    {% else %}
+                                        <th class="text-center noca-col-8">My verdict</th>
+                                    {% endif %}
+                                {% endif %}
+                                <th class="text-center noca-col-12">
+                                    {% if is_judge_or_above %}
+                                        Final verdict
+                                    {% else %}
+                                        Verdict
+                                    {% endif %}
+                                </th>
+                                {% if current_user.role == RoleEnum.TEAM.value %}<th class="text-center noca-col-4">Source</th>{% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for s in submissions %}
+                                {% set newest_judgment = s.judgments | sort(attribute='created_at') | last if s.judgments else none %}
+                                {% set team_label = format_site_identity(
+                                                                    s.team.site.sitename if s.team and s.team.site else none,
+                                                                    s.team.fullname or s.team.username,
+                                                                ) %}
+                                {% set team_hidden_pending = team_runs_are_blind and newest_judgment and not newest_judgment.final_verdict %}
+                                {% set status_val = newest_judgment.status.value if newest_judgment else '' %}
+                                {% set autojudge_val = newest_judgment.autojudge_verdict.value if (newest_judgment and newest_judgment.autojudge_verdict) else '' %}
+                                {% set final_val = newest_judgment.final_verdict.value if (newest_judgment and newest_judgment.final_verdict) else '' %}
+                                <tr id="{{ s.id }}"
+                                    data-problem-id="{{ s.problem_id }}"
+                                    data-judgment-status="{{ status_val }}"
+                                    data-autojudge="{{ autojudge_val }}"
+                                    data-final-verdict="{{ final_val }}"
+                                    data-team-id="{{ s.team_id }}">
+                                    <td class="small text-end">{{ contest_minutes(s.timestamp_seconds) }}</td>
+                                    <td class="text-center">
+                                        {% if newest_judgment %}
+                                            {% set s_val = newest_judgment.status.value %}
+                                            {% set mask_done = (
+                                                                                            team_hidden_pending
+                                                                                            or (
+                                                                                            not contest.autojudge_only
+                                                                                            and newest_judgment.status == JudgmentStatus.DONE
+                                                                                            and not newest_judgment.final_verdict
+                                                                                            and current_user.role in (RoleEnum.TEAM.value, RoleEnum.STAFF.value, RoleEnum.USER.value)
+                                                                                            )
+                                                                                        ) %}
+                                            {% if mask_done %}
+                                                {% set judging_val = JudgmentStatus.JUDGING.value %}
+                                                <span class="badge {{ judgmentstatus_badge_classes.get(judging_val, 'bg-secondary') }}">
+                                                    {{ judgmentstatus_labels.get(judging_val, judging_val) }}
+                                                </span>
+                                            {% else %}
+                                                <span class="badge {{ judgmentstatus_badge_classes.get(s_val, 'bg-secondary') }}">
+                                                    {{ judgmentstatus_labels.get(s_val, s_val) }}
+                                                </span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="fw-semibold text-start">
+                                        {% if is_judge_or_above %}
+                                            <a class="text-decoration-none"
+                                               href="{{ request.url_for('submission_review', slug=contest.login_slug, submission_id=s.id) }}">
+                                                {{ problem_map.get(s.problem_id, '?') }}: {{ s.problem.title }}
+                                            </a>
+                                        {% else %}
+                                            {{ problem_map.get(s.problem_id, '?') }}: {{ s.problem.title }}
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-start small">
+                                        <i class="{{ s.language.icon }} me-1"></i>{{ s.language.name }}
+                                    </td>
+                                    {% if is_judge_or_above %}
+                                        {% if is_privileged %}<td class="text-start small text-nowrap">{{ team_label }}</td>{% endif %}
+                                        {# Autojudge verdict column #}
+                                        <td class="text-center">
+                                            {% if newest_judgment and newest_judgment.autojudge_verdict %}
+                                                {{ verdict_short_badge(newest_judgment.autojudge_verdict.value) }}
+                                            {% else %}
+                                                <span class="text-muted">—</span>
+                                            {% endif %}
+                                        </td>
+                                        {% if is_privileged %}
+                                            {# Judge 1, Judge 2, CJ Override columns #}
+                                            {% set non_chief_confs = [] %}
+                                            {% if newest_judgment %}
+                                                {% for conf in newest_judgment.confirmations %}
+                                                    {% if not conf.is_chief_confirmation %}
+                                                        {% set _ = non_chief_confs.append(conf) %}
+                                                    {% endif %}
+                                                {% endfor %}
+                                            {% endif %}
+                                            <td class="text-center">
+                                                {% if non_chief_confs | length > 0 %}
+                                                    {{ verdict_short_badge(non_chief_confs[0].confirmed_verdict.value) }}
+                                                {% else %}
+                                                    <span class="text-muted">—</span>
+                                                {% endif %}
+                                            </td>
+                                            <td class="text-center">
+                                                {% if non_chief_confs | length > 1 %}
+                                                    {{ verdict_short_badge(non_chief_confs[1].confirmed_verdict.value) }}
+                                                {% else %}
+                                                    <span class="text-muted">—</span>
+                                                {% endif %}
+                                            </td>
+                                            <td class="text-center">
+                                                {% set chief_override = none %}
+                                                {% if newest_judgment and newest_judgment.overrides %}
+                                                    {% set chief_override = newest_judgment.overrides | sort(attribute='created_at') | last %}
+                                                {% endif %}
+                                                {% if chief_override %}
+                                                    {{ verdict_short_badge(chief_override.new_verdict.value) }}
+                                                {% else %}
+                                                    <span class="text-muted">—</span>
+                                                {% endif %}
+                                            </td>
+                                        {% else %}
+                                            {# My verdict column (plain JUDGE) #}
+                                            <td class="text-center">
+                                                {% set ns_my = namespace(conf=none) %}
+                                                {% if newest_judgment %}
+                                                    {% for conf in newest_judgment.confirmations %}
+                                                        {% if conf.judge_id == current_user.id %}
+                                                            {% set ns_my.conf = conf %}
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                {% endif %}
+                                                {% if ns_my.conf %}
+                                                    {{ verdict_short_badge(ns_my.conf.confirmed_verdict.value) }}
+                                                {% else %}
+                                                    <span class="text-muted">—</span>
+                                                {% endif %}
+                                            </td>
+                                        {% endif %}
+                                    {% endif %}
+                                    {# Final verdict / Verdict column #}
+                                    <td class="text-center">
+                                        {% if newest_judgment and newest_judgment.final_verdict %}
+                                            {% set v = newest_judgment.final_verdict.value %}
+                                            {% set is_accepted = v == Verdict.AC.value or (v == Verdict.PE.value and contest.accept_pe) %}
+                                            {% set badge_class = contest_verdict_badge_class(v, contest) %}
+                                            <span class="d-inline-flex align-items-center gap-1">
+                                                {% if is_accepted %}
+                                                    {% set is_first_balloon = s.id in first_balloon_submission_ids %}
+                                                    <img src="/assets/{{ 'star' if is_first_balloon else 'balloon' }}/{{ s.problem.color[1:] }}"
+                                                         width="28"
+                                                         height="42"
+                                                         class="{{ 'noca-first-balloon' if s.id in first_balloon_submission_ids else '' }}"
+                                                         alt="{{ 'star balloon' if is_first_balloon else 'balloon' }}">
+                                                {% endif %}
+                                                <span class="badge {{ badge_class }}">{{ verdict_labels.get(v, v) }}</span>
+                                            </span>
+                                        {% else %}
+                                            {% if team_hidden_pending %}
+                                                <span class="text-muted">—</span>
+                                            {% elif (
+                                                newest_judgment
+                                                and not contest.autojudge_only
+                                                and newest_judgment.status == JudgmentStatus.DONE
+                                                and not newest_judgment.final_verdict
+                                                and is_judge_or_above
+                                                ) %}
+                                                {% set review_holder_id = review_lock_map.get(newest_judgment.id) if newest_judgment else none %}
+                                                {% if not lock_service_available %}
+                                                    {% if current_user.role == RoleEnum.JUDGE.value %}
+                                                        <a href="{{ request.url_for('submission_review', slug=contest.login_slug, submission_id=s.id) }}"
+                                                           class="btn btn-outline-primary btn-sm">Review verdict</a>
+                                                    {% else %}
+                                                        <span class="badge bg-warning text-dark">Locks off</span>
+                                                    {% endif %}
+                                                {% elif review_holder_id is none %}
+                                                    {% if current_user.role == RoleEnum.JUDGE.value %}
+                                                        <form method="post"
+                                                              action="{{ request.url_for('submission_acquire_review', slug=contest.login_slug, submission_id=s.id) }}"
+                                                              class="d-inline">
+                                                            <button type="submit" class="btn btn-outline-primary btn-sm">Acquire review</button>
+                                                        </form>
+                                                    {% else %}
+                                                        <span class="text-muted">—</span>
+                                                    {% endif %}
+                                                {% elif review_holder_id == current_user.id %}
+                                                    <a href="{{ request.url_for('submission_review', slug=contest.login_slug, submission_id=s.id) }}"
+                                                       class="btn btn-outline-success btn-sm">Confirm verdict</a>
+                                                {% else %}
+                                                    <span class="badge bg-secondary">Locked</span>
+                                                    {% if is_privileged %}
+                                                        <form method="post"
+                                                              action="{{ request.url_for('submission_release_review', slug=contest.login_slug, submission_id=s.id) }}"
+                                                              class="d-inline ms-1">
+                                                            <button type="submit" class="btn btn-outline-danger btn-sm">Release</button>
+                                                        </form>
+                                                    {% endif %}
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="text-muted">—</span>
+                                            {% endif %}
+                                        {% endif %}
+                                    </td>
+                                    {% if current_user.role == RoleEnum.TEAM.value %}
+                                        <td class="text-center">
+                                            <a href="{{ request.url_for('submission_source_download', slug=contest.login_slug, submission_id=s.id) }}"
+                                               class="btn btn-outline-secondary btn-sm noca-icon-btn"
+                                               title="Download source code">{{ render_icon(icon="download") }}</a>
+                                        </td>
+                                    {% endif %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <div class="text-center text-muted py-5">
+            {{ render_icon(icon="code", classes=["display-6", "d-block", "mb-2"]) }}
+            No submissions yet.
+        </div>
+    {% endif %}
+</div>

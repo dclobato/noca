@@ -1,0 +1,134 @@
+{% from "_macros.html" import render_icon %}
+<div id="clarifications-list-wrapper"
+     {% if current_user.role == RoleEnum.TEAM.value and not access_blocked and not contest.is_past %} hx-get="{{ request.url_for('contest_clarifications_list', slug=contest.login_slug) }}" hx-trigger="every 60s" hx-swap="outerHTML" {% endif %}>
+    {% if not lock_service_available and current_user.role in (RoleEnum.JUDGE.value, RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
+        <div class="alert alert-warning small mx-3 mt-3 mb-0">Lock service unavailable. Possible double work/rework.</div>
+    {% endif %}
+    {% if clarifications %}
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="text-end noca-col-8">Time</th>
+                                <th class="text-center noca-col-6">Visibility</th>
+                                <th class="text-center noca-col-8">Status</th>
+                                <th class="text-center">Problem</th>
+                                {% if current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) %}
+                                    <th>Team</th>
+                                    <th>Judge</th>
+                                {% endif %}
+                                <th>Question</th>
+                                <th>Answer</th>
+                                <th class="noca-col-6"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for c in clarifications %}
+                                <tr id="{{ c.id }}"
+                                    {% if c.hidden and current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value, RoleEnum.JUDGE.value) %} class="opacity-50 text-decoration-line-through" {% endif %}>
+                                    <td class="small text-end">{{ contest_minutes(c.created_timestamp_seconds) }}</td>
+                                    <td class="text-center">
+                                        {% if c.is_contest_public %}
+                                            <span class="badge bg-info text-dark">Global</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Private</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-center">
+                                        {% if c.hidden %}
+                                            <span class="badge bg-secondary ms-1">Hidden</span>
+                                        {% else %}
+                                            {% if c.answer is not none %}
+                                                <span class="badge bg-success">Answered</span>
+                                            {% elif c.acquired_at is not none %}
+                                                <span class="badge bg-info text-dark">Working on</span>
+                                            {% else %}
+                                                <span class="badge bg-warning text-dark">Pending</span>
+                                            {% endif %}
+                                        {% endif %}
+                                    </td>
+                                    <td class="fw-semibold text-center">{{ problem_map.get(c.problem_id, '?') }}</td>
+                                    {% if current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) %}
+                                        <td class="small">{{ user_map.get(c.team_id, '?') }}</td>
+                                        <td class="small text-muted">{{ user_map.get(c.judge_id, '—') if c.judge_id else '—' }}</td>
+                                    {% endif %}
+                                    <td class="small">
+                                        {{ c.question[:30] }}
+                                        {% if c.question | length > 30 %}...{% endif %}
+                                    </td>
+                                    <td class="small">
+                                        {% if c.answer %}
+                                            {{ c.answer[:30] }}
+                                            {% if c.answer | length > 30 %}...{% endif %}
+                                        {% else %}
+                                            <span class="text-muted text-wrap">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm noca-icon-btn-group"
+                                             role="group"
+                                             aria-label="Clarification actions">
+                                            <button type="button"
+                                                    class="btn btn-secondary noca-icon-btn"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#clarificationDetailModal"
+                                                    data-problem="{{ problem_map.get(c.problem_id, '?') | e }}"
+                                                    data-question="{{ c.question | e }}"
+                                                    data-answer="{{ c.answer | e if c.answer else '' }}"
+                                                    data-visibility="{{ 'global' if c.is_contest_public else 'private' }}"
+                                                    title="Detail">{{ render_icon(icon="visibility") }}</button>
+                                            {%- if current_user.role == RoleEnum.JUDGE.value %}
+                                                {%- if c.answered_at is none and not c.hidden and (not lock_service_available or c.acquired_at is none or c.acquired_by_me) %}
+                                                    <form method="post"
+                                                          action="{{ request.url_for('contest_clarifications_acquire', slug=contest.login_slug) }}"
+                                                          class="noca-icon-btn-wrap">
+                                                        <input type="hidden" name="clarification_id" value="{{ c.id }}">
+                                                        <button type="submit" class="btn btn-primary noca-icon-btn" title="Answer">
+                                                            {{ render_icon(icon="edit_square") }}
+                                                        </button>
+                                                    </form>
+                                                {%- endif %}
+                                                {%- if not c.hidden %}
+                                                    <a href="{{ request.url_for('contest_clarifications_hide', slug=contest.login_slug) }}?id={{ c.id }}"
+                                                       class="btn btn-warning noca-icon-btn"
+                                                       title="Hide">{{ render_icon(icon="visibility_off") }}</a>
+                                                {%- endif %}
+                                            {%- endif %}
+                                            {%- if current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) %}
+                                                <a href="{{ request.url_for('contest_clarifications_togglehide', slug=contest.login_slug) }}?id={{ c.id }}"
+                                                   class="btn btn-warning noca-icon-btn"
+                                                   title="{{ 'Unhide' if c.hidden else 'Hide' }}">
+                                                    {{ render_icon(icon="visibility" if c.hidden else "visibility_off") }}
+                                                </a>
+                                                {%- if lock_service_available and c.acquired_at is not none and c.answered_at is none %}
+                                                    <form method="post"
+                                                          action="{{ request.url_for('contest_clarifications_releaselock', slug=contest.login_slug) }}"
+                                                          class="noca-icon-btn-wrap"
+                                                          onsubmit="return confirm('Release the lock on this clarification? The judge will lose their hold.');">
+                                                        <input type="hidden" name="clarification_id" value="{{ c.id }}">
+                                                        <button type="submit"
+                                                                class="btn btn-outline-danger noca-icon-btn"
+                                                                title="Release Lock">
+                                                            {{ render_icon(icon="lock_open") }}
+                                                        </button>
+                                                    </form>
+                                                {%- endif %}
+                                            {%- endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <div class="text-center text-muted py-5">
+            {{ render_icon(icon="chat_bubble", classes=["display-6", "d-block", "mb-2"]) }}
+            No clarifications yet.
+        </div>
+    {% endif %}
+</div>

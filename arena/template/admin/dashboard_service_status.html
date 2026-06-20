@@ -1,0 +1,17 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% block title_suffix %}&mdash; Service Status{% endblock %}
+{% block nav_admin_dashboard %}active{% endblock %}
+{% block nav_admin_dashboard_service_status %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">{% include "admin/_worker_cards.html" %}</div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"></script>
+{% endblock %}

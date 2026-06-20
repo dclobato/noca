@@ -1,0 +1,128 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; {{ student_name }}'s Submissions{% endblock %}
+{% block nav_classes %}active{% endblock %}
+{% block nav_classes_registered %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="person") }}
+                    {{ student_name }}'s Submissions
+                </h1>
+                <a href="{{ back_url }}#set-{{ set_id }}"
+                   class="btn btn-secondary btn-sm">
+                    {{ render_icon(icon="arrow_back") }}
+                    Return to problem set report
+                </a>
+            </div>
+            <div class="mb-3">
+                <p class="mb-1 fw-semibold">{{ class_detail.name }}</p>
+            </div>
+            {% if groups %}
+                <div class="accordion" id="submissions-accordion">
+                    {% for group in groups %}
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed"
+                                        type="button"
+                                        data-bs-toggle="collapse"
+                                        data-bs-target="#problem-{{ loop.index }}"
+                                        aria-expanded="false"
+                                        aria-controls="problem-{{ loop.index }}">
+                                    <span class="fw-semibold me-2">{{ group.arena_number }}: {{ group.problem_title }}</span>
+                                    {% if group.best_verdict %}
+                                        <span class="badge {{ verdict_badge_classes.get(group.best_verdict, 'bg-secondary') }} font-monospace">{{ group.best_verdict }}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary font-monospace">—</span>
+                                    {% endif %}
+                                    {% if group.has_unfeedback_non_ac %}
+                                        <span class="badge bg-warning text-dark ms-2 d-inline-flex align-items-center gap-1"
+                                              title="Has non-AC submissions without feedback">
+                                            {{ render_icon(icon="rate_review") }}
+                                            Needs feedback
+                                        </span>
+                                    {% endif %}
+                                </button>
+                            </h2>
+                            <div id="problem-{{ loop.index }}"
+                                 class="accordion-collapse collapse"
+                                 data-bs-parent="#submissions-accordion">
+                                <div class="accordion-body p-0">
+                                    <div class="table-responsive">
+                                        <table class="arena-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Submitted</th>
+                                                    <th class="text-center">Verdict</th>
+                                                    <th class="text-center">Feedback</th>
+                                                    <th></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for entry in group.submissions %}
+                                                    <tr id="{{ entry.submission_id }}">
+                                                        <td class="text-nowrap small">
+                                                            {{ arena_format_datetime(entry.submitted_at, current_user, "%Y-%m-%d %H:%M:%S %Z") }}
+                                                        </td>
+                                                        <td class="text-center">
+                                                            {% if entry.verdict %}
+                                                                <span class="badge {{ verdict_badge_classes.get(entry.verdict, 'bg-secondary') }} font-monospace">{{ entry.verdict }}</span>
+                                                            {% else %}
+                                                                <span class="badge bg-secondary font-monospace">—</span>
+                                                            {% endif %}
+                                                        </td>
+                                                        <td class="text-center">
+                                                            {% if entry.verdict and entry.verdict != "AC" %}
+                                                                {% if entry.has_feedback %}
+                                                                    <span class="text-success d-inline-flex align-items-center gap-1"
+                                                                          title="Feedback given">
+                                                                        {{ render_icon(icon="check_circle") }}
+                                                                        <span class="small">Given</span>
+                                                                    </span>
+                                                                {% else %}
+                                                                    <span class="text-warning d-inline-flex align-items-center gap-1"
+                                                                          title="No feedback yet">
+                                                                        {{ render_icon(icon="rate_review") }}
+                                                                        <span class="small">None</span>
+                                                                    </span>
+                                                                {% endif %}
+                                                            {% else %}
+                                                                <span class="text-muted">&mdash;</span>
+                                                            {% endif %}
+                                                        </td>
+                                                        <td class="text-end">
+                                                            <a href="{{ request.url_for('arena_submission_detail', submission_id=entry.submission_id) }}?back_class_id={{ class_id }}&back_set_id={{ set_id }}&back_user_id={{ user_id }}"
+                                                               class="btn btn-outline-secondary btn-sm arena-icon-button">
+                                                                {{ render_icon(icon="open_in_new") }}
+                                                                <span>View</span>
+                                                            </a>
+                                                        </td>
+                                                    </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="arena-empty-state">No submissions found for this student.</p>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}

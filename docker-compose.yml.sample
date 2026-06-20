@@ -1,0 +1,306 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      web:
+        condition: service_started
+      arena:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "81:81"
+      # To enable automatic TLS later, also publish 443:443 and update
+      # containers/Caddyfile to use real hostnames instead of :80 and :81.
+    volumes:
+      - ./containers/Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      - noca-network
+    restart: unless-stopped
+
+  web:
+    image: noca/webapp
+    build:
+      context: .
+      dockerfile: containers/webapp/Dockerfile
+    env_file:
+      - .env
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-100}
+      NOCA_ENVIRONMENT: ${NOCA_ENVIRONMENT:-production}
+      # In this compose stack, `web` is only reachable via the internal network behind Caddy.
+      # Keep explicit values in production instead of '*' when direct access is possible.
+      NOCA_FORWARDED_ALLOW_IPS: ${NOCA_FORWARDED_ALLOW_IPS:-*}
+      NOCA_DB_USER: ${NOCA_DB_USER:?NOCA_DB_USER is required}
+      NOCA_DB_PASSWORD: ${NOCA_DB_PASSWORD:?NOCA_DB_PASSWORD is required}
+      NOCA_DB_SERVER: ${NOCA_DB_SERVER:-postgres:5432}
+      NOCA_DB_NAME: ${NOCA_DB_NAME:?NOCA_DB_NAME is required}
+      NOCA_VALKEY_SERVER: ${NOCA_VALKEY_SERVER:-valkey}
+      NOCA_VALKEY_PORT: ${NOCA_VALKEY_PORT:-6379}
+      NOCA_VALKEY_DB: ${NOCA_VALKEY_DB:-0}
+      NOCA_VALKEY_USER: ${NOCA_VALKEY_USER:-}
+      NOCA_VALKEY_PASSWORD: ${NOCA_VALKEY_PASSWORD:-}
+      NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS: ${NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS:-5}
+      NOCA_WEB_PROBLEM_STATEMENT_DIR: /data/problem_statements
+      NOCA_WEB_PROBLEM_TESTCASE_DIR: /data/problem_test_cases
+      NOCA_WEB_UBERADMIN_USERNAME: ${NOCA_WEB_UBERADMIN_USERNAME:-}
+      NOCA_WEB_UBERADMIN_FULLNAME: ${NOCA_WEB_UBERADMIN_FULLNAME:-}
+      NOCA_WEB_UBERADMIN_EMAIL: ${NOCA_WEB_UBERADMIN_EMAIL:-}
+      NOCA_WEB_UBERADMIN_PASSWORD: ${NOCA_WEB_UBERADMIN_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/app/.venv/bin/python -m web.healthcheck",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    volumes:
+      - ${NOCA_DATA_ROOT:-./.docker}/problem_statements:/data/problem_statements
+      - ${NOCA_DATA_ROOT:-./.docker}/problem_test_cases:/data/problem_test_cases
+    networks:
+      - noca-network
+    restart: unless-stopped
+
+  arena:
+    image: noca/arena
+    build:
+      context: .
+      dockerfile: containers/arena/Dockerfile
+    env_file:
+      - .env
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-100}
+      NOCA_ENVIRONMENT: ${NOCA_ENVIRONMENT:-production}
+      # In this compose stack, `arena` is only reachable via the internal network behind Caddy.
+      # Keep explicit values in production instead of '*' when direct access is possible.
+      NOCA_FORWARDED_ALLOW_IPS: ${NOCA_FORWARDED_ALLOW_IPS:-*}
+      NOCA_ARENA_URL_BASE: ${NOCA_ARENA_URL_BASE:-}
+      NOCA_CRYPTO_ENV_FILE: /app/.env.crypto
+      NOCA_DB_USER: ${NOCA_DB_USER:?NOCA_DB_USER is required}
+      NOCA_DB_PASSWORD: ${NOCA_DB_PASSWORD:?NOCA_DB_PASSWORD is required}
+      NOCA_DB_SERVER: postgres
+      NOCA_DB_PORT: 5432
+      NOCA_DB_NAME: ${NOCA_DB_NAME:?NOCA_DB_NAME is required}
+      NOCA_VALKEY_SERVER: valkey
+      NOCA_VALKEY_PORT: ${NOCA_VALKEY_PORT:-6379}
+      NOCA_VALKEY_DB: ${NOCA_VALKEY_DB:-0}
+      NOCA_VALKEY_USER: ${NOCA_VALKEY_USER:-}
+      NOCA_VALKEY_PASSWORD: ${NOCA_VALKEY_PASSWORD:-}
+      NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS: ${NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS:-5}
+      NOCA_JWT_SECRET_KEY: ${NOCA_JWT_SECRET_KEY:?NOCA_JWT_SECRET_KEY is required}
+      NOCA_JWT_ALGORITHM: ${NOCA_JWT_ALGORITHM:-HS256}
+      NOCA_JWT_EXPIRE_SECONDS: ${NOCA_JWT_EXPIRE_SECONDS:-3600}
+      NOCA_JWT_REFRESH_MAX_SESSION_SECONDS: ${NOCA_JWT_REFRESH_MAX_SESSION_SECONDS:-0}
+      NOCA_COOKIE_SECURE: ${NOCA_COOKIE_SECURE:-false}
+      NOCA_SEND_EMAIL: ${NOCA_SEND_EMAIL:-false}
+      NOCA_EMAIL_PROVIDER: ${NOCA_EMAIL_PROVIDER:-mock}
+      NOCA_EMAIL_SENDER: ${NOCA_EMAIL_SENDER:-no-reply@noca.local}
+      NOCA_EMAIL_SENDER_NAME: ${NOCA_EMAIL_SENDER_NAME:-}
+      NOCA_SMTP_SERVER: ${NOCA_SMTP_SERVER:-}
+      NOCA_SMTP_PORT: ${NOCA_SMTP_PORT:-587}
+      NOCA_SMTP_USE_TLS: ${NOCA_SMTP_USE_TLS:-true}
+      NOCA_SMTP_USERNAME: ${NOCA_SMTP_USERNAME:-}
+      NOCA_SMTP_PASSWORD: ${NOCA_SMTP_PASSWORD:-}
+      NOCA_GEOLOCATION_API_KEY: ${NOCA_GEOLOCATION_API_KEY:-}
+      NOCA_ARENA_REVERSE_GEOCODER_ENABLED: ${NOCA_ARENA_REVERSE_GEOCODER_ENABLED:-true}
+      NOCA_ARENA_REVERSE_GEOCODER_URL: >-
+        ${NOCA_ARENA_REVERSE_GEOCODER_URL:-https://nominatim.openstreetmap.org/reverse}
+      NOCA_ARENA_REVERSE_GEOCODER_USER_AGENT: ${NOCA_ARENA_REVERSE_GEOCODER_USER_AGENT:-}
+      NOCA_WORDLIST_FILENAME: ${NOCA_WORDLIST_FILENAME:-wordlist-pt.txt}
+      NOCA_PASSWORD_WORD_COUNT: ${NOCA_PASSWORD_WORD_COUNT:-4}
+      NOCA_MIN_PASSWORD_LENGTH: ${NOCA_MIN_PASSWORD_LENGTH:-12}
+      NOCA_PASSWORD_UPPERCASE_REQUIRED: ${NOCA_PASSWORD_UPPERCASE_REQUIRED:-true}
+      NOCA_PASSWORD_LOWERCASE_REQUIRED: ${NOCA_PASSWORD_LOWERCASE_REQUIRED:-true}
+      NOCA_PASSWORD_NUMBER_REQUIRED: ${NOCA_PASSWORD_NUMBER_REQUIRED:-true}
+      NOCA_PASSWORD_SYMBOL_REQUIRED: ${NOCA_PASSWORD_SYMBOL_REQUIRED:-true}
+      NOCA_IMAGE_AVATAR_SIZE: ${NOCA_IMAGE_AVATAR_SIZE:-64}
+      NOCA_IMAGE_MAX_FILE_SIZE: ${NOCA_IMAGE_MAX_FILE_SIZE:-5242880}
+      NOCA_IMAGE_MAX_WIDTH: ${NOCA_IMAGE_MAX_WIDTH:-2048}
+      NOCA_IMAGE_MAX_HEIGHT: ${NOCA_IMAGE_MAX_HEIGHT:-2048}
+      NOCA_IMAGE_FONT_DIR: ${NOCA_IMAGE_FONT_DIR:-}
+      NOCA_IMAGE_RESPONSE_CACHE_MAX_AGE: ${NOCA_IMAGE_RESPONSE_CACHE_MAX_AGE:-3600}
+      NOCA_SEED_LANGUAGES: ${NOCA_SEED_LANGUAGES:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    volumes:
+      - ./.env.crypto:/app/.env.crypto:ro
+    networks:
+      - noca-network
+    restart: unless-stopped
+
+  autojudge:
+    image: noca/autojudge
+    build:
+      context: .
+      dockerfile: containers/autojudge/Dockerfile
+    env_file:
+      - .env
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-100}
+      NOCA_ENVIRONMENT: ${NOCA_ENVIRONMENT:-production}
+      NOCA_DB_USER: ${NOCA_DB_USER:?NOCA_DB_USER is required}
+      NOCA_DB_PASSWORD: ${NOCA_DB_PASSWORD:?NOCA_DB_PASSWORD is required}
+      NOCA_DB_SERVER: ${NOCA_DB_SERVER:-postgres:5432}
+      NOCA_DB_NAME: ${NOCA_DB_NAME:?NOCA_DB_NAME is required}
+      NOCA_VALKEY_SERVER: ${NOCA_VALKEY_SERVER:-valkey}
+      NOCA_VALKEY_PORT: ${NOCA_VALKEY_PORT:-6379}
+      NOCA_VALKEY_DB: ${NOCA_VALKEY_DB:-0}
+      NOCA_VALKEY_USER: ${NOCA_VALKEY_USER:-}
+      NOCA_VALKEY_PASSWORD: ${NOCA_VALKEY_PASSWORD:-}
+      NOCA_JUDGE_PROBLEM_TESTCASE_DIR: /data/problem_test_cases
+      NOCA_JUDGE_WORKER_CONCURRENCY: ${NOCA_JUDGE_WORKER_CONCURRENCY:-4}
+      NOCA_JUDGE_DOCKER_BASE_URL: unix:///var/run/docker.sock
+      NOCA_JUDGE_DOCKER_APPARMOR_PROFILE: ${NOCA_JUDGE_DOCKER_APPARMOR_PROFILE:-}
+      NOCA_JUDGE_IMAGE_REGISTRY: ${NOCA_JUDGE_IMAGE_REGISTRY:-}
+      NOCA_JUDGE_IMAGE_TAG: ${NOCA_JUDGE_IMAGE_TAG:-}
+      NOCA_JUDGE_IMAGE_PULL_POLICY: ${NOCA_JUDGE_IMAGE_PULL_POLICY:-missing}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -m autojudge.healthcheck",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    group_add:
+      - "${DOCKER_GID:-989}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${NOCA_DATA_ROOT:-./.docker}/problem_test_cases:/data/problem_test_cases:ro
+    networks:
+      - noca-network
+    restart: unless-stopped
+
+  rating:
+    image: noca/rating
+    build:
+      context: .
+      dockerfile: containers/rating/Dockerfile
+    env_file:
+      - .env
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-100}
+      NOCA_ENVIRONMENT: ${NOCA_ENVIRONMENT:-production}
+      NOCA_DB_USER: ${NOCA_DB_USER:?NOCA_DB_USER is required}
+      NOCA_DB_PASSWORD: ${NOCA_DB_PASSWORD:?NOCA_DB_PASSWORD is required}
+      NOCA_DB_SERVER: ${NOCA_DB_SERVER:-postgres}
+      NOCA_DB_PORT: ${NOCA_DB_PORT:-5432}
+      NOCA_DB_NAME: ${NOCA_DB_NAME:?NOCA_DB_NAME is required}
+      NOCA_VALKEY_SERVER: ${NOCA_VALKEY_SERVER:-valkey}
+      NOCA_VALKEY_PORT: ${NOCA_VALKEY_PORT:-6379}
+      NOCA_VALKEY_DB: ${NOCA_VALKEY_DB:-0}
+      NOCA_VALKEY_USER: ${NOCA_VALKEY_USER:-}
+      NOCA_VALKEY_PASSWORD: ${NOCA_VALKEY_PASSWORD:-}
+      NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS: ${NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS:-5}
+      NOCA_RATING_INTERVAL: ${NOCA_RATING_INTERVAL:-86400}
+      NOCA_RATING_COMPUTE_ON_STARTUP: ${NOCA_RATING_COMPUTE_ON_STARTUP:-false}
+      NOCA_RATING_AFFILIATION_FACTOR: ${NOCA_RATING_AFFILIATION_FACTOR:-5.0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - noca-network
+    restart: unless-stopped
+
+  aiassistant:
+    image: noca/aiassistant
+    build:
+      context: .
+      dockerfile: containers/aiassistant/Dockerfile
+    env_file:
+      - .env
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-100}
+      NOCA_ENVIRONMENT: ${NOCA_ENVIRONMENT:-production}
+      NOCA_DB_USER: ${NOCA_DB_USER:?NOCA_DB_USER is required}
+      NOCA_DB_PASSWORD: ${NOCA_DB_PASSWORD:?NOCA_DB_PASSWORD is required}
+      NOCA_DB_SERVER: ${NOCA_DB_SERVER:-postgres}
+      NOCA_DB_PORT: ${NOCA_DB_PORT:-5432}
+      NOCA_DB_NAME: ${NOCA_DB_NAME:?NOCA_DB_NAME is required}
+      NOCA_VALKEY_SERVER: ${NOCA_VALKEY_SERVER:-valkey}
+      NOCA_VALKEY_PORT: ${NOCA_VALKEY_PORT:-6379}
+      NOCA_VALKEY_DB: ${NOCA_VALKEY_DB:-0}
+      NOCA_VALKEY_USER: ${NOCA_VALKEY_USER:-}
+      NOCA_VALKEY_PASSWORD: ${NOCA_VALKEY_PASSWORD:-}
+      NOCA_AI_OPENAI_API_KEY: ${NOCA_AI_OPENAI_API_KEY:-}
+      NOCA_AI_OPENAI_MODEL: ${NOCA_AI_OPENAI_MODEL:-gpt-5.4-mini}
+      NOCA_AI_OPENAI_MAX_OUTPUT_TOKENS: ${NOCA_AI_OPENAI_MAX_OUTPUT_TOKENS:-500}
+      NOCA_AI_OPENAI_INPUT_TOKEN_PRICE: ${NOCA_AI_OPENAI_INPUT_TOKEN_PRICE:-0.75}
+      NOCA_AI_OPENAI_OUTPUT_TOKEN_PRICE: ${NOCA_AI_OPENAI_OUTPUT_TOKEN_PRICE:-4.50}
+      NOCA_AI_BATCH_POLL_INTERVAL_SECONDS: ${NOCA_AI_BATCH_POLL_INTERVAL_SECONDS:-300}
+      NOCA_CRYPTO_ENV_FILE: /app/.env.crypto
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    volumes:
+      - ./.env.crypto:/app/.env.crypto:ro
+    networks:
+      - noca-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18-trixie
+    environment:
+      POSTGRES_DB: ${NOCA_DB_NAME:?NOCA_DB_NAME is required}
+      POSTGRES_USER: ${NOCA_DB_USER:?NOCA_DB_USER is required}
+      POSTGRES_PASSWORD: ${NOCA_DB_PASSWORD:?NOCA_DB_PASSWORD is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - noca-network
+    restart: unless-stopped
+
+  valkey:
+    image: valkey/valkey:latest
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    command:
+      valkey-server --loglevel verbose
+    mem_limit: 1g   # Set maximum memory limit for Redis
+    volumes:
+      - valkey-data:/data
+    networks:
+      - noca-network
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  valkey-data:
+
+networks:
+  noca-network:
+    name: noca-network

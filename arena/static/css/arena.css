@@ -1,0 +1,40 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* Shared styles common to the web (contest) and arena modules. */
+@import url('/static/shared-css/common.css');
+
+@import url('./arena/_tokens.css');
+@import url('./arena/_topbar.css');
+@import url('./arena/_sidebar.css');
+@import url('./arena/_cards.css');
+@import url('./arena/_tables.css');
+@import url('./arena/_profile.css');
+@import url('./arena/_footer.css');
+@import url('./arena/_auth.css');
+@import url('./arena/_upload.css');
+@import url('./arena/_problems.css');
+@import url('./arena/_admin.css');
+@import url('./arena/_help.css');
+@import url('./arena/_submissions.css');
+@import url('./arena/_errors.css');
+
+.arena-date-input {
+    width: 8rem;
+}
+
+.arena-datetime-input {
+    width: 13rem;
+}
+
+.arena-dashboard-lang-icon {
+    width: 2rem;
+    height: 2rem;
+    object-fit: contain;
+    flex-shrink: 0;
+}

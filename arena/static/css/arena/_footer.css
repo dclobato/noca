@@ -1,0 +1,85 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Footer
+   ============================================================ */
+.arena-footer {
+    background-color: var(--arena-surface-container-lowest);
+    border-top: 1px solid var(--arena-outline-variant);
+    font-family: 'Public Sans', sans-serif;
+    font-size: 0.75rem;
+    color: #6c757d;
+    padding: 1rem 1.5rem;
+    margin-top: auto;
+    position: sticky;
+    bottom: 0;
+    z-index: 1030;
+}
+
+.arena-footer-inner {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    justify-content: space-between;
+    margin: 0 auto;
+    max-width: var(--arena-max-width);
+}
+
+.arena-footer-meta {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+}
+
+.arena-footer-rating {
+    color: var(--arena-on-surface-variant);
+}
+
+.arena-footer-rating::before {
+    content: "schedule";
+    display: inline-block;
+    font-family: 'Material Symbols Outlined', sans-serif;
+    font-size: 1rem;
+    line-height: 1;
+    margin-right: 0.25rem;
+    vertical-align: -0.2rem;
+}
+
+.arena-footer-session-expiry {
+    color: var(--arena-on-surface-variant);
+}
+
+.arena-footer-session-expiry::before {
+    content: "timer";
+    display: inline-block;
+    font-family: 'Material Symbols Outlined', sans-serif;
+    font-size: 1rem;
+    line-height: 1;
+    margin-right: 0.25rem;
+    vertical-align: -0.2rem;
+}
+
+.arena-footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.arena-footer a {
+    color: #6c757d;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    transition: color 0.15s ease;
+}
+
+.arena-footer a:hover {
+    color: var(--arena-primary);
+}

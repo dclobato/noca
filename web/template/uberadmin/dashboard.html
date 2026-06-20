@@ -1,0 +1,74 @@
+{% extends "_base.html" %}
+{% from "_contest_macros.html" import contest_tile with context %}
+{% block title_suffix %}— Dashboard{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+            <div>
+                <h2 class="h4 mb-1">Welcome, {{ current_user.fullname }}</h2>
+                <p class="text-muted mb-0 small">{{ current_user.username }}</p>
+            </div>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <a href="{{ request.url_for("uberadmin_inactive_contests") }}"
+                   class="btn btn-outline-secondary btn-sm">Inactive contests</a>
+                <a href="/problems" class="btn btn-success btn-sm">Problem Bank</a>
+                <a href="{{ request.url_for("add_contest") }}"
+                   class="btn btn-primary btn-sm">Create contest</a>
+                <a href="{{ request.url_for("list_uberadmins_route") }}"
+                   class="btn btn-primary btn-sm">Manage UberAdmins</a>
+            </div>
+        </div>
+        <div class="row g-4">
+            <div class="col-12 col-xl-4">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header fw-semibold">Past Contests</div>
+                    <div class="card-body">
+                        {% if past_contests %}
+                            {% for contest in past_contests %}
+                                {% call contest_tile(contest, show_login=False, show_languages=False, show_uberadmin_access=True, show_deactivate=True, width="col-12") %}
+                                {% endcall %}
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-muted small mb-0">No past contests.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-xl-4">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header fw-semibold">Live Contests</div>
+                    <div class="card-body">
+                        {% if live_contests %}
+                            {% for contest in live_contests %}
+                                {% call contest_tile(contest, show_login=False, show_uberadmin_access=True, width="col-12") %}
+                                    Ends in {{ contest.remaining_time_formatted }}
+                                {% endcall %}
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-muted small mb-0">No live contests.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-xl-4">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header fw-semibold">Upcoming Contests</div>
+                    <div class="card-body">
+                        {% if upcoming_contests %}
+                            {% for contest in upcoming_contests %}
+                                {% call contest_tile(contest, show_login=False, show_languages=False, show_uberadmin_access=True, width="col-12") %}
+                                {% endcall %}
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-muted small mb-0">No upcoming contests.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_js', path='confirm-submit.js') }}"
+            defer></script>
+{% endblock %}

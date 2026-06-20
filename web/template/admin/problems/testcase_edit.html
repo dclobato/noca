@@ -1,0 +1,79 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}
+    —
+    {% if tc %}
+        Test Case {{ tc.ordinal }}
+    {% else %}
+        New Test Case
+    {% endif %}
+{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('manage_problems', slug=contest.login_slug) }}">Problems</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('edit_problem_form', slug=contest.login_slug, problem_id=problem.id) }}">{{ problem.title }}</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">
+                {% if tc %}
+                    Test Case {{ tc.ordinal }}
+                {% else %}
+                    New Test Case
+                {% endif %}
+            </li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5 noca-container-problem-tc-edit">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">
+                {% if tc %}
+                    Edit Test Case {{ tc.ordinal }}
+                {% else %}
+                    New Test Case
+                {% endif %}
+            </h1>
+            <p class="text-muted mb-0">{{ problem.title }} — {{ contest.contest_name }}</p>
+        </div>
+        {% for err in errors %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endfor %}
+        {% if not is_edit_allowed %}
+            <div class="alert alert-warning py-2 small">
+                {{ render_icon(icon="lock", classes="me-1") }}Contest is running — this test case is view-only.
+            </div>
+        {% endif %}
+        {% with is_edit=tc is not none,
+            is_edit_allowed=is_edit_allowed,
+            offline=offline | default(false),
+            input_size_bytes=input_size_bytes | default(0),
+            output_size_bytes=output_size_bytes | default(0),
+            download_url=download_url | default(''),
+            replace_url=replace_url | default(''),
+            post_action_url=(request.url_for('edit_test_case', slug=contest.login_slug, problem_id=problem.id, tc_id=tc.id) if tc else request.url_for('add_test_case', slug=contest.login_slug, problem_id=problem.id)) | string,
+            cancel_url=request.url_for('edit_problem_form', slug=contest.login_slug, problem_id=problem.id) | string,
+            input_field_name='tc_in',
+            output_field_name='tc_out',
+            input_value=form_data.tc_in if form_data.tc_in is defined else '',
+            output_value=form_data.tc_out if form_data.tc_out is defined else '',
+            explanation_value=form_data.explanation if form_data.explanation is defined else '',
+            is_sample=form_data.is_sample if form_data.is_sample is defined else false %}
+            {% include "_partials/testcase_edit_form.html" %}
+        {% endwith %}
+    </div>
+{% endblock %}

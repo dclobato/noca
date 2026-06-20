@@ -1,0 +1,45 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon, render_flash_messages with context %}
+{% block title_suffix %}— Login{% endblock %}
+{% block flash %}{% endblock %}
+{% block content %}
+    <div class="auth-page flex-grow-1 d-flex align-items-center justify-content-center">
+        <div class="auth-card card shadow-sm">
+            <div class="card-body px-4 py-4">
+                <h1 class="h4 fw-bold text-center mb-1">Noca Contest</h1>
+                <p class="text-center text-muted small mb-4">Next Online Contest Administrator</p>
+                {{ render_flash_messages(dismissible=False, full_width=True) }}
+                {% if next_url and next_url != "/uberadmin" %}
+                    <div class="alert alert-warning py-2 small" role="alert">Please sign in again to continue.</div>
+                {% endif %}
+                <form method="post" action="{{ request.url_for("login_post") }}" novalidate>
+                    <input type="hidden" name="next_url" value="{{ next_url }}">
+                    <div class="mb-3">
+                        <label for="identifier" class="form-label">Username or email</label>
+                        <input type="text"
+                               class="form-control"
+                               id="identifier"
+                               name="identifier"
+                               autocomplete="username"
+                               required
+                               autofocus>
+                    </div>
+                    <div class="mb-4">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password"
+                               class="form-control"
+                               id="password"
+                               name="password"
+                               autocomplete="current-password"
+                               required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Sign in</button>
+                </form>
+                <div class="text-center mt-3">
+                    <a href="{{ request.url_for("contests_list") }}"
+                       class="small text-decoration-none">Browse active contests</a>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

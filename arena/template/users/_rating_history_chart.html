@@ -1,0 +1,46 @@
+{% set modal_id = chart_id ~ "-modal" %}
+{% if not hide_button %}
+    <button type="button"
+            class="btn btn-outline-secondary arena-icon-button btn-sm arena-rating-history-btn"
+            data-bs-toggle="modal"
+            data-bs-target="#{{ modal_id }}">
+        {{ render_icon(icon="show_chart") }}
+        <span>Rating history</span>
+    </button>
+{% endif %}
+<div class="modal fade"
+     id="{{ modal_id }}"
+     tabindex="-1"
+     aria-labelledby="{{ modal_id }}-label"
+     aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="{{ modal_id }}-label">Rating history</h5>
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="{{ chart_id }}" class="arena-rating-chart-container"></div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    (function () {
+        var modal = document.getElementById("{{ modal_id }}");
+        var initialised = false;
+        modal.addEventListener("shown.bs.modal", function () {
+            if (!initialised) {
+                ArenaRatingChart.init("{{ chart_id }}", "{{ data_url }}");
+                initialised = true;
+            }
+        });
+        modal.addEventListener("hidden.bs.modal", function () {
+            ArenaRatingChart.dispose("{{ chart_id }}");
+            initialised = false;
+        });
+    }());
+</script>

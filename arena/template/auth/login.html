@@ -1,0 +1,135 @@
+{% extends "_auth_base.html" %}
+{% block title_suffix %}&mdash; Login{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
+{% endblock %}
+{% block auth_content %}
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-12 col-md-6 col-lg-5 col-xl-4">
+                {# Brand header #}
+                <div class="text-center mb-4 pt-4">
+                    <h1 class="arena-auth-logo">Noca Arena</h1>
+                    <p class="arena-auth-tagline">Competitive Judge</p>
+                </div>
+                {# Login card #}
+                <div class="arena-auth-card">
+                    <h2 class="arena-auth-title">Welcome Back</h2>
+                    <p class="arena-auth-subtitle">Access the Noca Arena competitive platform</p>
+                    <form method="post"
+                          action="{{ request.url_for("arena_login_submit") }}"
+                          novalidate>
+                        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+                        <div class="mb-3">
+                            <label for="email" class="form-label">Email Address</label>
+                            <input type="email"
+                                   class="form-control"
+                                   id="email"
+                                   name="email"
+                                   placeholder="you@example.com"
+                                   autocomplete="email"
+                                   required>
+                        </div>
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <label for="password" class="form-label">Password</label>
+                                <a href="{{ request.url_for("arena_password_reset") }}"
+                                   class="arena-auth-link">Forgot password?</a>
+                            </div>
+                            <input type="password"
+                                   class="form-control"
+                                   id="password"
+                                   name="password"
+                                   placeholder="Enter your password"
+                                   autocomplete="current-password"
+                                   required>
+                        </div>
+                        <div class="form-check mb-4">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   id="remember"
+                                   name="remember">
+                            <label class="form-check-label" for="remember">Remember me for 30 days</label>
+                        </div>
+                        <button type="submit" class="btn arena-btn-primary w-100">Log In</button>
+                    </form>
+                    {% if show_resend %}
+                        <div class="mt-3 pt-3 border-top">
+                            <p class="arena-2fa-help text-center mb-2">
+                                We sent you a confirmation email when you registered.
+                                Didn't receive it or has it expired?
+                            </p>
+                            <form method="post"
+                                  action="{{ request.url_for("arena_resend_activation") }}">
+                                <button type="submit" class="btn arena-btn-primary w-100">Resend confirmation email</button>
+                            </form>
+                        </div>
+                    {% endif %}
+                    {% if show_resend_parental %}
+                        <div class="mt-3 pt-3 border-top">
+                            <p class="arena-2fa-help text-center mb-2">
+                                This account is waiting for consent from the parent or legal guardian email on file.
+                            </p>
+                            <form method="post"
+                                  action="{{ request.url_for("arena_resend_parental_consent") }}">
+                                <button type="submit" class="btn arena-btn-primary w-100">Resend consent email</button>
+                            </form>
+                        </div>
+                    {% endif %}
+                    {% if show_parental_email_form %}
+                        <div class="mt-3 pt-3 border-top">
+                            <p class="arena-2fa-help text-center mb-2">Add a parent or legal guardian email to request consent.</p>
+                            <form method="post"
+                                  action="{{ request.url_for("arena_update_parental_email") }}">
+                                <div class="mb-3">
+                                    <label for="email_responsavel_legal" class="form-label">Parent or Legal Guardian Email</label>
+                                    <input type="email"
+                                           class="form-control"
+                                           id="email_responsavel_legal"
+                                           name="email_responsavel_legal"
+                                           placeholder="parent@example.com"
+                                           autocomplete="email"
+                                           required>
+                                </div>
+                                <button type="submit" class="btn arena-btn-primary w-100">Send consent email</button>
+                            </form>
+                        </div>
+                    {% endif %}
+                    {% if show_age_reconfirmation %}
+                        <div class="mt-3 pt-3 border-top">
+                            <p class="arena-2fa-help text-center mb-2">Confirm your date of birth before logging in.</p>
+                            <form method="post"
+                                  action="{{ request.url_for("arena_update_date_of_birth") }}">
+                                <div class="mb-3">
+                                    <label for="date_of_birth" class="form-label">Date of Birth</label>
+                                    <input type="text"
+                                           class="form-control arena-date-input"
+                                           id="date_of_birth"
+                                           name="date_of_birth"
+                                           data-fp-date
+                                           required>
+                                </div>
+                                <button type="submit" class="btn arena-btn-primary w-100">Confirm date of birth</button>
+                            </form>
+                        </div>
+                    {% endif %}
+                    <p class="text-center mt-3 mb-0">
+                        Don't have an account?
+                        <a href="{{ request.url_for("arena_signup") }}" class="arena-auth-link">Sign Up</a>
+                    </p>
+                </div>
+                {# Arena label #}
+                <div class="text-center mt-4">
+                    <span class="arena-auth-section-label">ARENA</span>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/l10n/default.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/plugins/rangePlugin.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='flatpickr-init.js') }}?v={{ app_version }}"></script>
+{% endblock %}

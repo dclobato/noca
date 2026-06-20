@@ -1,0 +1,815 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; {{ target_user.nome }}{% endblock %}
+{% block nav_admin_users %}active{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
+{% endblock %}
+{% macro back_fields() %}
+    <input type="hidden" name="search" value="{{ back_search }}">
+    <input type="hidden" name="page" value="{{ back_page }}">
+    <input type="hidden" name="per_page" value="{{ back_per_page }}">
+    <input type="hidden" name="role_filter" value="{{ back_role }}">
+    <input type="hidden" name="source" value="profile">
+{% endmacro %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <section class="arena-card mb-3">
+            <div class="d-flex align-items-center gap-3">
+                <div class="arena-admin-avatar-actions">
+                    <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=target_user.id) }}"
+                         alt="{{ target_user.nome }}"
+                         class="arena-avatar arena-profile-avatar">
+                    {% if target_user.com_foto %}
+                        <form method="post"
+                              action="{{ request.url_for('arena_admin_user_remove_photo', user_id=target_user.id) }}">
+                            {{ back_fields() }}
+                            <button type="submit"
+                                    class="btn btn-outline-secondary arena-icon-button btn-sm">
+                                {{ render_icon(icon="no_photography") }}
+                                <span>Remove photo</span>
+                            </button>
+                        </form>
+                    {% endif %}
+                </div>
+                <div>
+                    <div class="arena-profile-name">{{ target_user.nome }}</div>
+                    <div class="arena-list-item-meta">{{ target_user.email }}</div>
+                    <span class="badge {{ 'bg-success' if target_user.ativo else 'bg-danger' }}">
+                        {{ 'Active' if target_user.ativo else 'Inactive' }}
+                    </span>
+                    <span class="badge bg-secondary ms-1">{{ arena_role_labels[target_user.role] }}</span>
+                </div>
+                <a href="{{ back_url }}"
+                   class="btn btn-sm btn-outline-secondary arena-icon-button ms-auto">
+                    {{ render_icon(icon="arrow_back") }}
+                    <span>Back to user list</span>
+                </a>
+            </div>
+        </section>
+        <section class="arena-card">
+            {% with chart_id="arena-admin-user-submission-heatmap",
+                data_url=request.url_for("arena_admin_user_submission_heatmap", user_id=target_user.id) %}
+                {% include "users/_submission_heatmap.html" %}
+            {% endwith %}
+        </section>
+        <section class="arena-card">
+            <ul class="nav nav-tabs arena-profile-tabs"
+                id="admin-profile-tabs"
+                role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'personal-security' %}active{% endif %}"
+                            id="ap-personal-security-tab"
+                            data-profile-tab="personal-security"
+                            type="button"
+                            role="tab"
+                            aria-controls="ap-personal-security-pane"
+                            aria-selected="{{ 'true' if active_tab == 'personal-security' else 'false' }}">
+                        {{ render_icon(icon="manage_accounts") }}
+                        <span>Personal &amp; Security</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'credits' %}active{% endif %}"
+                            id="ap-credits-tab"
+                            data-profile-tab="credits"
+                            type="button"
+                            role="tab"
+                            aria-controls="ap-credits-pane"
+                            aria-selected="{{ 'true' if active_tab == 'credits' else 'false' }}">
+                        {{ render_icon(icon="credit_card") }}
+                        <span>AI Credits</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'login-history' %}active{% endif %}"
+                            id="ap-login-history-tab"
+                            data-profile-tab="login-history"
+                            type="button"
+                            role="tab"
+                            aria-controls="ap-login-history-pane"
+                            aria-selected="{{ 'true' if active_tab == 'login-history' else 'false' }}">
+                        {{ render_icon(icon="history") }}
+                        <span>Login History</span>
+                    </button>
+                </li>
+            </ul>
+            <div class="tab-content arena-profile-tab-content"
+                 id="admin-profile-tabs-content">
+                <div class="tab-pane fade {% if active_tab == 'personal-security' %}show active{% endif %}"
+                     id="ap-personal-security-pane"
+                     role="tabpanel"
+                     aria-labelledby="ap-personal-security-tab"
+                     tabindex="0">
+                    {% if active_tab == 'personal-security' %}
+                        <div class="row g-4 py-4">
+                            <div class="col-12 col-lg-7">
+                                <dl class="arena-profile-details">
+                                    <dt class="visually-hidden">Personal information</dt>
+                                    <dd>
+                                        <form method="post"
+                                              action="{{ request.url_for('arena_admin_user_change_personal_info', user_id=target_user.id) }}">
+                                            {{ back_fields() }}
+                                            <div class="row g-2 mb-2">
+                                                <div class="col-12 col-md-8">
+                                                    <label for="admin-user-name" class="form-label">Full name</label>
+                                                    <input type="text"
+                                                           id="admin-user-name"
+                                                           name="new_name"
+                                                           class="form-control form-control-sm"
+                                                           value="{{ target_user.nome }}"
+                                                           maxlength="120"
+                                                           autocomplete="name"
+                                                           required>
+                                                </div>
+                                                <div class="col-12 col-md-4">
+                                                    <label for="admin-user-date-of-birth" class="form-label">Date of birth</label>
+                                                    <input type="text"
+                                                           id="admin-user-date-of-birth"
+                                                           name="date_of_birth"
+                                                           class="form-control form-control-sm arena-date-input"
+                                                           value="{{ target_user.dta_nascimento.isoformat() if target_user.dta_nascimento else '' }}"
+                                                           data-fp-date
+                                                           autocomplete="bday"
+                                                           required>
+                                                </div>
+                                            </div>
+                                            <button type="submit" class="btn arena-btn-primary arena-icon-button btn-sm">
+                                                {{ render_icon(icon="save") }}
+                                                <span>Save</span>
+                                            </button>
+                                        </form>
+                                    </dd>
+                                    <dt>Email</dt>
+                                    <dd>
+                                        <div class="arena-admin-inline-field">
+                                            <span>{{ target_user.email }}</span>
+                                            <form method="post"
+                                                  action="{{ request.url_for('arena_admin_user_toggle_email_confirmed', user_id=target_user.id) }}">
+                                                {{ back_fields() }}
+                                                <button type="submit"
+                                                        class="btn {{ 'btn-outline-warning' if target_user.email_confirmado else 'btn-outline-success' }} arena-icon-button btn-sm">
+                                                    {{ render_icon(icon="mark_email_unread" if target_user.email_confirmado else "mark_email_read") }}
+                                                    <span>{{ 'Clear email confirmation' if target_user.email_confirmado else 'Confirm email' }}</span>
+                                                </button>
+                                            </form>
+                                        </div>
+                                        <div class="small text-arena-muted mt-1">
+                                            {% if target_user.email_confirmado %}
+                                                Confirmed
+                                                {% if target_user.dta_validacao_email %}
+                                                    on {{ arena_format_datetime(target_user.dta_validacao_email, current_user) }}
+                                                {% endif %}
+                                            {% else %}
+                                                Email not confirmed
+                                            {% endif %}
+                                        </div>
+                                    </dd>
+                                    <dt>Parental consent</dt>
+                                    <dd>
+                                        {% set target_age = target_user.idade() %}
+                                        {% if target_age and target_age.anos >= 18 %}
+                                            <div class="text-arena-muted mt-2">Parental consent: Not required</div>
+                                        {% else %}
+                                            <div class="arena-admin-inline-field mt-2">
+                                                <span class="{{ 'text-arena-primary fw-semibold' if target_user.consentimento_responsavel else 'text-arena-muted' }}">
+                                                    Parental consent:
+                                                    {{ 'Given' if target_user.consentimento_responsavel else 'Not given' }}
+                                                </span>
+                                                <form method="post"
+                                                      action="{{ request.url_for('arena_admin_user_toggle_parental_consent', user_id=target_user.id) }}">
+                                                    {{ back_fields() }}
+                                                    <button type="submit"
+                                                            class="btn {{ 'btn-outline-warning' if target_user.consentimento_responsavel else 'btn-outline-success' }} arena-icon-button btn-sm">
+                                                        {{ render_icon(icon="person_remove" if target_user.consentimento_responsavel else "how_to_reg") }}
+                                                        <span>{{ 'Revoke parental consent' if target_user.consentimento_responsavel else 'Grant parental consent' }}</span>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        {% endif %}
+                                        {% if target_age and target_age.anos < 18 and target_user.dta_consentimento_responsavel %}
+                                            <div class="small text-arena-muted mt-1">
+                                                Given on
+                                                {{ arena_format_datetime(target_user.dta_consentimento_responsavel, current_user) }}
+                                            </div>
+                                        {% endif %}
+                                    </dd>
+                                    <dt>Rating</dt>
+                                    <dd>
+                                        <span class="arena-profile-rating">
+                                            {{ render_icon(icon="star", filled=True) }}
+                                            {{ target_user.user_rating or 0 }} pts
+                                        </span>
+                                    </dd>
+                                    <dt>Location</dt>
+                                    <dd>
+                                        {% if target_user.country_name %}
+                                            <div class="arena-admin-inline-field">
+                                                <span>
+                                                    {% if target_user.country_code %}
+                                                        <img src="{{ request.url_for('static_vendor', path='img/flags/' + target_user.country_code.lower() + '.svg') }}"
+                                                             class="arena-country-flag"
+                                                             alt="">
+                                                    {% endif %}
+                                                    {{ target_user.country_name }}
+                                                    {% if target_user.subdivision_name %}, {{ target_user.subdivision_name }}{% endif %}
+                                                </span>
+                                                <form method="post"
+                                                      action="{{ request.url_for('arena_admin_user_remove_location', user_id=target_user.id) }}">
+                                                    {{ back_fields() }}
+                                                    <button type="submit"
+                                                            class="btn btn-outline-secondary arena-icon-button btn-sm">
+                                                        {{ render_icon(icon="location_off") }}
+                                                        <span>Remove location</span>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        {% else %}
+                                            <span class="text-arena-muted">Location not set</span>
+                                        {% endif %}
+                                    </dd>
+                                    <dt>Affiliation</dt>
+                                    <dd>
+                                        {% if target_user.affiliation_name %}
+                                            <div class="arena-admin-inline-field">
+                                                <span>{{ target_user.affiliation_name }}</span>
+                                                <form method="post"
+                                                      action="{{ request.url_for('arena_admin_user_remove_affiliation', user_id=target_user.id) }}">
+                                                    {{ back_fields() }}
+                                                    <button type="submit"
+                                                            class="btn btn-outline-secondary arena-icon-button btn-sm">
+                                                        {{ render_icon(icon="link_off") }}
+                                                        <span>Remove affiliation</span>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        {% else %}
+                                            <span class="text-arena-muted">Affiliation not set</span>
+                                        {% endif %}
+                                    </dd>
+                                    <dt>Role</dt>
+                                    <dd>
+                                        <div class="arena-admin-inline-field">
+                                            <select id="admin-role-select"
+                                                    class="form-select form-select-sm arena-admin-role-select">
+                                                {% for role in ArenaRole %}
+                                                    <option value="{{ role.value }}"
+                                                            {% if target_user.role == role %}selected{% endif %}>
+                                                        {{ arena_role_labels[role] }}
+                                                    </option>
+                                                {% endfor %}
+                                            </select>
+                                            <button type="button"
+                                                    class="btn btn-outline-primary arena-icon-button btn-sm"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#confirmChangeRoleModal">
+                                                {{ render_icon(icon="manage_accounts") }}
+                                                <span>Change role</span>
+                                            </button>
+                                        </div>
+                                    </dd>
+                                    <dt>Last login</dt>
+                                    <dd>
+                                        {% if target_user.ultimo_login %}
+                                            {{ arena_format_datetime(target_user.ultimo_login, current_user) }}
+                                        {% else %}
+                                            <span class="text-arena-muted">Never</span>
+                                        {% endif %}
+                                    </dd>
+                                </dl>
+                            </div>
+                            <div class="col-12 col-lg-5">
+                                <dl class="arena-profile-details">
+                                    <dt>Account status</dt>
+                                    <dd>
+                                        <div class="row align-items-center">
+                                            <div class="col-5">
+                                                <span class="{{ 'text-arena-primary fw-semibold' if target_user.ativo else 'text-danger fw-semibold' }}">
+                                                    {{ 'Active' if target_user.ativo else 'Inactive' }}
+                                                </span>
+                                            </div>
+                                            <div class="col-7">
+                                                <button type="button"
+                                                        class="btn {{ 'btn-outline-danger' if target_user.ativo else 'btn-outline-success' }} arena-icon-button btn-sm w-100"
+                                                        data-bs-toggle="modal"
+                                                        data-bs-target="#confirmToggleActiveModal">
+                                                    {{ render_icon(icon="block" if target_user.ativo else "check_circle") }}
+                                                    <span>{{ 'Disable account' if target_user.ativo else 'Enable account' }}</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </dd>
+                                    <dt>Two-factor authentication</dt>
+                                    <dd>
+                                        <div class="row align-items-center">
+                                            <div class="col-5">
+                                                <span class="{{ 'text-arena-primary fw-semibold' if target_user.usa_2fa else 'text-arena-muted' }}">
+                                                    {{ 'Enabled' if target_user.usa_2fa else 'Disabled' }}
+                                                </span>
+                                            </div>
+                                            <div class="col-7">
+                                                {% if target_user.usa_2fa %}
+                                                    <button type="button"
+                                                            class="btn btn-outline-danger arena-icon-button btn-sm w-100"
+                                                            data-bs-toggle="modal"
+                                                            data-bs-target="#confirmDisable2FAProfileModal">
+                                                        {{ render_icon(icon="no_encryption") }}
+                                                        <span>Disable 2FA</span>
+                                                    </button>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </dd>
+                                    <dt>Password change required</dt>
+                                    <dd>
+                                        <div class="row align-items-center">
+                                            <div class="col-5">
+                                                <span>{{ 'Yes' if target_user.precisa_trocar_senha else 'No' }}</span>
+                                            </div>
+                                            <div class="col-7">
+                                                <button type="button"
+                                                        class="btn btn-outline-secondary arena-icon-button btn-sm w-100"
+                                                        data-bs-toggle="modal"
+                                                        data-bs-target="#confirmForcePwChangeModal">
+                                                    {{ render_icon(icon="lock_open" if target_user.precisa_trocar_senha else "lock_reset") }}
+                                                    <span>{{ 'Clear requirement' if target_user.precisa_trocar_senha else 'Force change' }}</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </dd>
+                                    <dt>Ranking visibility</dt>
+                                    <dd>
+                                        <div class="row align-items-center">
+                                            <div class="col-5">
+                                                <span>{{ 'Visible' if target_user.ranking_visible else 'Hidden' }}</span>
+                                            </div>
+                                            <div class="col-7">
+                                                <button type="button"
+                                                        class="btn {{ 'btn-outline-warning' if target_user.ranking_visible else 'btn-outline-success' }} arena-icon-button btn-sm w-100"
+                                                        data-bs-toggle="modal"
+                                                        data-bs-target="#confirmToggleRankingVisibleModal">
+                                                    {{ render_icon(icon="visibility_off" if target_user.ranking_visible else "visibility") }}
+                                                    <span>{{ 'Hide from ranking' if target_user.ranking_visible else 'Show in ranking' }}</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </dd>
+                                    {% if target_user.role != ArenaRole.ARENA_ADMIN %}
+                                        <dt>Problem-edit permission</dt>
+                                        <dd>
+                                            <div class="row align-items-center">
+                                                <div class="col-5">
+                                                    <span>{{ 'Granted' if target_user.can_edit else 'Not granted' }}</span>
+                                                </div>
+                                                <div class="col-7">
+                                                    <button type="button"
+                                                            class="btn {{ 'btn-outline-warning' if target_user.can_edit else 'btn-outline-success' }} arena-icon-button btn-sm w-100"
+                                                            data-bs-toggle="modal"
+                                                            data-bs-target="#confirmToggleCanEditModal">
+                                                        {{ render_icon(icon="edit_off" if target_user.can_edit else "edit") }}
+                                                        <span>{{ 'Revoke permission' if target_user.can_edit else 'Grant permission' }}</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </dd>
+                                    {% endif %}
+                                </dl>
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="tab-pane fade {% if active_tab == 'credits' %}show active{% endif %}"
+                     id="ap-credits-pane"
+                     role="tabpanel"
+                     aria-labelledby="ap-credits-tab"
+                     tabindex="0">
+                    {% if active_tab == 'credits' %}
+                        <div class="py-4">
+                            <div class="row g-4 mb-4">
+                                <div class="col-12 col-md-6">
+                                    <dl class="arena-profile-details">
+                                        <dt>AI credit balance</dt>
+                                        <dd>
+                                            <span class="fw-semibold fs-5">{{ target_user.ai_backend_credits }}</span>
+                                            <span class="text-arena-muted ms-1">credits</span>
+                                        </dd>
+                                        <dt>Personal API key</dt>
+                                        <dd>
+                                            {% if target_user.ai_api_key %}
+                                                <div class="arena-admin-inline-field">
+                                                    <span class="badge bg-success">Set</span>
+                                                    <button type="button"
+                                                            class="btn btn-outline-danger arena-icon-button btn-sm"
+                                                            data-bs-toggle="modal"
+                                                            data-bs-target="#confirmResetApiKeyModal">
+                                                        {{ render_icon(icon="key_off") }}
+                                                        <span>Reset personal API key</span>
+                                                    </button>
+                                                </div>
+                                            {% else %}
+                                                <span class="text-arena-muted">Not set</span>
+                                            {% endif %}
+                                        </dd>
+                                    </dl>
+                                    <button type="button"
+                                            class="btn arena-btn-primary arena-icon-button btn-sm"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#adminTopupCreditsModal">
+                                        {{ render_icon(icon="add_card") }}
+                                        <span>Add credits</span>
+                                    </button>
+                                </div>
+                            </div>
+                            {% include "users/_credits_list.html" %}
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="tab-pane fade {% if active_tab == 'login-history' %}show active{% endif %}"
+                     id="ap-login-history-pane"
+                     role="tabpanel"
+                     aria-labelledby="ap-login-history-tab"
+                     tabindex="0">
+                    {% if active_tab == 'login-history' %}
+                        {% include "admin/_user_login_history.html" %}
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+    </div>
+    <div class="modal fade"
+         id="confirmToggleActiveModal"
+         tabindex="-1"
+         aria-labelledby="confirmToggleActiveLabel"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmToggleActiveLabel">
+                        {{ 'Disable account' if target_user.ativo else 'Enable account' }}
+                    </h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <form method="post"
+                      action="{{ request.url_for('arena_admin_user_toggle_active', user_id=target_user.id) }}">
+                    {{ back_fields() }}
+                    <div class="modal-body">
+                        <p>
+                            {% if target_user.ativo %}
+                                Disable account for <strong>{{ target_user.nome }}</strong>? The user will be unable to sign in.
+                            {% else %}
+                                Enable account for <strong>{{ target_user.nome }}</strong>?
+                            {% endif %}
+                        </p>
+                        <label class="form-label" for="confirm-pw-toggle-active">Your password</label>
+                        <input type="password"
+                               class="form-control"
+                               id="confirm-pw-toggle-active"
+                               name="confirm_password"
+                               autocomplete="current-password"
+                               required>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit"
+                                class="btn btn-sm {{ 'btn-danger' if target_user.ativo else 'btn-success' }}">
+                            {{ 'Disable account' if target_user.ativo else 'Enable account' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade"
+         id="confirmForcePwChangeModal"
+         tabindex="-1"
+         aria-labelledby="confirmForcePwChangeLabel"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmForcePwChangeLabel">
+                        {{ 'Clear password-change requirement' if target_user.precisa_trocar_senha else 'Force password change' }}
+                    </h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <form method="post"
+                      action="{{ request.url_for('arena_admin_user_force_pw_change', user_id=target_user.id) }}">
+                    {{ back_fields() }}
+                    <div class="modal-body">
+                        <p>
+                            {% if target_user.precisa_trocar_senha %}
+                                Clear the forced password-change requirement for <strong>{{ target_user.nome }}</strong>?
+                            {% else %}
+                                Require <strong>{{ target_user.nome }}</strong> to change their password on next login?
+                            {% endif %}
+                        </p>
+                        <label class="form-label" for="confirm-pw-force-pw">Your password</label>
+                        <input type="password"
+                               class="form-control"
+                               id="confirm-pw-force-pw"
+                               name="confirm_password"
+                               autocomplete="current-password"
+                               required>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit"
+                                class="btn btn-sm {{ 'btn-warning' if target_user.precisa_trocar_senha else 'btn-outline-secondary' }}">
+                            {{ 'Clear requirement' if target_user.precisa_trocar_senha else 'Force password change' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade"
+         id="confirmChangeRoleModal"
+         tabindex="-1"
+         aria-labelledby="confirmChangeRoleLabel"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmChangeRoleLabel">Change role</h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <form method="post"
+                      action="{{ request.url_for('arena_admin_user_change_role', user_id=target_user.id) }}">
+                    {{ back_fields() }}
+                    <input type="hidden" id="role-modal-new-role" name="new_role">
+                    <div class="modal-body">
+                        <p>
+                            Change role for <strong>{{ target_user.nome }}</strong> to
+                            <strong id="role-modal-role-name"></strong>?
+                        </p>
+                        <label class="form-label" for="confirm-pw-change-role">Your password</label>
+                        <input type="password"
+                               class="form-control"
+                               id="confirm-pw-change-role"
+                               name="confirm_password"
+                               autocomplete="current-password"
+                               required>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary btn-sm">Change role</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% if target_user.role != ArenaRole.ARENA_ADMIN %}
+        <div class="modal fade"
+             id="confirmToggleCanEditModal"
+             tabindex="-1"
+             aria-labelledby="confirmToggleCanEditLabel"
+             aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="confirmToggleCanEditLabel">
+                            {{ 'Revoke problem-edit permission' if target_user.can_edit else 'Grant problem-edit permission' }}
+                        </h5>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <form method="post"
+                          action="{{ request.url_for('arena_admin_user_toggle_can_edit', user_id=target_user.id) }}">
+                        {{ back_fields() }}
+                        <div class="modal-body">
+                            <p>
+                                {% if target_user.can_edit %}
+                                    Revoke permission for <strong>{{ target_user.nome }}</strong> to add or edit Arena problems?
+                                {% else %}
+                                    Grant <strong>{{ target_user.nome }}</strong> permission to add or edit Arena problems?
+                                {% endif %}
+                            </p>
+                            <label class="form-label" for="confirm-pw-can-edit">Your password</label>
+                            <input type="password"
+                                   class="form-control"
+                                   id="confirm-pw-can-edit"
+                                   name="confirm_password"
+                                   autocomplete="current-password"
+                                   required>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button"
+                                    class="btn btn-secondary btn-sm"
+                                    data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit"
+                                    class="btn btn-sm {{ 'btn-warning' if target_user.can_edit else 'btn-success' }}">
+                                {{ 'Revoke permission' if target_user.can_edit else 'Grant permission' }}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+    {% if target_user.usa_2fa %}
+        <div class="modal fade"
+             id="confirmDisable2FAProfileModal"
+             tabindex="-1"
+             aria-labelledby="confirmDisable2FAProfileLabel"
+             aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="confirmDisable2FAProfileLabel">Disable two-factor authentication</h5>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <form method="post"
+                          action="{{ request.url_for('arena_admin_user_disable_2fa', user_id=target_user.id) }}">
+                        {{ back_fields() }}
+                        <div class="modal-body">
+                            <p>
+                                Disable 2FA for <strong>{{ target_user.nome }}</strong>? The user will be logged out and
+                                notified by email.
+                            </p>
+                            <label class="form-label" for="confirm-pw-disable-2fa">Your password</label>
+                            <input type="password"
+                                   class="form-control"
+                                   id="confirm-pw-disable-2fa"
+                                   name="confirm_password"
+                                   autocomplete="current-password"
+                                   required>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button"
+                                    class="btn btn-secondary btn-sm"
+                                    data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-danger btn-sm">Disable 2FA</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+    {% if target_user.ai_api_key %}
+        <div class="modal fade"
+             id="confirmResetApiKeyModal"
+             tabindex="-1"
+             aria-labelledby="confirmResetApiKeyLabel"
+             aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="confirmResetApiKeyLabel">Reset personal API key</h5>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        Clear the personal AI API key for <strong>{{ target_user.nome }}</strong>?
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <form method="post"
+                              action="{{ request.url_for('arena_admin_user_reset_api_key', user_id=target_user.id) }}">
+                            {{ back_fields() }}
+                            <button type="submit" class="btn btn-danger btn-sm">Reset API key</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+    <div class="modal fade"
+         id="confirmToggleRankingVisibleModal"
+         tabindex="-1"
+         aria-labelledby="confirmToggleRankingVisibleLabel"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmToggleRankingVisibleLabel">
+                        {{ 'Hide user from ranking' if target_user.ranking_visible else 'Show user in ranking' }}
+                    </h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <form method="post"
+                      action="{{ request.url_for('arena_admin_user_toggle_ranking_visible', user_id=target_user.id) }}">
+                    {{ back_fields() }}
+                    <div class="modal-body">
+                        <p>
+                            {% if target_user.ranking_visible %}
+                                Hide <strong>{{ target_user.nome }}</strong> from the public ranking? Their rating will continue to be computed but will not appear in any ranking list.
+                            {% else %}
+                                Show <strong>{{ target_user.nome }}</strong> in the public ranking again?
+                            {% endif %}
+                        </p>
+                        <label class="form-label" for="confirm-pw-ranking-visible">Your password</label>
+                        <input type="password"
+                               class="form-control"
+                               id="confirm-pw-ranking-visible"
+                               name="confirm_password"
+                               autocomplete="current-password"
+                               required>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit"
+                                class="btn btn-sm {{ 'btn-warning' if target_user.ranking_visible else 'btn-success' }}">
+                            {{ 'Hide from ranking' if target_user.ranking_visible else 'Show in ranking' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade"
+         id="adminTopupCreditsModal"
+         tabindex="-1"
+         aria-labelledby="adminTopupCreditsLabel"
+         aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="adminTopupCreditsLabel">Add AI credits</h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <form method="post"
+                      action="{{ request.url_for('arena_admin_user_topup_credits', user_id=target_user.id) }}"
+                      id="admin-topup-credits-form"
+                      data-user-name="{{ target_user.nome }}">
+                    {{ back_fields() }}
+                    <div class="modal-body">
+                        <label for="topup-quantity" class="form-label">
+                            Credits to add for <strong>{{ target_user.nome }}</strong>
+                        </label>
+                        <input type="number"
+                               class="form-control"
+                               id="topup-quantity"
+                               name="quantity"
+                               min="1"
+                               value="10"
+                               required>
+                        <div class="form-text text-arena-muted">Current balance: {{ target_user.ai_backend_credits }}</div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn arena-btn-primary arena-icon-button btn-sm">
+                            {{ render_icon(icon="add_card") }}
+                            <span>Add credits</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-submission-heatmap.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/l10n/default.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/plugins/rangePlugin.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='flatpickr-init.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='profile-tab-nav.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('arena_static_js', path='admin-topup-credits.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('arena_static_js', path='admin-user-profile.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}

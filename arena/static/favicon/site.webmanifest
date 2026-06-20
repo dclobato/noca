@@ -1,0 +1,23 @@
+{
+    "name": "Noca Arena",
+    "short_name": "Noca",
+    "description": "Next Online Contest Administrator - Practice Arena",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#fff8e7",
+    "theme_color": "#2f9e41",
+    "icons": [
+        {
+            "src": "/favicon-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/favicon-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ]
+}

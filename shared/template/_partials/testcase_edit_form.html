@@ -1,0 +1,152 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Shared single test-case edit/create form body, rendered inside each module's
+  own page chrome. Required context:
+    is_edit            bool   editing an existing case (vs creating a new one)
+    is_edit_allowed    bool   whether inputs are writable (Web gates; Arena True)
+    offline            bool   case too large for inline editing
+    input_size_bytes   int    (offline notice)
+    output_size_bytes  int    (offline notice)
+    download_url       str    single-case ZIP download
+    replace_url        str    offline ZIP replace POST
+    post_action_url    str    inline save/add POST
+    cancel_url         str    back/cancel link
+    input_field_name   str    form field name for the input textarea
+    output_field_name  str    form field name for the output textarea
+    input_value        str    current input text
+    output_value       str    current output text
+    explanation_value  str    current explanation text
+    is_sample          bool   sample checkbox state
+  render_icon is called without `title=` so it resolves under either module.
+#}
+{% from "_macros.html" import render_icon with context %}
+{% if offline %}
+    <div class="alert alert-warning d-flex align-items-start gap-2"
+         role="alert">
+        {{ render_icon(icon="lock", classes="flex-shrink-0 mt-1") }}
+        <div>
+            This test case is too large to edit inline
+            (input {{ input_size_bytes | filesizeformat(true) }},
+            output {{ output_size_bytes | filesizeformat(true) }}).
+            Download it, edit the files locally, then upload to replace.
+        </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        <a href="{{ download_url }}" class="btn btn-outline-secondary">
+            {{ render_icon(icon="download", classes="me-1") }}Download (ZIP)
+        </a>
+    </div>
+    {% if is_edit_allowed %}
+        <form method="post"
+              action="{{ replace_url }}"
+              enctype="multipart/form-data"
+              class="d-flex align-items-center gap-2 mb-2">
+            <input type="file"
+                   class="form-control form-control-sm"
+                   name="zip_file"
+                   accept=".zip"
+                   required>
+            <button type="submit" class="btn btn-primary text-nowrap">
+                {{ render_icon(icon="upload", classes="me-1") }}Replace from ZIP
+            </button>
+        </form>
+        <div class="form-text mb-3">
+            The ZIP must contain <code>input.txt</code> and <code>output.txt</code>
+            (optionally <code>explanation.txt</code>). No size limit.
+        </div>
+    {% endif %}
+    <a href="{{ cancel_url }}" class="btn btn-outline-secondary">Back to problem</a>
+{% else %}
+    <form method="post" action="{{ post_action_url }}">
+        <div class="row g-3">
+            <div class="col-12 col-md-6">
+                <label class="form-label" for="tc_in">Input</label>
+                <textarea id="tc_in"
+                          name="{{ input_field_name }}"
+                          rows="16"
+                          maxlength="10240"
+                          class="form-control form-control-sm font-monospace"
+                          placeholder="Test case input…"
+                          {% if not is_edit_allowed %}readonly{% endif %}>{{ input_value }}</textarea>
+                <div class="form-text">Up to 10 KB for inline editing. Larger cases must be edited offline.</div>
+            </div>
+            <div class="col-12 col-md-6">
+                <label class="form-label" for="tc_out">Expected output</label>
+                <textarea id="tc_out"
+                          name="{{ output_field_name }}"
+                          rows="16"
+                          maxlength="10240"
+                          class="form-control form-control-sm font-monospace"
+                          placeholder="Expected output…"
+                          {% if not is_edit_allowed %}readonly{% endif %}>{{ output_value }}</textarea>
+                <div class="form-text">Up to 10 KB for inline editing.</div>
+            </div>
+            <div class="col-12">
+                <label class="form-label" for="tc_explanation">Explanation (optional)</label>
+                <textarea id="tc_explanation"
+                          name="explanation"
+                          rows="3"
+                          class="form-control form-control-sm"
+                          placeholder="Explain why this test case produces its expected output…"
+                          {% if not is_edit_allowed %}readonly{% endif %}>{{ explanation_value }}</textarea>
+                <div class="form-text">Shown to contestants below the sample.</div>
+            </div>
+            <div class="col-12">
+                <div class="form-check">
+                    <input type="checkbox"
+                           class="form-check-input"
+                           id="is_sample"
+                           name="is_sample"
+                           value="true"
+                           {% if is_sample %}checked{% endif %}
+                           {% if not is_edit_allowed %}disabled{% endif %}>
+                    <label class="form-check-label" for="is_sample">Sample — show input/output to contestants</label>
+                </div>
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+            {% if is_edit_allowed %}
+                <button type="submit" class="btn btn-primary">
+                    {{ render_icon(icon="check", classes="me-1") }}
+                    {% if is_edit %}
+                        Save Test Case
+                    {% else %}
+                        Add Test Case
+                    {% endif %}
+                </button>
+            {% endif %}
+            <a href="{{ cancel_url }}" class="btn btn-outline-secondary">Cancel</a>
+        </div>
+    </form>
+    {% if is_edit and is_edit_allowed %}
+        <hr class="my-4">
+        <p class="text-muted small mb-2">
+            Prefer to edit the files locally? Download this case, edit it, and upload to replace
+            (no size limit). The ZIP must contain <code>input.txt</code> and <code>output.txt</code>
+            (optionally <code>explanation.txt</code>).
+        </p>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <a href="{{ download_url }}" class="btn btn-outline-secondary btn-sm">
+                {{ render_icon(icon="download", classes="me-1") }}Download (ZIP)
+            </a>
+            <form method="post"
+                  action="{{ replace_url }}"
+                  enctype="multipart/form-data"
+                  class="d-flex align-items-center gap-2">
+                <input type="file"
+                       class="form-control form-control-sm"
+                       name="zip_file"
+                       accept=".zip"
+                       required>
+                <button type="submit" class="btn btn-outline-primary btn-sm text-nowrap">
+                    {{ render_icon(icon="upload", classes="me-1") }}Replace from ZIP
+                </button>
+            </form>
+        </div>
+    {% endif %}
+{% endif %}

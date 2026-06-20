@@ -1,0 +1,21 @@
+{% extends "_base.html" %}
+{% block title_suffix %}— Service Problem{% endblock %}
+{% block content %}
+    <div class="d-flex flex-column flex-md-row align-items-center justify-content-center gap-4 py-5 container">
+        <div class="col-md-6 text-center">
+            <img src="{{ error_image_url }}"
+                 alt="Internal server error illustration"
+                 class="arena-error-illustration img-fluid">
+        </div>
+        <div class="col-md-6 text-center text-md-start">
+            <p class="arena-error-code mb-2">Error {{ status_code }}</p>
+            <h1 id="arena-backend-error-title" class="display-4 fw-bold mb-3">{{ heading }}</h1>
+            <p class="lead mb-4 text-muted">{{ message }}</p>
+            <div class="d-flex flex-wrap justify-content-center justify-content-md-start gap-2">
+                <a href="{{ retry_url }}" class="btn btn-primary btn-lg px-4">Try again</a>
+                <a href="{{ request.url_for("arena_dashboard") }}"
+                   class="btn btn-outline-secondary btn-lg px-4">Go to dashboard</a>
+            </div>
+        </div>
+    </div>
+{% endblock %}

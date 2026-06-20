@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+dev-mode-dirs = [".."]
+packages = ["."]
+
+[tool.hatch.version]
+source = "regex"
+path = "../pyproject.toml"
+pattern = '(?m)^version = "(?P<version>[^"]+)"'
+
+[project]
+name = "noca-aiassistant"
+dynamic = ["version"]
+description = "NOCA AI Assistant worker: processes Arena submissions for AI code review."
+authors = [
+    { name = "Daniel Correa Lobato", email = "daniel@lobato.org" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "noca-shared",
+    "openai==2.38.0",
+]
+
+[project.scripts]
+noca-aiassistant = "aiassistant.worker:main"

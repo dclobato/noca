@@ -1,0 +1,129 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Cards (Level-2 elevation)
+   ============================================================ */
+.arena-card {
+    background-color: var(--arena-surface-container-lowest);
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+    box-shadow: var(--arena-card-shadow);
+    padding: var(--arena-space-md);
+}
+
+.arena-card-title {
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--arena-on-surface);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+    margin-bottom: var(--arena-space-sm);
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+
+.arena-card-title .material-symbols-outlined {
+    color: var(--arena-primary);
+    font-size: 1.25rem;
+}
+
+.arena-card-title-meta {
+    font-size: 0.8rem;
+    font-weight: 400;
+    color: var(--arena-on-surface-variant);
+}
+
+.arena-ranking-choice-card {
+    color: var(--arena-on-surface);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.arena-ranking-choice-card:hover {
+    border-color: var(--arena-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    color: var(--arena-on-surface);
+}
+
+.arena-ranking-choice-icon .material-symbols-outlined {
+    font-size: 2rem;
+}
+
+/* Rendered Markdown/LaTeX for sample test-case explanations: keep the block
+   compact by trimming the trailing margin marked adds to the last paragraph. */
+.arena-tc-explanation > :last-child {
+    margin-bottom: 0;
+}
+
+.arena-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem 0.5rem;
+}
+
+.arena-icon-btn .material-symbols-outlined {
+    font-size: 1rem;
+}
+
+/* `.noca-icon-btn-group` rules and the test-case reorder/preview styles
+   (`.noca-drag-handle`, `.noca-sortable-*`, `.noca-tc-preview-cell`,
+   `.noca-tc-order-col`) moved to shared/static/css/common.css */
+
+/* ============================================================
+   Countries / leagues list items
+   ============================================================ */
+.arena-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem;
+    border: 1px solid transparent;
+    border-radius: var(--arena-radius);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.arena-list-item:hover {
+    background-color: var(--arena-surface-container-low);
+    border-color: var(--arena-outline-variant);
+}
+
+.arena-list-item-meta {
+    font-family: monospace;
+    font-size: 0.8125rem;
+    color: var(--arena-outline);
+}
+
+.arena-league-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem;
+    border: 1px solid var(--arena-surface-container);
+    border-radius: var(--arena-radius);
+    background-color: var(--arena-surface-container-low);
+    margin-bottom: 0.5rem;
+}
+
+.arena-league-item:last-child {
+    margin-bottom: 0;
+}
+
+.arena-league-name {
+    font-weight: 700;
+    color: var(--arena-on-surface);
+    font-size: 0.9375rem;
+}
+
+.arena-league-desc {
+    font-size: 0.8125rem;
+    color: var(--arena-on-surface-variant);
+}

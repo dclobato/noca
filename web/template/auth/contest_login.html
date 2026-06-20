@@ -1,0 +1,80 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon, render_flash_messages with context %}
+{% block title_suffix %}- Contest Login{% endblock %}
+{% block flash %}{% endblock %}
+{% block content %}
+    <div class="auth-page position-relative overflow-hidden flex-grow-1 d-flex flex-column align-items-center justify-content-center gap-4">
+        <div class="auth-page-background position-absolute top-0 start-0 w-100 h-100"
+             aria-hidden="true"></div>
+        <div class="auth-card card shadow-sm position-relative">
+            <div class="card-header bg-primary text-white text-center py-3">
+                <h1 class="h4 fw-bold mb-1">{{ contest.contest_name }}</h1>
+                <p class="small mb-0 opacity-75">/{{ contest.login_slug }}</p>
+            </div>
+            <div class="card-body px-4 py-4">
+                <h2 class="h5 fw-bold text-center mb-1">Noca Contest</h2>
+                <p class="text-center text-muted small {% if contest.allowed_languages %}mb-2{% else %}mb-4{% endif %}">
+                    Contest Login
+                </p>
+                {% if contest.allowed_languages %}
+                    <div class="noca-language-icons noca-language-icons-login justify-content-center mb-4"
+                         role="list"
+                         aria-label="Allowed languages">
+                        {% for lang in contest.allowed_languages %}
+                            <span class="noca-language-icon" role="listitem" title="{{ lang.name }}">
+                                <img src="{{ request.url_for('static_vendor', path='img/devicon/' ~ lang.icon.split('-')[1] ~ '-original.svg') }}"
+                                     class="noca-language-icon-img"
+                                     alt="{{ lang.name }}">
+                                <span class="visually-hidden">{{ lang.name }}</span>
+                            </span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+                {{ render_flash_messages(dismissible=False, full_width=True) }}
+                <form method="post"
+                      action="{{ request.url_for('contest_login_post', slug=contest.login_slug) }}"
+                      novalidate>
+                    {% if next_url %}<input type="hidden" name="next_url" value="{{ next_url }}">{% endif %}
+                    <div class="mb-3">
+                        <label for="identifier" class="form-label">Username</label>
+                        <input type="text"
+                               class="form-control"
+                               id="identifier"
+                               name="identifier"
+                               autocomplete="username"
+                               required
+                               autofocus>
+                    </div>
+                    <div class="mb-4">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password"
+                               class="form-control"
+                               id="password"
+                               name="password"
+                               autocomplete="current-password"
+                               required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Sign in</button>
+                </form>
+                <div class="text-center mt-3">
+                    <a href="{{ request.url_for("contests_list") }}"
+                       class="small text-decoration-none">Browse other active contests</a>
+                </div>
+                <div class="text-center mt-3 small">
+                    <a href="{{ request.url_for("login_get") }}"
+                       class="small text-decoration-none">Uberadmin login</a>
+                </div>
+            </div>
+        </div>
+        <div class="position-relative text-center text-white fw-semibold px-5 py-3 rounded-4 noca-login-countdown"
+             id="login-countdown"
+             data-start-ms="{{ (contest.start_time.timestamp() * 1000) | int }}"
+             data-end-ms="{{ (contest.end_time.timestamp() * 1000) | int }}"
+             aria-live="polite"
+             aria-atomic="true"></div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_js', path='contest-login-clock.js') }}"
+            defer></script>
+{% endblock %}

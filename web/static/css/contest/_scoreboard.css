@@ -1,0 +1,46 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* Scoreboard table */
+.problem-cell {
+    min-width: 5rem;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.problem-header {
+    text-align: center;
+    vertical-align: middle;
+}
+
+.solved-cell {
+    background-color: #d1e7dd;
+}
+
+.pending-cell {
+    background-color: #fff3cd;
+}
+
+.team-link {
+    cursor: pointer;
+}
+
+/* `.noca-icon-btn`, `.noca-drag-handle`, `.noca-sortable-*`, and
+   `.noca-icon-btn-group` rules moved to shared/static/css/common.css */
+
+/* Edit Metadata — fixed-width Yes/No radio columns in rules table */
+.noca-rules-radio-col {
+    width: 5rem;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.noca-rules-radio-col .form-check {
+    display: inline-block;
+    margin: 0;
+}

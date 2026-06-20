@@ -1,0 +1,133 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; {{ detail.name }}{% endblock %}
+{% block nav_classes %}active{% endblock %}
+{% block nav_classes_registered %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <div>
+                    <p class="text-muted small mb-0">{{ detail.class_name }}</p>
+                    <h1 class="arena-card-title mb-0">
+                        {{ render_icon(icon="assignment") }}
+                        {{ detail.name }}
+                    </h1>
+                </div>
+                <a href="{{ back_url }}" class="btn btn-secondary btn-sm">
+                    {{ render_icon(icon="arrow_back") }}
+                    Back to class
+                </a>
+            </div>
+            {% if detail.description %}<p class="text-muted mb-2">{{ detail.description }}</p>{% endif %}
+            <dl class="row small mb-3">
+                <dt class="col-sm-3 col-md-2">Starts</dt>
+                <dd class="col-sm-9 col-md-10">
+                    {{ arena_format_datetime(detail.starts_on, current_user) if detail.starts_on else '—' }}
+                </dd>
+                <dt class="col-sm-3 col-md-2">Ends</dt>
+                <dd class="col-sm-9 col-md-10">
+                    {{ arena_format_datetime(detail.deadline, current_user) if detail.deadline else '—' }}
+                    {% if detail.is_due %}<span class="badge text-bg-secondary ms-1">Due</span>{% endif %}
+                </dd>
+            </dl>
+            <p class="text-muted small mb-2">
+                {{ detail.problems | length }} problem{{ 's' if detail.problems | length != 1 else '' }}
+            </p>
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th class="text-end" style="width:4rem">#</th>
+                            <th>Problem</th>
+                            <th>Best verdict</th>
+                            <th>Submitted at</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in detail.problems %}
+                            <tr class="arena-clickable-row"
+                                data-href="{{ request.url_for('arena_problem_detail', arena_number=row.arena_number) }}">
+                                <td class="text-end">{{ row.arena_number }}</td>
+                                <td class="fw-semibold">{{ row.title }}</td>
+                                <td>
+                                    {% if row.best_verdict %}
+                                        <span class="badge {{ verdict_badge_classes.get(row.best_verdict, 'bg-secondary') }}">{{ row.best_verdict }}</span>
+                                    {% else %}
+                                        <span class="text-muted small">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-nowrap small text-muted">
+                                    {{ arena_format_datetime(row.best_verdict_at, current_user) if row.best_verdict_at else '—' }}
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="4" class="arena-empty-state">No problems in this set.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if detail.is_due %}
+                <div class="mt-4 pt-3 border-top">
+                    <h2 class="h5 mb-3">
+                        {{ render_icon(icon="leaderboard") }}
+                        Results
+                    </h2>
+                    {% if detail.snapshot_available %}
+                        <p class="mb-3">
+                            Your rating for this problem set:
+                            <strong class="fs-5">{{ detail.user_snapshot_rating }}</strong>
+                        </p>
+                        <div class="table-responsive">
+                            <table class="arena-table arena-table-sm">
+                                <thead>
+                                    <tr>
+                                        {% for item in verdict_summary %}<th class="text-center">{{ item.verdict }}</th>{% endfor %}
+                                        <th class="text-center">No submission</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        {% for item in verdict_summary %}
+                                            <td class="text-center">
+                                                {% if item.count > 0 %}
+                                                    <span class="badge {{ verdict_badge_classes.get(item.verdict, 'bg-secondary') }}">{{ item.count }}</span>
+                                                {% else %}
+                                                    <span class="text-muted small">0</span>
+                                                {% endif %}
+                                            </td>
+                                        {% endfor %}
+                                        <td class="text-center">
+                                            {% if no_submission_count > 0 %}
+                                                <span class="badge bg-light text-dark border">{{ no_submission_count }}</span>
+                                            {% else %}
+                                                <span class="text-muted small">0</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info mb-0" role="alert">
+                            {{ render_icon(icon="hourglass_empty") }}
+                            Rating computation is pending. Check back soon.
+                        </div>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('arena_static_js', path='arena-row-href.js') }}?v={{ app_version }}"></script>
+{% endblock %}

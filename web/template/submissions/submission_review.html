@@ -1,0 +1,501 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}- Submission Review{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path=highlight_theme_path) }}">
+    <script src="{{ request.url_for('static_vendor', path=highlight_core_path) }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path=highlight_language_path) }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path=highlight_line_numbers_path) }}"
+            defer></script>
+    <script src="{{ request.url_for('static_js', path='submission-confirm.js') }}"
+            defer></script>
+{% endblock %}
+{% macro verdict_badge(v) %}
+    {% set cls = contest_verdict_badge_class(v, contest) %}
+    <span class="badge {{ cls }}">{{ verdict_labels.get(v, v) }}</span>
+{% endmacro %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_runs', slug=contest.login_slug) }}">Runs</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">
+                Submission #{{ submission.id[:8] }}...{{ submission.id[-8:] }}
+            </li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Submission Review</h1>
+            <p class="text-muted mb-0">
+                {{ problem_label }}: {{ submission.problem.title }} / <i class="{{ submission.language.icon }} me-1"></i>{{ submission.language.name }}
+            </p>
+        </div>
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header p-0">
+                        <div class="accordion" id="submission-review-accordion">
+                            <div class="accordion-item border-0">
+                                <h2 class="accordion-header d-flex align-items-center"
+                                    id="source-code-heading">
+                                    <button class="accordion-button collapsed fw-semibold bg-transparent shadow-none"
+                                            type="button"
+                                            data-bs-toggle="collapse"
+                                            data-bs-target="#source-code-collapse"
+                                            aria-expanded="false"
+                                            aria-controls="source-code-collapse">Source Code</button>
+                                </h2>
+                                <div id="source-code-collapse"
+                                     class="accordion-collapse collapse"
+                                     aria-labelledby="source-code-heading"
+                                     data-bs-parent="#submission-review-accordion">
+                                    <div class="accordion-body bg-body-tertiary p-0">
+                                        <div class="d-flex justify-content-end p-3 pb-0">
+                                            <a href="{{ request.url_for('submission_source_download', slug=contest.login_slug, submission_id=submission.id) }}"
+                                               class="btn btn-sm btn-outline-secondary"
+                                               download="{{ submission.language.source_filename }}">
+                                                {{ render_icon(icon="download", classes="me-1") }}{{ submission.language.source_filename }}
+                                            </a>
+                                        </div>
+                                        <pre class="mb-0 noca-source-code-pre"><code id="submission-source-code" class="{{ highlight_language_class }}">{{ submission.source_code | e }}</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% if active_judgment and active_judgment.compile_log %}
+                    <div class="card shadow-sm border-0 mb-4">
+                        <div class="card-header p-0">
+                            <div class="accordion" id="compile-log-accordion">
+                                <div class="accordion-item border-0">
+                                    <h2 class="accordion-header" id="compile-log-heading">
+                                        <button class="accordion-button collapsed fw-semibold text-danger bg-transparent shadow-none"
+                                                type="button"
+                                                data-bs-toggle="collapse"
+                                                data-bs-target="#compile-log-collapse"
+                                                aria-expanded="false"
+                                                aria-controls="compile-log-collapse">Compile Log</button>
+                                    </h2>
+                                    <div id="compile-log-collapse"
+                                         class="accordion-collapse collapse"
+                                         aria-labelledby="compile-log-heading"
+                                         data-bs-parent="#compile-log-accordion">
+                                        <div class="accordion-body bg-body-tertiary">
+                                            <pre class="mb-0 small text-danger-emphasis">{{ active_judgment.compile_log | e }}</pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header fw-semibold">Judging History</div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Timestamp</th>
+                                        <th>Kind</th>
+                                        <th>Status</th>
+                                        <th>Verdict</th>
+                                        <th>Actor</th>
+                                        <th>Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for entry in judging_history.entries %}
+                                        <tr>
+                                            <td class="small">
+                                                {% if entry.timestamp_seconds is not none %}
+                                                    {{ contest_minutes(entry.timestamp_seconds) }}'
+                                                {% else %}
+                                                    —
+                                                {% endif %}
+                                            </td>
+                                            <td>{{ entry.kind.replace('_', ' ') | title }}</td>
+                                            <td>
+                                                <span class="badge {{ judgmentstatus_badge_classes.get(entry.status.value, 'bg-secondary') }}">
+                                                    {{ judgmentstatus_labels.get(entry.status.value, entry.status.value) }}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                {% if entry.verdict %}
+                                                    {{ verdict_badge(entry.verdict.value) }}
+                                                {% else %}
+                                                    <span class="text-muted">-</span>
+                                                {% endif %}
+                                            </td>
+                                            <td class="small">{{ entry.actor_display or 'system' }}</td>
+                                            <td class="small">{{ entry.reason or '-' }}</td>
+                                        </tr>
+                                    {% else %}
+                                        <tr>
+                                            <td colspan="6" class="text-center text-muted py-4">No judging history available.</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {% if can_see_test_results %}
+                    <div class="card shadow-sm border-0">
+                        <div class="card-header fw-semibold">Test Case Results</div>
+                        <div class="card-body p-0">
+                            <div class="border-bottom">
+                                <table class="table table-sm mb-0">
+                                    <tbody>
+                                        <tr>
+                                            <th class="ps-3 text-muted fw-semibold">Time limit</th>
+                                            <td class="pe-3 text-end">{{ effective_problem_limits.time_limit_ms }} ms</td>
+                                        </tr>
+                                        <tr>
+                                            <th class="ps-3 text-muted fw-semibold">Memory limit</th>
+                                            <td class="pe-3 text-end">{{ effective_problem_limits.memory_limit_kb }} KB</td>
+                                        </tr>
+                                        <tr>
+                                            <th class="ps-3 text-muted fw-semibold">PIDs limit</th>
+                                            <td class="pe-3 text-end">{{ effective_problem_limits.pids_limit }}</td>
+                                        </tr>
+                                        <tr>
+                                            <th class="ps-3 text-muted fw-semibold">Output limit</th>
+                                            <td class="pe-3 text-end">
+                                                {% if effective_problem_limits.output_limit_in_bytes %}
+                                                    {{ effective_problem_limits.output_limit_in_bytes }} bytes
+                                                {% else %}
+                                                    No limit
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Test #</th>
+                                            <th>Verdict</th>
+                                            <th>Wall time ms</th>
+                                            <th>Memory KB</th>
+                                            <th>Downloads</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for result in test_results or [] %}
+                                            <tr>
+                                                <td>{{ result.test_case.ordinal if result.test_case else '?' }}</td>
+                                                <td>{{ verdict_badge(result.verdict.value) }}</td>
+                                                <td>{{ result.wall_time_ms if result.wall_time_ms is not none else '-' }}</td>
+                                                <td>{{ result.memory_kb if result.memory_kb is not none else '-' }}</td>
+                                                <td>
+                                                    {% if result.test_case %}
+                                                        <div class="d-flex gap-1">
+                                                            <a href="{{ request.url_for('submission_test_case_download', slug=contest.login_slug, submission_id=submission.id, test_case_id=result.test_case.id) }}?file=input"
+                                                               class="btn btn-sm btn-outline-secondary"
+                                                               download="input">input</a>
+                                                            <a href="{{ request.url_for('submission_test_case_download', slug=contest.login_slug, submission_id=submission.id, test_case_id=result.test_case.id) }}?file=expected_output"
+                                                               class="btn btn-sm btn-outline-secondary"
+                                                               download="expected_output">expected</a>
+                                                            <a href="{{ request.url_for('submission_test_case_download', slug=contest.login_slug, submission_id=submission.id, test_case_id=result.test_case.id) }}?file=team_output"
+                                                               class="btn btn-sm btn-outline-secondary"
+                                                               download="team_output">team output</a>
+                                                            <a href="{{ request.url_for('submission_tc_detail', slug=contest.login_slug, submission_id=submission.id, test_case_id=result.test_case.id) }}"
+                                                               class="btn btn-sm btn-outline-primary">detail</a>
+                                                        </div>
+                                                    {% else %}
+                                                        <span class="text-muted">—</span>
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
+                                        {% else %}
+                                            <tr>
+                                                <td colspan="5" class="text-center text-muted py-4">No test case results available.</td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+            <div class="col-lg-4">
+                {% if not contest.autojudge_only and active_judgment %}
+                    <div class="card shadow-sm border-0 mb-4">
+                        <div class="card-header fw-semibold">Review Lock</div>
+                        <div class="card-body">
+                            {% if not lock_service_available %}
+                                <div class="alert alert-warning small mb-0">Lock service unavailable. Possible double work/rework.</div>
+                            {% elif review_lock %}
+                                <p class="mb-2 small">
+                                    Held by <strong>{{ review_lock_holder_name or 'Unknown judge' }}</strong>
+                                    {% if review_lock.holder_id == current_user.id %}<span class="badge bg-secondary ms-1">you</span>{% endif %}
+                                </p>
+                                {% if review_lock.holder_id == current_user.id or is_privileged %}
+                                    <form method="post"
+                                          action="{{ request.url_for('submission_release_review', slug=contest.login_slug, submission_id=submission.id) }}">
+                                        <button type="submit" class="btn btn-outline-secondary btn-sm w-100">Release lock</button>
+                                    </form>
+                                {% endif %}
+                            {% else %}
+                                <p class="text-muted small mb-2">No judge is currently reviewing this submission.</p>
+                                {% if is_judge and not has_confirmed and active_judgment.status == JudgmentStatus.DONE and not active_judgment.final_verdict %}
+                                    <form method="post"
+                                          action="{{ request.url_for('submission_acquire_review', slug=contest.login_slug, submission_id=submission.id) }}">
+                                        <button type="submit" class="btn btn-outline-primary btn-sm w-100">Acquire review</button>
+                                    </form>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endif %}
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header fw-semibold">Verdict Confirmation Status</div>
+                    <div class="card-body">
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                <tr>
+                                    <th class="text-muted fw-normal small">Autojudge</th>
+                                    <td>
+                                        {% if panel.autojudge_verdict %}
+                                            {{ verdict_badge(panel.autojudge_verdict.value) }}
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th class="text-muted fw-normal small">Judge 1</th>
+                                    <td>
+                                        {% if is_judge and not is_chief_judge and not has_confirmed %}
+                                            <span class="text-muted">—</span>
+                                        {% elif panel.judge_1.verdict %}
+                                            {{ verdict_badge(panel.judge_1.verdict.value) }}
+                                            {% if panel.judge_1.is_mine %}
+                                                <span class="badge bg-secondary ms-1">you</span>
+                                            {% elif not is_judge and panel.judge_1.judge_display %}
+                                                <span class="text-muted small ms-1">{{ panel.judge_1.judge_display }}</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th class="text-muted fw-normal small">Judge 2</th>
+                                    <td>
+                                        {% if is_judge and not is_chief_judge and not has_confirmed %}
+                                            <span class="text-muted">—</span>
+                                        {% elif panel.judge_2.verdict %}
+                                            {{ verdict_badge(panel.judge_2.verdict.value) }}
+                                            {% if panel.judge_2.is_mine %}
+                                                <span class="badge bg-secondary ms-1">you</span>
+                                            {% elif not is_judge and panel.judge_2.judge_display %}
+                                                <span class="text-muted small ms-1">{{ panel.judge_2.judge_display }}</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th class="text-muted fw-normal small">Chief Judge</th>
+                                    <td>
+                                        {% if is_judge and not is_chief_judge and not has_confirmed %}
+                                            <span class="text-muted">—</span>
+                                        {% elif panel.chief_judge.verdict %}
+                                            {{ verdict_badge(panel.chief_judge.verdict.value) }}
+                                            {% if panel.chief_judge.is_mine %}
+                                                <span class="badge bg-secondary ms-1">you</span>
+                                            {% elif not is_judge and panel.chief_judge.judge_display %}
+                                                <span class="text-muted small ms-1">{{ panel.chief_judge.judge_display }}</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th class="text-muted fw-normal small">Final Verdict</th>
+                                    <td>
+                                        {% if panel.final_verdict %}
+                                            {{ verdict_badge(panel.final_verdict.value) }}
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% if can_confirm %}
+                    <div class="card shadow-sm border-0 mb-4">
+                        <div class="card-header fw-semibold">Submit Confirmation</div>
+                        <div class="card-body">
+                            <form method="post"
+                                  action="{{ request.url_for('submission_confirm_post', slug=contest.login_slug, submission_id=submission.id) }}"
+                                  id="confirm-form">
+                                <div class="mb-3">
+                                    <label for="verdict" class="form-label">Your verdict</label>
+                                    <select id="verdict" name="verdict" class="form-select" required>
+                                        {% for v in verdicts %}<option value="{{ v.value }}">{{ verdict_labels.get(v.value, v.value) }}</option>{% endfor %}
+                                    </select>
+                                </div>
+                                {% if is_chief_judge %}
+                                    <button type="button"
+                                            class="btn btn-danger w-100"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#chiefConfirmModal">Submit as Chief Judge</button>
+                                {% else %}
+                                    <button type="submit" class="btn btn-primary w-100">Submit Confirmation</button>
+                                {% endif %}
+                            </form>
+                        </div>
+                    </div>
+                    {% if is_chief_judge %}
+                        <div class="modal fade"
+                             id="chiefConfirmModal"
+                             tabindex="-1"
+                             aria-hidden="true">
+                            <div class="modal-dialog modal-dialog-centered">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h2 class="modal-title fs-5">Chief Judge Confirmation</h2>
+                                        <button type="button"
+                                                class="btn-close"
+                                                data-bs-dismiss="modal"
+                                                aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        As the contest chief judge, your confirmation is final and will immediately set the final verdict.
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary"
+                                                data-bs-dismiss="modal">Cancel</button>
+                                        <button type="submit" class="btn btn-danger" form="confirm-form">Confirm as Chief Judge</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endif %}
+                {% endif %}
+                {% if can_override %}
+                    <div class="card shadow-sm border-0">
+                        <div class="card-header fw-semibold">Override Verdict as Chief Judge</div>
+                        <div class="card-body">
+                            <form method="post"
+                                  action="{{ request.url_for('contest_runs_override', slug=contest.login_slug, submission_id=submission.id) }}"
+                                  id="override-form">
+                                <div class="mb-3">
+                                    <label for="new_verdict" class="form-label">New verdict</label>
+                                    <select id="new_verdict" name="new_verdict" class="form-select" required>
+                                        {% for v in verdicts %}<option value="{{ v.value }}">{{ verdict_labels.get(v.value, v.value) }}</option>{% endfor %}
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="reason" class="form-label">Reason</label>
+                                    <textarea id="reason"
+                                              name="reason"
+                                              class="form-control"
+                                              rows="5"
+                                              minlength="10"
+                                              maxlength="1000"
+                                              required></textarea>
+                                </div>
+                                <button type="button"
+                                        class="btn btn-danger"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#overrideConfirmModal">Override Verdict</button>
+                            </form>
+                        </div>
+                    </div>
+                    <div class="modal fade"
+                         id="overrideConfirmModal"
+                         tabindex="-1"
+                         aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h2 class="modal-title fs-5">Confirm Override</h2>
+                                    <button type="button"
+                                            class="btn-close"
+                                            data-bs-dismiss="modal"
+                                            aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    This will replace the final verdict for this submission and bypass the normal confirmation workflow.
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button"
+                                            class="btn btn-outline-secondary"
+                                            data-bs-dismiss="modal">Cancel</button>
+                                    <button type="submit" class="btn btn-danger" form="override-form">Confirm Override</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+                {% if can_rejudge %}
+                    <div class="card shadow-sm border-0 mt-3">
+                        <div class="card-header fw-semibold">Rejudge Submission</div>
+                        <div class="card-body">
+                            <p class="text-muted small mb-3">
+                                This will supersede the current judgment and restart the full autojudge and confirmation cycle.
+                            </p>
+                            <button type="button"
+                                    class="btn btn-warning w-100"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#rejudgeConfirmModal">Rejudge Submission</button>
+                        </div>
+                    </div>
+                    <div class="modal fade"
+                         id="rejudgeConfirmModal"
+                         tabindex="-1"
+                         aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h2 class="modal-title fs-5">Confirm Rejudge</h2>
+                                    <button type="button"
+                                            class="btn-close"
+                                            data-bs-dismiss="modal"
+                                            aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    This will supersede the current judgment
+                                    (final verdict: {{ verdict_badge(active_judgment.final_verdict.value) }})
+                                    and submit the submission for a new autojudge cycle. Are you sure?
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button"
+                                            class="btn btn-outline-secondary"
+                                            data-bs-dismiss="modal">Cancel</button>
+                                    <form method="post"
+                                          action="{{ request.url_for('submission_rejudge_post', slug=contest.login_slug, submission_id=submission.id) }}">
+                                        <button type="submit" class="btn btn-warning">Confirm Rejudge</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

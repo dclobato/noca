@@ -1,0 +1,557 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; #{{ problem.arena_number }} {{ problem.title }}{% endblock %}
+{% block nav_problems %}active{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='katex.min.css') }}">
+{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3 d-flex flex-column flex-grow-1">
+        {# ── Header strip ──────────────────────────────────────────────────── #}
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap align-items-center gap-3">
+                {# Back to list — leftmost item #}
+                <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm">{{ render_icon(icon="arrow_back") }}</a>
+                {# Rating sparkline — same structure as problem_form.html #}
+                <div class="arena-rating-sparkline arena-rating-sparkline--half">
+                    <span class="arena-rating-sparkline-label">
+                        {{ render_icon(icon="show_chart") }}
+                        Difficulty
+                    </span>
+                    {% with chart_id="problem-rating-chart", data_url=rating_history_url %}
+                        {% include "_partials/problem_rating_chart.html" %}
+                    {% endwith %}
+                </div>
+                {# Attempted users #}
+                <div class="arena-problem-header-stat ms-auto">
+                    {{ render_icon(icon="people") }}<span class="small">
+                    {% if problem.rating %}
+                        {{ problem.rating.attempted_users }} user{{ 's' if problem.rating.attempted_users != 1 else '' }} attempted
+                    {% else %}
+                        0 users attempted
+                    {% endif %}
+                </span>
+            </div>
+            {# Acceptance rate #}
+            <div class="arena-problem-header-stat">
+                {{ render_icon(icon="check_circle") }}<span class="small">
+                {% if problem.rating and problem.rating.attempted_users > 0 %}
+                    {{ "%.0f" | format(problem.rating.solve_rate * 100) }}% solved
+                {% else %}
+                    &mdash;
+                {% endif %}
+            </span>
+        </div>
+        {# Statistics #}
+        <div class="arena-problem-header-stat">
+            <a href="{{ request.url_for('arena_problem_statistics', arena_number=problem.arena_number) }}"
+               class="text-muted text-decoration-none small">{{ render_icon(icon="bar_chart", title="Statistics") }}</a>
+        </div>
+        {# User status — follows the right-aligned stats group #}
+        {% if current_user %}
+            <div class="arena-problem-header-stat">
+                {% if solved_at %}
+                    {{ render_icon(icon="done_all", title=("Solved " ~ relative_solved) ) }}
+                {% elif tried_at %}
+                    {{ render_icon(icon="pending", title="Unsolved") }}
+                {% else %}
+                    {{ render_icon(icon="radio_button_unchecked", title="Not attempted") }}
+                {% endif %}
+            </div>
+            <div class="arena-problem-header-stat">
+                <button id="favorite-toggle-btn"
+                        class="arena-favorite-btn"
+                        type="button"
+                        aria-label="{{ 'Remove from favorites' if is_favorite else 'Add to favorites' }}"
+                        title="{{ 'Remove from favorites' if is_favorite else 'Add to favorites' }}"
+                        data-toggle-url="{{ request.url_for('arena_problem_toggle_favorite', arena_number=problem.arena_number) }}"
+                        data-login-url="{{ request.url_for("arena_login") }}?next={{ request.url.path }}">
+                    {% if is_favorite %}
+                        {{ render_icon(icon="favorite", filled=True, classes="arena-favorite-icon arena-favorite-icon--active") }}
+                    {% else %}
+                        {{ render_icon(icon="favorite", classes="arena-favorite-icon") }}
+                    {% endif %}
+                </button>
+            </div>
+            {% if current_user.role == 'ARENA_ADMIN' or (current_user.can_edit and current_user.id == problem.owner_id) %}
+                <div class="arena-problem-header-stat">
+                    <a href="{{ request.url_for('arena_admin_problem_edit', problem_id=problem.id) ~ '?next=' ~ request.url.path }}"
+                       class="btn btn-outline-secondary btn-sm"
+                       title="Edit problem">{{ render_icon(icon="edit") }}</a>
+                </div>
+            {% elif current_user.id == problem.owner_id %}
+                <div class="arena-problem-header-stat">
+                    <button type="button"
+                            class="btn btn-outline-danger btn-sm d-inline-flex align-items-center gap-1"
+                            data-bs-toggle="modal"
+                            data-bs-target="#problem-removal-modal"
+                            title="Request problem removal">
+                        {{ render_icon(icon="delete") }}
+                        Request removal
+                    </button>
+                </div>
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% if accepting_set %}
+    {# ── Problem set banner ────────────────────────────────────────────── #}
+    <div class="alert alert-info d-flex align-items-center gap-2 mb-3"
+         role="alert">
+        {{ render_icon(icon="assignment") }}
+        <span>
+            This problem belongs to problem set <strong>{{ accepting_set.name }}</strong>
+            from class
+            <strong>{{ accepting_set.class_name }}</strong>{{ " and others" if accepting_set.has_others else "" }}.
+            {% if accepting_set.deadline %}
+                You are expected to
+                hand it in before {{ arena_format_datetime(accepting_set.deadline, current_user) }}.
+            {% endif %}
+        </span>
+    </div>
+{% endif %}
+{# ── Main resizable two-column layout ──────────────────────────────── #}
+<div class="arena-problem-workspace flex-grow-1" data-problem-workspace>
+    {# ── Left: problem statement ──────────────────────────────────── #}
+    <div id="problem-statement-panel" class="arena-problem-workspace-panel">
+        <div class="arena-card h-100">
+            {# Previous / Next problem navigation #}
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                {% if prev_problem_url %}
+                    <a href="{{ prev_problem_url }}"
+                       class="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-1">
+                        {{ render_icon(icon="arrow_back") }}
+                        #{{ prev_problem_number }}
+                    </a>
+                {% else %}
+                    <span></span>
+                {% endif %}
+                {% if next_problem_url %}
+                    <a href="{{ next_problem_url }}"
+                       class="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-1">
+                        #{{ next_problem_number }}
+                        {{ render_icon(icon="arrow_forward") }}
+                    </a>
+                {% endif %}
+            </div>
+            <h1 class="h4 mb-1">#{{ problem.arena_number }} — {{ problem.title }}</h1>
+            {% if not problem.hide_author_show_source %}
+                <p class="text-muted small mb-0">
+                    {{ render_icon(icon="person") }}
+                    By {{ author_info.name or '—' }}
+                </p>
+                {% if author_info.affiliation_name %}
+                    <p class="text-muted small mb-0">
+                        {{ render_icon(icon="school") }}
+                        From {{ author_info.affiliation_name }}
+                        {% if author_info.affiliation_country_code %}
+                            <img src="{{ request.url_for('static_vendor', path='img/flags/' + author_info.affiliation_country_code.lower() + '.svg') }}"
+                                 class="arena-country-flag"
+                                 alt="">
+                        {% endif %}
+                    </p>
+                {% endif %}
+                {% if problem.source %}
+                    <p class="text-muted small mb-2">
+                        {{ render_icon(icon="source") }}
+                        {{ problem.source }}
+                    </p>
+                {% else %}
+                    <div class="mb-2"></div>
+                {% endif %}
+            {% else %}
+                <p class="text-muted small mb-2">
+                    {% if problem.source %}
+                        {{ render_icon(icon="source") }}
+                        {{ problem.source }}
+                    {% endif %}
+                </p>
+            {% endif %}
+            {# Category pills #}
+            {% if problem.categories %}
+                <div class="mb-4">
+                    {% for cat in problem.categories %}
+                        {# Dynamic colors from DB cannot be expressed as static CSS classes #}
+                        <span class="badge rounded-pill me-1"
+                              style="background:{{ cat.color }};
+                                     color:{{ cat.foreground_color }}">{{ cat.name }}</span>
+                    {% endfor %}
+                </div>
+            {% endif %}
+            {# Problem image #}
+            {% if problem.problem_image_base64 %}
+                <figure class="arena-problem-figure">
+                    <img src="data:{{ problem.problem_image_mime }};base64,{{ problem.problem_image_base64 }}"
+                         alt="Problem illustration"
+                         class="arena-problem-image">
+                    {% if problem.problem_image_caption %}
+                        <figcaption class="arena-problem-figure-caption">{{ problem.problem_image_caption | e }}</figcaption>
+                    {% endif %}
+                </figure>
+            {% endif %}
+            {# Markdown statement #}
+            <div id="md-statement-rendered" class="mb-3 mt-5"></div>
+            <script id="md-statement-src" type="text/plain">{{ problem.problem_statement | e }}</script>
+            {# Sample test cases #}
+            {% if sample_test_cases %}
+                <h2 class="h6 mt-4 mb-2">Sample Test Cases</h2>
+                {% for tc in sample_test_cases %}
+                    <div class="card shadow-sm mb-3">
+                        <div class="card-header fw-semibold small">Sample {{ loop.index }}</div>
+                        <div class="card-body">
+                            <div class="row g-2">
+                                <div class="col-md-6">
+                                    <p class="text-muted small fw-semibold mb-1">Input</p>
+                                    <pre class="bg-light p-2 rounded small mb-0 overflow-auto">{{ (tc.input_content or '') | e }}</pre>
+                                </div>
+                                <div class="col-md-6">
+                                    <p class="text-muted small fw-semibold mb-1">Output</p>
+                                    <pre class="bg-light p-2 rounded small mb-0 overflow-auto">{{ (tc.output_content or '') | e }}</pre>
+                                </div>
+                            </div>
+                            {% if tc.explanation %}
+                                <div class="text-muted small mt-2">
+                                    <div class="fw-semibold mb-1">Explanation of example #{{ loop.index }}:</div>
+                                    <div class="arena-tc-explanation" data-tc-explanation>{{ tc.explanation | e }}</div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+                {% if problem.license %}
+                    <p class="small mb-2">
+                        <span class="fw-semibold">License:</span> {{ problem.license | e }}
+                    </p>
+                {% endif %}
+                <a href="{{ request.url_for('arena_problem_sample_testcases_zip', arena_number=problem.arena_number) }}"
+                   class="btn btn-outline-secondary btn-sm mt-1">
+                    {{ render_icon(icon="download") }}
+                    Download sample test cases
+                </a>
+            {% else %}
+                <p class="text-muted small">No public sample test cases for this problem.</p>
+                {% if problem.license %}
+                    <p class="small">
+                        <span class="fw-semibold">License:</span> {{ problem.license | e }}
+                    </p>
+                {% endif %}
+            {% endif %}
+            {# Previous / Next problem navigation #}
+            <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                {% if prev_problem_url %}
+                    <a href="{{ prev_problem_url }}"
+                       class="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-1">
+                        {{ render_icon(icon="arrow_back") }}
+                        #{{ prev_problem_number }}
+                    </a>
+                {% else %}
+                    <span></span>
+                {% endif %}
+                {% if next_problem_url %}
+                    <a href="{{ next_problem_url }}"
+                       class="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-1">
+                        #{{ next_problem_number }}
+                        {{ render_icon(icon="arrow_forward") }}
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="arena-problem-workspace-resizer"
+         role="separator"
+         tabindex="0"
+         aria-label="Resize problem statement and solution panels"
+         aria-orientation="vertical"
+         aria-controls="problem-statement-panel solution-panel"
+         aria-valuemin="25"
+         aria-valuemax="75"
+         aria-valuenow="58"
+         data-problem-workspace-resizer>
+        <span class="arena-problem-workspace-resizer-handle" aria-hidden="true"></span>
+    </div>
+    {# ── Right: submission panel ──────────────────────────────────── #}
+    <div id="solution-panel" class="arena-problem-workspace-panel">
+        {% if current_user %}
+            <form id="submit-form"
+                  method="post"
+                  action="{{ request.url_for('arena_problem_submit', arena_number=problem.arena_number) }}"
+                  data-problem-title="#{{ problem.arena_number }} — {{ problem.title }}">
+                <div class="arena-card d-flex flex-column gap-3">
+                    {# Resource limits — compact web-module style #}
+                    <div>
+                        <div class="card shadow-sm">
+                            <div class="card-header fw-semibold small py-1">Resource Limits</div>
+                            <div class="table-responsive">
+                                <table class="table table-sm mb-0 small">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th class="ps-3 text-nowrap">Time (ms)</th>
+                                            <th class="text-end text-nowrap">Memory (KB)</th>
+                                            <th class="text-end text-nowrap">PIDs</th>
+                                            <th class="text-end text-nowrap pe-3">Output (bytes)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td class="ps-3 fw-semibold text-nowrap">{{ problem.time_limit_ms }}</td>
+                                            <td class="text-end text-nowrap">{{ problem.memory_limit_kb }}</td>
+                                            <td class="text-end text-nowrap">{{ problem.pids_limit }}</td>
+                                            <td class="text-end text-nowrap pe-3">{{ problem.output_limit_in_bytes }}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    {% if accepting_set %}
+                        {# Auto opt-in to share this submission with the problem set's teacher #}
+                        <div class="form-check">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   name="problem_set_id"
+                                   value="{{ accepting_set.set_id }}"
+                                   id="problem-set-optin"
+                                   checked>
+                            <label class="form-check-label small" for="problem-set-optin">
+                                Submit this solution for problem set
+                                <strong>{{ accepting_set.name }}</strong> (your teacher will see it)
+                            </label>
+                        </div>
+                    {% endif %}
+                    {# Language selector and submit — inline #}
+                    <div class="d-flex align-items-center gap-2">
+                        <select class="form-select form-select-sm arena-select-fit"
+                                id="language-select"
+                                name="language_id"
+                                aria-label="Language">
+                            {% for lang in active_languages %}
+                                <option value="{{ lang.id }}"
+                                        data-ace-mode="{{ ace_modes[lang.id] }}"
+                                        data-stub="{{ language_stubs[lang.id] | e }}"
+                                        {% if prefill_language_id %}{% if prefill_language_id == lang.id %}selected{% endif %}
+                                        {% elif current_user.preferred_language_id == lang.id %}
+                                        selected
+                                        {% endif %}>{{ lang.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="button"
+                                id="submit-btn"
+                                class="btn btn-primary btn-sm ms-auto d-inline-flex align-items-center gap-1">
+                            {{ render_icon(icon="upload") }}
+                            Submit
+                        </button>
+                    </div>
+                    {# Code area #}
+                    <div class="d-flex flex-column">
+                        <div class="d-flex justify-content-between align-items-baseline mb-1">
+                            <label class="form-label mb-0" for="code-editor">Your solution</label>
+                            <span id="code-editor-status" class="text-muted small font-monospace"></span>
+                        </div>
+                        <div id="code-editor"
+                             class="arena-code-editor"
+                             data-ace-base="{{ request.url_for('static_vendor', path='ace') }}"></div>
+                        <textarea id="code-area"
+                                  name="source_code"
+                                  hidden
+                                  spellcheck="false"
+                                  autocorrect="off"
+                                  autocapitalize="off">{% if prefill_source_code %}{{ prefill_source_code | e }}{% endif %}</textarea>
+                        <div class="arena-editor-resizer"
+                             data-editor-resizer
+                             role="separator"
+                             tabindex="0"
+                             aria-label="Resize code editor"
+                             aria-orientation="horizontal">
+                            <span class="arena-editor-resizer-handle" aria-hidden="true"></span>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        {% else %}
+            {# Guests cannot submit: show a login prompt in place of the editor. #}
+            <div class="arena-card h-100 d-flex flex-column align-items-center justify-content-center text-center gap-3">
+                {{ render_icon(icon="lock", classes="text-muted arena-login-prompt-icon") }}
+                <p class="text-muted mb-0">You must log in to submit your code.</p>
+                <a href="{{ request.url_for("arena_login") }}?next={{ request.url.path }}"
+                   class="btn btn-primary btn-sm d-inline-flex align-items-center gap-1">
+                    {{ render_icon(icon="login") }}
+                    Log in
+                </a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+</div>
+{# ── Submission confirmation modal ─────────────────────────────────────── #}
+{% if current_user %}
+    <div class="modal fade"
+         id="submit-confirm-modal"
+         tabindex="-1"
+         aria-labelledby="submit-confirm-modal-label"
+         aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="submit-confirm-modal-label">
+                        {{ render_icon(icon="upload") }}
+                        Confirm Submission
+                    </h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <dl class="arena-profile-details mb-0">
+                        <dt>Problem</dt>
+                        <dd id="submit-modal-problem" class="fw-semibold">
+                        </dd>
+                        <dt>Language</dt>
+                        <dd id="submit-modal-language">
+                        </dd>
+                    </dl>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-outline-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="button"
+                            id="submit-confirm-btn"
+                            class="btn btn-primary btn-sm d-inline-flex align-items-center gap-1">
+                        {{ render_icon(icon="upload") }}
+                        Confirm &amp; Submit
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
+{# ── Language change confirmation modal ────────────────────────────────── #}
+{% if current_user %}
+    <div class="modal fade"
+         id="language-change-confirm-modal"
+         tabindex="-1"
+         aria-labelledby="language-change-confirm-modal-label"
+         aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="language-change-confirm-modal-label">
+                        {{ render_icon(icon="code") }}
+                        Change Language
+                    </h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">
+                        Switch langauge to
+                        <span id="language-change-target" class="fw-semibold"></span>?
+                    </p>
+                    <p class="text-danger small mb-0">
+                        {{ render_icon(icon="warning") }}
+                        Your current code will be replaced by the starter template for the
+                        selected language.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-outline-secondary btn-sm"
+                            id="language-change-cancel-btn"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="button"
+                            id="language-change-confirm-btn"
+                            class="btn btn-primary btn-sm d-inline-flex align-items-center gap-1">
+                        {{ render_icon(icon="check") }}
+                        Confirm
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
+{% if current_user and current_user.id == problem.owner_id and current_user.role != 'ARENA_ADMIN' and not current_user.can_edit %}
+    {# ── Problem removal request modal ────────────────────────────────────── #}
+    <div class="modal fade"
+         id="problem-removal-modal"
+         tabindex="-1"
+         aria-labelledby="problem-removal-modal-label"
+         aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form method="post"
+                      action="{{ request.url_for('arena_problem_request_removal', arena_number=problem.arena_number) }}">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="problem-removal-modal-label">
+                            {{ render_icon(icon="delete") }}
+                            Request Problem Removal
+                        </h5>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-1">
+                            You are requesting the removal of problem
+                            <strong>#{{ problem.arena_number }} &mdash; {{ problem.title }}</strong>.
+                        </p>
+                        <p class="text-muted small mb-0">All Arena administrators will be notified of your request.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit"
+                                class="btn btn-danger btn-sm d-inline-flex align-items-center gap-1">
+                            {{ render_icon(icon="delete") }}
+                            Request removal
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-rating-history-chart.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('arena_static_js', path='problem-detail.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('arena_static_js', path='problem-column-resizer.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='render-tc-explanation.js') }}?v={{ app_version }}"
+            defer></script>
+    {% if current_user %}
+        <script src="{{ request.url_for('static_vendor', path='ace/ace.js') }}" defer></script>
+        <script src="{{ request.url_for('arena_static_js', path='problem-code-editor.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('arena_static_js', path='problem-submit-modal.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('arena_static_js', path='problem-favorite-toggle.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('arena_static_js', path='problem-editor-resizer.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
+{% endblock %}

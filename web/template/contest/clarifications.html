@@ -1,0 +1,167 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— Clarifications{% endblock %}
+{% block extra_head %}
+    {% if not contest.is_past %}
+        <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
+                defer></script>
+    {% endif %}
+    <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Clarifications</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Clarifications</h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        {% if access_blocked %}
+            <div class="alert alert-info d-flex align-items-center gap-2">
+                {{ render_icon(icon="schedule") }}
+                Clarifications are only available after the contest starts.
+            </div>
+        {% else %}
+            {% include "contest/clarifications_list.html" %}
+            {% if current_user.role == RoleEnum.TEAM.value and not contest.is_past %}
+                <div class="mt-2 mb-4">
+                    <small class="text-muted small">Will update in <span id="refresh-timer" data-htmx-wrapper="clarifications-list-wrapper">60</span> seconds</small>
+                </div>
+                <div class="card shadow-sm">
+                    <div class="card-header fw-semibold">Request Clarification</div>
+                    <div class="card-body">
+                        <form method="post"
+                              action="{{ request.url_for('contest_clarifications_new', slug=contest.login_slug) }}">
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-3">
+                                    <label for="problem_id" class="form-label">Problem</label>
+                                    <select class="form-select" id="problem_id" name="problem_id" required>
+                                        <option value="">-- select a problem --</option>
+                                        {% for p in problems %}<option value="{{ p.id }}">{{ problem_map[p.id] }}</option>{% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-9">
+                                    <label for="question" class="form-label">Question</label>
+                                    <textarea class="form-control"
+                                              id="question"
+                                              name="question"
+                                              rows="4"
+                                              maxlength="1024"
+                                              placeholder="Describe your question clearly..."
+                                              required></textarea>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col">
+                                    <button type="submit" class="btn btn-primary btn-sm">{{ render_icon(icon="send", classes="me-1") }}Submit</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            {% endif %}
+            {% if current_user.role in (RoleEnum.ADMIN.value, RoleEnum.JUDGE.value) and contest.is_running %}
+                <div class="card shadow-sm mt-4">
+                    <div class="card-header fw-semibold">
+                        {{ render_icon(icon="campaign", filled=True, classes="me-1") }}Make Announcement
+                    </div>
+                    <div class="card-body">
+                        <form method="post"
+                              action="{{ request.url_for('contest_clarifications_announcement', slug=contest.login_slug) }}">
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-3">
+                                    <label for="ann_problem_id" class="form-label">Problem</label>
+                                    <select class="form-select" id="ann_problem_id" name="problem_id" required>
+                                        <option value="">-- select a problem --</option>
+                                        {% for p in problems %}<option value="{{ p.id }}">{{ problem_map[p.id] }}</option>{% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-9">
+                                    <label for="announcement" class="form-label">Announcement</label>
+                                    <textarea class="form-control"
+                                              id="announcement"
+                                              name="announcement"
+                                              rows="4"
+                                              maxlength="1024"
+                                              placeholder="Write the announcement text..."
+                                              required></textarea>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col">
+                                    <button type="submit" class="btn btn-warning btn-sm">
+                                        {{ render_icon(icon="campaign", filled=True, classes="me-1") }}Publish Announcement
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            {% endif %}
+        {% endif %}
+        {# end access_blocked #}
+    </div>
+    {# Detail modal — outside HTMX-swappable region so it persists across list refreshes #}
+    <div class="modal fade"
+         id="clarificationDetailModal"
+         tabindex="-1"
+         aria-labelledby="clarificationDetailModalLabel"
+         aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="clarificationDetailModalLabel">Clarification Detail</h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3 d-flex align-items-center gap-3">
+                        <div>
+                            <div class="fw-semibold text-muted small mb-1">Problem</div>
+                            <div id="modal-problem"></div>
+                        </div>
+                        <div>
+                            <div class="fw-semibold text-muted small mb-1">Visibility</div>
+                            <div id="modal-visibility"></div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="fw-semibold text-muted small mb-1">Question</div>
+                        <pre id="modal-question" class="bg-light p-3 rounded small text-wrap mb-0"></pre>
+                    </div>
+                    <div>
+                        <div class="fw-semibold text-muted small mb-1">Answer</div>
+                        <pre id="modal-answer" class="bg-light p-3 rounded small text-wrap mb-0"></pre>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    {% if not access_blocked and not contest.is_past %}
+        <script src="{{ request.url_for('static_js', path='refresh-timer.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_js', path='clarifications.js') }}?v={{ app_version }}"
+                defer></script>
+    {% elif not access_blocked %}
+        <script src="{{ request.url_for('static_js', path='clarifications.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
+{% endblock %}

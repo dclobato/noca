@@ -1,0 +1,19 @@
+{% extends "_base.html" %}
+{% block title_suffix %}— Service Problem{% endblock %}
+{% block content %}
+    <section class="noca-backend-error container py-5"
+             aria-labelledby="backend-error-title">
+        <div class="noca-backend-error-card text-center mx-auto">
+            <p class="noca-backend-error-code mb-2">Error {{ status_code }}</p>
+            <h1 id="backend-error-title" class="mb-3">{{ heading }}</h1>
+            <p class="text-body-secondary mb-4">{{ message }}</p>
+            <div class="d-flex flex-wrap justify-content-center gap-2">
+                <a href="{{ primary_url or retry_url }}" class="btn btn-primary">{{ primary_label }}</a>
+                {% if not primary_url %}
+                    <a href="{{ request.url_for("contests_list") }}"
+                       class="btn btn-outline-secondary">View contests</a>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+{% endblock %}

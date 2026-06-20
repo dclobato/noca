@@ -1,0 +1,112 @@
+{% extends "_base.html" %}
+{% block title_suffix %}— Add UberAdmin{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex justify-content-between align-items-end mb-4 gap-3">
+            <div>
+                <h1 class="h3 mb-1">Add UberAdmin</h1>
+                <p class="text-muted mb-0">Create a new global administrator account for Noca Contest.</p>
+            </div>
+            <a href="{{ request.url_for("uberadmin_dashboard") }}"
+               class="btn btn-outline-secondary btn-sm">Back to dashboard</a>
+        </div>
+        <div class="row g-4">
+            <div class="col-12 col-lg-7">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        {% if error %}<div class="alert alert-danger py-2 small" role="alert">{{ error }}</div>{% endif %}
+                        <form method="post"
+                              action="{{ request.url_for("add_uberadmin_submit") }}"
+                              novalidate>
+                            <div class="mb-3">
+                                <label for="fullname" class="form-label">Full name</label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="fullname"
+                                       name="fullname"
+                                       value="{{ form_data.fullname }}"
+                                       autocomplete="name"
+                                       required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="email" class="form-label">Email</label>
+                                <input type="email"
+                                       class="form-control"
+                                       id="email"
+                                       name="email"
+                                       value="{{ form_data.email }}"
+                                       autocomplete="email"
+                                       required>
+                            </div>
+                            <div class="mb-4">
+                                <label for="username" class="form-label">Username</label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="username"
+                                       name="username"
+                                       value="{{ form_data.username }}"
+                                       autocomplete="username"
+                                       required>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-sm">Create UberAdmin</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-5">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header fw-semibold">Generated Credentials</div>
+                    <div class="card-body">
+                        {% if created_credential %}
+                            <div class="alert alert-success py-2 small" role="alert">UberAdmin created successfully.</div>
+                            <p class="mb-2">
+                                <span class="fw-semibold">Username:</span> <code>{{ created_credential.username }}</code>
+                            </p>
+                            <p class="mb-3">
+                                <span class="fw-semibold">Initial password:</span> <code>{{ created_credential.password }}</code>
+                            </p>
+                            <p class="mb-3">
+                                <span class="fw-semibold">Email:</span> {{ created_credential.email or "No email" }}
+                            </p>
+                            <div class="d-flex flex-wrap gap-2">
+                                <form method="post"
+                                      action="{{ request.url_for("download_uberadmin_credentials_json") }}">
+                                    <input type="hidden"
+                                           name="username"
+                                           value="{{ created_credential.username }}">
+                                    <input type="hidden"
+                                           name="password"
+                                           value="{{ created_credential.password }}">
+                                    <button type="submit" class="btn btn-outline-primary btn-sm">Download JSON</button>
+                                </form>
+                                {% if created_credential.email %}
+                                    <form method="post"
+                                          action="{{ request.url_for("send_uberadmin_credentials_email") }}">
+                                        <input type="hidden"
+                                               name="fullname"
+                                               value="{{ created_credential.fullname }}">
+                                        <input type="hidden" name="email" value="{{ created_credential.email }}">
+                                        <input type="hidden"
+                                               name="username"
+                                               value="{{ created_credential.username }}">
+                                        <input type="hidden"
+                                               name="password"
+                                               value="{{ created_credential.password }}">
+                                        <button type="submit" class="btn btn-outline-primary btn-sm">Send credentials by email</button>
+                                    </form>
+                                {% endif %}
+                            </div>
+                            {% if email_delivery_message %}
+                                <div class="alert {% if email_delivery_success %} alert-success {% else %} alert-danger {% endif %} py-2 small mt-3 mb-0">
+                                    {{ email_delivery_message }}
+                                </div>
+                            {% endif %}
+                        {% else %}
+                            <p class="text-muted small mb-0">After creating a user, the username/password pair will be shown here.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

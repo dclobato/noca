@@ -1,0 +1,136 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; {{ 'New Category' if mode == 'create' else 'Edit Category' }}{% endblock %}
+{% block nav_admin_categories %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="category") }}
+                    {{ 'New Category' if mode == 'create' else 'Edit Category' }}
+                </h1>
+                <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm">
+                    {{ render_icon(icon="arrow_back") }}
+                    Back
+                </a>
+                {% if mode == 'edit' %}
+                    <button type="button"
+                            class="btn btn-outline-danger btn-sm"
+                            data-category-delete-button
+                            data-category-name="{{ category.name }}"
+                            data-category-count="{{ problem_count }}"
+                            data-category-action="{{ request.url_for('arena_admin_category_delete', category_id=category.id) }}"
+                            data-category-page="{{ page }}"
+                            data-category-per-page="{{ per_page }}">
+                        {{ render_icon(icon="delete") }}
+                        Remove
+                    </button>
+                {% endif %}
+            </div>
+            <form method="post"
+                  action="{{ request.url_for("arena_admin_category_create") if mode == 'create' else request.url_for('arena_admin_category_update', category_id=category.id) }}"
+                  data-category-form>
+                {% if mode == 'edit' %}
+                    <input type="hidden" name="page" value="{{ page }}">
+                    <input type="hidden" name="per_page" value="{{ per_page }}">
+                {% endif %}
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="category_name">Name</label>
+                        <input type="text"
+                               class="form-control"
+                               id="category_name"
+                               name="name"
+                               value="{{ form.name }}"
+                               maxlength="128"
+                               required>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label" for="category_slug">Slug</label>
+                        <input type="text"
+                               class="form-control"
+                               id="category_slug"
+                               name="slug"
+                               value="{{ form.slug }}"
+                               maxlength="128"
+                               pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                               required>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label" for="category_color">Color</label>
+                        <div class="input-group">
+                            <input type="color"
+                                   class="form-control form-control-color"
+                                   id="category_color"
+                                   name="color"
+                                   value="{{ form.color }}"
+                                   required>
+                            <span class="input-group-text arena-monospace">{{ form.color }}</span>
+                        </div>
+                    </div>
+                    {% if mode == 'edit' %}
+                        <div class="col-12 col-md-8 d-flex align-items-end">
+                            <p class="text-muted small mb-2">{{ problem_count }} linked problem{{ 's' if problem_count != 1 else '' }}</p>
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    <button type="submit" class="btn btn-primary">
+                        {{ render_icon(icon="save") }}
+                        Save
+                    </button>
+                    <a href="{{ back_url }}" class="btn btn-outline-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% if mode == 'edit' %}
+        <div class="modal fade"
+             id="category-delete-modal"
+             tabindex="-1"
+             aria-labelledby="category-delete-modal-title"
+             aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <form method="post" data-category-delete-form>
+                        <input type="hidden" name="page" value="{{ page }}">
+                        <input type="hidden" name="per_page" value="{{ per_page }}">
+                        <div class="modal-header">
+                            <h2 class="modal-title fs-5" id="category-delete-modal-title">Remove category</h2>
+                            <button type="button"
+                                    class="btn-close"
+                                    data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="mb-1">
+                                Remove <strong data-category-delete-name></strong>?
+                            </p>
+                            <p class="text-muted small mb-0" data-category-delete-count></p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button"
+                                    class="btn btn-outline-secondary"
+                                    data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-danger">Remove</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('arena_static_js', path='admin-category-form.js') }}?v={{ app_version }}"></script>
+    {% if mode == 'edit' %}
+        <script src="{{ request.url_for('arena_static_js', path='admin-category-list.js') }}?v={{ app_version }}"></script>
+    {% endif %}
+{% endblock %}

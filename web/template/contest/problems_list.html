@@ -1,0 +1,79 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— Problems{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Problems</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Problems</h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        {% if access_blocked %}
+            <div class="alert alert-info d-flex align-items-center gap-2">
+                {{ render_icon(icon="schedule") }}
+                Problems are only available after the contest starts.
+            </div>
+        {% elif problem_rows %}
+            <div class="card shadow-sm">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="text-center noca-col-4">Label</th>
+                                    <th class="text-center noca-col-3">Balloon</th>
+                                    <th>Problem</th>
+                                    <th class="text-center noca-col-6">Total TCs</th>
+                                    <th class="text-center noca-col-7">Public TCs</th>
+                                    <th class="text-center noca-col-5">Download</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for p, label, total_tc, public_tc in problem_rows %}
+                                    <tr>
+                                        <td class="text-center">
+                                            <strong>{{ label }}</strong>
+                                        </td>
+                                        <td class="text-center">
+                                            <img src="{{ request.url_for('balloon', color=p.color[1:] if p.color else '888888') }}"
+                                                 height="32"
+                                                 alt="balloon">
+                                        </td>
+                                        <td>
+                                            <a href="{{ request.url_for('contest_problem_detail', slug=contest.login_slug, problem_label=label) }}">
+                                                {{ p.title }}
+                                            </a>
+                                        </td>
+                                        <td class="text-center">{{ total_tc }}</td>
+                                        <td class="text-center">{{ public_tc }}</td>
+                                        <td class="text-center">
+                                            <a href="{{ request.url_for('contest_problem_export', slug=contest.login_slug, problem_label=label) }}"
+                                               title="Download public materials (statement + sample test cases)"
+                                               class="btn btn-sm btn-outline-secondary noca-icon-btn">
+                                                {{ render_icon(icon="download") }}
+                                            </a>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        {% else %}
+            <div class="text-muted text-center py-5">
+                {{ render_icon(icon="inbox", classes=["display-6", "d-block", "mb-2"]) }}
+                No problems have been published yet.
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

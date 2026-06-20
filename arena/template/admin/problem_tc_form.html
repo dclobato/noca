@@ -1,0 +1,56 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}
+    &mdash;
+    {% if tc %}
+        Edit Test Case #{{ tc.ordinal }}
+    {% else %}
+        New Test Case
+    {% endif %}
+{% endblock %}
+{% block nav_admin_problems %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="checklist") }}
+                    {% if tc %}
+                        Edit Test Case #{{ tc.ordinal }}
+                    {% else %}
+                        New Test Case
+                    {% endif %}
+                    <span class="text-muted fs-6 ms-1">&mdash; {{ problem.title }}</span>
+                </h1>
+                <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm">
+                    {{ render_icon(icon="arrow_back") }}
+                    Back to problem
+                </a>
+            </div>
+            {% with is_edit=tc is not none,
+                is_edit_allowed=true,
+                offline=offline | default(false),
+                input_size_bytes=input_size_bytes | default(0),
+                output_size_bytes=output_size_bytes | default(0),
+                download_url=download_url | default(''),
+                replace_url=replace_url | default(''),
+                post_action_url=(request.url_for('arena_admin_problem_tc_update', problem_id=problem.id, tc_id=tc.id) if tc else request.url_for('arena_admin_problem_tc_add', problem_id=problem.id)) | string,
+                cancel_url=back_url,
+                input_field_name='input_content',
+                output_field_name='output_content',
+                input_value=form.input_content,
+                output_value=form.output_content,
+                explanation_value=form.explanation,
+                is_sample=form.is_sample %}
+                {% include "_partials/testcase_edit_form.html" %}
+            {% endwith %}
+        </div>
+    </div>
+{% endblock %}

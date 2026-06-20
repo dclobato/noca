@@ -1,0 +1,18 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% block title_suffix %}&mdash; Dashboard{% endblock %}
+{# Mark Problems as the active nav item #}
+{% block nav_problems %}active{% endblock %}
+{% block content %}
+    <div class="row g-3">
+        <div class="col-12">{% include "_partials/dashboard/languages_card.html" %}</div>
+        <div class="col-12 col-lg-6">{% include "_partials/dashboard/random_problems_card.html" %}</div>
+        <div class="col-12 col-lg-6">{% include "_partials/dashboard/top_users_card.html" %}</div>
+    </div>
+{% endblock %}

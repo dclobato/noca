@@ -1,0 +1,95 @@
+{% from "_macros.html" import render_icon %}
+<div id="problem-list-panel">
+    {% if problem_rows %}
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0" id="problem-list">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="noca-col-5">Order</th>
+                                <th class="noca-col-3 text-center">Label</th>
+                                <th class="noca-col-3 text-center">Balloon</th>
+                                <th>Title</th>
+                                <th>Author</th>
+                                <th>Categories</th>
+                                <th class="noca-col-4 text-center">Tests</th>
+                                <th class="noca-col-8">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody data-reorder-sortable="true"
+                               data-reorder-target="problem-list-panel"
+                               data-reorder-disabled="{{ 'false' if is_edit_allowed else 'true' }}">
+                            {% for p, label, tc_count in problem_rows %}
+                                <tr id="{{ p.id }}"
+                                    data-id="{{ p.id }}"
+                                    data-ordinal="{{ p.ordinal }}"
+                                    data-move-url="{{ request.url_for('move_problem_htmx', slug=contest.login_slug, problem_id=p.id) }}">
+                                    <td>
+                                        <span class="btn btn-sm btn-outline-secondary p-1 noca-icon-btn noca-drag-handle {% if not is_edit_allowed %}disabled{% endif %}"
+                                              role="button"
+                                              tabindex="{% if is_edit_allowed %} 0 {% else %} -1 {% endif %}"
+                                              aria-label="Drag to reorder problem"
+                                              title="{% if is_edit_allowed %} Drag to reorder {% else %} Contest is not editable {% endif %}">{{ render_icon(icon="drag_indicator") }}</span>
+                                    </td>
+                                    <td class="text-center">
+                                        <strong>{{ label }}</strong>
+                                    </td>
+                                    <td class="text-center">
+                                        <img src="{{ request.url_for('balloon', color=p.color[1:] if p.color else '888888') }}"
+                                             height="32"
+                                             alt="balloon">
+                                    </td>
+                                    <td>
+                                        <a href="{{ request.url_for('edit_problem_form', slug=contest.login_slug, problem_id=p.id) }}">{{ p.title }}</a>
+                                        {% if tc_count == 0 %}<span class="badge bg-warning text-dark ms-1" title="No test cases">!</span>{% endif %}
+                                    </td>
+                                    <td class="text-muted small">{{ p.author or "—" }}</td>
+                                    <td>
+                                        {% for cat in p.categories %}<span class="badge bg-secondary">{{ cat.name }}</span>{% endfor %}
+                                    </td>
+                                    <td class="text-center">{{ tc_count }}</td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm noca-icon-btn-group"
+                                             role="group"
+                                             aria-label="Problem actions">
+                                            <a href="{{ request.url_for('edit_problem_form', slug=contest.login_slug, problem_id=p.id) }}"
+                                               class="btn btn-outline-secondary noca-icon-btn"
+                                               title="Edit">{{ render_icon(icon="edit") }}</a>
+                                            <a href="{{ request.url_for('export_problem', slug=contest.login_slug, problem_id=p.id) }}"
+                                               class="btn btn-outline-secondary noca-icon-btn"
+                                               title="Export ZIP">{{ render_icon(icon="download") }}</a>
+                                            {% if is_remove_allowed %}
+                                                <form method="post"
+                                                      action="{{ request.url_for('remove_problem', slug=contest.login_slug, problem_id=p.id) }}"
+                                                      class="noca-icon-btn-wrap"
+                                                      onsubmit="return confirm('Remove problem {{ p.title | e }}?')">
+                                                    <button type="submit"
+                                                            class="btn btn-outline-danger noca-icon-btn"
+                                                            title="Remove">{{ render_icon(icon="delete") }}</button>
+                                                </form>
+                                            {% else %}
+                                                <span class="noca-icon-btn-wrap" title="{{ remove_blocked_reason }}">
+                                                    <button class="btn btn-outline-danger noca-icon-btn"
+                                                            disabled
+                                                            title="{{ remove_blocked_reason }}">
+                                                        {{ render_icon(icon="delete") }}
+                                                    </button>
+                                                </span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <div class="text-muted text-center py-5">
+            {{ render_icon(icon="inbox", classes=["display-6", "d-block", "mb-2"]) }}
+            No problems yet. <a href="{{ request.url_for('new_problem_form', slug=contest.login_slug) }}">Add the first one</a>.
+        </div>
+    {% endif %}
+</div>

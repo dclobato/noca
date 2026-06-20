@@ -1,0 +1,27 @@
+{% extends "_base.html" %}
+{% from "_contest_macros.html" import contest_tile with context %}
+{% block title_suffix %}— Inactive Contests{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+            <div>
+                <h2 class="h4 mb-1">Inactive contests</h2>
+                <p class="text-muted mb-0 small">Contests hidden from public and contest-scoped access.</p>
+            </div>
+            <a href="{{ request.url_for("uberadmin_dashboard") }}"
+               class="btn btn-outline-secondary btn-sm">Back to dashboard</a>
+        </div>
+        {% if inactive_contests %}
+            <div class="row g-3">
+                {% for contest in inactive_contests %}
+                    {% call contest_tile(contest, "Inactive", "bg-secondary", show_login=False, show_languages=False) %}
+                        <div>Start: {{ contest.local_start_time.strftime("%Y-%m-%d %H:%M") }} ({{ contest.contest_timezone }})</div>
+                        <div>End: {{ contest.local_end_time.strftime("%Y-%m-%d %H:%M") }} ({{ contest.contest_timezone }})</div>
+                    {% endcall %}
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="text-muted mb-0">No inactive contests.</p>
+        {% endif %}
+    </div>
+{% endblock %}

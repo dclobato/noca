@@ -1,0 +1,513 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Affiliation Management{% endblock %}
+{% block nav_admin_affiliations %}active{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='cropper.min.css') }}">
+{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="corporate_fare") }}
+                    Affiliation Management
+                </h1>
+                <button type="button"
+                        class="btn btn-primary btn-sm"
+                        data-bs-toggle="modal"
+                        data-bs-target="#affiliation-new-modal">
+                    {{ render_icon(icon="add") }}
+                    Add new affiliation
+                </button>
+            </div>
+            {# Filter form #}
+            <form method="get"
+                  id="affiliation-filter-form"
+                  class="d-flex flex-wrap gap-2 align-items-end mb-3">
+                {% with label="Name", input_type="text", value=search, placeholder="Search affiliations…", autocomplete="off" %}
+                    {% include "_partials/filter_search_field.html" %}
+                {% endwith %}
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="filter-country-code">Country</label>
+                    <select class="form-select form-select-sm"
+                            id="filter-country-code"
+                            name="country_code">
+                        <option value="">— All countries —</option>
+                        {% for c in countries %}
+                            <option value="{{ c.code }}"
+                                    {% if c.code == country_code %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="filter-subdivision-code">Subdivision</label>
+                    <select class="form-select form-select-sm"
+                            id="filter-subdivision-code"
+                            name="subdivision_code"
+                            {% if not country_code %}disabled{% endif %}>
+                        <option value="">— Subdivision —</option>
+                        {% for s in subdivisions %}
+                            <option value="{{ s.code }}"
+                                    {% if s.code == subdivision_code %}selected{% endif %}>{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="per_page">Per page</label>
+                    <select class="form-select form-select-sm"
+                            id="per_page"
+                            name="per_page"
+                            onchange="this.form.submit()">
+                        {% for n in [10, 25, 50, 100] %}
+                            <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% include "_partials/filter_submit_button.html" %}
+                {% set _filters_active = search or country_code or subdivision_code or per_page != 25 %}
+                {% with clear_url=request.url_for("arena_admin_affiliation_list"), filters_active=_filters_active %}
+                    {% include "_partials/filter_clear_link.html" %}
+                {% endwith %}
+            </form>
+            <p class="text-muted small mb-2">{{ pagination.total }} affiliation{{ 's' if pagination.total != 1 else '' }}</p>
+            {% with pagination=pagination, page_param="page", label="Affiliation list pagination", nav_margin="mb-2" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th class="arena-col-title">Name</th>
+                            <th>Country</th>
+                            <th>Subdivision</th>
+                            <th>URL</th>
+                            <th>Rating</th>
+                            <th class="arena-col-actions">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for affiliation in pagination.items %}
+                            <tr id="{{ affiliation.id }}">
+                                <td>
+                                    {% if affiliation.logo_base64 %}
+                                        <img src="{{ request.url_for('arena_affiliation_logo_thumbnail', affiliation_id=affiliation.id) }}"
+                                             alt="{{ affiliation.name }} logo"
+                                             class="me-2 affiliation-logo-thumb"
+                                             data-affiliation-logo-thumb="{{ affiliation.id }}">
+                                    {% else %}
+                                        <span class="affiliation-logo-thumb d-none"
+                                              data-affiliation-logo-thumb="{{ affiliation.id }}"></span>
+                                    {% endif %}
+                                    {{ affiliation.name }}
+                                </td>
+                                <td class="text-nowrap">
+                                    {% if affiliation.country_code %}
+                                        <img src="{{ request.url_for('static_vendor', path='img/flags/' + affiliation.country_code.lower() + '.svg') }}"
+                                             class="arena-country-flag"
+                                             alt="">
+                                        {{ affiliation.country_name }}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if affiliation.subdivision_name %}
+                                        {{ affiliation.subdivision_name }}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if affiliation.url %}
+                                        <a href="{{ affiliation.url }}"
+                                           target="_blank"
+                                           rel="noopener noreferrer"
+                                           class="text-truncate d-inline-block"
+                                           style="max-width:200px">{{ affiliation.url }}</a>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if affiliation.rating is not none %}
+                                        {% set _chart_id = "affiliation-rating-chart-" ~ affiliation.id %}
+                                        {% set _modal_id = _chart_id ~ "-modal" %}
+                                        <button type="button"
+                                                class="btn btn-link p-0 arena-rating-clickable"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#{{ _modal_id }}"
+                                                title="View rating history">
+                                            {{ render_icon(icon="star", filled=True) }}
+                                            {{ affiliation.rating }} pts
+                                        </button>
+                                        {% with chart_id=_chart_id,
+                                            hide_button=True,
+                                            data_url=request.url_for("arena_affiliation_rating_history", affiliation_id=affiliation.id) %}
+                                            {% include "users/_rating_history_chart.html" %}
+                                        {% endwith %}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="arena-col-actions">
+                                    <button type="button"
+                                            class="btn arena-icon-button btn-sm"
+                                            title="Edit affiliation"
+                                            data-bs-toggle="tooltip"
+                                            data-bs-container="body"
+                                            data-bs-boundary="viewport"
+                                            data-affiliation-edit-button
+                                            data-action="{{ request.url_for('arena_admin_affiliation_update', affiliation_id=affiliation.id) }}"
+                                            data-name="{{ affiliation.name }}"
+                                            data-url="{{ affiliation.url or '' }}"
+                                            data-country="{{ affiliation.country_code or '' }}"
+                                            data-subdiv="{{ affiliation.subdivision_code or '' }}"
+                                            data-exclude-from-ranking="{{ 'true' if affiliation.exclude_from_ranking else '' }}"
+                                            aria-label="Edit affiliation">{{ render_icon(icon="edit") }}</button>
+                                    <button type="button"
+                                            class="btn arena-icon-button btn-sm"
+                                            title="Manage logo"
+                                            data-bs-toggle="tooltip"
+                                            data-bs-container="body"
+                                            data-bs-boundary="viewport"
+                                            data-affiliation-logo-button
+                                            data-affiliation-id="{{ affiliation.id }}"
+                                            data-affiliation-name="{{ affiliation.name }}"
+                                            data-logo-url="{% if affiliation.logo_base64 %}{{ request.url_for('arena_affiliation_logo', affiliation_id=affiliation.id) }}{% endif %}"
+                                            data-save-url="{{ request.url_for('arena_admin_affiliation_logo', affiliation_id=affiliation.id) }}"
+                                            aria-label="Manage logo">
+                                        {{ render_icon(icon="add_photo_alternate") }}
+                                    </button>
+                                    <button type="button"
+                                            class="btn arena-icon-button btn-sm text-danger"
+                                            title="Remove affiliation"
+                                            data-bs-toggle="tooltip"
+                                            data-bs-container="body"
+                                            data-bs-boundary="viewport"
+                                            data-affiliation-delete-button
+                                            data-action="{{ request.url_for('arena_admin_affiliation_delete', affiliation_id=affiliation.id) }}"
+                                            data-name="{{ affiliation.name }}"
+                                            aria-label="Remove affiliation">{{ render_icon(icon="delete") }}</button>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="6" class="arena-empty-state">No affiliations found.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% with pagination=pagination, page_param="page", label="Affiliation list pagination" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+        </div>
+    </div>
+    {# ── New affiliation modal ── #}
+    <div class="modal fade"
+         id="affiliation-new-modal"
+         tabindex="-1"
+         aria-labelledby="affiliation-new-modal-title"
+         aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form method="post"
+                      action="{{ request.url_for("arena_admin_affiliation_create") }}">
+                    <input type="hidden" name="page" value="{{ pagination.page }}">
+                    <input type="hidden" name="per_page" value="{{ per_page }}">
+                    <input type="hidden" name="search" value="{{ search }}">
+                    <input type="hidden" name="country_code" value="{{ country_code }}">
+                    <input type="hidden" name="subdivision_code" value="{{ subdivision_code }}">
+                    <div class="modal-header">
+                        <h2 class="modal-title fs-5" id="affiliation-new-modal-title">
+                            {{ render_icon(icon="corporate_fare") }}
+                            New Affiliation
+                        </h2>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label" for="new-name">
+                                    Name <span class="text-danger">*</span>
+                                </label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="new-name"
+                                       name="name"
+                                       maxlength="200"
+                                       required
+                                       autocomplete="off">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="new-url">Website URL</label>
+                                <input type="url"
+                                       class="form-control"
+                                       id="new-url"
+                                       name="url"
+                                       maxlength="500"
+                                       placeholder="https://…">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="new-country-code">Country</label>
+                                <select class="form-select" id="new-country-code" name="country_code">
+                                    <option value="">— Select country —</option>
+                                    {% for c in countries %}<option value="{{ c.code }}">{{ c.name }}</option>{% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="new-subdivision-code">Subdivision</label>
+                                <select class="form-select"
+                                        id="new-subdivision-code"
+                                        name="subdivision_code"
+                                        disabled>
+                                    <option value="">— Subdivision —</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-outline-secondary"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">
+                            {{ render_icon(icon="save") }}
+                            Save
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {# ── Edit affiliation modal ── #}
+    <div class="modal fade"
+         id="affiliation-edit-modal"
+         tabindex="-1"
+         aria-labelledby="affiliation-edit-modal-title"
+         aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form method="post" data-affiliation-edit-form>
+                    <input type="hidden" name="page" value="{{ pagination.page }}">
+                    <input type="hidden" name="per_page" value="{{ per_page }}">
+                    <input type="hidden" name="search" value="{{ search }}">
+                    <input type="hidden" name="country_code" value="{{ country_code }}">
+                    <input type="hidden" name="subdivision_code" value="{{ subdivision_code }}">
+                    <div class="modal-header">
+                        <h2 class="modal-title fs-5" id="affiliation-edit-modal-title">
+                            {{ render_icon(icon="edit") }}
+                            Edit Affiliation
+                        </h2>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label" for="edit-name">
+                                    Name <span class="text-danger">*</span>
+                                </label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="edit-name"
+                                       name="name"
+                                       maxlength="200"
+                                       required
+                                       autocomplete="off">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="edit-url">Website URL</label>
+                                <input type="url"
+                                       class="form-control"
+                                       id="edit-url"
+                                       name="url"
+                                       maxlength="500"
+                                       placeholder="https://…">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="edit-country-code">Country</label>
+                                <select class="form-select" id="edit-country-code" name="country_code">
+                                    <option value="">— Select country —</option>
+                                    {% for c in countries %}<option value="{{ c.code }}">{{ c.name }}</option>{% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="edit-subdivision-code">Subdivision</label>
+                                <select class="form-select"
+                                        id="edit-subdivision-code"
+                                        name="subdivision_code"
+                                        disabled>
+                                    <option value="">— Subdivision —</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input"
+                                           type="checkbox"
+                                           id="edit-exclude-from-ranking"
+                                           name="exclude_from_ranking"
+                                           value="true">
+                                    <label class="form-check-label" for="edit-exclude-from-ranking">Exclude from ranking/rating</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-outline-secondary"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">
+                            {{ render_icon(icon="save") }}
+                            Save
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {# ── Delete affiliation modal ── #}
+    <div class="modal fade"
+         id="affiliation-delete-modal"
+         tabindex="-1"
+         aria-labelledby="affiliation-delete-modal-title"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" data-affiliation-delete-form>
+                    <input type="hidden" name="page" value="{{ pagination.page }}">
+                    <input type="hidden" name="per_page" value="{{ per_page }}">
+                    <input type="hidden" name="search" value="{{ search }}">
+                    <input type="hidden" name="country_code" value="{{ country_code }}">
+                    <input type="hidden" name="subdivision_code" value="{{ subdivision_code }}">
+                    <div class="modal-header">
+                        <h2 class="modal-title fs-5" id="affiliation-delete-modal-title">Remove affiliation</h2>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-1">
+                            Remove <strong data-affiliation-delete-name></strong>?
+                        </p>
+                        <p class="text-muted small mb-0">
+                            Users currently linked to this affiliation will be detached. No users will be deleted.
+                        </p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-outline-secondary"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-danger">Remove</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {# ── Affiliation logo modal ── #}
+    <div class="modal fade"
+         id="affiliation-logo-modal"
+         tabindex="-1"
+         aria-labelledby="affiliation-logo-modal-title"
+         aria-hidden="true"
+         data-bs-backdrop="static">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="affiliation-logo-modal-title">
+                        {{ render_icon(icon="add_photo_alternate") }}
+                        Affiliation Logo
+                    </h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3" id="logo-modal-affiliation-name"></p>
+                    {# Current logo preview #}
+                    <div id="logo-modal-current" class="mb-3">
+                        <img id="logo-modal-preview"
+                             src=""
+                             alt="Current logo"
+                             class="affiliation-logo-modal-preview d-none">
+                        <p id="logo-modal-no-logo" class="text-muted fst-italic">No logo set.</p>
+                    </div>
+                    {# Inline crop area — hidden until file selected #}
+                    <div id="logo-modal-crop-area" class="d-none mb-3">
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <img id="logo-modal-crop-image"
+                                     src=""
+                                     alt="Crop area"
+                                     class="arena-crop-img">
+                            </div>
+                            <div class="col-md-4 d-flex flex-column align-items-center gap-2">
+                                <p class="small text-muted mb-1">Preview (1:1)</p>
+                                <div id="logo-modal-crop-preview" class="arena-crop-preview"></div>
+                            </div>
+                        </div>
+                    </div>
+                    {# Error message #}
+                    <div id="logo-modal-error" class="alert alert-danger d-none" role="alert"></div>
+                    {# Action buttons #}
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm"
+                                id="logo-modal-select-btn">
+                            {{ render_icon(icon="upload") }}
+                            Select image
+                        </button>
+                        <button type="button"
+                                class="btn btn-outline-danger btn-sm d-none"
+                                id="logo-modal-remove-btn">
+                            {{ render_icon(icon="hide_image") }}
+                            Remove logo
+                        </button>
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm d-none"
+                                id="logo-modal-restore-btn">
+                            {{ render_icon(icon="undo") }}
+                            Restore logo
+                        </button>
+                    </div>
+                    <input type="file"
+                           id="logo-modal-file-input"
+                           accept="image/png,image/jpeg,image/webp"
+                           class="d-none">
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-outline-secondary"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="logo-modal-save" disabled>
+                        {{ render_icon(icon="save") }}
+                        Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='cropper.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='admin-affiliations.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='admin-affiliations-logo.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-rating-history-chart.js') }}?v={{ app_version }}"></script>
+{% endblock %}

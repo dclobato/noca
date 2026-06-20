@@ -1,0 +1,305 @@
+{% extends "_base.html" %}
+{% block title_suffix %}— Users{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item active" aria-current="page">Users</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container-fluid py-4 px-4">
+        {# Page header #}
+        <div class="d-flex flex-wrap align-items-center gap-3 mb-4">
+            <div class="flex-grow-1">
+                <h1 class="h4 mb-0">User Management</h1>
+            </div>
+            <span class="badge {% if contest_status == 'Running' %} bg-success {% elif contest_status == 'Scheduled' %} bg-primary {% else %} bg-secondary {% endif %}">{{ contest_status }}</span>
+            <a href="{{ request.url_for('add_user_form', slug=contest.login_slug) }}"
+               class="btn btn-success btn-sm">+ Add User</a>
+            <a href="{{ request.url_for('batch_import_form', slug=contest.login_slug) }}"
+               class="btn btn-outline-primary btn-sm">Batch Import</a>
+            <a href="{{ request.url_for('export_users', slug=contest.login_slug) }}"
+               class="btn btn-outline-secondary btn-sm">Export Users</a>
+        </div>
+        {% if is_running %}
+            <div class="alert alert-warning d-flex align-items-center gap-2"
+                 role="alert">
+                <strong>Contest is running.</strong>&nbsp;Users cannot be removed while the contest is active.
+            </div>
+        {% endif %}
+        {# Macro: render a single user row #}
+        {% macro user_row(u, show_remove) %}
+            {% set can_edit = current_admin_user_id != u.id %}
+            <div class="py-2 border-bottom border-secondary-subtle" id="{{ u.id }}">
+                <div class="d-flex align-items-center gap-2">
+                    {% if can_edit %}
+                        <a href="{{ request.url_for('edit_user_form', slug=contest.login_slug, user_id=u.id) }}"
+                           class="flex-shrink-0"
+                           tabindex="-1">
+                        {% else %}
+                            <span class="flex-shrink-0">
+                            {% endif %}
+                            <img src="/user/{{ u.id }}/avatar?v={{ u.dta_foto or '0' }}"
+                                 width="32"
+                                 height="32"
+                                 class="rounded-circle object-fit-cover noca-avatar-sm"
+                                 alt="{{ u.fullname or u.username }}">
+                            {% if can_edit %}
+                            </a>
+                        {% else %}
+                        </span>
+                    {% endif %}
+                    <div class="flex-grow-1 min-width-0">
+                        <div class="fw-semibold text-truncate">
+                            {{ u.fullname or "(no name)" }}
+                            {% if u.id == contest.chief_judge_id %}
+                                <span class="text-warning ms-1"
+                                      title="Chief judge"
+                                      aria-label="Chief judge">&#9733;</span>
+                            {% endif %}
+                        </div>
+                        <div class="text-muted small">
+                            <code>{{ u.username }}</code>
+                        </div>
+                    </div>
+                    {% if can_edit %}
+                        <a href="{{ request.url_for('edit_user_form', slug=contest.login_slug, user_id=u.id) }}"
+                           class="btn btn-outline-secondary btn-sm flex-shrink-0">Edit</a>
+                    {% endif %}
+                    {% if show_remove %}
+                        <form method="post"
+                              action="{{ request.url_for('remove_user_route', slug=contest.login_slug, user_id=u.id) }}"
+                              onsubmit="return confirm('Remove {{ u.fullname | e }} from this contest?');"
+                              class="d-inline flex-shrink-0">
+                            <button type="submit" class="btn btn-outline-danger btn-sm">Remove</button>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+        {% endmacro %}
+        {% macro admin_user_row(u) %}
+            {% set can_edit = current_admin_user_id != u.id %}
+            <div class="py-2 border-bottom border-secondary-subtle" id="{{ u.id }}">
+                <div class="d-flex align-items-center gap-2">
+                    {% if can_edit %}
+                        <a href="{{ request.url_for('edit_user_form', slug=contest.login_slug, user_id=u.id) }}"
+                           class="flex-shrink-0"
+                           tabindex="-1">
+                        {% else %}
+                            <span class="flex-shrink-0">
+                            {% endif %}
+                            <img src="/user/{{ u.id }}/avatar?v={{ u.dta_foto or '0' }}"
+                                 width="32"
+                                 height="32"
+                                 class="rounded-circle object-fit-cover noca-avatar-sm"
+                                 alt="{{ u.fullname or u.username }}">
+                            {% if can_edit %}
+                            </a>
+                        {% else %}
+                        </span>
+                    {% endif %}
+                    <div class="flex-grow-1 min-width-0">
+                        <div class="fw-semibold text-truncate">
+                            {{ u.fullname or "(no name)" }}
+                            {% if u.id == contest.chief_judge_id %}
+                                <span class="text-warning ms-1"
+                                      title="Chief judge"
+                                      aria-label="Chief judge">&#9733;</span>
+                            {% endif %}
+                            {% if u.id == owner_user_id %}<span class="badge bg-dark ms-1">Owner</span>{% endif %}
+                        </div>
+                        <div class="text-muted small">
+                            <code>{{ u.username }}</code>
+                        </div>
+                    </div>
+                    {% if can_edit %}
+                        <a href="{{ request.url_for('edit_user_form', slug=contest.login_slug, user_id=u.id) }}"
+                           class="btn btn-outline-secondary btn-sm flex-shrink-0">Edit</a>
+                    {% endif %}
+                    {% if not is_running and u.id != owner_user_id and u.id != current_admin_user_id %}
+                        <form method="post"
+                              action="{{ request.url_for('remove_user_route', slug=contest.login_slug, user_id=u.id) }}"
+                              onsubmit="return confirm('Remove {{ u.fullname | e }} from this contest?');"
+                              class="d-inline flex-shrink-0">
+                            <button type="submit" class="btn btn-outline-danger btn-sm">Remove</button>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+        {% endmacro %}
+        {% macro grouped_user_lists(role_key, role_groups, show_remove, admin_mode=False) %}
+            {% if role_groups.total_users %}
+                <div class="p-3">
+                    {% if role_groups.ungrouped_users %}
+                        <div class="{{ 'mb-3' if role_groups.site_groups }}">
+                            {% for u in role_groups.ungrouped_users %}
+                                {% if admin_mode %}
+                                    {{ admin_user_row(u) }}
+                                {% else %}
+                                    {{ user_row(u, show_remove) }}
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    {% if role_groups.site_groups %}
+                        <div class="accordion" id="{{ role_key }}-site-accordion">
+                            {% for group in role_groups.site_groups %}
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header" id="{{ role_key }}-heading-{{ group.key }}">
+                                        <button class="accordion-button"
+                                                type="button"
+                                                data-bs-toggle="collapse"
+                                                data-bs-target="#{{ role_key }}-collapse-{{ group.key }}"
+                                                aria-expanded="true"
+                                                aria-controls="{{ role_key }}-collapse-{{ group.key }}">
+                                            <span>{{ group.label }}</span>
+                                            <span class="badge bg-secondary ms-2">{{ group.total_users }}</span>
+                                        </button>
+                                    </h2>
+                                    <div id="{{ role_key }}-collapse-{{ group.key }}"
+                                         class="accordion-collapse collapse show"
+                                         aria-labelledby="{{ role_key }}-heading-{{ group.key }}">
+                                        <div class="accordion-body p-0">
+                                            <div class="px-3">
+                                                {% for u in group.users %}
+                                                    {% if admin_mode %}
+                                                        {{ admin_user_row(u) }}
+                                                    {% else %}
+                                                        {{ user_row(u, show_remove) }}
+                                                    {% endif %}
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+            {% endif %}
+        {% endmacro %}
+        {# Macro: render a role column card #}
+        {% macro role_card(role_key, label, badge_cls, role_groups, col_classes="col-sm-6 col-xl-3") %}
+            <div class="{{ col_classes }}">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <span class="badge {{ badge_cls }}">{{ label }}</span>
+                        <span class="text-muted small ms-auto">{{ role_groups.total_users }}</span>
+                    </div>
+                    <div class="card-body p-0">
+                        {% if role_groups.total_users %}
+                            {{ grouped_user_lists(role_key, role_groups, not is_running) }}
+                        {% else %}
+                            <p class="text-muted small p-3 mb-0">No {{ label | lower }}s.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endmacro %}
+        {# Admin + Chief Judge side-by-side #}
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <span class="badge bg-warning text-dark">Admin</span>
+                        <span class="text-muted small ms-auto">{{ admin_users.total_users }}</span>
+                    </div>
+                    <div class="card-body p-0">
+                        {% if admin_users.total_users %}
+                            {{ grouped_user_lists("admin", admin_users, not is_running, admin_mode=True) }}
+                        {% else %}
+                            <p class="text-muted small p-3 mb-0">No admin users.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-header fw-semibold">Chief Judge</div>
+                    <div class="card-body">
+                        {% if current_chief_judge %}
+                            <div class="d-flex flex-column flex-md-row align-items-md-end gap-3">
+                                <div class="flex-grow-1">
+                                    <div class="text-muted small">Current chief judge</div>
+                                    <div class="fw-semibold">
+                                        {{ format_site_identity(current_chief_judge.site.sitename if current_chief_judge.site else none,
+                                                                                current_chief_judge.fullname or current_chief_judge.username,) }}
+                                        <span class="text-warning ms-1"
+                                              title="Chief judge"
+                                              aria-label="Chief judge">&#9733;</span>
+                                    </div>
+                                    <div class="text-muted small">{{ current_chief_judge.username }}</div>
+                                    {% if not can_remove_chief_judge %}
+                                        <div class="form-text text-danger">
+                                            This chief judge cannot be removed because they have already executed a verdict override.
+                                        </div>
+                                    {% endif %}
+                                </div>
+                                <form method="post"
+                                      action="{{ request.url_for('contest_admin_set_chief_judge', slug=contest.login_slug) }}">
+                                    <input type="hidden" name="action" value="remove">
+                                    <button type="submit"
+                                            class="btn btn-outline-danger"
+                                            {% if not can_remove_chief_judge %}disabled{% endif %}>
+                                        Remove Chief Judge
+                                    </button>
+                                </form>
+                            </div>
+                        {% else %}
+                            <form method="post"
+                                  action="{{ request.url_for('contest_admin_set_chief_judge', slug=contest.login_slug) }}">
+                                <div class="d-flex gap-2 align-items-end">
+                                    <div class="flex-grow-1">
+                                        <label for="judge_id" class="form-label">Assigned judge</label>
+                                        <select class="form-select" id="judge_id" name="judge_id">
+                                            <option value="">-- no chief judge --</option>
+                                            {% for judge in judges %}
+                                                <option value="{{ judge.id }}">
+                                                    {{ format_site_identity(judge.site.sitename if judge.site else none,
+                                                                                                        judge.fullname or judge.username,) }} ({{ judge.username }})
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="flex-shrink-0">
+                                        <button type="submit" class="btn btn-primary">Save Chief Judge</button>
+                                    </div>
+                                </div>
+                                <div class="form-text">Leave blank to keep the contest without a chief judge.</div>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {# Teams take the left half; judge, staff, and users stack on the right half. #}
+        <div class="row g-3">
+            {{ role_card("team", "Team", "bg-primary", team_users, "col-lg-6") }}
+            <div class="col-lg-6">
+                <div class="row g-3">
+                    {{ role_card("judge", "Judge", "bg-info text-dark", judge_users, "col-12") }}
+                    {{ role_card("staff", "Staff", "bg-secondary", staff_users, "col-12") }}
+                    {{ role_card("user", "User", "bg-light text-dark border", user_users, "col-12") }}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}"
+            defer></script>
+{% endblock %}

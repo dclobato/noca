@@ -1,0 +1,384 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}- Reports{% endblock %}
+{% block extra_head %}
+    {% if not access_blocked and report and report.total_runs > 0 %}
+        <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_js', path='reports-charts.js') }}"
+                defer></script>
+    {% endif %}
+{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item active" aria-current="page">Reports</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="py-4 px-3">
+        {% if access_blocked %}
+            <div class="text-center text-muted py-5">
+                {{ render_icon(icon="schedule", classes=["display-6", "d-block", "mb-2"]) }}
+                <p class="mb-3">Reports are only available after the contest starts.</p>
+                {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}"
+                       class="btn btn-outline-secondary">&larr; Back to Uberadmin Dashboard</a>
+                {% else %}
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}"
+                       class="btn btn-outline-secondary">&larr; Back to Contest Dashboard</a>
+                {% endif %}
+            </div>
+        {% elif not report or report.total_runs == 0 %}
+            <div class="text-center text-muted py-5">
+                {{ render_icon(icon="bar_chart", classes=["display-6", "d-block", "mb-2"]) }}
+                <p>No judged submissions yet.</p>
+            </div>
+        {% else %}
+            {% set r = report %}
+            <div class="d-flex flex-column align-items-center gap-4">
+                {% set accept_label = "AC + PE" if r.accept_pe else "AC" %}
+                {# ── Macro: balloon + problem label ── #}
+                {% macro problem_cell(p) %}
+                    <img src="/assets/balloon/{{ p.color }}"
+                         width="23"
+                         height="35"
+                         alt="balloon"
+                         class="me-1">
+                    <strong>{{ p.label }}</strong>
+                {% endmacro %}
+                {# ── Macro: language icon + name ── #}
+                {% macro lang_header(l) %}
+                    {% if l.icon %}<i class="{{ l.icon }} me-1"></i>{% endif %}
+                    {{ l.name }}
+                {% endmacro %}
+                {# ── Macro: cell with count and percentage ── #}
+                {% macro cv(cell) %}
+                    {% if cell.count == 0 %}
+                        <span class="text-muted">-</span>
+                    {% else %}
+                        {{ cell.count }} <span class="text-muted">({{ "%.1f"|format(cell.pct) }}%)</span>
+                    {% endif %}
+                {% endmacro %}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                {# Report 1: Problem Summary                                            #}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                <div class="card shadow-sm">
+                    <div class="card-header p-3 fw-semibold">{{ render_icon(icon="summarize", classes=["me-1"]) }} Problem Summary</div>
+                    <div class="card-body p-5">
+                        <div class="overflow-auto d-flex justify-content-center">
+                            <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th class="text-nowrap">Problem</th>
+                                        <th class="text-end noca-col-6">Runs</th>
+                                        <th class="text-end noca-col-8">AC</th>
+                                        {% if r.accept_pe %}<th class="text-end noca-col-8">AC + PE</th>{% endif %}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in r.problem_summary %}
+                                        <tr>
+                                            <td class="text-nowrap">{{ problem_cell(row.problem) }} {{ row.problem.title }}</td>
+                                            <td class="text-end">{{ row.total_runs }}</td>
+                                            <td class="text-end">{{ cv(row.ac) }}</td>
+                                            {% if r.accept_pe %}<td class="text-end">{{ cv(row.ac_pe) }}</td>{% endif %}
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                                <tfoot class="table-light fw-semibold">
+                                    <tr>
+                                        <td>Total runs</td>
+                                        <td class="text-end">{{ r.total_runs }}</td>
+                                        <td class="text-end">{{ r.problem_summary | sum(attribute='ac.count') }}</td>
+                                        {% if r.accept_pe %}<td class="text-end">{{ r.total_accepted }}</td>{% endif %}
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {# ════════════════════════════════════════════════════════════════════ #}
+                {# Report 2: Runs Distribution + Pie Chart                              #}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                <div class="card shadow-sm">
+                    <div class="card-header p-3 fw-semibold">
+                        {{ render_icon(icon="pie_chart", classes=["me-1"]) }} Runs Distribution by Problem
+                    </div>
+                    <div class="card-body p-5">
+                        <div class="overflow-auto d-flex justify-content-center">
+                            <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th class="text-nowrap">Problem</th>
+                                        <th class="text-end noca-col-6">Runs</th>
+                                        <th class="text-end noca-col-8">% Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in r.runs_distribution %}
+                                        <tr>
+                                            <td class="text-nowrap">{{ problem_cell(row.problem) }} {{ row.problem.title }}</td>
+                                            <td class="text-end">{{ row.count }}</td>
+                                            <td class="text-end">{{ "%.2f"|format(row.pct) }}%</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                                <tfoot class="table-light fw-semibold">
+                                    <tr>
+                                        <td>Total runs</td>
+                                        <td class="text-end">{{ r.total_runs }}</td>
+                                        <td class="text-end">100.00%</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                        <div id="chart-runs-dist" style="min-width:500px;height:350px"></div>
+                    </div>
+                </div>
+                {# ════════════════════════════════════════════════════════════════════ #}
+                {# Report 3: Accepted Runs Distribution + Pie Chart                     #}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                <div class="card shadow-sm">
+                    <div class="card-header p-3 fw-semibold">
+                        {{ render_icon(icon="pie_chart", classes=["me-1"]) }} {{ accept_label }} Runs Distribution by Problem
+                    </div>
+                    <div class="card-body p-5">
+                        <div class="overflow-auto d-flex justify-content-center">
+                            <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th class="text-nowrap">Problem</th>
+                                        <th class="text-end noca-col-6">{{ accept_label }}</th>
+                                        <th class="text-end noca-col-8">% Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in r.accepted_distribution %}
+                                        <tr>
+                                            <td class="text-nowrap">{{ problem_cell(row.problem) }} {{ row.problem.title }}</td>
+                                            <td class="text-end">{{ row.count }}</td>
+                                            <td class="text-end">{{ "%.2f"|format(row.pct) }}%</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                                <tfoot class="table-light fw-semibold">
+                                    <tr>
+                                        <td>Total {{ accept_label | lower }} runs</td>
+                                        <td class="text-end">{{ r.total_accepted }}</td>
+                                        <td class="text-end">100.00%</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                        <div id="chart-accepted-dist" style="min-width:500px;height:350px"></div>
+                    </div>
+                </div>
+                {# ════════════════════════════════════════════════════════════════════ #}
+                {# Report 4: Runs by Problem x Verdict                                  #}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                <div class="card shadow-sm">
+                    <div class="card-header p-3 fw-semibold">
+                        {{ render_icon(icon="grid_on", classes=["me-1"]) }} Runs by Problem and Verdict
+                    </div>
+                    <div class="card-body p-5">
+                        <div class="overflow-auto d-flex justify-content-center">
+                            <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th class="text-nowrap">Problem</th>
+                                        {% for v in all_verdicts %}<th class="text-center noca-col-8">{{ v.value }}</th>{% endfor %}
+                                        <th class="text-end noca-col-6">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for pi in r.problems %}
+                                        <tr>
+                                            <td class="text-nowrap">{{ problem_cell(pi) }} {{ pi.title }}</td>
+                                            {% for v in all_verdicts %}
+                                                {% set cell = r.problem_verdict[pi.label][v.value] %}
+                                                <td class="text-center">{{ cv(cell) }}</td>
+                                            {% endfor %}
+                                            <td class="text-end fw-semibold">
+                                                {% set row_total = r.runs_distribution | selectattr('problem.label', 'equalto', pi.label) | map(attribute='count') | first %}
+                                                {{ row_total }}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                                <tfoot class="table-light fw-semibold">
+                                    <tr>
+                                        <td>Total</td>
+                                        {% for v in all_verdicts %}<td class="text-center">{{ cv(r.problem_verdict_totals[v.value]) }}</td>{% endfor %}
+                                        <td class="text-end">{{ r.total_runs }}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {# ════════════════════════════════════════════════════════════════════ #}
+                {# Report 5: Runs by Problem x Language                                 #}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                <div class="card shadow-sm">
+                    <div class="card-header p-3 fw-semibold">
+                        {{ render_icon(icon="code", classes=["me-1"]) }} Runs by Problem and Language
+                    </div>
+                    <div class="card-body p-5">
+                        <div class="overflow-auto d-flex justify-content-center">
+                            <table class="table table-bordered table-hover align-middle mb-0 w-auto">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th class="text-nowrap">Problem</th>
+                                        {% for l in r.languages %}<th class="text-center text-nowrap small">{{ lang_header(l) }}</th>{% endfor %}
+                                        <th class="text-end">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for pi in r.problems %}
+                                        <tr>
+                                            <td class="text-nowrap">{{ problem_cell(pi) }} {{ pi.title }}</td>
+                                            {% for l in r.languages %}
+                                                {% set cell = r.problem_language[pi.label][l.id] %}
+                                                <td class="text-center">{{ cv(cell) }}</td>
+                                            {% endfor %}
+                                            <td class="text-end fw-semibold">
+                                                {% set row_total = r.runs_distribution | selectattr('problem.label', 'equalto', pi.label) | map(attribute='count') | first %}
+                                                {{ row_total }}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                                <tfoot class="table-light fw-semibold">
+                                    <tr>
+                                        <td>Total</td>
+                                        {% for l in r.languages %}<td class="text-center">{{ cv(r.problem_language_totals[l.id]) }}</td>{% endfor %}
+                                        <td class="text-end">{{ r.total_runs }}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {# ════════════════════════════════════════════════════════════════════ #}
+                {# Report 6: Runs by Language x Verdict                                 #}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                <div class="card shadow-sm">
+                    <div class="card-header p-3 fw-semibold">
+                        {{ render_icon(icon="code", classes=["me-1"]) }} Runs by Language and Verdict
+                    </div>
+                    <div class="card-body p-5">
+                        <div class="overflow-auto d-flex justify-content-center">
+                            <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th class="text-nowrap">Language</th>
+                                        {% for v in all_verdicts %}<th class="text-center noca-col-8">{{ v.value }}</th>{% endfor %}
+                                        <th class="text-end noca-col-6">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for l in r.languages %}
+                                        <tr>
+                                            <td class="text-nowrap">{{ lang_header(l) }}</td>
+                                            {% for v in all_verdicts %}
+                                                {% set cell = r.language_verdict[l.id][v.value] %}
+                                                <td class="text-center">{{ cv(cell) }}</td>
+                                            {% endfor %}
+                                            <td class="text-end fw-semibold">{{ r.problem_language_totals[l.id].count }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                                <tfoot class="table-light fw-semibold">
+                                    <tr>
+                                        <td>Total</td>
+                                        {% for v in all_verdicts %}<td class="text-center">{{ cv(r.language_verdict_totals[v.value]) }}</td>{% endfor %}
+                                        <td class="text-end">{{ r.total_runs }}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {# ════════════════════════════════════════════════════════════════════ #}
+                {# Report 7: Runs by Team x Problem                                     #}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                <div class="card shadow-sm">
+                    <div class="card-header p-3 fw-semibold">
+                        {{ render_icon(icon="groups", classes=["me-1"]) }} Runs by Team and Problem
+                    </div>
+                    <div class="card-body p-5">
+                        <div class="overflow-auto d-flex justify-content-center">
+                            <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th class="text-nowrap">Team</th>
+                                        {% for pi in r.problems %}
+                                            <th class="text-center noca-col-8">
+                                                <img src="/assets/balloon/{{ pi.color }}"
+                                                     width="18"
+                                                     height="28"
+                                                     alt="balloon">
+                                                {{ pi.label }}
+                                            </th>
+                                        {% endfor %}
+                                        <th class="text-end noca-col-5">Total</th>
+                                        <th class="text-end noca-col-8">{{ accept_label }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for team in r.team_problem %}
+                                        <tr>
+                                            <td class="small text-nowrap">{{ team.team_display }}</td>
+                                            {% for pi in r.problems %}
+                                                {% set cell = team.cells[pi.label] %}
+                                                <td class="text-center small">{{ cv(cell) }}</td>
+                                            {% endfor %}
+                                            <td class="text-end fw-semibold">{{ team.total_submissions }}</td>
+                                            <td class="text-end">{{ cv(team.accepted) }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {# ════════════════════════════════════════════════════════════════════ #}
+                {# Report 8: All Runs by Time Window                                    #}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                <div class="card shadow-sm">
+                    <div class="card-header p-3 fw-semibold">
+                        {{ render_icon(icon="bar_chart", classes=["me-1"]) }} Runs by Time (10-minute windows)
+                    </div>
+                    <div class="card-body p-3">
+                        <div id="chart-runs-time" style="min-width:1000px;height:350px"></div>
+                    </div>
+                </div>
+                {# ════════════════════════════════════════════════════════════════════ #}
+                {# Report 9: Accepted Runs by Time Window                               #}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                <div class="card shadow-sm">
+                    <div class="card-header p-3 fw-semibold">
+                        {{ render_icon(icon="bar_chart", classes=["me-1"]) }} {{ accept_label }} Runs by Time (10-minute windows)
+                    </div>
+                    <div class="card-body p-3">
+                        <div id="chart-accepted-time" style="min-width:1000px;height:350px"></div>
+                    </div>
+                </div>
+                {# ── Chart data ── #}
+                <script id="report-chart-data" type="application/json">{{ chart_data_json | safe }}</script>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

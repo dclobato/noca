@@ -1,0 +1,104 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}
+    —
+    {% if category %}
+        Rename Category
+    {% else %}
+        New Category
+    {% endif %}
+{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if is_uberadmin %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+            {% else %}
+                <li class="breadcrumb-item">Dashboard</li>
+            {% endif %}
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for("manage_categories") }}">Problem Categories</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">
+                {% if category %}
+                    Rename
+                {% else %}
+                    New Category
+                {% endif %}
+            </li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-5 col-md-7">
+                <h1 class="h3 mb-4">
+                    {% if category %}
+                        Rename Category
+                    {% else %}
+                        Add new Category
+                    {% endif %}
+                </h1>
+                {% if category %}
+                    <div class="alert alert-info py-2 small mb-3">
+                        {{ render_icon(icon="info", classes="me-1") }}
+                        Used by <strong>{{ problem_count }}</strong> problem{{ "s" if problem_count != 1 else "" }}.
+                        Renaming updates all problems that reference this category.
+                    </div>
+                {% endif %}
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <form method="post"
+                              action="{% if category %}{{ request.url_for('edit_category_submit', category_id=category.id) }}{% else %}{{ request.url_for("new_category_submit") }}{% endif %}">
+                            <div class="mb-3">
+                                <label for="name" class="form-label">
+                                    Name <span class="text-danger">*</span>
+                                </label>
+                                <input type="text"
+                                       id="name"
+                                       name="name"
+                                       class="form-control"
+                                       value="{{ form_data.name | default("") }}"
+                                       maxlength="48"
+                                       required
+                                       autofocus
+                                       placeholder="e.g. graphs">
+                                <div class="form-text">Stored lowercase. Maximum 48 characters.</div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary btn-sm">
+                                    {% if category %}
+                                        Save
+                                    {% else %}
+                                        Create
+                                    {% endif %}
+                                </button>
+                                <a href="{{ request.url_for("manage_categories") }}"
+                                   class="btn btn-outline-secondary btn-sm">Cancel</a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                {% if category and is_uberadmin %}
+                    <div class="mt-3">
+                        <form method="post"
+                              action="{{ request.url_for('delete_category', category_id=category.id) }}"
+                              onsubmit="return confirm('Delete category {{ category.name | e }}? This cannot be undone.')">
+                            <button type="submit"
+                                    class="btn btn-outline-danger btn-sm"
+                                    {% if problem_count > 0 %} disabled title="Cannot delete — in use by {{ problem_count }} problem{{ 's' if problem_count != 1 else '' }}" {% endif %}>
+                                {{ render_icon(icon="delete", classes="me-1") }}Delete Category
+                            </button>
+                            {% if problem_count > 0 %}
+                                <span class="text-muted small ms-2">In use by {{ problem_count }} problem{{ "s" if problem_count != 1 else "" }} — cannot delete.</span>
+                            {% endif %}
+                        </form>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

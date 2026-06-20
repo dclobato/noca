@@ -1,0 +1,91 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+.auth-page-background {
+    background: linear-gradient(rgba(0, 0, 0, 0.80), rgba(0, 0, 0, 0.80)),
+    url('/static/img/login_bg.png') center center / cover no-repeat;
+}
+
+.auth-page {
+    background-color: var(--bs-tertiary-color);
+}
+
+.btn-glow:hover {
+/*    box-shadow: 0 0 15px 5px rgba(13, 110, 253, 0.6) !important; */
+    box-shadow: 0 0 15px 5px rgba(205, 25, 30, 0.6) !important;
+    transform: scale(1.05) !important;
+}
+
+.btn-glow {
+    transition: box-shadow 0.15s ease-in-out, transform 0.15s ease-in-out;
+}
+
+.btn-logout {
+    border: 3px solid #dc3545;
+    border-radius: 1rem;
+}
+
+.noca-navbar-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 420px;
+}
+
+.noca-login-countdown {
+    font-size: 2rem;
+    background: rgba(0, 0, 0, 0.72);
+}
+
+.noca-language-icons {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    line-height: 1;
+}
+
+.noca-language-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.noca-language-icons-login .noca-language-icon-img {
+    width: 2rem;
+    height: 2rem;
+    object-fit: contain;
+}
+
+.noca-language-icons-card .noca-language-icon-img {
+    width: 1.2rem;
+    height: 1.2rem;
+    object-fit: contain;
+}
+
+/* Breadcrumb bar */
+.breadcrumb-bar {
+    background: var(--bc-bg, transparent);
+    color: var(--bc-color, inherit);
+    font-size: var(--bc-font-size, inherit);
+    font-weight: var(--bc-font-weight, inherit);
+    text-align: var(--bc-align, left);
+    border-bottom: var(--bc-border, none);
+}
+
+:root {
+    --bs-breadcrumb-divider: '|';
+    --bc-font-size: 0.725rem;
+    --bc-border: 3px solid #dee2e6;
+}

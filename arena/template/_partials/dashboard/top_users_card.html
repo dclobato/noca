@@ -1,0 +1,40 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% from "_macros.html" import render_icon %}
+<section class="arena-card h-100">
+    <h2 class="arena-card-title">
+        {{ render_icon(icon="emoji_events") }}
+        Top Users
+    </h2>
+    <div class="table-responsive arena-dashboard-table-wrap">
+        <table class="arena-table arena-dashboard-table">
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Handle</th>
+                    <th class="text-end">Rating</th>
+                    <th class="text-end">Confidence</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for top_user in top_users %}
+                    <tr>
+                        <td>{{ top_user.rank }}</td>
+                        <td class="arena-monospace">{{ top_user.name }}</td>
+                        <td class="arena-mono-right">{{ top_user.rating }}</td>
+                        <td class="arena-mono-right">{{ top_user.confidence }}%</td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="4" class="text-muted text-center py-3">No rated users yet.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>

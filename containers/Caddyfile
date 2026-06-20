@@ -1,0 +1,20 @@
+{
+	log default {
+		level INFO
+	}
+
+	log reverse_proxy_quiet {
+		level ERROR
+		include http.handlers.reverse_proxy
+	}
+}
+
+:80 {
+    # For TLS, replace :80 with your real domain name. Caddy will provision
+    # certificates automatically once docker-compose also exposes port 443.
+    reverse_proxy web:8000
+}
+
+:81 {
+    reverse_proxy arena:8001
+}

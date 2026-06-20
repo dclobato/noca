@@ -1,0 +1,111 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ── Code submission area ────────────────────────────────────────────────── */
+
+.arena-code-area {
+    min-height: 20rem;
+    font-family: var(--bs-font-monospace);
+    font-size: 0.875rem;
+    resize: vertical;
+}
+
+.arena-code-editor {
+    min-height: 8rem;
+    font-size: 0.875rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+}
+
+/* ── Vertical resize handle for the Ace editor ───────────────────────────── */
+
+.arena-editor-resizer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 0.75rem;
+    margin-top: 0.125rem;
+    cursor: row-resize;
+    touch-action: none;
+    outline: none;
+    border-radius: var(--bs-border-radius);
+}
+
+.arena-editor-resizer-handle {
+    width: 3rem;
+    height: 0.25rem;
+    background: var(--bs-border-color);
+    border-radius: var(--bs-border-radius-pill);
+    transition:
+        background-color 120ms ease,
+        width 120ms ease;
+}
+
+.arena-editor-resizer:hover .arena-editor-resizer-handle,
+.arena-editor-resizer:focus-visible .arena-editor-resizer-handle,
+.arena-editor-resizer.is-dragging .arena-editor-resizer-handle {
+    width: 4rem;
+    background: var(--arena-primary);
+}
+
+body.arena-editor-resizing {
+    cursor: row-resize;
+    user-select: none;
+}
+
+/* ── Submission output comparison (WA detail) ───────────────────────────── */
+.arena-output-compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+@media (max-width: 767.98px) {
+    .arena-output-compare {
+        grid-template-columns: 1fr;
+    }
+}
+
+.arena-output-compare-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.25rem;
+}
+
+.arena-output-pre {
+    font-size: 0.8125rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 16rem;
+    overflow-y: auto;
+    background: var(--bs-tertiary-bg);
+    border-radius: var(--bs-border-radius);
+    padding: 0.75rem;
+    margin-bottom: 0;
+}
+
+/* ── Teacher feedback on a submission ───────────────────────────────────── */
+.arena-feedback-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--bs-tertiary-bg);
+    border-radius: var(--bs-border-radius);
+    padding: 0.75rem;
+    margin-bottom: 0;
+}
+
+/* ── Inline language icon (devicon CSS, used in submission detail) ──────── */
+.arena-submission-lang-icon {
+    font-size: 1.25rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+/* Live submission feed — shared rules in shared/static/css/common.css */

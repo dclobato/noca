@@ -1,0 +1,42 @@
+{% extends "_base.html" %}
+{% block title_suffix %}Live feed — {{ contest.contest_name }}{% endblock %}
+{% block content %}
+    <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+        <h1 class="mb-0">Live submission feed</h1>
+        <span class="badge bg-secondary" id="live-feed-status">Connecting…</span>
+    </div>
+    {% if not_started %}
+        <div class="alert alert-info" role="alert">
+            This contest has not started yet. The live feed will appear once it begins.
+        </div>
+    {% else %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle live-feed-table">
+                <thead>
+                    <tr>
+                        <th scope="col">UTC date/time</th>
+                        <th scope="col">Team</th>
+                        <th scope="col">Problem</th>
+                        <th scope="col">Language</th>
+                        <th scope="col">Verdict</th>
+                    </tr>
+                </thead>
+                <tbody id="live-feed-body"
+                       data-feed-url="{{ request.url_for('contest_live_feed', slug=contest.login_slug) }}"
+                       data-events-url="{{ request.url_for('contest_live_events', slug=contest.login_slug) }}">
+                    <tr>
+                        <td colspan="5" class="text-center text-muted">Loading…</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="live-feed-summary text-muted small mb-0"
+           id="live-feed-summary">Live last {{ live_feed_limit }} submissions</p>
+    {% endif %}
+{% endblock %}
+{% block extra_script %}
+    {% if not not_started %}
+        <script src="{{ request.url_for('static_shared_js', path='live-feed-core.js') }}?v={{ app_version }}-r1"></script>
+        <script src="{{ request.url_for('static_js', path='live-feed.js') }}?v={{ app_version }}-r1"></script>
+    {% endif %}
+{% endblock %}

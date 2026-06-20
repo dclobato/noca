@@ -1,0 +1,230 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— Import Problem{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('manage_problems', slug=contest.login_slug) }}">Problems</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Import Problem</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Import Problem</h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        {% if not is_edit_allowed %}
+            <div class="alert alert-warning py-2 small">
+                {{ render_icon(icon="lock", classes="me-1") }}Contest is not editable — problem import is disabled.
+            </div>
+        {% endif %}
+        <div class="row g-4">
+            <div class="col-12 col-lg-5">
+                <div class="card shadow-sm">
+                    <div class="card-header">Upload ZIP</div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">Upload a problem ZIP file (exported from NOCA or compatible format).</p>
+                        <form method="post"
+                              action="{{ request.url_for('import_problem_submit', slug=contest.login_slug) }}"
+                              enctype="multipart/form-data"
+                              id="import-form">
+                            <div class="mb-3">
+                                <input class="form-control"
+                                       type="file"
+                                       name="zip_file"
+                                       accept=".zip"
+                                       required
+                                       {% if not is_edit_allowed %}disabled{% endif %}>
+                            </div>
+                            <button type="submit"
+                                    class="btn btn-primary btn-sm"
+                                    {% if not is_edit_allowed %}disabled{% endif %}>
+                                {{ render_icon(icon="upload", classes="me-1") }}Import
+                            </button>
+                            <a href="{{ request.url_for('manage_problems', slug=contest.login_slug) }}"
+                               class="btn btn-outline-secondary btn-sm ms-1">Cancel</a>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-7">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body p-4">
+                        <h3 class="h6 text-uppercase text-muted mb-3">ZIP Format</h3>
+                        <p class="small fw-semibold mb-1">Directory layout (exported by NOCA)</p>
+                        <pre class="bg-light rounded p-2 small">/
++-- problem.json              ← required
++-- statement.pdf or statement.md  ← one required
++-- in/
+|   +-- 001.in
+|   +-- 002.in
++-- out/
+|   +-- 001.out  (or 001.sol)
+|   +-- 002.out  (or 002.sol)
++-- explanation/             ← optional
+    +-- 001.txt</pre>
+                        <p class="small fw-semibold mb-1 mt-3">Flat layout (alternative)</p>
+                        <pre class="bg-light rounded p-2 small">/
++-- problem.json
++-- statement.pdf or statement.md
++-- 001.in
++-- 001.out  (or 001.sol)
++-- 002.in
++-- 002.out  (or 002.sol)</pre>
+                        <hr class="my-3">
+                        <h3 class="h6 text-uppercase text-muted mb-2">
+                            <code>problem.json</code> schema
+                        </h3>
+                        <div class="table-responsive">
+                            <table class="table table-sm small mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Field</th>
+                                        <th>Type</th>
+                                        <th>Required</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>
+                                            <code>title</code>
+                                        </td>
+                                        <td>string</td>
+                                        <td>
+                                            <span class="badge bg-danger">required</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>time_limit_ms</code>
+                                        </td>
+                                        <td>integer ≥ 1</td>
+                                        <td>
+                                            <span class="badge bg-danger">required</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>memory_limit_kb</code>
+                                        </td>
+                                        <td>integer ≥ 1</td>
+                                        <td>
+                                            <span class="badge bg-danger">required</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>pids_limit</code>
+                                        </td>
+                                        <td>integer ≥ 1</td>
+                                        <td>
+                                            <span class="badge bg-danger">required</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>color</code>
+                                        </td>
+                                        <td>
+                                            hex string e.g. <code>#ff0000</code>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-secondary">optional</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>author</code>
+                                        </td>
+                                        <td>string</td>
+                                        <td>
+                                            <span class="badge bg-secondary">optional</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>notes</code>
+                                        </td>
+                                        <td>string</td>
+                                        <td>
+                                            <span class="badge bg-secondary">optional</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>output_limit_in_bytes</code>
+                                        </td>
+                                        <td>integer or null</td>
+                                        <td>
+                                            <span class="badge bg-secondary">optional</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>categories</code>
+                                        </td>
+                                        <td>array of strings</td>
+                                        <td>
+                                            <span class="badge bg-secondary">optional</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <code>language_limits</code>
+                                        </td>
+                                        <td>object</td>
+                                        <td>
+                                            <span class="badge bg-secondary">optional</span>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <hr class="my-3">
+                        <h3 class="h6 text-uppercase text-muted mb-2">Validation rules</h3>
+                        <ul class="small mb-0">
+                            <li>
+                                Either <code>statement.pdf</code> or <code>statement.md</code> is required — import fails without one
+                            </li>
+                            <li>
+                                <code>statement.md</code> must not contain external links, images, or URLs
+                            </li>
+                            <li>
+                                Per-language <code>language_limits</code> entries may include <code>repetitions</code>; fallback limits always use 1 repetition
+                            </li>
+                            <li>Per-language limits for languages not allowed in this contest are skipped during import</li>
+                            <li>
+                                Legacy top-level <code>repetitions</code> metadata is accepted and ignored during import
+                            </li>
+                            <li>At least 1 test case pair is required</li>
+                            <li>Test case ordinals: 1–3 digit integers (1–999, up to 1000 pairs)</li>
+                            <li>Both input and output files must be present for each ordinal</li>
+                            <li>
+                                Optional <code>explanation/NNN.txt</code> (UTF-8, ≤1024 chars) adds an
+                                explanation for the test case of the same number; shown to contestants below
+                                the sample
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

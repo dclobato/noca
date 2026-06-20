@@ -1,0 +1,62 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<section class="arena-progress-list">
+    <div class="arena-progress-list-header">
+        <h2>{{ heading }}</h2>
+        <span>{{ pagination.first }}-{{ pagination.last }} of {{ pagination.total }}</span>
+    </div>
+    {% if pagination.items %}
+        {% with nav_margin="mb-2" %}
+            {% include "users/_pagination.html" %}
+        {% endwith %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle arena-progress-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Problem</th>
+                        <th scope="col">Categories</th>
+                        <th scope="col">Difficulty</th>
+                        {% if date_label %}<th scope="col">{{ date_label }}</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in pagination.items %}
+                        <tr>
+                            <td>
+                                <a href="{{ request.url_for('arena_problem_detail', arena_number=item.arena_number) }}"
+                                   class="text-decoration-none fw-medium">{{ item.arena_number }}: {{ item.title }}</a>
+                            </td>
+                            <td>
+                                {% if item.categories %}
+                                    {% for category in item.categories %}
+                                        <span class="badge rounded-pill text-bg-secondary me-1">{{ category.name }}</span>
+                                    {% endfor %}
+                                {% else %}
+                                    <span class="text-muted">&mdash;</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ "%.1f"|format(item.rating) }}</td>
+                            {% if date_label %}
+                                <td>
+                                    {% if item.activity_at %}
+                                        {{ arena_format_datetime(item.activity_at, current_user, "%Y-%m-%d") }}
+                                    {% else %}
+                                        <span class="text-muted">&mdash;</span>
+                                    {% endif %}
+                                </td>
+                            {% endif %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="arena-empty-state">{{ empty_message }}</p>
+    {% endif %}
+    {% include "users/_pagination.html" %}
+</section>

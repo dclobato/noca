@@ -1,0 +1,74 @@
+{% macro dashboard_card(target=None, icon=None, title=None, subtitle=None, active=None, after_end=None, filled=False, counter=None) %}
+    {% if target is not none and icon is not none and title is not none and subtitle is not none and active is not none %}
+        <div class="col-sm-6 col-md-4 col-lg-3">
+            <a href="{{ target }}"
+               class="card card-body text-decoration-none h-100 shadow-sm border-0 {{ 'btn-glow' if active else 'opacity-75' }} {{ 'position-relative' if counter is not none }}">
+                {% if counter is not none %}
+                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                        {{ counter }}
+                        <span class="visually-hidden">counter</span>
+                    </span>
+                {% endif %}
+                <div class="d-flex align-items-center gap-3">
+                    {{ render_icon(icon=icon,
+                                        filled=filled,
+                                        classes=['me-2', 'fs-1']) }}
+                    <div>
+                        <div class="fw-semibold">{{ title }}</div>
+                        <div class="text-muted small">{{ subtitle }}</div>
+                    </div>
+                </div>
+                {% if not active %}<span class="badge bg-secondary mt-2 align-self-start noca-badge-xs">Coming soon</span>{% endif %}
+                {% if after_end is not none and after_end %}
+                    <span class="badge bg-warning mt-2 align-self-start noca-badge-xs">Only after contest end</span>
+                {% endif %}
+            </a>
+        </div>
+    {% endif %}
+{% endmacro %}
+{% macro render_icon(icon=None, filled=False, classes=None) %}
+    {% if classes is string %}
+        {% set base_classes = classes.split() %}
+    {% else %}
+        {% set base_classes = classes or [] %}
+    {% endif %}
+    {% set final_classes = base_classes + (['material-symbols-filled'] if filled else []) %}
+    <span class="material-symbols-outlined {{ final_classes | join(" ") }}">{{ icon }}</span>
+{% endmacro %}
+{% macro render_flash_messages(dismissible=True, with_icons=True, full_width=False) %}
+    {% set _flashed = get_flashed_messages(with_categories=True) %}
+    {% if _flashed %}
+        <div class="container-fluid px-3 pt-3">
+            <div class="row justify-content-center">
+                <div class="col-12 {{ '' if full_width else 'col-lg-6' }}">
+                    {% for category, message in _flashed %}
+                        <div class="alert alert-{{ category }} py-4 small d-flex align-items-center gap-2 mb-2"
+                             role="alert">
+                            {% if with_icons %}
+                                {% if category == 'success' %}
+                                    {{ render_icon(icon="check_circle", filled=True) }}
+                                {% elif category == 'danger' %}
+                                    {{ render_icon(icon="dangerous", filled=True) }}
+                                {% elif category == 'warning' %}
+                                    {{ render_icon(icon="warning", filled=True) }}
+                                {% elif category == 'info' %}
+                                    {{ render_icon(icon="info", filled=True) }}
+                                {% else %}
+                                    {{ render_icon(icon="warning", filled=True) }}
+                                {% endif %}
+                            {% endif %}
+                            <span class="flex-grow-1">{{ message }}</span>
+                            {% if dismissible %}
+                                <button type="button"
+                                        class="btn-close flex-shrink-0 align-self-center"
+                                        style="font-size: 0.65em"
+                                        data-bs-dismiss="alert"
+                                        aria-label="Close"></button>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    {% endif %}
+{% endmacro %}

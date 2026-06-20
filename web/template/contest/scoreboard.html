@@ -1,0 +1,209 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— Scoreboard{% endblock %}
+{% block extra_head %}
+    <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_js', path='scoreboard.js') }}" defer></script>
+{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Scoreboard</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container-fluid py-4">
+        <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+            <div>
+                <h1 class="h3 mb-0">Scoreboard</h1>
+                <p class="text-muted mb-0 small">{{ contest.contest_name }}</p>
+            </div>
+            {% if snapshot %}
+                <div class="ms-auto small text-muted">
+                    Updated: {{ snapshot.generated_at | utc_to_local(contest.contest_timezone) }}
+                </div>
+            {% endif %}
+        </div>
+        {% if access_blocked %}
+            <div class="alert alert-info d-flex align-items-center gap-2">
+                {{ render_icon(icon="schedule") }}
+                The scoreboard is only available after the contest starts.
+            </div>
+        {% else %}
+            {% if is_final_scoreboard %}
+                <div class="text-center mb-2">
+                    <span class="badge bg-success fs-6 d-inline-flex align-items-center justify-content-center">
+                        {{ render_icon(icon="emoji_events", filled=True, classes="me-1") }}Contest Final Scoreboard
+                    </span>
+                </div>
+            {% elif contest.upcoming %}
+                <div class="text-center mb-2">
+                    <span class="badge bg-secondary fs-6 d-inline-flex align-items-center justify-content-center">
+                        {{ render_icon(icon="hourglass_empty", classes="me-1") }}Contest Not Started
+                    </span>
+                </div>
+            {% elif snapshot.is_frozen %}
+                <div class="text-center mb-2">
+                    <span class="badge bg-warning text-dark fs-6 d-inline-flex align-items-center justify-content-center">
+                        {{ render_icon(icon="lock", filled=True, classes="me-1") }}SCOREBOARD FROZEN
+                    </span>
+                </div>
+            {% endif %}
+            {% if contest.is_running and not snapshot.is_frozen %}
+                {# HTMX auto-refresh: replace the entire scoreboard div every 30 s #}
+                <div id="scoreboard-live"
+                     hx-get="{{ request.url_for('contest_score', slug=contest.login_slug) }}"
+                     hx-trigger="every 30s"
+                     hx-target="#scoreboard-live"
+                     hx-swap="outerHTML"
+                     hx-select="#scoreboard-live">
+                {% else %}
+                    <div id="scoreboard-live">
+                    {% endif %}
+                    {% if snapshot.standings %}
+                        <div class="card shadow-sm">
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered table-hover align-middle mb-0 w-100">
+                                        <thead class="table-dark">
+                                            <tr>
+                                                <th class="text-center noca-col-3">#</th>
+                                                <th>Team</th>
+                                                <th class="text-center noca-col-5">
+                                                    Problems
+                                                    <br>
+                                                    Solved
+                                                </th>
+                                                <th class="text-center noca-col-5">
+                                                    Total
+                                                    <br>
+                                                    Time
+                                                </th>
+                                                {% for label in snapshot.problems %}
+                                                    {% set color = snapshot.balloon_colors[loop.index0] %}
+                                                    <th class="problem-header text-center noca-col-5">
+                                                        <div class="d-flex flex-column align-items-center gap-1">
+                                                            <span>{{ label }}</span>
+                                                            <img src="/assets/balloon/{{ color }}"
+                                                                 alt="Problem {{ label }} balloon"
+                                                                 width="34"
+                                                                 height="53"
+                                                                 title="Problem {{ label }}">
+                                                        </div>
+                                                    </th>
+                                                {% endfor %}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for standing in snapshot.standings %}
+                                                <tr>
+                                                    <td class="text-center fw-semibold">{{ standing.rank }}</td>
+                                                    <td>
+                                                        {% set display_team_name = team_display_map.get(standing.team_id, standing.team_fullname) %}
+                                                        <a href="#"
+                                                           class="fw-semibold text-decoration-none team-link"
+                                                           data-bs-toggle="modal"
+                                                           data-bs-target="#teamPhotoModal"
+                                                           data-team-id="{{ standing.team_id }}"
+                                                           data-team-name="{{ display_team_name }} ({{ standing.team_name }})">
+                                                            {{ display_team_name }} <span class="text-muted small">({{ standing.team_name }})</span>
+                                                        </a>
+                                                    </td>
+                                                    <td class="text-center">
+                                                        {% if standing.problems_solved > 0 %}
+                                                            <span class="badge bg-success rounded-pill">{{ standing.problems_solved }}</span>
+                                                        {% else %}
+                                                            <span class="text-muted">0</span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td class="text-center">
+                                                        {% if standing.problems_solved > 0 %}
+                                                            <span class="fw-semibold">{{ standing.total_time }}'</span>
+                                                        {% else %}
+                                                            <span class="text-muted">—</span>
+                                                        {% endif %}
+                                                    </td>
+                                                    {% for label in snapshot.problems %}
+                                                        {% set color = snapshot.balloon_colors[loop.index0] %}
+                                                        {% set pr = standing.problems.get(label) %}
+                                                        {% if pr and pr.solved %}
+                                                            {# Solved: balloon + submission time + penalty if any #}
+                                                            <td class="problem-cell solved-cell">
+                                                                <img src="/assets/{{ 'star' if pr.is_first_balloon else 'balloon' }}/{{ color }}"
+                                                                     alt="{{ label }} {{ 'star balloon' if pr.is_first_balloon else 'balloon' }}"
+                                                                     width="23"
+                                                                     height="35"
+                                                                     class="mb-1 {{ 'noca-first-balloon' if pr.is_first_balloon else '' }}">
+                                                                <div class="fw-semibold text-success small">{{ pr.solved_at_minutes }}'</div>
+                                                                {% if pr.attempts > 0 %}<div class="text-danger small">+{{ pr.attempts }} ({{ pr.penalty }}')</div>{% endif %}
+                                                            </td>
+                                                        {% elif pr and pr.is_pending %}
+                                                            {# Pending: result hidden due to freeze or still judging #}
+                                                            <td class="problem-cell pending-cell">
+                                                                <div class="text-warning-emphasis small" title="Judge pending">
+                                                                    ⏳
+                                                                    {% if pr.attempts > 0 %}<div class="mt-1">−{{ pr.attempts }}</div>{% endif %}
+                                                                </div>
+                                                            </td>
+                                                        {% elif pr and pr.attempts > 0 %}
+                                                            {# Attempted but not solved #}
+                                                            {% set unsolved_penalty = pr.attempts * contest.wa_penalty %}
+                                                            <td class="problem-cell">
+                                                                <div class="text-danger small fw-semibold">−{{ pr.attempts }}</div>
+                                                                {% if unsolved_penalty > 0 %}<div class="text-danger small">({{ unsolved_penalty }}')</div>{% endif %}
+                                                            </td>
+                                                        {% else %}
+                                                            {# Not attempted #}
+                                                            <td class="problem-cell"></td>
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info mt-3">
+                            {{ render_icon(icon="info", classes="me-2") }}No teams registered yet, or no submissions have been made.
+                        </div>
+                    {% endif %}
+                </div>
+                {# end #scoreboard-live #}
+                {% if snapshot.is_frozen and viewer_role == 'admin' and not is_final_scoreboard %}
+                    <div class="alert alert-info mt-3 small">
+                        {{ render_icon(icon="visibility", classes="me-1") }}
+                        You are viewing the <strong>full scoreboard</strong> as an admin/judge. Teams see the frozen view.
+                    </div>
+                {% endif %}
+            {% endif %}
+            {# end access_blocked #}
+        </div>
+        {# Team photo modal #}
+        <div class="modal fade"
+             id="teamPhotoModal"
+             tabindex="-1"
+             aria-labelledby="teamPhotoModalLabel"
+             aria-hidden="true">
+            <div class="modal-dialog modal-sm modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header py-2">
+                        <h6 class="modal-title mb-0" id="teamPhotoModalLabel"></h6>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body p-2 text-center">
+                        <img id="teamPhotoImg" src="" alt="" class="img-fluid rounded">
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endblock %}

@@ -1,0 +1,62 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import dashboard_card, render_icon %}
+{% block title_suffix %}
+    - Contest Admin Dashboard
+{% endblock title_suffix %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item active" aria-current="page">Administration</li>
+        </ol>
+    </nav>
+{% endblock breadcrumb %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Administration</h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        {# Module grid #}
+        <div class="row g-4">
+            {{ dashboard_card(request.url_for('edit_metadata', slug=contest.login_slug) , "settings", "Edit metadata", "Contest settings", True, filled=True) }}
+            {{ dashboard_card(request.url_for('manage_users', slug=contest.login_slug) , "group", "Manage users", "Participants & roles", True, filled=True) }}
+            {{ dashboard_card(request.url_for('manage_problems', slug=contest.login_slug) , "description", "Manage problems", "Problem set", True, filled=True) }}
+            {{ dashboard_card(request.url_for('import_export', slug=contest.login_slug) , "upload", "Export/Import", "Data exchange", True, filled=True) }}
+            {{ dashboard_card(request.url_for('users_per_site_report', slug=contest.login_slug) , "place", "Users per site", "Site assignment report", True, filled=True) }}
+            {{ dashboard_card(request.url_for('contest_admin_counters', slug=contest.login_slug) , "monitoring", "Counters", "Contest operational metrics", True, filled=True) }}
+            {% if contest.is_past %}
+                {% if not contest.release_scoreboard_after_end %}
+                    <div class="col-sm-6 col-md-4 col-lg-3">
+                        <form method="post"
+                              action="{{ request.url_for('contest_admin_release_scoreboard', slug=contest.login_slug) }}"
+                              onsubmit="return confirm('Release the final scoreboard? This will reveal all pending results and cannot be undone.')">
+                            <button type="submit"
+                                    class="card card-body w-100 text-start border-0 shadow-sm hover-shadow p-0 bg-white btn-glow">
+                                <div class="d-flex align-items-center gap-3 p-3">
+                                    {{ render_icon(icon="emoji_events", filled=True, classes="fs-2") }}
+                                    <div>
+                                        <div class="fw-semibold">Release Final Scoreboard</div>
+                                        <div class="text-muted small">Reveal pending results</div>
+                                    </div>
+                                </div>
+                            </button>
+                        </form>
+                    </div>
+                {% else %}
+                    {{ dashboard_card('#', 'emoji_events', 'Final Scoreboard Released', 'Results are public', True, filled=True) }}
+                {% endif %}
+            {% endif %}
+        </div>
+        {# /row #}
+    </div>
+{% endblock content %}

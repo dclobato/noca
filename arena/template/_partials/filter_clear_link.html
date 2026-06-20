@@ -1,0 +1,14 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% from "_macros.html" import render_icon with context %}
+<a href="{{ clear_url }}"
+   class="btn btn-sm {% if filters_active %}btn-outline-secondary{% else %}btn-link text-muted{% endif %}"
+   {% if not filters_active %}tabindex="-1" aria-disabled="true"{% endif %}>
+    {{ render_icon(icon="filter_alt_off") }}
+    Clear filters
+</a>

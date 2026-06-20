@@ -1,0 +1,242 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block extra_head %}
+    <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_js', path='contest-admin-counters-charts.js') }}"
+            defer></script>
+{% endblock extra_head %}
+{% block title_suffix %}
+    - Contest Counters
+{% endblock title_suffix %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Counters</li>
+        </ol>
+    </nav>
+{% endblock breadcrumb %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Counters</h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        <div class="row g-3">
+            <div class="col-12 col-lg-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+                        <span>Runs</span>
+                        {{ render_icon(icon="terminal", filled=True, classes="fs-5 text-muted") }}
+                    </div>
+                    <div class="card-body py-2">
+                        <table class="table table-sm mb-0 align-middle">
+                            <tbody>
+                                <tr>
+                                    <th scope="row">Total</th>
+                                    <td class="text-end">{{ counters.runs.total }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">On queue for autojudge</th>
+                                    <td class="text-end">{{ counters.runs.on_queue_autojudge }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Autojudging</th>
+                                    <td class="text-end">{{ counters.runs.autojudging }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Autojudge finished</th>
+                                    <td class="text-end">{{ counters.runs.autojudge_finished }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">On human review queue</th>
+                                    <td class="text-end">{{ counters.runs.on_human_review_queue }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Done</th>
+                                    <td class="text-end">{{ counters.runs.done }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div id="chart-counters-runs"
+                             class="noca-counters-chart mt-3"
+                             aria-label="Runs stacked chart"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+                        <span>Tasks</span>
+                        {{ render_icon(icon="assignment", filled=True, classes="fs-5 text-muted") }}
+                    </div>
+                    <div class="card-body py-2">
+                        <table class="table table-sm mb-0 align-middle">
+                            <tbody>
+                                <tr>
+                                    <th scope="row">Total</th>
+                                    <td class="text-end">{{ counters.tasks.total }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Done</th>
+                                    <td class="text-end">{{ counters.tasks.done }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">On service</th>
+                                    <td class="text-end">{{ counters.tasks.on_service if counters.tasks.on_service is not none else '—' }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">On queue</th>
+                                    <td class="text-end">{{ counters.tasks.on_queue if counters.tasks.on_queue is not none else '—' }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div id="chart-counters-tasks"
+                             class="noca-counters-chart mt-3"
+                             aria-label="Tasks stacked chart"></div>
+                        {% if not counters.tasks.lock_service_available %}
+                            <div class="small text-muted mt-2">Task lock service unavailable. Queue/service split is not currently available.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+                        <span>Clarifications</span>
+                        {{ render_icon(icon="forum", filled=True, classes="fs-5 text-muted") }}
+                    </div>
+                    <div class="card-body py-2">
+                        <table class="table table-sm mb-0 align-middle">
+                            <tbody>
+                                <tr>
+                                    <th scope="row">Total</th>
+                                    <td class="text-end">{{ counters.clarifications.total }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Waiting answer</th>
+                                    <td class="text-end">{{ counters.clarifications.waiting_answer }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Answered</th>
+                                    <td class="text-end">{{ counters.clarifications.answered }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div id="chart-counters-clarifications"
+                             class="noca-counters-chart mt-3"
+                             aria-label="Clarifications stacked chart"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+                        <span>Announcements</span>
+                        {{ render_icon(icon="campaign", filled=True, classes="fs-5 text-muted") }}
+                    </div>
+                    <div class="card-body py-2">
+                        <table class="table table-sm mb-0 align-middle">
+                            <tbody>
+                                <tr>
+                                    <th scope="row">Total</th>
+                                    <td class="text-end">{{ counters.announcements_total }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="card shadow-sm">
+                    <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+                        <span>Queue sizes</span>
+                        {{ render_icon(icon="monitoring", filled=True, classes="fs-5 text-muted") }}
+                    </div>
+                    <div class="card-body py-2">
+                        <table class="table table-sm mb-0 align-middle">
+                            <tbody>
+                                <tr>
+                                    <th scope="row">Profiling</th>
+                                    <td class="text-end">
+                                        {{ counters.queue_sizes.profiling if counters.queue_sizes.profiling is defined and counters.queue_sizes.profiling is not none else '—' }}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Priority</th>
+                                    <td class="text-end">
+                                        {{ counters.queue_sizes.priority if counters.queue_sizes.priority is defined and counters.queue_sizes.priority is not none else '—' }}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Pending</th>
+                                    <td class="text-end">
+                                        {{ counters.queue_sizes.pending if counters.queue_sizes.pending is defined and counters.queue_sizes.pending is not none else '—' }}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Inflight</th>
+                                    <td class="text-end">
+                                        {{ counters.queue_sizes.inflight if counters.queue_sizes.inflight is defined and counters.queue_sizes.inflight is not none else '—' }}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Total</th>
+                                    <td class="text-end">
+                                        {{ counters.queue_sizes.total if counters.queue_sizes.total is defined and counters.queue_sizes.total is not none else '—' }}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        {% if not counters.queue_sizes.service_available %}
+                            <div class="small text-muted mt-2">Valkey queue metrics are currently unavailable.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script id="contest-admin-counters-chart-data" type="application/json">
+    {% set task_unclassified = counters.tasks.total - counters.tasks.done %}
+    {{ {
+      "runs": {
+        "category": "Runs",
+        "segments": [
+          {"name": "On queue for autojudge", "value": counters.runs.on_queue_autojudge},
+          {"name": "Autojudging", "value": counters.runs.autojudging},
+          {"name": "On human review queue", "value": counters.runs.on_human_review_queue},
+          {"name": "Done", "value": counters.runs.done}
+        ]
+      },
+      "tasks": {
+        "category": "Tasks",
+        "segments": [
+          {"name": "Done", "value": counters.tasks.done},
+          {"name": "On service", "value": counters.tasks.on_service if counters.tasks.on_service is not none else 0},
+          {"name": "On queue", "value": counters.tasks.on_queue if counters.tasks.on_queue is not none else 0},
+          {"name": "Unclassified", "value": task_unclassified if not counters.tasks.lock_service_available else 0}
+        ]
+      },
+      "clarifications": {
+        "category": "Clarifications",
+        "segments": [
+          {"name": "Waiting answer", "value": counters.clarifications.waiting_answer},
+          {"name": "Answered", "value": counters.clarifications.answered}
+        ]
+      }
+    } | tojson }}
+    </script>
+{% endblock content %}

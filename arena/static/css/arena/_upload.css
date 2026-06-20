@@ -1,0 +1,110 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   File upload drag-drop zone (signup)
+   ============================================================ */
+.arena-file-upload {
+    border-color: var(--arena-outline-variant) !important;
+    cursor: pointer;
+    transition: border-color 0.15s ease-in-out, background-color 0.15s ease-in-out;
+    background-color: var(--arena-surface-container-lowest);
+}
+
+.arena-file-upload:hover {
+    border-color: var(--arena-primary) !important;
+    background-color: var(--arena-surface-container-low);
+}
+
+.arena-file-upload.drag-over {
+    border-color: var(--arena-primary) !important;
+    background-color: var(--arena-surface-container-low);
+    border-style: solid;
+}
+
+.arena-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.arena-profile-photo-preview {
+    width: 8rem;
+    height: 8rem;
+}
+
+/* ============================================================
+   Photo crop modal
+   ============================================================ */
+.arena-crop-img {
+    max-width: 100%;
+    display: block;
+}
+
+.arena-crop-preview {
+    width: 140px;
+    height: 210px;
+    overflow: hidden;
+    border: 1px solid var(--bs-border-color);
+}
+
+/* ============================================================
+   Affiliation logo table thumbnail
+   ============================================================ */
+img.affiliation-logo-thumb {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    border-radius: 3px;
+    vertical-align: middle;
+}
+
+/* 1:1 crop preview inside the logo modal */
+#affiliation-logo-modal .arena-crop-preview {
+    width: 140px;
+    height: 140px;
+}
+
+/* Current-logo preview inside the logo modal */
+.affiliation-logo-modal-preview {
+    width: 80px;
+    height: 80px;
+    object-fit: contain;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 4px;
+}
+
+/* ============================================================
+   Profile avatar change overlay
+   ============================================================ */
+.arena-avatar-change-wrapper {
+    position: relative;
+    display: inline-block;
+    cursor: pointer;
+}
+
+.arena-avatar-change-overlay {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+}
+
+.arena-avatar-change-wrapper:hover .arena-avatar-change-overlay {
+    opacity: 1;
+}

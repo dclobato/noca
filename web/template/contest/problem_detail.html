@@ -1,0 +1,324 @@
+{% extends "_base.html" %}
+{% block extra_head %}
+    <link href="{{ request.url_for('static_vendor', path='katex.min.css') }}"
+          rel="stylesheet">
+{% endblock %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— Problem {{ label }}: {{ problem.title }}{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_problems', slug=contest.login_slug) }}">Problems</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">{{ label }}: {{ problem.title }}</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+            <div class="d-flex align-items-center gap-3">
+                <img src="{{ request.url_for('balloon', color=problem.color[1:] if problem.color else '888888') }}"
+                     height="64"
+                     alt="balloon">
+                <div>
+                    <h1 class="h3 mb-1">Problem {{ label }}: {{ problem.title }}</h1>
+                    <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+                </div>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="{{ request.url_for('contest_problem_export', slug=contest.login_slug, problem_label=label) }}"
+                   class="btn btn-outline-secondary btn-sm"
+                   title="Download statement and sample test cases">
+                    {{ render_icon(icon="download", classes="me-1") }}Download
+                </a>
+            </div>
+        </div>
+        {# Quick submit form: source file + language only (problem is fixed to this page) #}
+        {% if current_user.role == RoleEnum.TEAM.value and contest.is_running %}
+            <script id="runs-limits-data" type="application/json">{{ submit_limits | tojson }}</script>
+            <script id="runs-lang-map" type="application/json">{{ lang_map | tojson }}</script>
+            <script id="runs-lang-icon-map" type="application/json">{{ lang_icon_map | tojson }}</script>
+            <script id="runs-problem-labels" type="application/json">{{ problem_labels | tojson }}</script>
+            <script id="quick-submit-lang-ext" type="application/json">{{ lang_ext_map | tojson }}</script>
+            <div class="card shadow-sm mb-4">
+                <div class="card-header p-0">
+                    <button class="btn btn-link text-decoration-none fw-semibold w-100 d-flex align-items-center justify-content-between text-body p-3"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#quick-submit-collapse"
+                            aria-expanded="true"
+                            aria-controls="quick-submit-collapse">
+                        <span>Quick Submit</span>
+                        {{ render_icon(icon="expand_more", classes="noca-collapse-caret") }}
+                    </button>
+                </div>
+                <div id="quick-submit-collapse" class="collapse show">
+                    <div class="card-body">
+                        <form id="runs-submit-form"
+                              method="post"
+                              action="{{ request.url_for('contest_runs_submit', slug=contest.login_slug) }}"
+                              enctype="multipart/form-data">
+                            <input type="hidden" name="problem_id" value="{{ problem.id }}">
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-7">
+                                    <label for="source_file" class="form-label">Source file</label>
+                                    <input class="form-control"
+                                           type="file"
+                                           id="source_file"
+                                           name="source_file"
+                                           required>
+                                    {% if contest.max_problem_file_size_bytes > 0 %}
+                                        <div class="form-text">Max size: {{ contest.max_problem_file_size_bytes }} bytes</div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-5">
+                                    <label for="language_id" class="form-label">Language</label>
+                                    <select class="form-select" id="language_id" name="language_id" required>
+                                        <option value="">-- select a language --</option>
+                                        {% for lang_id, lang_name in lang_map.items() %}<option value="{{ lang_id }}">{{ lang_name }}</option>{% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col">
+                                    <button type="submit" class="btn btn-primary btn-sm">{{ render_icon(icon="upload", classes="me-1") }}Submit</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+        {# Statement embed: PDF inline or Markdown rendered #}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-semibold">Problem Statement</div>
+            {% if has_pdf %}
+                <div class="card-body p-0">
+                    <object data="{{ request.url_for('contest_problem_statement', slug=contest.login_slug, problem_label=label) }}"
+                            type="application/pdf"
+                            class="noca-pdf-embed">
+                        <div class="p-4 text-center text-muted">
+                            {{ render_icon(icon="description_off", classes=["display-6", "d-block", "mb-2"]) }}
+                            PDF statement is not available or your browser cannot display it inline.
+                            <br>
+                            <a href="{{ request.url_for('contest_problem_export', slug=contest.login_slug, problem_label=label) }}"
+                               class="btn btn-outline-secondary btn-sm mt-3">
+                                {{ render_icon(icon="download", classes="me-1") }}Download public materials
+                            </a>
+                        </div>
+                    </object>
+                </div>
+            {% elif has_md %}
+                <div class="card-body">
+                    <div id="md-statement-rendered"></div>
+                    <script id="md-statement-src" type="text/plain">{{ md_content | e }}</script>
+                </div>
+            {% else %}
+                <div class="card-body">
+                    <div class="p-3 text-center text-muted">
+                        {{ render_icon(icon="description_off", classes=["display-6", "d-block", "mb-2"]) }}
+                        No statement available for this problem.
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+        {# Language limits table #}
+        {% if contest.show_limits and language_limits_rows %}
+            <div class="card shadow-sm mb-4">
+                <div class="card-header fw-semibold">Resource Limits</div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm mb-0 small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="ps-3">Language</th>
+                                    <th class="text-end text-nowrap">Time (ms)</th>
+                                    <th class="text-end text-nowrap">Memory (KB)</th>
+                                    <th class="text-end text-nowrap">PIDs</th>
+                                    <th class="text-end text-nowrap pe-3">Output (bytes)</th>
+                                    <th class="noca-limits-divider d-none d-lg-table-cell"></th>
+                                    <th class="ps-3 d-none d-lg-table-cell">Language</th>
+                                    <th class="text-end text-nowrap d-none d-lg-table-cell">Time (ms)</th>
+                                    <th class="text-end text-nowrap d-none d-lg-table-cell">Memory (KB)</th>
+                                    <th class="text-end text-nowrap d-none d-lg-table-cell">PIDs</th>
+                                    <th class="text-end text-nowrap pe-3 d-none d-lg-table-cell">Output (bytes)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for i in range(0, language_limits_rows | length, 2) %}
+                                    {% set left = language_limits_rows[i] %}
+                                    {% set right = language_limits_rows[i + 1] if i + 1 < language_limits_rows | length else none %}
+                                    <tr>
+                                        <td class="ps-3 fw-semibold text-nowrap">
+                                            <i class="{{ left.icon }} me-1"></i>{{ left.name }}
+                                        </td>
+                                        <td class="text-end text-nowrap">{{ left.time_limit_ms }}</td>
+                                        <td class="text-end text-nowrap">{{ left.memory_limit_kb }}</td>
+                                        <td class="text-end text-nowrap">{{ left.pids_limit }}</td>
+                                        <td class="text-end text-nowrap pe-3">
+                                            {% if left.output_limit_in_bytes %}
+                                                {{ left.output_limit_in_bytes }}
+                                            {% else %}
+                                                No limit
+                                            {% endif %}
+                                        </td>
+                                        <td class="noca-limits-divider d-none d-lg-table-cell"></td>
+                                        {% if right %}
+                                            <td class="ps-3 fw-semibold text-nowrap d-none d-lg-table-cell">
+                                                <i class="{{ right.icon }} me-1"></i>{{ right.name }}
+                                            </td>
+                                            <td class="text-end text-nowrap d-none d-lg-table-cell">{{ right.time_limit_ms }}</td>
+                                            <td class="text-end text-nowrap d-none d-lg-table-cell">{{ right.memory_limit_kb }}</td>
+                                            <td class="text-end text-nowrap d-none d-lg-table-cell">{{ right.pids_limit }}</td>
+                                            <td class="text-end text-nowrap pe-3 d-none d-lg-table-cell">
+                                                {% if right.output_limit_in_bytes %}
+                                                    {{ right.output_limit_in_bytes }}
+                                                {% else %}
+                                                    No limit
+                                                {% endif %}
+                                            </td>
+                                        {% else %}
+                                            <td colspan="5" class="d-none d-lg-table-cell"></td>
+                                        {% endif %}
+                                    </tr>
+                                    {% if right %}
+                                        <tr class="d-lg-none">
+                                            <td class="ps-3 fw-semibold text-nowrap">
+                                                <i class="{{ right.icon }} me-1"></i>{{ right.name }}
+                                            </td>
+                                            <td class="text-end text-nowrap">{{ right.time_limit_ms }}</td>
+                                            <td class="text-end text-nowrap">{{ right.memory_limit_kb }}</td>
+                                            <td class="text-end text-nowrap">{{ right.pids_limit }}</td>
+                                            <td class="text-end text-nowrap pe-3">
+                                                {% if right.output_limit_in_bytes %}
+                                                    {{ right.output_limit_in_bytes }}
+                                                {% else %}
+                                                    No limit
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endif %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+        {# Sample test cases #}
+        <h2 class="h5 mb-3">Sample Test Cases</h2>
+        {% if tc_contents %}
+            {% for ordinal, in_text, out_text, explanation in tc_contents %}
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header fw-semibold small">Sample {{ loop.index }}</div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <div class="text-muted small fw-semibold mb-1">Input</div>
+                                <pre class="bg-light p-3 rounded small mb-0 noca-sample-pre">{{ in_text | e }}</pre>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="text-muted small fw-semibold mb-1">Output</div>
+                                <pre class="bg-light p-3 rounded small mb-0 noca-sample-pre">{{ out_text | e }}</pre>
+                            </div>
+                        </div>
+                        {% if explanation %}
+                            <div class="text-muted small mt-2">
+                                <div class="fw-semibold mb-1">Explanation of example #{{ loop.index }}:</div>
+                                <div class="noca-tc-explanation" data-tc-explanation>{{ explanation | e }}</div>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <div class="text-muted small">No public sample test cases for this problem.</div>
+        {% endif %}
+        <div class="mt-4">
+            <a href="{{ request.url_for('contest_problems', slug=contest.login_slug) }}"
+               class="btn btn-outline-secondary btn-sm">&larr; Back to Problems</a>
+        </div>
+    </div>
+    {% if current_user.role == RoleEnum.TEAM.value and contest.is_running %}
+        <div class="modal fade"
+             id="runs-confirm-modal"
+             tabindex="-1"
+             aria-labelledby="runs-confirm-modal-label"
+             aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="runs-confirm-modal-label">Confirm Submission</h5>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <dl class="row mb-0">
+                            <dt class="col-sm-4">Problem</dt>
+                            <dd class="col-sm-8 mb-2" id="confirm-problem">
+                            </dd>
+                            <dt class="col-sm-4">Language</dt>
+                            <dd class="col-sm-8 mb-3" id="confirm-lang">
+                            </dd>
+                            <dt class="col-sm-4 text-muted small">Time limit</dt>
+                            <dd class="col-sm-8 text-muted small mb-1" id="confirm-time">
+                            </dd>
+                            <dt class="col-sm-4 text-muted small">Memory limit</dt>
+                            <dd class="col-sm-8 text-muted small mb-1" id="confirm-memory">
+                            </dd>
+                            <dt class="col-sm-4 text-muted small">PIDs limit</dt>
+                            <dd class="col-sm-8 text-muted small mb-1" id="confirm-pids">
+                            </dd>
+                            <dt class="col-sm-4 text-muted small">Output limit</dt>
+                            <dd class="col-sm-8 text-muted small mb-0" id="confirm-output">
+                            </dd>
+                        </dl>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-outline-secondary"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="confirm-submit-btn">
+                            {{ render_icon(icon="upload", classes="me-1") }}Submit
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}
+{% block extra_script %}
+    {% if has_md or has_tc_explanation %}
+        <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
+                defer></script>
+    {% endif %}
+    {% if has_md %}
+        <script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_js', path='render-problem-statement.js') }}?v={{ app_version }}r2"
+                defer></script>
+    {% endif %}
+    {% if has_tc_explanation %}
+        <script src="{{ request.url_for('static_shared_js', path='render-tc-explanation.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
+    {% if current_user.role == RoleEnum.TEAM.value and contest.is_running %}
+        <script src="{{ request.url_for('static_js', path='runs-submit-confirm.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_js', path='quick-submit-accept.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
+{% endblock %}

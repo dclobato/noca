@@ -1,0 +1,82 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}
+    - Export/Import
+{% endblock title_suffix %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Export/Import</li>
+        </ol>
+    </nav>
+{% endblock breadcrumb %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Export/Import</h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        <div class="row g-4">
+            <div class="col-12 col-lg-8">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <h5 class="card-title d-flex align-items-center gap-2">
+                            {{ render_icon(icon="download", filled=True, classes="fs-4") }}
+                            Export to Animeitor
+                        </h5>
+                        <p class="text-muted small mb-3">
+                            Download a ZIP file compatible with <strong>maratona-animeitor</strong>.
+                            The archive contains <code>contest</code>, <code>runs</code>,
+                            <code>time</code>, <code>version</code>, and <code>icpc</code> files
+                            in the legacy BOCA webcast format.
+                        </p>
+                        <p class="text-muted small mb-3">
+                            The export reflects the current state of the contest and can be
+                            used at any time - during or after the contest.
+                        </p>
+                        <a href="{{ request.url_for('export_animeitor', slug=contest.login_slug) }}"
+                           class="btn btn-primary">
+                            {{ render_icon(icon="download", classes="me-1") }}
+                            Download Animeitor ZIP
+                        </a>
+                    </div>
+                </div>
+                <div class="card shadow-sm mt-4">
+                    <div class="card-body">
+                        <h5 class="card-title d-flex align-items-center gap-2">
+                            {{ render_icon(icon="description", filled=True, classes="fs-4") }}
+                            Download events
+                        </h5>
+                        <p class="text-muted small mb-3">
+                            Download a Markdown report with a text timeline of visible contest
+                            events rendered as a wrapped fixed-width table.
+                        </p>
+                        <p class="text-muted small mb-3">
+                            This is a best-effort export from persisted contest history and may
+                            omit transient lock-only acquisitions that are not stored in the
+                            database.
+                        </p>
+                        <a href="{{ request.url_for('export_contest_timeline', slug=contest.login_slug) }}"
+                           class="btn btn-outline-primary">
+                            {{ render_icon(icon="description", classes="me-1") }}
+                            Download events
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock content %}

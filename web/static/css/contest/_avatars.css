@@ -1,0 +1,43 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* Avatar images */
+.noca-avatar-sm,
+.noca-avatar-lg {
+    border: 1px solid var(--bs-border-color);
+}
+
+.noca-avatar-lg {
+    max-width: 180px;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+}
+
+.noca-avatar-navbar {
+    border: 1px solid rgba(255, 255, 255, .25);
+}
+
+/* Photo crop tool */
+.noca-crop-img {
+    max-width: 100%;
+    display: block;
+}
+
+.noca-crop-preview-team {
+    width: 224px;
+    height: 140px;
+    overflow: hidden;
+    border: 1px solid var(--bs-border-color);
+}
+
+.noca-crop-preview-default {
+    width: 140px;
+    height: 210px;
+    overflow: hidden;
+    border: 1px solid var(--bs-border-color);
+}

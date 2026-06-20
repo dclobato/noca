@@ -1,0 +1,79 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— {{ 'Unhide' if clarification.hidden else 'Hide' }} Clarification{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_clarifications', slug=contest.login_slug) }}">Clarifications</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">
+                {{ 'Unhide' if clarification.hidden else 'Hide' }} Clarification
+            </li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5 noca-container-narrow">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">{{ 'Unhide' if clarification.hidden else 'Hide' }} Clarification</h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-semibold">
+                Problem {{ problem_map.get(clarification.problem_id, '?') }}
+                {% if clarification.hidden %}<span class="badge bg-secondary ms-2">Currently Hidden</span>{% endif %}
+            </div>
+            <div class="card-body">
+                <div class="fw-semibold text-muted small mb-1">Question</div>
+                <pre class="bg-light p-3 rounded small text-wrap mb-2">{{ clarification.question }}</pre>
+                {% if clarification.answer %}
+                    <div class="fw-semibold text-muted small mb-1">Answer</div>
+                    <pre class="bg-light p-3 rounded small text-wrap mb-0">{{ clarification.answer }}</pre>
+                {% else %}
+                    <span class="text-muted small fst-italic">No answer yet.</span>
+                {% endif %}
+            </div>
+        </div>
+        <form method="post"
+              action="{{ request.url_for('contest_clarifications_togglehide_submit', slug=contest.login_slug) }}">
+            <input type="hidden" name="clarification_id" value="{{ clarification.id }}">
+            {% if clarification.hidden %}
+                <p class="text-muted small mb-3">
+                    Are you sure you want to <strong>unhide</strong> this clarification?
+                    It will become visible again to teams.
+                </p>
+                <div class="d-flex gap-2">
+                    <button type="submit" name="action" value="confirm" class="btn btn-success">
+                        {{ render_icon(icon="visibility", classes="me-1") }}Yes, Unhide
+                    </button>
+                    <button type="submit"
+                            name="action"
+                            value="cancel"
+                            class="btn btn-outline-secondary">
+                        {{ render_icon(icon="close", classes="me-1") }}Cancel
+                    </button>
+                </div>
+            {% else %}
+                <p class="text-muted small mb-3">
+                    Are you sure you want to <strong>hide</strong> this clarification?
+                    It will no longer be visible to any team (including the requesting team).
+                </p>
+                <div class="d-flex gap-2">
+                    <button type="submit" name="action" value="confirm" class="btn btn-warning">
+                        {{ render_icon(icon="visibility_off", classes="me-1") }}Yes, Hide
+                    </button>
+                    <button type="submit"
+                            name="action"
+                            value="cancel"
+                            class="btn btn-outline-secondary">
+                        {{ render_icon(icon="close", classes="me-1") }}Cancel
+                    </button>
+                </div>
+            {% endif %}
+        </form>
+    </div>
+{% endblock %}

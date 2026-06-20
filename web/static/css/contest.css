@@ -1,0 +1,20 @@
+/* NOCA -- Next Online Contest Administrator */
+/* Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org> */
+/* This program is distributed in the hope that it will be useful, */
+/* but WITHOUT ANY WARRANTY; without even the implied warranty of */
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. */
+
+/* Shared styles common to the web (contest) and arena modules. */
+@import url('/static/shared-css/common.css');
+
+@import url('./contest/_fonts.css');
+@import url('./contest/_page.css');
+@import url('./contest/_forms.css');
+@import url('./contest/_code.css');
+@import url('./contest/_layout.css');
+@import url('./contest/_scoreboard.css');
+@import url('./contest/_balloons.css');
+@import url('./contest/_avatars.css');
+@import url('./contest/_timeline.css');
+@import url('./contest/_errors.css');
+@import url('./contest/_dark.css');

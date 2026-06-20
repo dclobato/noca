@@ -1,0 +1,163 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Open for registration{% endblock %}
+{% block nav_classes %}active{% endblock %}
+{% block nav_classes_open %}active{% endblock %}
+{% macro sort_link(label, field, current_sort, current_dir) %}
+    {% set next_dir = 'desc' if current_sort == field and current_dir == 'asc' else 'asc' %}
+    <a href="{{ request.url.include_query_params(sort=field, dir=next_dir, page=1) }}"
+       class="text-decoration-none text-reset d-flex align-items-center gap-1">
+        {{ label }}
+        {% if current_sort == field and current_dir == 'asc' %}
+            {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
+        {% elif current_sort == field and current_dir == 'desc' %}
+            {{ render_icon(icon='arrow_downward', classes='arena-sort-icon arena-sort-icon--active') }}
+        {% else %}
+            {{ render_icon(icon='unfold_more', classes='arena-sort-icon arena-sort-icon--idle') }}
+        {% endif %}
+    </a>
+{% endmacro %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="app_registration") }}
+                    Open for registration
+                </h1>
+            </div>
+            <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+                {% with label="Search", input_type="text", field_id="search", field_name="search", value=search, placeholder="Class name" %}
+                    {% include "_partials/filter_search_field.html" %}
+                {% endwith %}
+                <div class="arena-filter-search">
+                    <label class="form-label form-label-sm mb-1" for="teacher_search">Teacher</label>
+                    <div class="position-relative"
+                         data-teacher-autocomplete
+                         data-search-url="{{ request.url_for("arena_class_teacher_autocomplete") }}">
+                        <input type="hidden"
+                               name="teacher_id"
+                               value="{{ teacher_id }}"
+                               data-teacher-id>
+                        <input type="search"
+                               class="form-control form-control-sm"
+                               id="teacher_search"
+                               value="{{ teacher_label }}"
+                               placeholder="Teacher name or email"
+                               autocomplete="off"
+                               data-teacher-search>
+                        <div class="arena-autocomplete-menu d-none" data-teacher-suggestions></div>
+                    </div>
+                </div>
+                <input type="hidden" name="sort" value="{{ sort }}">
+                <input type="hidden" name="dir" value="{{ dir }}">
+                {% include "_partials/filter_submit_button.html" %}
+                {% set _filters_active = search or teacher_id %}
+                {% with clear_url=request.url_for("arena_classes_open"), filters_active=_filters_active %}
+                    {% include "_partials/filter_clear_link.html" %}
+                {% endwith %}
+            </form>
+            <p class="text-muted small mb-2">{{ open_classes.total }} class{{ 'es' if open_classes.total != 1 else '' }}</p>
+            {% with pagination=open_classes, page_param="page", label="Open classes pagination", nav_margin="mb-2" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th>{{ sort_link("Class name", "name", sort, dir) }}</th>
+                            <th>Assigned teacher</th>
+                            <th>{{ sort_link("Start date", "starts_on", sort, dir) }}</th>
+                            <th>End date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in open_classes.items %}
+                            <tr id="class-{{ row.class_id }}"
+                                class="arena-clickable-row"
+                                data-open-class-row
+                                data-class-id="{{ row.class_id }}"
+                                data-name="{{ row.name }}"
+                                data-description="{{ row.description or '' }}"
+                                data-starts="{{ row.starts_on.isoformat() }}"
+                                data-finishes="{{ row.finishes_on.isoformat() }}"
+                                data-teacher="{{ row.teacher_name }}"
+                                data-affiliation="{{ row.teacher_affiliation or 'No affiliation' }}"
+                                data-member-count="{{ row.member_count }}"
+                                data-request-url="{{ request.url_for('arena_class_request_registration', class_id=row.class_id) }}">
+                                <td>{{ row.name }}</td>
+                                <td>{{ row.teacher_name }}</td>
+                                <td class="text-nowrap">{{ row.starts_on.isoformat() }}</td>
+                                <td class="text-nowrap">{{ row.finishes_on.isoformat() }}</td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="4" class="arena-empty-state">No open classes found.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% with pagination=open_classes, page_param="page", label="Open classes pagination" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+        </div>
+    </div>
+    <div class="modal fade"
+         id="open-class-modal"
+         tabindex="-1"
+         aria-labelledby="open-class-label"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="open-class-label" data-open-class-name>Class details</h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted" data-open-class-description></p>
+                    <dl class="row mb-0 small">
+                        <dt class="col-sm-4">Starts</dt>
+                        <dd class="col-sm-8" data-open-class-starts>
+                        </dd>
+                        <dt class="col-sm-4">Finishes</dt>
+                        <dd class="col-sm-8" data-open-class-finishes>
+                        </dd>
+                        <dt class="col-sm-4">Teacher</dt>
+                        <dd class="col-sm-8">
+                            <span data-open-class-teacher></span> · <span data-open-class-affiliation></span>
+                        </dd>
+                        <dt class="col-sm-4">Registered users</dt>
+                        <dd class="col-sm-8" data-open-class-member-count>
+                        </dd>
+                    </dl>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Close</button>
+                    <form method="post" data-open-class-form>
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            {{ render_icon(icon="app_registration") }}
+                            Ask registration
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-classes.js') }}?v={{ app_version }}"></script>
+{% endblock %}

@@ -1,0 +1,58 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}&mdash; Your backup codes{% endblock %}
+{% block content %}
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-8 col-lg-6">
+            <div class="arena-card">
+                <h2 class="arena-card-title">
+                    {{ render_icon(icon="key") }}
+                    Your backup codes
+                </h2>
+                {# One-time warning banner #}
+                <div class="arena-backup-warning mb-4">
+                    {{ render_icon(icon="warning") }}
+                    <div class="arena-backup-warning-text">
+                        <strong>These codes are shown once only.</strong>
+                        Save them in a safe place. Each code can be used once to access your account
+                        if you lose access to your authenticator app.
+                    </div>
+                </div>
+                {# Backup codes grid #}
+                <div class="row g-2 mb-4" id="backup-codes-grid">
+                    {% for code in codes %}
+                        <div class="col-6 col-sm-4">
+                            <div class="arena-backup-code-cell">{{ code }}</div>
+                        </div>
+                    {% endfor %}
+                </div>
+                {# Copy all button #}
+                <div class="d-flex justify-content-end mb-4">
+                    <button type="button"
+                            class="btn arena-btn-primary arena-icon-button"
+                            id="copy-codes-btn">
+                        {{ render_icon(icon="content_copy") }}
+                        <span>Copy all codes</span>
+                    </button>
+                </div>
+                {# Confirm saved form #}
+                <form method="get" action="{{ request.url_for("arena_user_profile") }}">
+                    <button type="submit" class="btn arena-btn-primary arena-icon-button w-100">
+                        {{ render_icon(icon="check_circle") }}
+                        <span>I've saved my codes</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for("arena_static_js", path="backup_codes.js") }}?v={{ app_version }}"></script>
+{% endblock %}

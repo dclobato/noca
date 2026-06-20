@@ -1,0 +1,97 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Design tokens — Stitch "Competitive Programming Arena" theme
+   ============================================================ */
+:root {
+    --arena-primary:                  #006b21;
+    --arena-primary-container:        #09872d;
+    --arena-on-primary:               #ffffff;
+    --arena-on-primary-container:     #f7fff1;
+
+    --arena-secondary:                #bb0213;
+    --arena-secondary-container:      #e02a29;
+    --arena-on-secondary:             #ffffff;
+
+    --arena-tertiary:                 #a42f59;
+    --arena-on-tertiary:              #ffffff;
+
+    --arena-error:                    #ba1a1a;
+    --arena-on-error:                 #ffffff;
+
+    --arena-surface:                  #f6f9ff;
+    --arena-surface-dim:              #d4dbe3;
+    --arena-surface-bright:           #f6f9ff;
+    --arena-surface-container-lowest: #ffffff;
+    --arena-surface-container-low:    #eef4fd;
+    --arena-surface-container:        #e8eef7;
+    --arena-surface-container-high:   #e2e9f1;
+    --arena-surface-container-highest:#dce3ec;
+    --arena-on-surface:               #151c22;
+    --arena-on-surface-variant:       #3f4a3d;
+
+    --arena-outline:                  #6f7a6b;
+    --arena-outline-variant:          #becab9;
+
+    --arena-inverse-surface:          #2a3138;
+    --arena-inverse-on-surface:       #ebf1fa;
+    --arena-inverse-primary:          #71dd77;
+
+    /* Difficulty colour aliases */
+    --arena-easy:                     #6f7a6b;
+    --arena-medium:                   #3f4a3d;
+    --arena-hard:                     #bb0213;
+
+    /* Spacing scale (4 px base) */
+    --arena-space-sm:   0.5rem;
+    --arena-space-md:   1rem;
+    --arena-space-lg:   2rem;
+    --arena-gutter:     1.5rem;
+    --arena-max-width:  1140px;
+
+    /* Border radius */
+    --arena-radius:     0.25rem;
+    --arena-radius-lg:  0.5rem;
+
+    /* Card elevation (Level 2) */
+    --arena-card-shadow: 0 2px 2px rgba(0, 0, 0, 0.05);
+
+    /* Sticky chrome heights — keep in sync with topbar/footer actual heights */
+    --arena-topbar-height: 96px;
+    --arena-footer-height: 3.25rem;
+    --arena-sidebar-width: 256px;
+    --arena-sidebar-collapsed-width: 4.5rem;
+    --arena-content-padding-x: 1rem;
+}
+
+/* ============================================================
+   Page scaffold
+   ============================================================ */
+body {
+    background-color: var(--arena-surface);
+    color: var(--arena-on-surface);
+    font-family: 'Inter', sans-serif;
+    font-size: 1rem;
+    line-height: 1.5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.material-symbols-outlined {
+    line-height: 1;
+    vertical-align: middle;
+}
+
+/* ============================================================
+   Colour helpers
+   ============================================================ */
+.text-arena-primary   { color: var(--arena-primary) !important; }
+.text-arena-secondary { color: var(--arena-secondary) !important; }
+.text-arena-muted     { color: var(--arena-on-surface-variant) !important; }

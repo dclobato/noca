@@ -1,0 +1,61 @@
+{% extends "_base.html" %}
+{% from "_contest_macros.html" import contest_tile with context %}
+{% block title_suffix %}— Contests{% endblock %}
+{% block content %}
+    <div class="position-relative flex-grow-1 d-flex flex-column overflow-hidden">
+        <div class="auth-page-background position-absolute top-0 start-0 w-100 h-100"
+             aria-hidden="true"></div>
+        <div class="container py-5 position-relative text-white">
+            <div class="mb-4">
+                <h1 class="h3 mb-1">Active Contests</h1>
+                <p class="text-white-50 mb-0">Running and upcoming contests open for login.</p>
+            </div>
+            {% if running_contests %}
+                <h2 class="h5 mb-3 text-white">Running now</h2>
+                <div class="row g-3 mb-5">
+                    {% for contest in running_contests %}
+                        {% call contest_tile(contest, "Live", "bg-success", "btn-primary") %}
+                            Ends in {{ contest.remaining_time_formatted }}
+                        {% endcall %}
+                    {% endfor %}
+                </div>
+            {% endif %}
+            {% if upcoming_contests %}
+                <h2 class="h5 mb-3 text-white">Upcoming</h2>
+                <div class="row g-3 mb-5">
+                    {% for contest in upcoming_contests %}
+                        {% call contest_tile(contest, "Soon", "bg-secondary", "btn-outline-primary") %}
+                            Starts {{ contest.local_start_time.strftime("%Y-%m-%d %H:%M") }} ({{ contest.contest_timezone }})
+                        {% endcall %}
+                    {% endfor %}
+                </div>
+            {% endif %}
+            {% if not running_contests and not upcoming_contests %}
+                <div class="text-center py-5">
+                    <div class="mb-3" style="font-size: 6rem;">&#128679;</div>
+                    <p class="lead">No active or upcoming contests at this time.</p>
+                </div>
+            {% endif %}
+            <div class="mb-4 mt-3">
+                <h1 class="h3 mb-1">Past Contests</h1>
+                <p class="text-white-50 mb-0">Contests that have already ended.</p>
+            </div>
+            {% if past_contests %}
+                <div class="row g-3 mb-5">
+                    {% for contest in past_contests %}
+                        {% call contest_tile(contest, "Ended", "bg-secondary", "btn-outline-secondary") %}
+                            <div>Start: {{ contest.local_start_time.strftime("%Y-%m-%d %H:%M") }} ({{ contest.contest_timezone }})</div>
+                            <div>End: {{ contest.local_end_time.strftime("%Y-%m-%d %H:%M") }} ({{ contest.contest_timezone }})</div>
+                        {% endcall %}
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="lead">No past contests yet</p>
+            {% endif %}
+            <div class="text-center mt-2">
+                <a href="{{ request.url_for("login_get") }}"
+                   class="text-decoration-none text-white">UberAdmin login</a>
+            </div>
+        </div>
+    </div>
+{% endblock %}

@@ -1,0 +1,238 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Topbar
+   ============================================================ */
+.arena-topbar {
+    background-color: var(--arena-surface-container-lowest);
+    border-bottom: 1px solid var(--arena-outline-variant);
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+    min-height: var(--arena-topbar-height);
+}
+
+.arena-topbar-inner {
+    display: grid;
+    grid-template-columns: var(--arena-sidebar-width) minmax(0, 1fr);
+    align-items: center;
+    min-height: var(--arena-topbar-height);
+    width: 100%;
+    transition: grid-template-columns 0.18s ease;
+}
+
+.arena-topbar .navbar-brand {
+    align-items: center;
+    display: inline-flex;
+    gap: 0.75rem;
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--arena-on-surface);
+    padding: 0 1rem;
+    white-space: nowrap;
+}
+
+.arena-navbar-logo {
+    display: block;
+    flex: 0 0 auto;
+    height: 6rem;
+    width: 6rem;
+}
+
+.arena-topbar .navbar-brand:hover {
+    color: var(--arena-primary);
+}
+
+.arena-topbar-main {
+    width: 100%;
+    max-width: none;
+    padding: 0 var(--arena-content-padding-x);
+}
+
+.arena-topbar-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 1rem;
+    width: 100%;
+}
+
+.arena-mobile-menu-toggle {
+    display: none;
+}
+
+.arena-topbar-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 50%;
+}
+
+.arena-notifications {
+    position: relative;
+}
+
+.arena-notifications-toggle {
+    position: relative;
+}
+
+.arena-notifications-badge {
+    position: absolute;
+    top: -0.15rem;
+    right: -0.15rem;
+    min-width: 1rem;
+    height: 1rem;
+    padding: 0 0.25rem;
+    border-radius: 999px;
+    background: var(--arena-error);
+    color: var(--arena-on-error);
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1rem;
+    text-align: center;
+}
+
+.arena-notifications-menu {
+    position: absolute;
+    top: calc(100% + 0.75rem);
+    right: 0;
+    width: min(22rem, calc(100vw - 2rem));
+    max-height: min(28rem, calc(100vh - var(--arena-topbar-height) - 2rem));
+    overflow: hidden;
+    background: var(--arena-surface-container-lowest);
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: 0.5rem;
+    box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.16);
+    z-index: 1040;
+}
+
+.arena-notifications-header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--arena-outline-variant);
+    color: var(--arena-on-surface);
+    font-weight: 700;
+}
+
+.arena-notifications-list {
+    max-height: calc(min(28rem, calc(100vh - var(--arena-topbar-height) - 2rem)) - 3rem);
+    overflow-y: auto;
+}
+
+.arena-notifications-empty,
+.arena-notifications-loading,
+.arena-notifications-error {
+    padding: 1rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.9rem;
+}
+
+.arena-notification-item {
+    display: block;
+    width: 100%;
+    padding: 0.85rem 1rem;
+    border: 0;
+    border-bottom: 1px solid var(--arena-outline-variant);
+    background: transparent;
+    color: var(--arena-on-surface);
+    text-align: left;
+    text-decoration: none;
+}
+
+.arena-notification-item:last-child {
+    border-bottom: 0;
+}
+
+.arena-notification-item:hover,
+.arena-notification-item:focus-visible {
+    background: var(--arena-surface-container-low);
+    color: var(--arena-on-surface);
+    outline: none;
+}
+
+.arena-notification-item.is-unread {
+    background: color-mix(in srgb, var(--arena-primary) 8%, transparent);
+}
+
+.arena-notification-item.is-read {
+    opacity: 0.6;
+}
+
+.arena-notification-title {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.arena-notification-icon {
+    font-size: 1.1rem;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.arena-notification-message {
+    display: block;
+    margin-top: 0.25rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.85rem;
+    line-height: 1.35;
+}
+
+.arena-notification-time {
+    display: block;
+    margin-top: 0.35rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+}
+
+.arena-topbar .arena-topbar-icon {
+    color: var(--arena-on-surface-variant);
+    cursor: pointer;
+    border-radius: 50%;
+    padding: 0.4rem;
+    transition: background-color 0.15s ease;
+    line-height: 1;
+}
+
+.arena-topbar .arena-topbar-icon:hover {
+    background-color: var(--arena-surface-container-low);
+}
+
+.arena-avatar-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.arena-avatar-link:focus-visible {
+    outline: 2px solid var(--arena-primary);
+    outline-offset: 2px;
+}
+
+.arena-avatar {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    border: 1px solid var(--arena-outline-variant);
+    cursor: default;
+    object-fit: cover;
+}
+
+.arena-avatar-link .arena-avatar,
+.arena-avatar-change-wrapper .arena-avatar {
+    cursor: pointer;
+}

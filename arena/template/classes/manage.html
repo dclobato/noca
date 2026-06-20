@@ -1,0 +1,110 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Manage classes{% endblock %}
+{% block nav_classes %}active{% endblock %}
+{% block nav_classes_manage %}active{% endblock %}
+{% macro sort_link(label, field, current_sort, current_dir) %}
+    {% set next_dir = 'desc' if current_sort == field and current_dir == 'asc' else 'asc' %}
+    <a href="{{ request.url.include_query_params(sort=field, dir=next_dir, page=1) }}"
+       class="text-decoration-none text-reset d-flex align-items-center gap-1">
+        {{ label }}
+        {% if current_sort == field and current_dir == 'asc' %}
+            {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
+        {% elif current_sort == field and current_dir == 'desc' %}
+            {{ render_icon(icon='arrow_downward', classes='arena-sort-icon arena-sort-icon--active') }}
+        {% else %}
+            {{ render_icon(icon='unfold_more', classes='arena-sort-icon arena-sort-icon--idle') }}
+        {% endif %}
+    </a>
+{% endmacro %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="settings") }}
+                    Manage classes
+                </h1>
+                <a href="{{ request.url_for("arena_class_new") }}"
+                   class="btn btn-primary btn-sm">
+                    {{ render_icon(icon="add") }}
+                    Add new class
+                </a>
+            </div>
+            <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+                {% with label="Search", input_type="text", field_id="search", field_name="search", value=search, placeholder="Class name" %}
+                    {% include "_partials/filter_search_field.html" %}
+                {% endwith %}
+                <input type="hidden" name="sort" value="{{ sort }}">
+                <input type="hidden" name="dir" value="{{ dir }}">
+                {% include "_partials/filter_submit_button.html" %}
+                {% set _filters_active = search %}
+                {% with clear_url=request.url_for("arena_classes_manage"), filters_active=_filters_active %}
+                    {% include "_partials/filter_clear_link.html" %}
+                {% endwith %}
+            </form>
+            <p class="text-muted small mb-2">{{ managed.total }} class{{ 'es' if managed.total != 1 else '' }}</p>
+            {% with pagination=managed, page_param="page", label="Managed classes pagination", nav_margin="mb-2" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th>{{ sort_link("Class name", "name", sort, dir) }}</th>
+                            {% if is_admin %}<th>Assigned teacher</th>{% endif %}
+                            <th>{{ sort_link("Start date", "starts_on", sort, dir) }}</th>
+                            <th>End date</th>
+                            <th class="arena-col-actions">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in managed.items %}
+                            <tr id="class-{{ row.class_id }}">
+                                <td>{{ row.name }}</td>
+                                {% if is_admin %}<td>{{ row.teacher_name }}</td>{% endif %}
+                                <td class="text-nowrap">{{ row.starts_on.isoformat() }}</td>
+                                <td class="text-nowrap">{{ row.finishes_on.isoformat() }}</td>
+                                <td class="arena-col-actions">
+                                    <a href="{{ request.url_for('arena_class_edit', class_id=row.class_id) }}"
+                                       class="btn arena-icon-button btn-sm"
+                                       data-bs-toggle="tooltip"
+                                       title="Edit class"
+                                       aria-label="Edit class">{{ render_icon(icon="edit") }}</a>
+                                    <a href="{{ request.url_for('arena_class_members', class_id=row.class_id) }}"
+                                       class="btn arena-icon-button btn-sm"
+                                       data-bs-toggle="tooltip"
+                                       title="Manage students"
+                                       aria-label="Manage students">{{ render_icon(icon="group") }}</a>
+                                    <a href="{{ request.url_for('arena_class_problem_set_list', class_id=row.class_id) }}"
+                                       class="btn arena-icon-button btn-sm"
+                                       data-bs-toggle="tooltip"
+                                       title="Manage problem sets"
+                                       aria-label="Manage problem sets">{{ render_icon(icon="assignment") }}</a>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="{{ 5 if is_admin else 4 }}" class="arena-empty-state">No classes found.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% with pagination=managed, page_param="page", label="Managed classes pagination" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-classes.js') }}?v={{ app_version }}"></script>
+{% endblock %}

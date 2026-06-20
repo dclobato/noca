@@ -1,0 +1,61 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— Problems{% endblock %}
+{% block extra_head %}
+    <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='Sortable.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='tc-reorder-sortable.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item active" aria-current="page">Problems</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+            <div>
+                <h1 class="h3 mb-1">Problem Bank</h1>
+                <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="{{ request.url_for('new_problem_form', slug=contest.login_slug) }}"
+                   class="btn btn-primary btn-sm {% if not is_edit_allowed %}disabled{% endif %}">{{ render_icon(icon="add", classes="me-1") }}New Problem</a>
+                <a href="{{ request.url_for('import_problem_form', slug=contest.login_slug) }}"
+                   class="btn btn-outline-secondary btn-sm {% if not is_edit_allowed %}disabled{% endif %}">{{ render_icon(icon="upload", classes="me-1") }}Import Problem</a>
+            </div>
+        </div>
+        {% if not is_edit_allowed %}
+            <div class="alert alert-warning py-2 small mb-3">
+                {% if contest.is_running %}
+                    {{ render_icon(icon="lock", classes="me-1") }}Contest is running — problems are read-only until it ends.
+                {% elif contest.is_past %}
+                    {{ render_icon(icon="lock", classes="me-1") }}Contest has ended — problems cannot be added, edited, or removed.
+                {% elif not contest.active %}
+                    {{ render_icon(icon="lock", classes="me-1") }}Contest is inactive — problems cannot be modified.
+                {% endif %}
+            </div>
+        {% endif %}
+        {% include "admin/problems/list_table.html" %}
+    </div>
+{% endblock %}

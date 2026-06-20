@@ -1,0 +1,29 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% from "_macros.html" import render_icon %}
+<section class="arena-card">
+    <h2 class="arena-card-title">{{ render_icon(icon="terminal", classes="me-2") }}Supported Languages</h2>
+    {% if languages %}
+        <div class="arena-dashboard-lang-row">
+            {% for lang in languages %}
+                <img src="{{ request.url_for('static_vendor', path='img/devicon/' ~ lang.devicon_name ~ '-original.svg') }}"
+                     class="arena-dashboard-lang-icon"
+                     width="32"
+                     height="32"
+                     title="{{ lang.name }}"
+                     alt="{{ lang.name }}">
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="text-muted mt-2">No languages are currently active.</p>
+    {% endif %}
+    <p class="arena-dashboard-lang-footer">
+        {{ render_icon(icon="info", classes="me-1") }}
+        <a href="{{ request.url_for("arena_help_languages") }}">View compilation and submission details for each language</a>
+    </p>
+</section>

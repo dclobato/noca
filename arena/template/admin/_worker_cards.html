@@ -1,0 +1,198 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% from "_macros.html" import render_icon, render_flash_messages with context %}
+<div id="admin-worker-cards"
+     class="row g-3"
+     hx-get="{{ request.url_for("arena_admin_dashboard_workers") }}"
+     hx-trigger="every 10s"
+     hx-swap="outerHTML">
+    {% for card in worker_cards %}
+        <div class="col-12">
+            <section class="arena-card h-100">
+                <h2 class="arena-card-title">
+                    {{ render_icon(icon=card.icon) }}
+                    {{ card.title }}
+                    {% if card.pending_tasks is not none %}
+                        <span class="arena-card-title-meta ms-auto">
+                            {{ card.pending_tasks }} pending task{{ "s" if card.pending_tasks != 1 else "" }}
+                            {% if card.pending_batch_jobs is not none %}
+                                &bull;
+                                {{ card.pending_batch_jobs }} pending batch job{{ "s" if card.pending_batch_jobs != 1 else "" }}
+                            {% endif %}
+                        </span>
+                    {% endif %}
+                </h2>
+                <div class="table-responsive">
+                    <table class="arena-table arena-worker-table">
+                        <colgroup>
+                            <col class="arena-col-worker-status">
+                            <col class="arena-col-worker-id">
+                            <col class="arena-col-worker-activity">
+                            <col class="arena-col-worker-lastjob">
+                            <col class="arena-col-worker-actions">
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Worker ID</th>
+                                <th>Activity</th>
+                                <th>Last job</th>
+                                <th class="arena-col-actions">
+                                    <span class="visually-hidden">Actions</span>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for worker in card.workers %}
+                                <tr>
+                                    <td class="text-nowrap">
+                                        <div class="d-inline-flex align-items-center gap-2">
+                                            {% if worker.online %}
+                                                <span class="text-success" title="Online" aria-label="Online">{{ render_icon(icon="check_circle") }}</span>
+                                            {% else %}
+                                                <span class="text-muted" title="Offline" aria-label="Offline">{{ render_icon(icon="radio_button_unchecked") }}</span>
+                                            {% endif %}
+                                            {% if card.supports_pause and card.pause_enabled and worker.paused %}
+                                                <span class="badge text-bg-warning d-inline-flex align-items-center gap-1"
+                                                      title="Paused{% if worker.paused_by %} by {{ worker.paused_by }}{% endif %}">
+                                                    {{ render_icon(icon="pause_circle") }}
+                                                    Paused
+                                                </span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td class="arena-monospace text-break">{{ worker.worker_id }}</td>
+                                    <td class="text-nowrap">
+                                        {% if worker.online %}
+                                            <small class="d-block text-muted">Last start</small>
+                                            <span class="d-block">{{ arena_format_relative_datetime(worker.started_at) }}</span>
+                                            <small class="d-block text-muted">
+                                                {{ arena_format_datetime(worker.started_at, current_user, "%Y-%m-%d %H:%M:%S %Z") }}
+                                            </small>
+                                        {% else %}
+                                            <small class="d-block text-muted">Last seen</small>
+                                            <span class="d-block">{{ arena_format_relative_datetime(worker.last_seen_at) }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-nowrap">
+                                        {% if worker.last_job_at %}
+                                            <span class="d-block">{{ arena_format_relative_datetime(worker.last_job_at) }}</span>
+                                            <small class="d-block text-muted">
+                                                {{ arena_format_datetime(worker.last_job_at, current_user, "%Y-%m-%d %H:%M:%S %Z") }}
+                                            </small>
+                                        {% else %}
+                                            <small class="text-muted">No jobs yet</small>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end">
+                                        <div class="d-inline-flex gap-1">
+                                            {% if card.supports_pause and card.pause_enabled %}
+                                                {% if worker.paused %}
+                                                    <form method="post"
+                                                          action="{{ request.url_for("arena_admin_dashboard_worker_resume") }}"
+                                                          hx-post="{{ request.url_for("arena_admin_dashboard_worker_resume") }}"
+                                                          hx-target="#admin-worker-cards"
+                                                          hx-swap="outerHTML">
+                                                        <input type="hidden"
+                                                               name="worker_class"
+                                                               value="{{ card.worker_class.value }}">
+                                                        <input type="hidden" name="worker_id" value="{{ worker.worker_id }}">
+                                                        <button type="submit"
+                                                                class="btn btn-outline-success btn-sm arena-icon-btn"
+                                                                title="Resume worker"
+                                                                aria-label="Resume worker {{ worker.worker_id }}">
+                                                            {{ render_icon(icon="play_arrow") }}
+                                                        </button>
+                                                    </form>
+                                                {% else %}
+                                                    <form method="post"
+                                                          action="{{ request.url_for("arena_admin_dashboard_worker_pause") }}"
+                                                          hx-post="{{ request.url_for("arena_admin_dashboard_worker_pause") }}"
+                                                          hx-target="#admin-worker-cards"
+                                                          hx-swap="outerHTML">
+                                                        <input type="hidden"
+                                                               name="worker_class"
+                                                               value="{{ card.worker_class.value }}">
+                                                        <input type="hidden" name="worker_id" value="{{ worker.worker_id }}">
+                                                        <button type="submit"
+                                                                class="btn btn-outline-warning btn-sm arena-icon-btn"
+                                                                title="Pause worker"
+                                                                aria-label="Pause worker {{ worker.worker_id }}">
+                                                            {{ render_icon(icon="pause") }}
+                                                        </button>
+                                                    </form>
+                                                {% endif %}
+                                            {% endif %}
+                                            {% if card.supports_triggers and card.pause_enabled %}
+                                                <form method="post"
+                                                      action="{{ request.url_for("arena_admin_dashboard_worker_flush_now") }}"
+                                                      hx-post="{{ request.url_for("arena_admin_dashboard_worker_flush_now") }}"
+                                                      hx-target="#admin-worker-cards"
+                                                      hx-swap="outerHTML">
+                                                    <input type="hidden"
+                                                           name="worker_class"
+                                                           value="{{ card.worker_class.value }}">
+                                                    <input type="hidden" name="worker_id" value="{{ worker.worker_id }}">
+                                                    <button type="submit"
+                                                            class="btn btn-outline-info btn-sm arena-icon-btn"
+                                                            title="Flush batches now"
+                                                            aria-label="Flush batches now for {{ worker.worker_id }}">
+                                                        {{ render_icon(icon="send") }}
+                                                    </button>
+                                                </form>
+                                                <form method="post"
+                                                      action="{{ request.url_for("arena_admin_dashboard_worker_poll_now") }}"
+                                                      hx-post="{{ request.url_for("arena_admin_dashboard_worker_poll_now") }}"
+                                                      hx-target="#admin-worker-cards"
+                                                      hx-swap="outerHTML">
+                                                    <input type="hidden"
+                                                           name="worker_class"
+                                                           value="{{ card.worker_class.value }}">
+                                                    <input type="hidden" name="worker_id" value="{{ worker.worker_id }}">
+                                                    <button type="submit"
+                                                            class="btn btn-outline-secondary btn-sm arena-icon-btn"
+                                                            title="Poll batches now"
+                                                            aria-label="Poll batches now for {{ worker.worker_id }}">
+                                                        {{ render_icon(icon="sync") }}
+                                                    </button>
+                                                </form>
+                                            {% endif %}
+                                            <form method="post"
+                                                  action="{{ request.url_for("arena_admin_dashboard_worker_remove") }}"
+                                                  hx-post="{{ request.url_for("arena_admin_dashboard_worker_remove") }}"
+                                                  hx-target="#admin-worker-cards"
+                                                  hx-swap="outerHTML">
+                                                <input type="hidden"
+                                                       name="worker_class"
+                                                       value="{{ card.worker_class.value }}">
+                                                <input type="hidden" name="worker_id" value="{{ worker.worker_id }}">
+                                                <button type="submit"
+                                                        class="btn btn-outline-danger btn-sm arena-icon-btn"
+                                                        title="Remove worker"
+                                                        aria-label="Remove worker {{ worker.worker_id }}">
+                                                    {{ render_icon(icon="delete") }}
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr>
+                                    <td colspan="5" class="arena-empty-state">No workers seen.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    {% endfor %}
+</div>
+{% if include_flash_oob %}
+    <div id="flash-messages" hx-swap-oob="true">{{ render_flash_messages(full_width=True) }}</div>
+{% endif %}

@@ -1,0 +1,51 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* Balloon color picker */
+.noca-balloon-opt {
+    border: 2px solid transparent;
+    border-radius: 6px;
+    line-height: 0;
+    opacity: 0.6;
+    transition: opacity 0.12s, border-color 0.12s;
+}
+
+.noca-balloon-opt:hover:not(:disabled) {
+    opacity: 1;
+}
+
+.noca-balloon-opt.noca-balloon-selected {
+    border-color: #0d6efd;
+    opacity: 1;
+}
+
+.noca-color-custom-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+    top: 0;
+    left: 0;
+}
+
+.noca-balloon-custom-preview {
+    display: inline-block;
+}
+
+.noca-first-balloon {
+    filter:
+        drop-shadow(0 0 4px rgba(255, 214, 76, 0.95))
+        drop-shadow(0 0 10px rgba(255, 193, 7, 0.75));
+}
+
+.noca-first-balloon-lg {
+    filter:
+        drop-shadow(0 0 8px rgba(255, 224, 102, 0.95))
+        drop-shadow(0 0 22px rgba(255, 193, 7, 0.75));
+}

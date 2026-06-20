@@ -1,0 +1,81 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+.noca-container-narrow {
+    max-width: 720px;
+}
+
+.noca-container-problem-tc-edit {
+    max-width: 960px;
+}
+
+.noca-badge-xs,
+.problem-category-badge {
+    font-size: 0.7em;
+}
+
+/* Table column widths — shared across all tables */
+.noca-col-3 {
+    width: 3rem;
+}
+
+.noca-col-4 {
+    width: 4rem;
+}
+
+.noca-col-5 {
+    width: 5rem;
+}
+
+.noca-col-6 {
+    width: 6rem;
+}
+
+.noca-col-7 {
+    width: 7rem;
+}
+
+.noca-col-8 {
+    width: 8rem;
+}
+
+.noca-col-12 {
+    width: 12rem;
+}
+
+.noca-limits-divider {
+    width: 1px;
+    padding: 0;
+    background-color: var(--bs-border-color);
+}
+
+.noca-counters-chart {
+    width: 100%;
+    height: 7rem;
+}
+
+/* Edit Metadata — section group headings */
+.noca-section-heading {
+    font-size: 1.5rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+    border-left: 2px solid var(--bs-primary);
+    border-top: 4px solid var(--bs-primary);
+    padding-left: 1rem;
+    margin-bottom: 1rem;
+}
+
+/* Collapse toggle caret — rotates when its control is collapsed */
+.noca-collapse-caret {
+    transition: transform 0.2s ease-in-out;
+}
+
+[aria-expanded="false"] .noca-collapse-caret {
+    transform: rotate(-90deg);
+}

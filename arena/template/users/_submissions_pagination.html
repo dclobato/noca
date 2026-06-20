@@ -1,0 +1,38 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% if submissions.pages > 1 %}
+    <nav class="arena-pagination {{ nav_margin | default('', true) }}"
+         aria-label="Submissions pagination">
+        <ul class="pagination pagination-sm mb-0">
+            <li class="page-item {% if not submissions.has_prev %}disabled{% endif %}">
+                {% set previous_page = submissions.prev_num or 1 %}
+                <a class="page-link"
+                   href="{{ request.url.include_query_params(tab='submissions', submissions_page=previous_page, submissions_search=submissions_search or '', submissions_verdict=submissions_verdict or '') }}"
+                   aria-label="Previous">Previous</a>
+            </li>
+            {% for page_number in submissions.iter_pages() %}
+                {% if page_number %}
+                    <li class="page-item {% if page_number == submissions.page %}active{% endif %}">
+                        <a class="page-link"
+                           href="{{ request.url.include_query_params(tab='submissions', submissions_page=page_number, submissions_search=submissions_search or '', submissions_verdict=submissions_verdict or '') }}">{{ page_number }}</a>
+                    </li>
+                {% else %}
+                    <li class="page-item disabled">
+                        <span class="page-link">&hellip;</span>
+                    </li>
+                {% endif %}
+            {% endfor %}
+            <li class="page-item {% if not submissions.has_next %}disabled{% endif %}">
+                {% set next_page = submissions.next_num or submissions.pages %}
+                <a class="page-link"
+                   href="{{ request.url.include_query_params(tab='submissions', submissions_page=next_page, submissions_search=submissions_search or '', submissions_verdict=submissions_verdict or '') }}"
+                   aria-label="Next">Next</a>
+            </li>
+        </ul>
+    </nav>
+{% endif %}

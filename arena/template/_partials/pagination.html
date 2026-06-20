@@ -1,0 +1,37 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% set _page_param = page_param | default('page', true) %}
+{% if pagination and pagination.pages > 1 %}
+    <nav class="arena-pagination {{ nav_margin | default('mt-2', true) }}"
+         aria-label="{{ label | default('Pagination', true) }}">
+        <ul class="pagination pagination-sm mb-0">
+            <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                <a class="page-link"
+                   href="{{ request.url.include_query_params(**{_page_param: pagination.prev_num or 1}) }}"
+                   aria-label="Previous">Previous</a>
+            </li>
+            {% for page_number in pagination.iter_pages() %}
+                {% if page_number %}
+                    <li class="page-item {% if page_number == pagination.page %}active{% endif %}">
+                        <a class="page-link"
+                           href="{{ request.url.include_query_params(**{_page_param: page_number}) }}">{{ page_number }}</a>
+                    </li>
+                {% else %}
+                    <li class="page-item disabled">
+                        <span class="page-link">…</span>
+                    </li>
+                {% endif %}
+            {% endfor %}
+            <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                <a class="page-link"
+                   href="{{ request.url.include_query_params(**{_page_param: pagination.next_num or pagination.pages}) }}"
+                   aria-label="Next">Next</a>
+            </li>
+        </ul>
+    </nav>
+{% endif %}

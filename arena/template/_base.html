@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+{% from "_macros.html" import render_icon, render_flash_messages with context %}
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Noca Arena
+            {% block title_suffix %}{% endblock %}
+        </title>
+        {# ── Noca Arena favicons ── #}
+        <link rel="icon" type="image/x-icon" href="/favicon.ico">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png">
+        <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png">
+        <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180x180.png">
+        <link rel="manifest" href="/site.webmanifest">
+        <meta name="theme-color" content="#2f9e41">
+        <meta name="msapplication-TileColor" content="#2f9e41">
+        <meta name="msapplication-config" content="/browserconfig.xml">
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='bootstrap.min.css') }}">
+        <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"
+              rel="stylesheet">
+        {# ── Arena CSS (imports shared common.css) ── #}
+        <link href="{{ request.url_for('arena_static_css', path='arena.css') }}?v={{ app_version }}"
+              rel="stylesheet">
+        {% block extra_head %}{% endblock %}
+    </head>
+    <body>
+        <header class="arena-topbar">
+            <div class="arena-topbar-inner">
+                <a class="navbar-brand" href="{{ request.url_for("arena_dashboard") }}">
+                    <img src="{{ request.url_for('arena_static_img', path='logo-128x128.png') }}"
+                         width="96"
+                         height="96"
+                         alt=""
+                         aria-hidden="true"
+                         class="arena-navbar-logo">
+                    <span>Noca Arena</span>
+                </a>
+                <div class="arena-topbar-main">
+                    <div class="arena-topbar-actions">
+                        <button type="button"
+                                class="arena-topbar-action arena-mobile-menu-toggle"
+                                data-arena-mobile-menu-toggle
+                                aria-label="Open navigation"
+                                aria-expanded="false">
+                            {{ render_icon(icon="menu", classes="arena-topbar-icon") }}
+                        </button>
+                        {% if current_user %}
+                            {% set unread_notifications = request.state.arena_unread_notification_count | default(0) %}
+                            <div class="arena-notifications"
+                                 data-arena-notifications
+                                 data-list-url="{{ request.url_for("arena_notifications_list") }}">
+                                <button type="button"
+                                        class="arena-topbar-action arena-notifications-toggle"
+                                        aria-label="Notifications"
+                                        title="Notifications"
+                                        aria-expanded="false"
+                                        data-arena-notifications-toggle>
+                                    {{ render_icon(icon="notifications", classes="arena-topbar-icon") }}
+                                    <span class="arena-notifications-badge{% if unread_notifications == 0 %} d-none{% endif %}"
+                                          data-arena-notifications-badge>{{ unread_notifications }}</span>
+                                </button>
+                                <div class="arena-notifications-menu" data-arena-notifications-menu hidden>
+                                    <div class="arena-notifications-header">Notifications</div>
+                                    <div class="arena-notifications-list" data-arena-notifications-list>
+                                        <div class="arena-notifications-empty">No notifications.</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <a href="{{ request.url_for("arena_user_profile") }}"
+                               class="arena-avatar-link"
+                               aria-label="Open profile">
+                                <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=current_user.id) }}?v={{ (current_user.dta_foto.timestamp() | int) if current_user.dta_foto else 0 }}"
+                                     alt="{{ current_user.nome }}"
+                                     class="arena-avatar"
+                                     title="{{ current_user.nome }}">
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </header>
+        <div class="arena-layout">
+            <div class="arena-sidebar-backdrop"
+                 data-arena-mobile-sidebar-backdrop
+                 hidden></div>
+            <aside class="arena-sidebar d-md-flex">
+                <button type="button"
+                        class="arena-sidebar-toggle"
+                        data-arena-sidebar-toggle
+                        aria-label="Collapse sidebar"
+                        aria-expanded="true">
+                    <span class="material-symbols-outlined arena-sidebar-toggle-icon"
+                          data-arena-sidebar-toggle-icon
+                          aria-hidden="true">arrow_circle_left</span>
+                </button>
+                <nav class="flex-grow-1">
+                    {% block sidebar_nav %}
+                        {% if current_user and (current_user.role.value == 'ARENA_ADMIN' or current_user.can_edit) %}
+                            <a href="{{ request.url_for("arena_admin_problem_list") }}"
+                               class="nav-link {% block nav_admin_problems %}{% endblock %}">
+                                {{ render_icon(icon="assignment") }}
+                                <span>Manage problems</span>
+                            </a>
+                        {% endif %}
+                        {% if current_user and current_user.role.value == 'ARENA_ADMIN' %}
+                            <a href="{{ request.url_for("arena_admin_dashboard") }}"
+                               class="nav-link {% block nav_admin_dashboard %}{% endblock %}">
+                                {{ render_icon(icon="space_dashboard") }}
+                                <span>Admin Dashboard</span>
+                            </a>
+                            {% if self.nav_admin_dashboard() == 'active' %}
+                                <div class="nav-subitems">
+                                    <a href="{{ request.url_for("arena_admin_dashboard_service_status") }}"
+                                       class="nav-link nav-link-sub {% block nav_admin_dashboard_service_status %}{% endblock %}">
+                                        <span>Service Status</span>
+                                    </a>
+                                    <a href="{{ request.url_for("arena_admin_dashboard_ai_credits") }}"
+                                       class="nav-link nav-link-sub {% block nav_admin_dashboard_ai_credits %}{% endblock %}">
+                                        <span>AI Credits Usage</span>
+                                    </a>
+                                    <a href="{{ request.url_for("arena_admin_dashboard_login_history") }}"
+                                       class="nav-link nav-link-sub {% block nav_admin_dashboard_login_history %}{% endblock %}">
+                                        <span>Login History</span>
+                                    </a>
+                                    <a href="{{ request.url_for("arena_admin_dashboard_submissions") }}"
+                                       class="nav-link nav-link-sub {% block nav_admin_dashboard_submissions %}{% endblock %}">
+                                        <span>Submissions</span>
+                                    </a>
+                                </div>
+                            {% endif %}
+                            <a href="{{ request.url_for("arena_admin_user_list") }}"
+                               class="nav-link {% block nav_admin_users %}{% endblock %}">
+                                {{ render_icon(icon="manage_accounts") }}
+                                <span>User Management</span>
+                            </a>
+                            <a href="{{ request.url_for("arena_admin_category_list") }}"
+                               class="nav-link {% block nav_admin_categories %}{% endblock %}">
+                                {{ render_icon(icon="category") }}
+                                <span>Manage categories</span>
+                            </a>
+                            <a href="{{ request.url_for("arena_admin_affiliation_list") }}"
+                               class="nav-link {% block nav_admin_affiliations %}{% endblock %}">
+                                {{ render_icon(icon="corporate_fare") }}
+                                <span>Affiliations</span>
+                            </a>
+                        {% endif %}
+                        <a href="{{ request.url_for("arena_problem_list") }}"
+                           class="nav-link {% block nav_problems %}{% endblock %}">
+                            {{ render_icon(icon="code") }}
+                            <span>Problems</span>
+                        </a>
+                        {% if current_user %}
+                            <a href="{{ request.url_for("arena_classes_index") }}"
+                               class="nav-link {% block nav_classes %}{% endblock %}">
+                                {{ render_icon(icon="school") }}
+                                <span>Classes</span>
+                            </a>
+                            {% if self.nav_classes() == 'active' %}
+                                <div class="nav-subitems">
+                                    <a href="{{ request.url_for("arena_classes_registered") }}"
+                                       class="nav-link nav-link-sub {% block nav_classes_registered %}{% endblock %}">
+                                        <span>Registered classes</span>
+                                    </a>
+                                    <a href="{{ request.url_for("arena_classes_open") }}"
+                                       class="nav-link nav-link-sub {% block nav_classes_open %}{% endblock %}">
+                                        <span>Open for registration</span>
+                                    </a>
+                                    {% if current_user.role.value in ('ARENA_ADMIN', 'ARENA_JUDGE') %}
+                                        <a href="{{ request.url_for("arena_classes_manage") }}"
+                                           class="nav-link nav-link-sub {% block nav_classes_manage %}{% endblock %}">
+                                            <span>Manage classes</span>
+                                        </a>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        {% endif %}
+                        <a href="{{ request.url_for("arena_ranking_index") }}"
+                           class="nav-link {% block nav_ranking %}{% endblock %}">
+                            {{ render_icon(icon="leaderboard") }}
+                            <span>Ranking</span>
+                        </a>
+                        {% if self.nav_ranking() == 'active' %}
+                            <div class="nav-subitems">
+                                <a href="{{ request.url_for("arena_ranking_users") }}"
+                                   class="nav-link nav-link-sub {% block nav_ranking_users %}{% endblock %}">
+                                    <span>Users</span>
+                                </a>
+                                <a href="{{ request.url_for("arena_ranking_affiliations") }}"
+                                   class="nav-link nav-link-sub {% block nav_ranking_affiliations %}{% endblock %}">
+                                    <span>Affiliations</span>
+                                </a>
+                            </div>
+                        {% endif %}
+                        <a href="{{ request.url_for("arena_help_rating") }}"
+                           class="nav-link {% block nav_help_rating %}{% endblock %}">
+                            {{ render_icon(icon="functions") }}
+                            <span>Difficulty &amp; Rating System</span>
+                        </a>
+                        <a href="{{ request.url_for("arena_help_languages") }}"
+                           class="nav-link {% block nav_help_languages %}{% endblock %}">
+                            {{ render_icon(icon="terminal") }}
+                            <span>Languages &amp; Verdicts</span>
+                        </a>
+                    {% endblock %}
+                </nav>
+                <div class="arena-sidebar-bottom">
+                    {% if current_user %}
+                        <form method="post" action="{{ request.url_for("arena_logout") }}">
+                            <button type="submit" class="nav-link">
+                                {{ render_icon(icon="logout") }}
+                                <span>Logout</span>
+                            </button>
+                        </form>
+                    {% else %}
+                        <a href="{{ request.url_for("arena_login") }}" class="nav-link">
+                            {{ render_icon(icon="login") }}
+                            <span>Login</span>
+                        </a>
+                        <a href="{{ request.url_for("arena_signup") }}" class="nav-link">
+                            {{ render_icon(icon="person_add") }}
+                            <span>Sign up</span>
+                        </a>
+                    {% endif %}
+                </div>
+            </aside>
+            <main class="arena-main">
+                <div id="flash-messages">{{ render_flash_messages(full_width=True) }}</div>
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+        {% include "_partials/_footer.html" %}
+        <script src="{{ request.url_for('static_vendor', path='bootstrap.bundle.min.js') }}"></script>
+        <script src="{{ request.url_for("arena_static_js", path="arena-layout.js") }}?v={{ app_version }}"></script>
+        {% if current_user %}
+            <script src="{{ request.url_for("arena_static_js", path="arena-notifications.js") }}?v={{ app_version }}"></script>
+        {% endif %}
+        {% block extra_script %}{% endblock %}
+    </body>
+</html>

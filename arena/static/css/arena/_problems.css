@@ -1,0 +1,245 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Problem list items inside cards
+   ============================================================ */
+.arena-problem-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--arena-surface-container);
+    font-family: monospace;
+    font-size: 0.9rem;
+    color: var(--arena-primary);
+    text-decoration: none;
+    transition: opacity 0.1s ease;
+}
+
+.arena-problem-row:last-child {
+    border-bottom: none;
+}
+
+.arena-problem-row:hover {
+    text-decoration: underline;
+    opacity: 0.85;
+}
+
+/* ============================================================
+   Difficulty badges
+   ============================================================ */
+.arena-badge-easy {
+    color: var(--arena-easy);
+    font-size: 0.8125rem;
+    font-family: 'Inter', sans-serif;
+}
+
+.arena-badge-medium {
+    color: var(--arena-medium);
+    font-size: 0.8125rem;
+    font-family: 'Inter', sans-serif;
+}
+
+.arena-badge-hard {
+    color: var(--arena-hard);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    font-family: 'Inter', sans-serif;
+}
+
+/* ── Public problem list: rating progress bar colour scale ───────────────── */
+/*    Each bar starts green and ends at the hue for its rating level.         */
+/*    Technique: gradient from green (hsl 112) to the target hue so the bar  */
+/*    always reads green→<color> regardless of how wide it is.               */
+
+.arena-rating-bar-1  { background: linear-gradient(to right, hsl(112, 65%, 42%), hsl(112, 65%, 42%)); }
+.arena-rating-bar-2  { background: linear-gradient(to right, hsl(112, 65%, 42%), hsl(98,  68%, 40%)); }
+.arena-rating-bar-3  { background: linear-gradient(to right, hsl(112, 65%, 42%), hsl(84,  72%, 38%)); }
+.arena-rating-bar-4  { background: linear-gradient(to right, hsl(112, 65%, 42%), hsl(64,  80%, 40%)); }
+.arena-rating-bar-5  { background: linear-gradient(to right, hsl(112, 65%, 42%), hsl(48,  90%, 44%)); }
+.arena-rating-bar-6  { background: linear-gradient(to right, hsl(112, 65%, 42%), hsl(34,  88%, 48%)); }
+.arena-rating-bar-7  { background: linear-gradient(to right, hsl(112, 65%, 42%), hsl(22,  82%, 50%)); }
+.arena-rating-bar-8  { background: linear-gradient(to right, hsl(112, 65%, 42%), hsl(12,  78%, 50%)); }
+.arena-rating-bar-9  { background: linear-gradient(to right, hsl(112, 65%, 42%), hsl(5,   75%, 50%)); }
+.arena-rating-bar-10 { background: linear-gradient(to right, hsl(112, 65%, 42%), hsl(0,   72%, 48%)); }
+
+.arena-rating-progress {
+    height: 1rem;
+    border-radius: var(--bs-border-radius);
+    background-color: var(--arena-surface-container);
+}
+
+/* ── Public problem detail page ──────────────────────────────────────────── */
+
+.arena-problem-header-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+}
+
+.arena-problem-header-strip .arena-problem-header-stat {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.875rem;
+    color: var(--bs-secondary-color);
+}
+
+/* ── Problem favorites ────────────────────────────────────────────────────── */
+
+.arena-favorite-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    color: var(--bs-secondary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: inherit;
+}
+
+.arena-favorite-btn:hover {
+    color: #dc3545;
+}
+
+.arena-favorite-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.arena-favorite-icon--active {
+    color: #dc3545;
+}
+
+.arena-col-favorite {
+    width: 2rem;
+    text-align: center;
+}
+
+/* ── Problem image and figure ────────────────────────────────────────────── */
+
+.arena-problem-image {
+    max-width: 70%;
+    display: block;
+    margin: 1rem auto;
+    border-radius: var(--arena-border-radius);
+}
+
+.arena-problem-figure {
+    text-align: center;
+    margin: 1rem auto;
+}
+
+.arena-problem-figure .arena-problem-image {
+    margin: 0 auto;
+}
+
+.arena-problem-figure-caption {
+    font-size: 0.6rem;
+    font-style: italic;
+    text-align: center;
+    margin-top: 0.25rem;
+    color: var(--arena-muted-color, #6c757d);
+}
+
+.arena-login-prompt-icon {
+    font-size: 2.5rem;
+}
+
+.arena-select-fit {
+    width: auto;
+}
+
+/* ── Resizable problem statement and solution workspace ─────────────────── */
+
+.arena-problem-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+}
+
+.arena-problem-workspace-panel {
+    min-width: 0;
+}
+
+.arena-problem-workspace-resizer {
+    display: none;
+}
+
+@media (min-width: 768px) {
+    #solution-panel {
+        align-self: start;
+    }
+
+    .arena-problem-workspace {
+        --arena-problem-statement-width: 58.333%;
+
+        grid-template-columns:
+            minmax(0, var(--arena-problem-statement-width))
+            0.75rem
+            minmax(0, 1fr);
+        gap: 0;
+    }
+
+    .arena-problem-workspace-resizer {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100%;
+        cursor: col-resize;
+        touch-action: none;
+        outline: none;
+    }
+
+    .arena-problem-workspace-resizer::before {
+        position: absolute;
+        inset-block: 0;
+        width: 1px;
+        content: "";
+        background: var(--bs-border-color);
+        transition:
+            width 120ms ease,
+            background-color 120ms ease;
+    }
+
+    .arena-problem-workspace-resizer-handle {
+        z-index: 1;
+        width: 0.3rem;
+        height: 3rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: var(--bs-border-radius-pill);
+        background: var(--bs-body-bg);
+        transition:
+            border-color 120ms ease,
+            background-color 120ms ease;
+    }
+
+    .arena-problem-workspace-resizer:hover::before,
+    .arena-problem-workspace-resizer:focus-visible::before,
+    .arena-problem-workspace-resizer.is-dragging::before {
+        width: 2px;
+        background: var(--arena-primary);
+    }
+
+    .arena-problem-workspace-resizer:hover .arena-problem-workspace-resizer-handle,
+    .arena-problem-workspace-resizer:focus-visible .arena-problem-workspace-resizer-handle,
+    .arena-problem-workspace-resizer.is-dragging .arena-problem-workspace-resizer-handle {
+        border-color: var(--arena-primary);
+        background: var(--arena-primary);
+    }
+
+    body.arena-problem-workspace-dragging {
+        cursor: col-resize;
+        user-select: none;
+    }
+}

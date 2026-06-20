@@ -1,0 +1,47 @@
+{% macro render_icon(icon=None, filled=False, classes=None, title=None) %}
+    {% if classes is string %}
+        {% set base_classes = classes.split() %}
+    {% else %}
+        {% set base_classes = classes or [] %}
+    {% endif %}
+    {% set final_classes = base_classes + (['material-symbols-filled'] if filled else []) %}
+    <span class="material-symbols-outlined {{ final_classes | join(" ") }}"
+          {% if title %}title="{{ title }}"{% endif %}>{{ icon }}</span>
+{% endmacro %}
+{% macro render_flash_messages(dismissible=True, with_icons=True, full_width=False) %}
+    {% set _flashed = get_flashed_messages(with_categories=True) %}
+    {% if _flashed %}
+        <div class="container-fluid px-3 pt-3">
+            <div class="row justify-content-center">
+                <div class="col-12 {{ '' if full_width else 'col-lg-6' }}">
+                    {% for category, message in _flashed %}
+                        <div class="alert alert-{{ category }} py-2 small d-flex align-items-center gap-2 mb-2"
+                             role="alert">
+                            {% if with_icons %}
+                                {% if category == 'success' %}
+                                    {{ render_icon(icon="check_circle", filled=True) }}
+                                {% elif category == 'danger' %}
+                                    {{ render_icon(icon="dangerous", filled=True) }}
+                                {% elif category == 'warning' %}
+                                    {{ render_icon(icon="warning", filled=True) }}
+                                {% elif category == 'info' %}
+                                    {{ render_icon(icon="info", filled=True) }}
+                                {% else %}
+                                    {{ render_icon(icon="warning", filled=True) }}
+                                {% endif %}
+                            {% endif %}
+                            <span class="flex-grow-1">{{ message }}</span>
+                            {% if dismissible %}
+                                <button type="button"
+                                        class="btn-close flex-shrink-0 align-self-center"
+                                        style="font-size: 0.65em"
+                                        data-bs-dismiss="alert"
+                                        aria-label="Close"></button>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    {% endif %}
+{% endmacro %}

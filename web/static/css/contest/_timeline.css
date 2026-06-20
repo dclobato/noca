@@ -1,0 +1,100 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ── Contest timing timeline ─────────────────────────────────────────────── */
+.timing-timeline-bar {
+    height: 1rem;
+}
+
+.timing-timeline-seg {
+    width: 0;
+}
+
+.timing-timeline-seg-full {
+    width: 100%;
+}
+
+.timeline-seg-fallback {
+    background-color: var(--bs-secondary-bg-subtle);
+}
+
+.timeline-seg-live {
+    background-color: #2f9e41;
+}
+
+[data-bs-theme="dark"] .timeline-seg-live {
+    background-color: #51cf66;
+}
+
+.timeline-seg-frozen {
+    background-color: #ffc107;
+}
+
+[data-bs-theme="dark"] .timeline-seg-frozen {
+    background-color: #fcc419;
+}
+
+.timeline-seg-silence {
+    background-color: #cd191e;
+}
+
+[data-bs-theme="dark"] .timeline-seg-silence {
+    background-color: #ff6b6b;
+}
+
+.timing-timeline-legend {
+    flex-wrap: wrap;
+    color: var(--bs-secondary-color);
+}
+
+.timeline-legend-swatch {
+    display: inline-block;
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 4px;
+    vertical-align: middle;
+    margin-right: 0.2rem;
+}
+
+/* ── Social / technology icon masks ──────────────────────────────────────── */
+
+.icon-github {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    background-color: currentColor;
+    mask: url('/static/img/github.svg') center / contain no-repeat;
+    -webkit-mask: url('/static/img/github.svg') center / contain no-repeat;
+}
+
+.icon-x {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    background-color: currentColor;
+    mask: url('/static/img/x.svg') center / contain no-repeat;
+    -webkit-mask: url('/static/img/x.svg') center / contain no-repeat;
+}
+
+.icon-fastapi {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    background-color: currentColor;
+    mask: url('/static/img/fastapi.svg') center / contain no-repeat;
+    -webkit-mask: url('/static/img/fastapi.svg') center / contain no-repeat;
+}
+
+.icon-python {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    background-color: currentColor;
+    mask: url('/static/img/python.svg') center / contain no-repeat;
+    -webkit-mask: url('/static/img/python.svg') center / contain no-repeat;
+}

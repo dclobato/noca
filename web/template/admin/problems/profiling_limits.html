@@ -1,0 +1,274 @@
+<div id="profiling-limits-panel"
+     {% if problem and active_profiling_run %} hx-get="{{ request.url_for('problem_profiling_status_partial', slug=contest.login_slug, problem_id=problem.id) }}" hx-trigger="every 2s" hx-swap="outerHTML" {% endif %}>
+    {% if problem %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-semibold">Auto-Limit</div>
+            <div class="card-body">
+                {% if active_profiling_run %}
+                    <div class="alert alert-info small py-2 mb-3">
+                        Profiling for language <strong>{{ active_profiling_run.language.name }}</strong>. Wait...
+                        <span class="text-muted">Current status: {{ active_profiling_run.status.value }}</span>
+                    </div>
+                {% endif %}
+                <div class="row g-3 align-items-end">
+                    <div class="col-12 col-md-4">
+                        <label for="profiling_language_id" class="form-label">Language</label>
+                        <select class="form-select"
+                                id="profiling_language_id"
+                                name="language_id"
+                                form="profiling-form"
+                                {% if not is_edit_allowed or active_profiling_run %}disabled{% endif %}>
+                            {% for lang in languages %}
+                                <option value="{{ lang.id }}"
+                                        {% if profiling_selected_language_id == lang.id %}selected{% endif %}>
+                                    {{ lang.name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <label for="profiling_safety_factor" class="form-label">Safety factor</label>
+                        <input type="number"
+                               class="form-control"
+                               id="profiling_safety_factor"
+                               name="safety_factor"
+                               form="profiling-form"
+                               min="1.01"
+                               step="0.01"
+                               value="1.50"
+                               {% if not is_edit_allowed or active_profiling_run %}disabled{% endif %}>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label for="reference_file" class="form-label">Reference implementation</label>
+                        <input type="file"
+                               class="form-control"
+                               id="reference_file"
+                               name="reference_file"
+                               form="profiling-form"
+                               {% if not is_edit_allowed or active_profiling_run %}disabled{% endif %}>
+                    </div>
+                    <div class="col-12 col-md-2 d-grid">
+                        <button type="submit"
+                                class="btn btn-outline-primary"
+                                form="profiling-form"
+                                {% if not is_edit_allowed or active_profiling_run %}disabled{% endif %}>
+                            Auto-Limit
+                        </button>
+                    </div>
+                </div>
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+                    <small class="text-muted">
+                        {% if active_profiling_run %}
+                            Profiling is in progress. This panel refreshes automatically.
+                        {% else %}
+                            Reference implementation must return AC on every test case before limits are updated.
+                        {% endif %}
+                    </small>
+                    <button type="submit"
+                            class="btn btn-sm btn-outline-secondary"
+                            form="fallback-limits-form"
+                            {% if not is_limits_edit_allowed or active_profiling_run %}disabled{% endif %}>
+                        Auto-set Fallback Limits
+                    </button>
+                </div>
+                {% if latest_profiling_run %}
+                    <hr>
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div>
+                            <div class="fw-semibold">Latest profiling run</div>
+                            <div class="small text-muted">
+                                {{ latest_profiling_run.language.name }} · {{ latest_profiling_run.status.value }} · factor {{ "%.2f"|format(latest_profiling_run.safety_factor) }}
+                            </div>
+                        </div>
+                        <div class="small text-muted">{{ latest_profiling_run.created_at }}</div>
+                    </div>
+                    {% if latest_profiling_run.error_message %}
+                        <div class="alert alert-warning small py-2 mt-3 mb-2">{{ latest_profiling_run.error_message }}</div>
+                    {% endif %}
+                    {% if latest_profiling_run.compile_log %}
+                        <label class="form-label small mt-2">Compile / diagnostic log</label>
+                        <pre class="small border rounded p-2 bg-light-subtle">{{ latest_profiling_run.compile_log | e }}</pre>
+                    {% endif %}
+                    {% if latest_profiling_run.case_results %}
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Case</th>
+                                        <th>Verdict</th>
+                                        <th>Total time (ms)</th>
+                                        <th>Peak memory (KB)</th>
+                                        <th>Peak output (bytes)</th>
+                                        <th>Peak PIDs</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for result in latest_profiling_run.case_results %}
+                                        <tr>
+                                            <td>{{ result.ordinal }}</td>
+                                            <td>{{ result.verdict.value }}</td>
+                                            <td>{{ result.total_wall_time_ms if result.total_wall_time_ms is not none else '—' }}</td>
+                                            <td>{{ result.peak_memory_kb if result.peak_memory_kb is not none else '—' }}</td>
+                                            <td>{{ result.peak_output_bytes if result.peak_output_bytes is not none else '—' }}</td>
+                                            <td>{{ result.peak_pids if result.peak_pids is not none else '—' }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+    {% if languages %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-semibold">Per-Language Limits</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Language</th>
+                                <th>Reps</th>
+                                <th>Time (ms)</th>
+                                <th>Memory (KB)</th>
+                                <th>PIDs</th>
+                                <th>Output (bytes)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for lang in languages %}
+                                {% set is_active_language = active_profiling_run and active_profiling_run.language_id == lang.id %}
+                                {% set lang_limit = limits_map[lang.id] if lang.id in limits_map else none %}
+                                {% set plimits = profiling_computed_limits_map.get(lang.id) if profiling_computed_limits_map is defined and profiling_computed_limits_map else none %}
+                                <tr>
+                                    <td>
+                                        <i class="{{ lang.icon }} me-1"></i>{{ lang.name }}
+                                    </td>
+                                    <td class="text-center small {% if not lang_limit %}text-muted{% endif %}">
+                                        {{ lang_limit.repetitions if lang_limit else lang.profiling_repetitions_default }}
+                                    </td>
+                                    {% if is_active_language %}
+                                        <td colspan="4" class="text-muted">
+                                            <span class="fw-semibold">Auto profiling...</span>
+                                            <span class="small">Current status: {{ active_profiling_run.status.value }}</span>
+                                            <input type="hidden"
+                                                   name="lang_time_{{ lang.id }}"
+                                                   value="{{ lang_limit.time_limit_ms if lang_limit else '' }}"
+                                                   form="edit-form">
+                                            <input type="hidden"
+                                                   name="lang_mem_{{ lang.id }}"
+                                                   value="{{ lang_limit.memory_limit_kb if lang_limit else '' }}"
+                                                   form="edit-form">
+                                            <input type="hidden"
+                                                   name="lang_pids_{{ lang.id }}"
+                                                   value="{{ lang_limit.pids_limit if lang_limit else '' }}"
+                                                   form="edit-form">
+                                            <input type="hidden"
+                                                   name="lang_out_{{ lang.id }}"
+                                                   value="{{ lang_limit.output_limit_in_bytes if lang_limit and lang_limit.output_limit_in_bytes else '' }}"
+                                                   form="edit-form">
+                                        </td>
+                                    {% else %}
+                                        <td>
+                                            <input type="number"
+                                                   class="form-control form-control-sm"
+                                                   name="lang_time_{{ lang.id }}"
+                                                   min="1"
+                                                   step="1"
+                                                   value="{{ lang_limit.time_limit_ms if lang_limit else '' }}"
+                                                   placeholder="{{ form_data.time_limit_ms if form_data.time_limit_ms is defined else '(fallback)' }}"
+                                                   form="edit-form"
+                                                   {% if not is_limits_edit_allowed %}disabled{% endif %}>
+                                            {% if lang_limit and lang_limit.time_limit_ms %}
+                                                {% if plimits and plimits.time_limit_ms is not none and plimits.time_limit_ms == lang_limit.time_limit_ms %}
+                                                    <div>
+                                                        <span class="badge bg-success-subtle text-success-emphasis">auto</span>
+                                                    </div>
+                                                {% else %}
+                                                    <div>
+                                                        <span class="badge bg-secondary-subtle text-secondary-emphasis">manual</span>
+                                                    </div>
+                                                {% endif %}
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <input type="number"
+                                                   class="form-control form-control-sm"
+                                                   name="lang_mem_{{ lang.id }}"
+                                                   min="1"
+                                                   step="1"
+                                                   value="{{ lang_limit.memory_limit_kb if lang_limit else '' }}"
+                                                   placeholder="{{ form_data.memory_limit_kb if form_data.memory_limit_kb is defined else '(fallback)' }}"
+                                                   form="edit-form"
+                                                   {% if not is_limits_edit_allowed %}disabled{% endif %}>
+                                            {% if lang_limit and lang_limit.memory_limit_kb %}
+                                                {% if plimits and plimits.memory_limit_kb is not none and plimits.memory_limit_kb == lang_limit.memory_limit_kb %}
+                                                    <div>
+                                                        <span class="badge bg-success-subtle text-success-emphasis">auto</span>
+                                                    </div>
+                                                {% else %}
+                                                    <div>
+                                                        <span class="badge bg-secondary-subtle text-secondary-emphasis">manual</span>
+                                                    </div>
+                                                {% endif %}
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <input type="number"
+                                                   class="form-control form-control-sm"
+                                                   name="lang_pids_{{ lang.id }}"
+                                                   min="1"
+                                                   step="1"
+                                                   value="{{ lang_limit.pids_limit if lang_limit else '' }}"
+                                                   placeholder="{{ form_data.pids_limit if form_data.pids_limit is defined else '(fallback)' }}"
+                                                   form="edit-form"
+                                                   {% if not is_limits_edit_allowed %}disabled{% endif %}>
+                                            {% if lang_limit and lang_limit.pids_limit %}
+                                                {% if plimits and plimits.pids_limit is not none and plimits.pids_limit == lang_limit.pids_limit %}
+                                                    <div>
+                                                        <span class="badge bg-success-subtle text-success-emphasis">auto</span>
+                                                    </div>
+                                                {% else %}
+                                                    <div>
+                                                        <span class="badge bg-secondary-subtle text-secondary-emphasis">manual</span>
+                                                    </div>
+                                                {% endif %}
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <input type="number"
+                                                   class="form-control form-control-sm"
+                                                   name="lang_out_{{ lang.id }}"
+                                                   min="1"
+                                                   step="1"
+                                                   value="{{ lang_limit.output_limit_in_bytes if lang_limit and lang_limit.output_limit_in_bytes else '' }}"
+                                                   placeholder="blank = no limit"
+                                                   form="edit-form"
+                                                   {% if not is_limits_edit_allowed %}disabled{% endif %}>
+                                            {% if lang_limit and lang_limit.output_limit_in_bytes %}
+                                                {% if plimits and plimits.output_limit_in_bytes is not none and plimits.output_limit_in_bytes == lang_limit.output_limit_in_bytes %}
+                                                    <div>
+                                                        <span class="badge bg-success-subtle text-success-emphasis">auto</span>
+                                                    </div>
+                                                {% else %}
+                                                    <div>
+                                                        <span class="badge bg-secondary-subtle text-secondary-emphasis">manual</span>
+                                                    </div>
+                                                {% endif %}
+                                            {% endif %}
+                                        </td>
+                                    {% endif %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="px-3 pb-2 pt-1">
+                    <small class="text-muted">Leave all fields blank for a language to use the problem-level fallback limits above.</small>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+</div>

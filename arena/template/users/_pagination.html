@@ -1,0 +1,38 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% if pagination.pages > 1 %}
+    <nav class="arena-pagination {{ nav_margin | default('', true) }}"
+         aria-label="{{ heading }} pagination">
+        <ul class="pagination pagination-sm mb-0">
+            <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                {% set previous_page = pagination.prev_num or 1 %}
+                <a class="page-link"
+                   href="{% if page_param == 'solved_page' %}{{ request.url.include_query_params(tab='solved', solved_page=previous_page) }}{% elif page_param == 'attempted_page' %}{{ request.url.include_query_params(tab='attempted', attempted_page=previous_page) }}{% elif page_param == 'notifications_page' %}{{ request.url.include_query_params(tab='notifications', notifications_page=previous_page) }}{% elif page_param == 'credits_page' %}{{ request.url.include_query_params(tab='credits', credits_page=previous_page) }}{% endif %}"
+                   aria-label="Previous">Previous</a>
+            </li>
+            {% for page_number in pagination.iter_pages() %}
+                {% if page_number %}
+                    <li class="page-item {% if page_number == pagination.page %}active{% endif %}">
+                        <a class="page-link"
+                           href="{% if page_param == 'solved_page' %}{{ request.url.include_query_params(tab='solved', solved_page=page_number) }}{% elif page_param == 'attempted_page' %}{{ request.url.include_query_params(tab='attempted', attempted_page=page_number) }}{% elif page_param == 'notifications_page' %}{{ request.url.include_query_params(tab='notifications', notifications_page=page_number) }}{% elif page_param == 'credits_page' %}{{ request.url.include_query_params(tab='credits', credits_page=page_number) }}{% endif %}">{{ page_number }}</a>
+                    </li>
+                {% else %}
+                    <li class="page-item disabled">
+                        <span class="page-link">...</span>
+                    </li>
+                {% endif %}
+            {% endfor %}
+            <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                {% set next_page = pagination.next_num or pagination.pages %}
+                <a class="page-link"
+                   href="{% if page_param == 'solved_page' %}{{ request.url.include_query_params(tab='solved', solved_page=next_page) }}{% elif page_param == 'attempted_page' %}{{ request.url.include_query_params(tab='attempted', attempted_page=next_page) }}{% elif page_param == 'notifications_page' %}{{ request.url.include_query_params(tab='notifications', notifications_page=next_page) }}{% elif page_param == 'credits_page' %}{{ request.url.include_query_params(tab='credits', credits_page=next_page) }}{% endif %}"
+                   aria-label="Next">Next</a>
+            </li>
+        </ul>
+    </nav>
+{% endif %}

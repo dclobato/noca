@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+dev-mode-dirs = [".."]
+packages = ["."]
+
+[tool.hatch.version]
+source = "regex"
+path = "../pyproject.toml"
+pattern = '(?m)^version = "(?P<version>[^"]+)"'
+
+[project]
+name = "noca-shared"
+dynamic = ["version"]
+description = "Shared schema, services, and utilities used by every NOCA runtime module."
+authors = [
+    { name = "Daniel Correa Lobato", email = "daniel@lobato.org" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "alembic==1.18.4",
+    "asyncpg==0.31.0",
+    "email-validator==2.3.0",
+    "fastapi==0.136.3",
+    "markdown_sanitize @ git+https://github.com/dclobato/markdown_sanitize.git@v2.0.0",
+    "pillow==12.2.0",
+    "python-dotenv==1.2.2",
+    "pydantic-settings==2.14.1",
+    "relative-datetime==0.1.4",
+    "requests==2.34.2",
+    "SecretsManager @ git+https://github.com/dclobato/secrets-manager.git@v1.0.0",
+    "sqlalchemy[asyncio]==2.0.50",
+    "tzdata==2026.2",
+    "valkey==6.1.1",
+]

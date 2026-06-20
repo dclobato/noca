@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+dev-mode-dirs = [".."]
+packages = ["."]
+
+[tool.hatch.version]
+source = "regex"
+path = "../pyproject.toml"
+pattern = '(?m)^version = "(?P<version>[^"]+)"'
+
+[project]
+name = "noca-rating"
+dynamic = ["version"]
+description = "NOCA rating worker: single-replica Arena rating recomputation process."
+authors = [
+    { name = "Daniel Correa Lobato", email = "daniel@lobato.org" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "noca-shared",
+]
+
+[project.scripts]
+noca-rating = "rating.worker:main"

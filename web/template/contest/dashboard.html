@@ -1,0 +1,202 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import dashboard_card, render_icon %}
+{% block title_suffix %}- Contest Dashboard{% endblock %}
+{% block extra_head %}
+    <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
+            defer></script>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        {# Welcome card #}
+        <div class="card shadow-sm mb-5">
+            <div class="card-body p-4">
+                <p class="text-uppercase text-muted small mb-1">{{ contest.contest_name }}</p>
+                <h2 class="h4 mb-1">Welcome, {{ current_user.fullname }}</h2>
+                <p class="text-muted mb-0 small">{{ current_user.username }}</p>
+            </div>
+        </div>
+        {# Module grid — live-refreshed every 60 s to update badge counters #}
+        <div id="dashboard-live-counters"
+             hx-get="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}"
+             hx-trigger="every 60s"
+             hx-target="#dashboard-live-counters"
+             hx-swap="outerHTML"
+             hx-select="#dashboard-live-counters">
+            <div class="row g-4">
+                {# Score - all roles #}
+                {{ dashboard_card(request.url_for('contest_score', slug=contest.login_slug) , "emoji_events", "Score", "Scoreboard", True, filled=True) }}
+                {# Problems - all contest roles #}
+                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value, RoleEnum.STAFF.value, RoleEnum.TEAM.value, RoleEnum.USER.value] %}
+                    {{ dashboard_card(request.url_for('contest_problems', slug=contest.login_slug) , "description", "Problems", "Problem set", True, filled=True) }}
+                {% endif %}
+                {# Clarifications - admin, uberadmin, judge, team #}
+                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value, RoleEnum.TEAM.value] %}
+                    {{ dashboard_card(request.url_for('contest_clarifications', slug=contest.login_slug) , "chat", "Clarifications", "Q & A", True, filled=True, counter=counters.clarifications_pending if counters and counters.clarifications_pending else none) }}
+                {% endif %}
+                {# Runs - admin, uberadmin, judge, team #}
+                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value, RoleEnum.TEAM.value] %}
+                    {{ dashboard_card(request.url_for('contest_runs', slug=contest.login_slug) , "terminal", "Runs", "Submission runs", True, filled=True, counter=counters.runs_without_verdict if counters and counters.runs_without_verdict else none) }}
+                {% endif %}
+                {# Tasks - admin, uberadmin, staff, team #}
+                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.STAFF.value, RoleEnum.TEAM.value] %}
+                    {{ dashboard_card(request.url_for('contest_tasks', slug=contest.login_slug) , "check_box", "Tasks", "Help, print and balloons!", True, counter=counters.tasks_pending if counters and counters.tasks_pending else none) }}
+                {% endif %}
+                {# Download submissions - team only #}
+                {% if current_user.role == RoleEnum.TEAM.value %}
+                    {% set submissions_download_active = contest.is_past and contest.release_scoreboard_after_end %}
+                    {{ dashboard_card(request.url_for('team_submissions_download', slug=contest.login_slug) if submissions_download_active else "#",
+                    "folder_zip",
+                    "Download submissions",
+                    "Source code archive",
+                    submissions_download_active,
+                    not submissions_download_active,
+                    filled=True
+                    ) }}
+                {% endif %}
+                {# Reports - admin, uberadmin, judge #}
+                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value] %}
+                    {{ dashboard_card(request.url_for('contest_reports', slug=contest.login_slug) , "bar_chart", "Reports", "Analytics & exports", True, filled=True) }}
+                {% endif %}
+                {# Administration - admin, uberadmin only #}
+                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] %}
+                    {{ dashboard_card(request.url_for('view', slug=contest.login_slug) , "settings", "Administration", "Contest settings", True, filled=True) }}
+                {% endif %}
+            </div>
+        </div>
+        {# /dashboard-live-counters #}
+        {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] and ((not contest.is_running and not contest.is_past) or (contest.is_running and contest.remaining_time_seconds > 60)) %}
+            <div class="row g-4 mt-0">
+                {# Start Now - admin, uberadmin, only when contest has not started yet #}
+                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] and not contest.is_running and not contest.is_past %}
+                    <div class="col-sm-6 col-md-4 col-lg-3">
+                        <button type="button"
+                                class="card card-body text-decoration-none h-100 shadow-sm border-0 btn-glow w-100 text-start"
+                                data-bs-toggle="modal"
+                                data-bs-target="#startNowModal">
+                            <div class="d-flex align-items-center gap-3">
+                                {{ render_icon(icon="play_circle", filled=True, classes=["fs-2", "text-danger"]) }}
+                                <div>
+                                    <div class="fw-semibold">Start Now</div>
+                                    <div class="small opacity-75">Begin contest immediately</div>
+                                </div>
+                            </div>
+                        </button>
+                    </div>
+                {% endif %}
+                {# End Now - admin, uberadmin, only when contest is running #}
+                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] and contest.is_running and contest.remaining_time_seconds > 60 %}
+                    <div class="col-sm-6 col-md-4 col-lg-3">
+                        <button type="button"
+                                class="card card-body text-decoration-none h-100 shadow-sm border-0 btn-glow w-100 text-start"
+                                data-bs-toggle="modal"
+                                data-bs-target="#endNowModal">
+                            <div class="d-flex align-items-center gap-3">
+                                {{ render_icon(icon="stop_circle", filled=True, classes=["fs-2", "text-danger"]) }}
+                                <div>
+                                    <div class="fw-semibold">End Now</div>
+                                    <div class="small opacity-75">Finish contest on next full minute</div>
+                                </div>
+                            </div>
+                        </button>
+                    </div>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+    {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] and not contest.is_running and not contest.is_past %}
+        <div class="modal fade"
+             id="startNowModal"
+             tabindex="-1"
+             aria-labelledby="startNowModalLabel"
+             aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title" id="startNowModalLabel">
+                            {{ render_icon(icon="play_circle", filled=True, classes=["me-1", "text-danger"]) }} Start Contest Now
+                        </h5>
+                        <button type="button"
+                                class="btn-close btn-close-white"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-1">
+                            This will set the contest start time to <strong>right now</strong> and begin the contest immediately.
+                        </p>
+                        <p class="text-muted small mb-0">All other settings remain unchanged. This action cannot be undone.</p>
+                        <div class="mt-3">
+                            <label for="start-now-password" class="form-label">Confirm with your password</label>
+                            <input type="password"
+                                   class="form-control"
+                                   id="start-now-password"
+                                   name="password"
+                                   form="start-now-form"
+                                   autocomplete="current-password"
+                                   required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <form method="post"
+                              id="start-now-form"
+                              action="{{ request.url_for('contest_start_now', slug=contest.login_slug) }}"
+                              class="d-inline">
+                            <button type="submit" class="btn btn-danger btn-sm">Start Contest Now</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+    {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] and contest.is_running and contest.remaining_time_seconds > 60 %}
+        <div class="modal fade"
+             id="endNowModal"
+             tabindex="-1"
+             aria-labelledby="endNowModalLabel"
+             aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title" id="endNowModalLabel">
+                            {{ render_icon(icon="stop_circle", filled=True, classes=["me-1", "text-danger"]) }} End Contest Now
+                        </h5>
+                        <button type="button"
+                                class="btn-close btn-close-white"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-1">
+                            This will adjust the contest duration so the contest ends on the <strong>next full minute</strong>.
+                        </p>
+                        <p class="text-muted small mb-0">This action cannot be undone.</p>
+                        <div class="mt-3">
+                            <label for="end-now-password" class="form-label">Confirm with your password</label>
+                            <input type="password"
+                                   class="form-control"
+                                   id="end-now-password"
+                                   name="password"
+                                   form="end-now-form"
+                                   autocomplete="current-password"
+                                   required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <form method="post"
+                              id="end-now-form"
+                              action="{{ request.url_for('contest_end_now', slug=contest.login_slug) }}"
+                              class="d-inline">
+                            <button type="submit" class="btn btn-danger btn-sm">End Contest Now</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}

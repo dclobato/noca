@@ -1,0 +1,59 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Classes{% endblock %}
+{% block nav_classes %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <h1 class="arena-card-title mb-4">
+                {{ render_icon(icon="school") }}
+                Classes
+            </h1>
+            <p class="text-muted mb-4">Choose a view to explore.</p>
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_classes_registered") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="fact_check") }}</span>
+                        <div>
+                            <div class="fw-semibold">Registered classes</div>
+                            <div class="text-muted small">Classes you are currently enrolled in</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_classes_open") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="app_registration") }}</span>
+                        <div>
+                            <div class="fw-semibold">Open for registration</div>
+                            <div class="text-muted small">Classes accepting new registration requests</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+                {% if is_manager %}
+                    <div class="col-12 col-md-6">
+                        <a href="{{ request.url_for("arena_classes_manage") }}"
+                           class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                            <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="settings") }}</span>
+                            <div>
+                                <div class="fw-semibold">Manage classes</div>
+                                <div class="text-muted small">Create and manage your classes</div>
+                            </div>
+                            <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

@@ -1,0 +1,189 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Login History{% endblock %}
+{% block nav_admin_dashboard %}active{% endblock %}
+{% block nav_admin_dashboard_login_history %}active{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
+{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="login") }}
+                    Login History
+                </h1>
+            </div>
+            <form method="get"
+                  class="d-flex flex-wrap gap-2 align-items-end mb-3"
+                  id="login-history-filter-form">
+                {% with label="Search user", value=search, placeholder="Full name, email or location…" %}
+                    {% include "_partials/filter_search_field.html" %}
+                {% endwith %}
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="date_from">From</label>
+                    <input type="text"
+                           class="form-control form-control-sm arena-date-input"
+                           id="date_from"
+                           name="date_from"
+                           value="{{ date_from }}"
+                           placeholder="YYYY-MM-DD"
+                           data-fp-date
+                           data-fp-range-end="#date_to">
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="date_to">To</label>
+                    <input type="text"
+                           class="form-control form-control-sm arena-date-input"
+                           id="date_to"
+                           name="date_to"
+                           value="{{ date_to }}"
+                           placeholder="YYYY-MM-DD"
+                           data-fp-date>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="sort_dir">Order</label>
+                    <select class="form-select form-select-sm" id="sort_dir" name="sort_dir">
+                        <option value="desc" {% if sort_dir == 'desc' %}selected{% endif %}>Newest first</option>
+                        <option value="asc" {% if sort_dir == 'asc' %}selected{% endif %}>Oldest first</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="per_page">Per page</label>
+                    <select class="form-select form-select-sm" id="per_page" name="per_page">
+                        {% for n in [10, 25, 50, 100, 500] %}
+                            <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% include "_partials/filter_submit_button.html" %}
+                {% set _filters_active = search or date_from or date_to or sort_dir != 'desc' or per_page != 25 %}
+                {% with clear_url=request.url_for("arena_admin_dashboard_login_history"), filters_active=_filters_active %}
+                    {% include "_partials/filter_clear_link.html" %}
+                {% endwith %}
+            </form>
+            <p class="text-muted small mb-2">{{ login_history.total }} login{{ 's' if login_history.total != 1 else '' }}</p>
+            {% with pagination=login_history, page_param="page", label="Login history pagination", nav_margin="mb-2" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th>Date / Time</th>
+                            <th>User</th>
+                            <th>Location</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for login in login_history.items %}
+                            <tr>
+                                <td class="text-nowrap">{{ arena_format_datetime(login.dta_login, current_user) }}</td>
+                                <td>
+                                    <a href="{{ request.url_for('arena_admin_user_profile', user_id=login.arena_user.id) }}"
+                                       class="text-decoration-none">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=login.arena_user.id) }}"
+                                                 width="32"
+                                                 height="32"
+                                                 class="rounded-circle object-fit-cover flex-shrink-0"
+                                                 alt="">
+                                            <span>{{ login.arena_user.nome }}</span>
+                                        </div>
+                                    </a>
+                                </td>
+                                <td>
+                                    {% if login.location %}
+                                        {{ login.location }}
+                                    {% else %}
+                                        <span class="text-muted">&mdash;</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button type="button"
+                                            class="btn btn-outline-secondary btn-sm arena-icon-button"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#login-detail-modal"
+                                            data-login-date="{{ arena_format_datetime(login.dta_login, current_user, '%Y-%m-%d %H:%M:%S %Z') }}"
+                                            data-login-ip="{{ login.ip_address or '' }}"
+                                            data-login-location="{{ login.location or '' }}"
+                                            data-login-ua="{{ login.user_agent or '' }}"
+                                            data-login-mode="{{ login.mode or '' }}">
+                                        {{ render_icon(icon="info") }}
+                                        <span>Details</span>
+                                    </button>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted py-3">No login records found.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% with pagination=login_history, page_param="page", label="Login history pagination" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+        </div>
+    </div>
+    <div class="modal fade"
+         id="login-detail-modal"
+         tabindex="-1"
+         aria-labelledby="login-detail-modal-label"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="login-detail-modal-label">Login details</h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <dl class="arena-profile-details mb-0">
+                        <dt>Date / Time</dt>
+                        <dd id="login-detail-date">
+                        </dd>
+                        <dt>IP address</dt>
+                        <dd id="login-detail-ip">
+                        </dd>
+                        <dt>Location</dt>
+                        <dd id="login-detail-location">
+                        </dd>
+                        <dt>User agent</dt>
+                        <dd id="login-detail-ua" class="text-break small">
+                        </dd>
+                        <dt>Auth method</dt>
+                        <dd id="login-detail-mode">
+                        </dd>
+                    </dl>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/l10n/default.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/plugins/rangePlugin.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='flatpickr-init.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='admin-login-history-modal.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}

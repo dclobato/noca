@@ -1,0 +1,244 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% macro sort_link(label, field) %}
+    {% set next_dir = 'desc' if sort == field and direction == 'asc' else 'asc' %}
+    <a href="{{ request.url.include_query_params(sort=field, direction=next_dir, page=1) }}"
+       class="text-decoration-none text-reset d-flex align-items-center gap-1">
+        {{ label }}
+        {% if sort == field and direction == 'asc' %}
+            {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
+        {% elif sort == field and direction == 'desc' %}
+            {{ render_icon(icon='arrow_downward', classes='arena-sort-icon arena-sort-icon--active') }}
+        {% else %}
+            {{ render_icon(icon='unfold_more', classes='arena-sort-icon arena-sort-icon--idle') }}
+        {% endif %}
+    </a>
+{% endmacro %}
+{% block title_suffix %}&mdash; Problem Sets{% endblock %}
+{% block nav_classes %}active{% endblock %}
+{% block nav_classes_manage %}active{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
+{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="assignment") }}
+                    Problem Sets
+                </h1>
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="{{ request.url_for("arena_classes_manage") }}#class-{{ class_detail.class_id }}"
+                       class="btn btn-secondary btn-sm">
+                        {{ render_icon(icon="arrow_back") }}
+                        Back to classes
+                    </a>
+                    <button type="button"
+                            class="btn btn-primary btn-sm"
+                            data-bs-toggle="modal"
+                            data-bs-target="#problem-set-create-modal">
+                        {{ render_icon(icon="add") }}
+                        Add new problem set
+                    </button>
+                </div>
+            </div>
+            <div class="mb-3">
+                <p class="mb-1 fw-semibold">{{ class_detail.name }}</p>
+                <p class="text-muted small mb-0">
+                    {{ class_detail.teacher_name }} · {{ class_detail.starts_on.isoformat() }} to {{ class_detail.finishes_on.isoformat() }}
+                </p>
+            </div>
+            <p class="text-muted small mb-2">{{ pagination.total }} problem set{{ 's' if pagination.total != 1 else '' }}</p>
+            {% with pagination=pagination, page_param="page", label="Problem sets pagination", nav_margin="mb-2" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th>{{ sort_link('Name', 'name') }}</th>
+                            <th class="text-end">Problems</th>
+                            <th>{{ sort_link('Start date', 'starts_on') }}</th>
+                            <th>{{ sort_link('Deadline', 'deadline') }}</th>
+                            <th class="arena-col-actions">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in pagination.items %}
+                            <tr id="set-{{ row.set_id }}">
+                                <td>
+                                    <div class="fw-semibold">{{ row.name }}</div>
+                                    {% if row.description %}<div class="small text-muted">{{ row.description }}</div>{% endif %}
+                                </td>
+                                <td class="text-end">{{ row.problem_count }}</td>
+                                <td class="text-nowrap">{{ arena_format_datetime(row.starts_on, current_user) if row.starts_on else '—' }}</td>
+                                <td class="text-nowrap">
+                                    {{ arena_format_datetime(row.deadline, current_user) if row.deadline else '—' }}
+                                    {% if row.is_accepting %}<span class="badge text-bg-success ms-1">Accepting</span>{% endif %}
+                                </td>
+                                <td class="arena-col-actions">
+                                    <a href="{{ request.url_for('arena_class_problem_set_manage', class_id=class_detail.class_id, set_id=row.set_id) }}?page={{ pagination.page }}&sort={{ sort }}&direction={{ direction }}"
+                                       class="btn arena-icon-button btn-sm"
+                                       data-bs-toggle="tooltip"
+                                       title="Manage problems"
+                                       aria-label="Manage problems">{{ render_icon(icon="list_alt") }}</a>
+                                    <a href="{{ request.url_for('arena_class_problem_set_report', class_id=class_detail.class_id, set_id=row.set_id) }}?page={{ pagination.page }}&sort={{ sort }}&direction={{ direction }}"
+                                       class="btn arena-icon-button btn-sm"
+                                       data-bs-toggle="tooltip"
+                                       title="Report"
+                                       aria-label="Report">{{ render_icon(icon="table_view") }}</a>
+                                    <button type="button"
+                                            class="btn arena-icon-button btn-sm text-danger"
+                                            data-problem-set-delete-button
+                                            data-name="{{ row.name }}"
+                                            data-action="{{ request.url_for('arena_class_problem_set_delete', class_id=class_detail.class_id, set_id=row.set_id) }}"
+                                            data-page="{{ pagination.page }}"
+                                            data-sort="{{ sort }}"
+                                            data-direction="{{ direction }}"
+                                            data-bs-toggle="tooltip"
+                                            title="Remove problem set"
+                                            aria-label="Remove problem set">{{ render_icon(icon="delete") }}</button>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="arena-empty-state">No problem sets found.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% with pagination=pagination, page_param="page", label="Problem sets pagination" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+        </div>
+    </div>
+    <div class="modal fade"
+         id="problem-set-create-modal"
+         tabindex="-1"
+         aria-labelledby="problem-set-create-modal-label"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <form method="post"
+                  class="modal-content"
+                  action="{{ request.url_for('arena_class_problem_set_create', class_id=class_detail.class_id) }}">
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5" id="problem-set-create-modal-label">Add new problem set</h2>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label" for="problem_set_name">Name</label>
+                        <input type="text"
+                               class="form-control"
+                               id="problem_set_name"
+                               name="name"
+                               maxlength="200"
+                               required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="problem_set_description">Notes / description</label>
+                        <textarea class="form-control"
+                                  id="problem_set_description"
+                                  name="description"
+                                  rows="3"></textarea>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-12 col-md-6">
+                            <label class="form-label" for="problem_set_starts_on">Start date/time</label>
+                            <input type="text"
+                                   class="form-control arena-datetime-input"
+                                   id="problem_set_starts_on"
+                                   name="starts_on"
+                                   data-fp-datetime
+                                   data-fp-modal="true">
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label" for="problem_set_deadline">Deadline</label>
+                            <input type="text"
+                                   class="form-control arena-datetime-input"
+                                   id="problem_set_deadline"
+                                   name="deadline"
+                                   data-fp-datetime
+                                   data-fp-modal="true">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Create problem set</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <div class="modal fade"
+         id="problem-set-delete-modal"
+         tabindex="-1"
+         aria-labelledby="problem-set-delete-modal-label"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <form method="post" class="modal-content" data-problem-set-delete-form>
+                <input type="hidden"
+                       name="page"
+                       value="{{ pagination.page }}"
+                       data-problem-set-delete-page>
+                <input type="hidden"
+                       name="sort"
+                       value="{{ sort }}"
+                       data-problem-set-delete-sort>
+                <input type="hidden"
+                       name="direction"
+                       value="{{ direction }}"
+                       data-problem-set-delete-direction>
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5" id="problem-set-delete-modal-label">Remove problem set</h2>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">
+                        Delete <strong data-problem-set-delete-name></strong>?
+                    </p>
+                    <p class="small text-muted">This will detach existing problem-set submissions and cannot be undone.</p>
+                    <label class="form-label" for="problem_set_delete_password">Password</label>
+                    <input type="password"
+                           class="form-control"
+                           id="problem_set_delete_password"
+                           name="password"
+                           autocomplete="current-password"
+                           required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger btn-sm">Delete problem set</button>
+                </div>
+            </form>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/l10n/default.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/plugins/rangePlugin.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='flatpickr-init.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-problem-sets.js') }}?v={{ app_version }}"></script>
+{% endblock %}

@@ -1,0 +1,444 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}&mdash; Submission Detail{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='devicon.min.css') }}">
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='highlight/styles/github.min.css') }}">
+{% endblock %}
+{% block content %}
+    <div class="arena-page-container px-5">
+        {# ── Breadcrumb / teacher back button ── #}
+        {% if is_teacher_view %}
+            <div class="mb-3">
+                <a href="{{ teacher_view_back_url }}" class="btn btn-secondary btn-sm">
+                    {{ render_icon(icon="arrow_back") }}
+                    Return to {{ teacher_view_user_name }}'s submissions
+                </a>
+            </div>
+        {% else %}
+            <nav aria-label="breadcrumb" class="mb-3">
+                <ol class="breadcrumb mb-0">
+                    <li class="breadcrumb-item">
+                        <a href="{{ request.url_for("arena_user_profile") }}?tab=submissions">My Submissions</a>
+                    </li>
+                    <li class="breadcrumb-item active" aria-current="page">Submission {{ submission_id[:8] }}&hellip;</li>
+                </ol>
+            </nav>
+        {% endif %}
+        {# ── Card 1: Problem & Language ── #}
+        <section class="arena-card mb-4">
+            <h1 class="arena-card-title">
+                {{ render_icon(icon="send") }}
+                Submission Detail
+            </h1>
+            <div class="row">
+                <div class="col me-4">
+                    <dl class="arena-profile-details">
+                        <dt>Problem</dt>
+                        <dd>
+                            <a href="{{ request.url_for('arena_problem_detail', arena_number=problem_number) }}"
+                               class="fw-semibold">{{ problem_number }}: {{ problem_title }}</a>
+                        </dd>
+                        <dt>Language</dt>
+                        <dd>
+                            <span class="d-flex align-items-center gap-2">
+                                <i class="{{ language_icon }} arena-submission-lang-icon"
+                                   aria-hidden="true"></i>
+                                {{ language_name }}
+                            </span>
+                        </dd>
+                        <dt>Submitted</dt>
+                        <dd>
+                            {{ arena_format_datetime(submitted_at, current_user, "%Y-%m-%d %H:%M:%S %Z") }}
+                        </dd>
+                        {% if problem_set_id %}
+                            <dt>Problem set</dt>
+                            <dd>
+                                <a href="{{ request.url_for('arena_class_detail', class_id=class_id) }}">{{ class_name }}</a>
+                                &rsaquo;
+                                <a href="{{ request.url_for('arena_student_class_problem_set_detail', class_id=class_id, set_id=problem_set_id) }}">{{ problem_set_name }}</a>
+                            </dd>
+                        {% endif %}
+                    </dl>
+                </div>
+                <div class="col">
+                    <dl class="arena-profile-details">
+                        <dt>Limits</dt>
+                        <dd>
+                            <table class="table table-sm table-borderless mb-0" style="max-width: 28rem">
+                                <tbody>
+                                    <tr>
+                                        <th class="ps-0 text-muted fw-normal small">Time limit</th>
+                                        <td class="text-end small">{{ time_limit_ms }} ms</td>
+                                    </tr>
+                                    <tr>
+                                        <th class="ps-0 text-muted fw-normal small">Memory limit</th>
+                                        <td class="text-end small">{{ memory_limit_kb }} KB</td>
+                                    </tr>
+                                    <tr>
+                                        <th class="ps-0 text-muted fw-normal small">PIDs limit</th>
+                                        <td class="text-end small">{{ pids_limit }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th class="ps-0 text-muted fw-normal small">Output limit</th>
+                                        <td class="text-end small">
+                                            {% if output_limit_in_bytes %}
+                                                {{ output_limit_in_bytes }} bytes
+                                            {% else %}
+                                                No limit
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+        </section>
+        {# ── Card 2: Resources & Verdict ── #}
+        <section class="arena-card mb-4">
+            <h2 class="arena-card-title">
+                {{ render_icon(icon="analytics") }}
+                Result
+                {% if is_owner and judgment and judgment[2] and judgment[2] != "AC" %}
+                    <a href="{{ request.url_for('arena_problem_detail', arena_number=problem_number) }}?continue={{ submission_id }}"
+                       class="btn btn-outline-secondary arena-icon-button btn-sm ms-auto">
+                        {{ render_icon(icon="edit") }}
+                        <span>Edit and try again</span>
+                    </a>
+                {% endif %}
+            </h2>
+            {% if judgment %}
+                {% set j_verdict = judgment[2] %}
+                {% set j_status = judgment[1] %}
+                {% set j_wall_ms = judgment[3] %}
+                {% set j_mem_kb = judgment[4] %}
+                {% set j_compile_log = judgment[5] %}
+                {% set j_error_msg = judgment[6] %}
+                {% set j_output_bytes = judgment[7] %}
+                <dl class="arena-profile-details">
+                    <dt>Verdict</dt>
+                    <dd>
+                        {% if j_verdict %}
+                            <span class="badge {{ verdict_badge_classes.get(j_verdict, 'bg-secondary') }} font-monospace me-2">{{ j_verdict }}</span>
+                            <span class="text-muted small">{{ verdict_labels.get(j_verdict, j_verdict) }}</span>
+                        {% else %}
+                            <span class="badge bg-secondary font-monospace me-2">{{ j_status }}</span>
+                            <span class="text-muted small">Pending judgment</span>
+                        {% endif %}
+                    </dd>
+                    <dt>Wall time</dt>
+                    <dd>
+                        {% if j_wall_ms is not none %}
+                            {{ j_wall_ms }} ms
+                        {% else %}
+                            <span class="text-muted">&mdash;</span>
+                        {% endif %}
+                    </dd>
+                    <dt>Peak memory</dt>
+                    <dd>
+                        {% if j_mem_kb is not none %}
+                            {{ j_mem_kb }} KB
+                        {% else %}
+                            <span class="text-muted">&mdash;</span>
+                        {% endif %}
+                    </dd>
+                    <dt>Max output size</dt>
+                    <dd>
+                        {% if j_output_bytes is not none %}
+                            {{ j_output_bytes }} bytes
+                        {% else %}
+                            <span class="text-muted">&mdash;</span>
+                        {% endif %}
+                    </dd>
+                </dl>
+                {% if j_error_msg %}
+                    <div class="alert alert-warning small mb-3">
+                        <strong>Judge note:</strong> {{ j_error_msg | e }}
+                    </div>
+                {% endif %}
+                {# ── Output comparison (WA verdict, first failing test case) ─ #}
+                {% if test_result and (j_verdict == "WA" or test_result.stderr_excerpt) %}
+                    <div class="mt-3 pt-3 border-top">
+                        <p class="small text-muted mb-2">
+                            {{ render_icon(icon="compare_arrows") }}
+                            Output mismatch on test case #{{ test_result.test_case_ordinal }}
+                            {% if not test_result.is_sample %}
+                                <span class="badge bg-secondary ms-1" title="Secret test case">secret</span>
+                            {% endif %}
+                        </p>
+                        {% if j_verdict == "WA" %}
+                            <div class="arena-output-compare">
+                                <div>
+                                    <p class="arena-output-compare-label text-danger">Your output</p>
+                                    <pre class="arena-output-pre">{% if test_result.stdout_excerpt %}{{ test_result.stdout_excerpt | e }}{% else %}<span class="text-muted fst-italic">(empty)</span>{% endif %}</pre>
+                                </div>
+                                <div>
+                                    <p class="arena-output-compare-label text-success">Expected output</p>
+                                    <pre class="arena-output-pre">{% if test_result.expected_output %}{{ test_result.expected_output | e }}{% else %}<span class="text-muted fst-italic">(empty)</span>{% endif %}</pre>
+                                </div>
+                            </div>
+                        {% endif %}
+                        {% if test_result.stderr_excerpt %}
+                            <div class="mt-2">
+                                <p class="fw-semibold small text-warning-emphasis mb-1">Standard error</p>
+                                <pre class="arena-output-pre">{{ test_result.stderr_excerpt | e }}</pre>
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endif %}
+                {# ── AI review section ──────────────────────────────────── #}
+                {# Admins and judges see the review (read-only); owners also get the request UI #}
+                {% set can_see_ai_review = j_verdict and j_verdict != "AC" %}
+                {% if can_see_ai_review %}
+                    {% if ai_review %}
+                        <div class="mt-3 pt-3 border-top">
+                            <h3 class="h6 d-flex align-items-center gap-1 mb-2">
+                                {{ render_icon(icon="psychology_alt") }}
+                                AI Review
+                                {% if ai_review.used_platform_key %}
+                                    <span class="badge text-bg-secondary arena-icon-sm d-inline-flex align-items-center gap-1"
+                                          title="Reviewed using Arena platform credits">
+                                        {{ render_icon(icon="credit_card") }}
+                                        Platform credits
+                                    </span>
+                                {% else %}
+                                    <span class="badge text-bg-secondary arena-icon-sm d-inline-flex align-items-center gap-1"
+                                          title="Reviewed using the user's personal API key">
+                                        {{ render_icon(icon="key") }}
+                                        Personal API key
+                                    </span>
+                                {% endif %}
+                            </h3>
+                            <div id="ai-review-rendered" class="small"></div>
+                            <script id="ai-review-src" type="text/plain">{{ ai_review.ai_response | e }}</script>
+                            <p class="text-muted small mt-2 mb-0">
+                                Reviewed {{ arena_format_datetime(ai_review.ai_response_at, current_user) }}
+                                {% if ai_review.ai_review_cost %}
+                                    &middot; Cost: ${{ "%.6f" | format(ai_review.ai_review_cost) }}
+                                {% endif %}
+                                {% if ai_review.turnaround_seconds is not none %}
+                                    &middot; Turnaround: {{ format_compact_duration(ai_review.turnaround_seconds) }}
+                                {% endif %}
+                            </p>
+                        </div>
+                    {% elif is_owner %}
+                        {% if batch_local_status and batch_local_status not in ("completed", "failed", "expired", "cancelled") %}
+                            <p class="text-muted small mt-3 mb-0 d-flex align-items-center gap-1">
+                                {{ render_icon(icon="schedule") }}
+                                Your review has been queued for batch processing — results are usually ready within a few hours (up to 24 h).
+                            </p>
+                        {% elif submission_submit_to_ai %}
+                            <p class="text-muted small mt-3 mb-0 d-flex align-items-center gap-1">
+                                {{ render_icon(icon="hourglass_empty") }}
+                                AI review pending — you'll be notified when it's ready.
+                            </p>
+                        {% else %}
+                            <div class="mt-3">
+                                <button type="button"
+                                        class="btn btn-outline-primary btn-sm d-inline-flex align-items-center gap-1"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#ai-review-confirm-modal">
+                                    {{ render_icon(icon="psychology_alt") }}
+                                    Want some help?
+                                </button>
+                            </div>
+                            <div class="modal fade"
+                                 id="ai-review-confirm-modal"
+                                 tabindex="-1"
+                                 aria-labelledby="ai-review-confirm-modal-label"
+                                 aria-hidden="true">
+                                <div class="modal-dialog modal-dialog-centered">
+                                    <form method="post"
+                                          class="modal-content"
+                                          action="{{ request.url_for('arena_submission_request_ai_review', submission_id=submission_id) }}">
+                                        <div class="modal-header">
+                                            <h2 class="modal-title fs-5" id="ai-review-confirm-modal-label">
+                                                {{ render_icon(icon="psychology_alt") }}
+                                                Confirm AI review
+                                            </h2>
+                                            <button type="button"
+                                                    class="btn-close"
+                                                    data-bs-dismiss="modal"
+                                                    aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <p>Request an AI review for this submission?</p>
+                                            <dl class="arena-profile-details mb-0">
+                                                <dt>Current balance</dt>
+                                                <dd>
+                                                    {{ ai_review_current_balance }} AI review credit{{ "s" if ai_review_current_balance != 1 else "" }}
+                                                </dd>
+                                                <dt>Balance after review</dt>
+                                                <dd>
+                                                    {{ ai_review_projected_balance }} AI review credit{{ "s" if ai_review_projected_balance != 1 else "" }}
+                                                </dd>
+                                            </dl>
+                                            {% if not ai_review_uses_platform_credit %}
+                                                <div class="alert alert-info small mb-0 mt-2" role="status">
+                                                    Your personal API key will be used. Your Arena credit balance will not change.
+                                                    Results are usually available within minutes.
+                                                </div>
+                                            {% elif not ai_review_request_allowed %}
+                                                <div class="alert alert-warning small mb-0 mt-2" role="alert">
+                                                    You need at least one AI review credit or a personal API key to request a review.
+                                                </div>
+                                            {% else %}
+                                                <div class="alert alert-info small mb-0 mt-2" role="status">
+                                                    {% if ai_turnaround_stats %}
+                                                        <p class="mb-1">
+                                                            Average turnaround for the last {{ ai_turnaround_stats.sample_count }} reviews:
+                                                            {{ format_compact_duration(ai_turnaround_stats.average_seconds | round | int) }}.
+                                                        </p>
+                                                        <p class="mb-1">
+                                                            Median turnaround for the last {{ ai_turnaround_stats.sample_count }} reviews:
+                                                            {{ format_compact_duration(ai_turnaround_stats.median_seconds | round | int) }}.
+                                                        </p>
+                                                    {% else %}
+                                                        <p class="mb-1">Turnaround statistics are not available.</p>
+                                                    {% endif %}
+                                                    Reviews using Arena credits are collected and submitted every
+                                                    {{ ai_batch_window_minutes }} minutes. Results can take up to 24 hours to appear.
+                                                    For faster results, add a personal API key in your profile settings.
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button"
+                                                    class="btn btn-secondary btn-sm"
+                                                    data-bs-dismiss="modal">Cancel</button>
+                                            <button type="submit"
+                                                    id="ai-review-confirm-button"
+                                                    class="btn btn-primary btn-sm d-inline-flex align-items-center gap-1"
+                                                    {% if not ai_review_request_allowed %}disabled{% endif %}>
+                                                {{ render_icon(icon="psychology_alt") }}
+                                                Confirm review
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        {% endif %}
+                    {% endif %}
+                {% endif %}
+                {# ── Teacher feedback section (student owner + managing teacher/admin) ── #}
+                {% if teacher_feedback or can_give_feedback %}
+                    <div class="mt-3 pt-3 border-top">
+                        <h3 class="h6 d-flex align-items-center gap-1 mb-2">
+                            {{ render_icon(icon="rate_review") }}
+                            Teacher feedback
+                            {% if can_give_feedback %}
+                                <button type="button"
+                                        class="btn btn-outline-primary btn-sm ms-auto d-inline-flex align-items-center gap-1"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#teacher-feedback-modal">
+                                    {{ render_icon(icon="edit") }}
+                                    {{ "Edit feedback" if teacher_feedback else "Add feedback" }}
+                                </button>
+                            {% endif %}
+                        </h3>
+                        {% if teacher_feedback %}
+                            <p class="arena-feedback-text small">{{ teacher_feedback.feedback_text | e }}</p>
+                            <p class="text-muted small mt-2 mb-0">
+                                Updated {{ arena_format_datetime(teacher_feedback.feedback_at, current_user) }}
+                            </p>
+                        {% else %}
+                            <p class="text-muted small mb-0">No feedback yet.</p>
+                        {% endif %}
+                    </div>
+                {% endif %}
+                {% if j_compile_log %}
+                    <div class="mt-2">
+                        <p class="fw-semibold small text-danger mb-1">Compile log</p>
+                        <pre class="small text-danger-emphasis bg-body-tertiary p-3 rounded mb-0">{{ j_compile_log | e }}</pre>
+                    </div>
+                {% endif %}
+            {% else %}
+                <p class="text-muted small mb-0">No judgment available yet.</p>
+            {% endif %}
+        </section>
+        {# ── Card 3: Source Code ── #}
+        <section class="arena-card mb-4">
+            <h2 class="arena-card-title">
+                {{ render_icon(icon="code") }}
+                Source Code
+                {% if is_owner and judgment and judgment[2] and judgment[2] != "AC" %}
+                    <a id="retry-btn"
+                       href="{{ request.url_for('arena_problem_detail', arena_number=problem_number) }}?continue={{ submission_id }}"
+                       class="btn btn-outline-secondary arena-icon-button btn-sm ms-auto"
+                       data-problem-number="{{ problem_number }}">
+                        {{ render_icon(icon="edit") }}
+                        <span>Edit and try again</span>
+                    </a>
+                {% endif %}
+            </h2>
+            <pre class="mb-0 p-0"><code class="{{ highlight_language_class }} rounded">{{ source_code | e }}</code></pre>
+        </section>
+        {# ── Teacher feedback modal (managing teacher/admin only) ── #}
+        {% if can_give_feedback %}
+            <div class="modal fade"
+                 id="teacher-feedback-modal"
+                 tabindex="-1"
+                 aria-labelledby="teacher-feedback-modal-label"
+                 aria-hidden="true">
+                <div class="modal-dialog">
+                    <form method="post"
+                          class="modal-content"
+                          action="{{ request.url_for('arena_submission_teacher_feedback', submission_id=submission_id) }}">
+                        <div class="modal-header">
+                            <h2 class="modal-title fs-5" id="teacher-feedback-modal-label">
+                                {{ "Edit feedback" if teacher_feedback else "Add feedback" }}
+                            </h2>
+                            <button type="button"
+                                    class="btn-close"
+                                    data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <input type="hidden" name="back_class_id" value="{{ back_class_id or '' }}">
+                            <input type="hidden" name="back_set_id" value="{{ back_set_id or '' }}">
+                            <input type="hidden" name="back_user_id" value="{{ back_user_id or '' }}">
+                            <div class="mb-3">
+                                <label class="form-label" for="teacher-feedback-text">Feedback for the student</label>
+                                <textarea class="form-control"
+                                          id="teacher-feedback-text"
+                                          name="feedback"
+                                          rows="6"
+                                          required>{{ teacher_feedback.feedback_text if teacher_feedback else "" }}</textarea>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button"
+                                    class="btn btn-secondary btn-sm"
+                                    data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-primary btn-sm">Save feedback</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='highlight/highlight.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='highlight/languages/' ~ highlight_language ~ '.min.js') }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='highlight-code-blocks.js') }}?v={{ app_version }}"></script>
+    {% if ai_review %}
+        <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('arena_static_js', path='submission-ai-review.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
+{% endblock %}

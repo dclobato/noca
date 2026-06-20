@@ -1,0 +1,154 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; {{ 'Edit class' if class_detail else 'Add class' }}{% endblock %}
+{% block nav_classes %}active{% endblock %}
+{% block nav_classes_manage %}active{% endblock %}
+{% set value_name = form_data.name if form_data.name is defined else (class_detail.name if class_detail else '') %}
+{% set value_description = form_data.description if form_data.description is defined else (class_detail.description if class_detail and class_detail.description else '') %}
+{% set value_starts = form_data.starts_on if form_data.starts_on is defined else (class_detail.starts_on.isoformat() if class_detail else '') %}
+{% set value_finishes = form_data.finishes_on if form_data.finishes_on is defined else (class_detail.finishes_on.isoformat() if class_detail else '') %}
+{% set value_allow = form_data.allow_self_registration if form_data.allow_self_registration is defined else (class_detail.allow_self_registration if class_detail else false) %}
+{% set value_teacher = form_data.teacher_id if form_data.teacher_id is defined else (class_detail.teacher_id if class_detail else '') %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
+{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="school") }}
+                    {{ 'Edit class' if class_detail else 'Add new class' }}
+                </h1>
+                <a href="{{ request.url_for("arena_classes_manage") }}"
+                   class="btn btn-secondary btn-sm">
+                    {{ render_icon(icon="arrow_back") }}
+                    Back to classes
+                </a>
+            </div>
+            {% for error in errors %}<div class="alert alert-danger py-2 small" role="alert">{{ error }}</div>{% endfor %}
+            {% if truncation_warning %}
+                <div class="alert alert-warning" role="alert">
+                    <strong>Warning:</strong> The new end date will cut off the following problem sets that currently accept submissions past that date:
+                    <ul class="mb-2 mt-1">
+                        {% for name in truncation_warning %}<li>{{ name }}</li>{% endfor %}
+                    </ul>
+                    Their deadlines will be set to <strong>{{ form_data.finishes_on }} 23:59:59 UTC</strong>.
+                    Submit again to confirm.
+                    <input type="hidden" name="confirm_truncate" value="true">
+                </div>
+            {% endif %}
+            <form method="post"
+                  action="{{ request.url_for('arena_class_update', class_id=class_detail.class_id) if class_detail else request.url_for('arena_class_create') }}"
+                  class="arena-class-form">
+                <div class="row g-3">
+                    <div class="col-12 col-lg-8">
+                        <label for="name" class="form-label">Class name</label>
+                        <input type="text"
+                               class="form-control"
+                               id="name"
+                               name="name"
+                               value="{{ value_name }}"
+                               maxlength="200"
+                               required>
+                    </div>
+                    <div class="col-12 col-lg-4 d-flex align-items-end">
+                        <div class="form-check">
+                            <input type="checkbox"
+                                   class="form-check-input"
+                                   id="allow_self_registration"
+                                   name="allow_self_registration"
+                                   value="1"
+                                   {% if value_allow %}checked{% endif %}>
+                            <label for="allow_self_registration" class="form-check-label">Allow self registration</label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label for="description" class="form-label">Description</label>
+                        <textarea class="form-control" id="description" name="description" rows="4">{{ value_description }}</textarea>
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <label for="starts_on" class="form-label">Start date</label>
+                        {% if not can_edit_start %}<input type="hidden" name="starts_on" value="{{ value_starts }}">{% endif %}
+                        <input type="text"
+                               class="form-control arena-date-input"
+                               id="starts_on"
+                               name="starts_on"
+                               value="{{ value_starts }}"
+                               data-fp-date
+                               data-fp-range-end="#finishes_on"
+                               {% if can_edit_start %}data-fp-min-date="{{ today.isoformat() }}"{% else %}disabled{% endif %}
+                               required>
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <label for="finishes_on" class="form-label">End date</label>
+                        {% if not can_edit_end %}<input type="hidden" name="finishes_on" value="{{ value_finishes }}">{% endif %}
+                        <input type="text"
+                               class="form-control arena-date-input"
+                               id="finishes_on"
+                               name="finishes_on"
+                               value="{{ value_finishes }}"
+                               data-fp-date
+                               {% if can_edit_end %}data-fp-min-date="{{ today.isoformat() }}"{% else %}disabled{% endif %}
+                               required>
+                    </div>
+                    {% if is_admin %}
+                        <div class="col-12 col-md-8">
+                            <label for="teacher_search" class="form-label">Assigned teacher</label>
+                            <div class="position-relative"
+                                 data-teacher-autocomplete
+                                 data-search-url="{{ request.url_for("arena_class_teacher_autocomplete") }}">
+                                <input type="hidden"
+                                       name="teacher_id"
+                                       value="{{ value_teacher }}"
+                                       data-teacher-id>
+                                <input type="search"
+                                       class="form-control"
+                                       id="teacher_search"
+                                       value="{{ teacher_label }}"
+                                       placeholder="Search by full name or email"
+                                       autocomplete="off"
+                                       data-teacher-search
+                                       required>
+                                <div class="arena-autocomplete-menu d-none" data-teacher-suggestions></div>
+                            </div>
+                        </div>
+                    {% elif is_judge %}
+                        <div class="col-12 col-md-8">
+                            <label for="teacher_display" class="form-label">Assigned teacher</label>
+                            <input type="hidden" name="teacher_id" value="{{ judge_user_id }}">
+                            <input type="text"
+                                   class="form-control"
+                                   id="teacher_display"
+                                   value="{{ judge_label }}"
+                                   disabled>
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-4">
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        {{ render_icon(icon="save") }}
+                        {{ 'Apply and truncate problem sets' if truncation_warning else 'Save class' }}
+                    </button>
+                    <a href="{{ request.url_for("arena_classes_manage") }}"
+                       class="btn btn-secondary btn-sm">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/l10n/default.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/plugins/rangePlugin.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='flatpickr-init.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-classes.js') }}?v={{ app_version }}"></script>
+{% endblock %}

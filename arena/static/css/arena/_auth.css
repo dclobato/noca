@@ -1,0 +1,320 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Auth pages (login, 2FA)
+   ============================================================ */
+.arena-auth-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: var(--arena-space-lg) var(--arena-gutter);
+}
+
+.arena-auth-card {
+    background-color: var(--arena-surface-container-lowest);
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius-lg);
+    padding: var(--arena-space-lg);
+    box-shadow: var(--arena-card-shadow);
+}
+
+.arena-auth-logo {
+    font-family: 'Public Sans', sans-serif;
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--arena-primary);
+    margin-bottom: 0.25rem;
+    letter-spacing: -0.02em;
+}
+
+.arena-auth-tagline {
+    font-size: 0.875rem;
+    color: var(--arena-on-surface-variant);
+    font-family: 'Inter', sans-serif;
+    margin-bottom: 0;
+}
+
+.arena-auth-title {
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1.375rem;
+    font-weight: 700;
+    color: var(--arena-on-surface);
+    margin-bottom: 0.25rem;
+}
+
+.arena-auth-subtitle {
+    font-size: 0.875rem;
+    color: var(--arena-on-surface-variant);
+    margin-bottom: var(--arena-space-md);
+}
+
+.arena-auth-link {
+    color: var(--arena-primary);
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.arena-auth-link:hover {
+    text-decoration: underline;
+    color: var(--arena-primary);
+}
+
+.arena-auth-section-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--arena-outline);
+}
+
+.arena-auth-card .form-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--arena-on-surface);
+    margin-bottom: 0.375rem;
+}
+
+.arena-auth-card .form-control {
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+    background-color: var(--arena-surface-container-lowest);
+    color: var(--arena-on-surface);
+    font-size: 0.9375rem;
+    padding: 0.625rem 0.875rem;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.arena-auth-card .form-control:focus {
+    border-color: var(--arena-primary);
+    box-shadow: 0 0 0 3px rgba(0, 107, 33, 0.12);
+    outline: none;
+}
+
+.arena-auth-card .form-control::placeholder {
+    color: var(--arena-outline);
+}
+
+/* Primary button */
+.btn.arena-btn-primary {
+    background-color: var(--arena-primary);
+    color: var(--arena-on-primary);
+    border: none;
+    border-radius: var(--arena-radius);
+    font-family: 'Public Sans', sans-serif;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    padding: 0.75rem 1.5rem;
+    transition: opacity 0.15s ease;
+}
+
+.btn.arena-btn-primary:hover {
+    opacity: 0.9;
+    color: var(--arena-on-primary);
+}
+
+.btn.arena-btn-primary:active {
+    opacity: 0.85;
+}
+
+.btn.arena-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    white-space: normal;
+}
+
+.btn.arena-icon-button .material-symbols-outlined {
+    flex-shrink: 0;
+}
+
+.btn.arena-icon-button[data-admin-tooltip] {
+    position: relative;
+}
+
+.btn.arena-icon-button[data-admin-tooltip]::after {
+    content: attr(data-admin-tooltip);
+    position: absolute;
+    bottom: calc(100% + 0.4rem);
+    left: 50%;
+    z-index: 20;
+    transform: translateX(-50%);
+    min-width: max-content;
+    max-width: 14rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    background: var(--arena-on-surface);
+    color: var(--arena-surface);
+    font-size: 0.75rem;
+    line-height: 1.2;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+}
+
+.btn.arena-icon-button[data-admin-tooltip]:hover::after,
+.btn.arena-icon-button[data-admin-tooltip]:focus-visible::after {
+    opacity: 1;
+}
+
+/* 2FA OTP input */
+.arena-otp-input {
+    letter-spacing: 0.25em;
+    font-family: monospace;
+    font-size: 1.5rem;
+    font-weight: 700;
+    text-align: center;
+    padding: 0.75rem 0.5rem;
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+    background-color: var(--arena-surface-container-lowest);
+    color: var(--arena-on-surface);
+    width: 3rem;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.arena-otp-input:focus {
+    border-color: var(--arena-primary);
+    box-shadow: 0 0 0 3px rgba(0, 107, 33, 0.12);
+    outline: none;
+}
+
+/* 2FA helper text */
+.arena-2fa-help {
+    font-size: 0.8125rem;
+    color: var(--arena-on-surface-variant);
+}
+
+.arena-2fa-help a {
+    color: var(--arena-primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.arena-2fa-help a:hover {
+    text-decoration: underline;
+}
+
+.arena-2fa-recovery-icon {
+    font-size: 1rem;
+    color: var(--arena-outline);
+    flex-shrink: 0;
+}
+
+/* 2FA alert box */
+.arena-security-alert {
+    background-color: var(--arena-surface-container);
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+    padding: 0.875rem 1rem;
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    margin-top: var(--arena-space-md);
+}
+
+.arena-security-alert .material-symbols-outlined {
+    color: var(--arena-secondary);
+    font-size: 1.125rem;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+}
+
+.arena-security-alert-text {
+    font-size: 0.8125rem;
+    color: var(--arena-on-surface-variant);
+    line-height: 1.5;
+}
+
+.arena-security-alert-text strong {
+    color: var(--arena-on-surface);
+    font-weight: 600;
+}
+
+.arena-security-actions .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    white-space: normal;
+}
+
+.arena-security-actions .btn .material-symbols-outlined {
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+/* ============================================================
+   2FA setup page
+   ============================================================ */
+.arena-2fa-qr-img {
+    max-width: 200px;
+    width: 100%;
+    height: auto;
+}
+
+.arena-2fa-secret {
+    display: inline-block;
+    font-family: monospace;
+    font-size: 1.125rem;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    color: var(--arena-primary);
+    background-color: var(--arena-surface-container);
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+    padding: 0.5rem 1rem;
+}
+
+/* ============================================================
+   Backup codes page
+   ============================================================ */
+.arena-backup-warning {
+    background-color: #fff8e1;
+    border: 1px solid #ffe082;
+    border-radius: var(--arena-radius);
+    padding: 0.875rem 1rem;
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+}
+
+.arena-backup-warning .material-symbols-outlined {
+    color: #f59e0b;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+}
+
+.arena-backup-warning-text {
+    font-size: 0.875rem;
+    color: var(--arena-on-surface);
+    line-height: 1.5;
+}
+
+.arena-backup-warning-text strong {
+    font-weight: 600;
+}
+
+.arena-backup-code-cell {
+    background-color: var(--arena-surface-container);
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+    padding: 0.625rem 0.75rem;
+    font-family: monospace;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--arena-on-surface);
+    text-align: center;
+    letter-spacing: 0.05em;
+    word-break: break-all;
+}

@@ -1,0 +1,16 @@
+Implementação
+Matemática
+Bitmask e Bits
+Busca e Ordenação
+Programação Dinâmica
+Gulosos
+Estruturas de Dados
+Grafos
+Árvores
+Fluxo e Emparelhamento
+Strings
+Geometria
+Álgebra Linear
+Teoria dos Jogos
+Métodos Numéricos
+Miscelânea

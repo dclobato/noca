@@ -1,0 +1,178 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Rankings table
+   ============================================================ */
+.arena-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.arena-table .column-width-medium {
+    width: 15rem;
+    text-align: center;
+}
+
+.arena-table .column-width-narrow {
+    width: 7rem;
+    text-align: center;
+}
+
+.arena-table .column-width-tiny {
+    width: 2.5rem;
+    text-align: center;
+}
+
+.arena-table .column-width-shrink {
+    width: 1%;
+    white-space: nowrap;
+}
+
+.arena-table thead tr {
+    border-bottom: 1px solid var(--arena-outline-variant);
+    background-color: var(--arena-surface-container);
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--arena-on-surface-variant);
+    text-transform: uppercase;
+}
+
+.arena-table thead th {
+    padding: 0.325rem 0.5rem;
+}
+
+.arena-table tbody tr {
+    border-bottom: 1px solid var(--arena-surface-container);
+    font-family: 'Inter', sans-serif;
+}
+
+.arena-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.arena-table tbody tr:hover {
+    background-color: var(--arena-surface-container-low);
+}
+
+.arena-table tbody td {
+    padding: 0.325rem 0.5rem;
+    line-height: 1.25;
+}
+
+.arena-table tbody td .material-symbols-outlined {
+    font-size: 1.125rem;
+    vertical-align: middle;
+}
+
+.arena-table .arena-monospace   { font-family: monospace; color: var(--arena-primary); }
+.arena-table .arena-mono-right  { font-family: monospace; text-align: right; color: var(--arena-on-surface); }
+.arena-monospace                { font-family: monospace; }
+
+/* Live submission feed — shared rules in shared/static/css/common.css */
+.live-feed-summary {
+    border-top: 1px solid var(--arena-outline-variant);
+    padding-top: 0.5rem;
+}
+
+/* ── Dashboard fixed-height table (7 rows × 2.5rem each) ────── */
+.arena-dashboard-table tbody tr {
+    height: 2.5rem;
+}
+
+.arena-dashboard-table-wrap {
+    height: calc(7 * 2.5rem);
+    overflow: hidden;
+}
+
+/* ── Sortable column headers ─────────────────────────────────── */
+.arena-table thead th.arena-col-sortable {
+    cursor: pointer;
+}
+
+.arena-table thead th.arena-col-sortable > a:hover {
+    color: var(--arena-primary) !important;
+}
+
+.arena-table thead th.arena-col-sortable > a:hover .arena-sort-icon--idle {
+    opacity: 0.6;
+}
+
+.arena-sort-icon {
+    font-size: 1rem;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+.arena-sort-icon--idle {
+    opacity: 0.28;
+}
+
+.arena-sort-icon--active {
+    color: var(--arena-primary);
+    opacity: 1;
+}
+
+/* ── Column width hints ──────────────────────────────────────── */
+.arena-table .arena-col-title {
+    width: 40%;
+}
+
+.arena-table .arena-col-actions {
+    width: 1%;
+    white-space: nowrap;
+}
+
+/* Worker dashboard: fixed-layout table so all cards share identical column widths */
+.arena-worker-table {
+    table-layout: fixed;
+}
+
+.arena-table.arena-worker-table thead th,
+.arena-table.arena-worker-table tbody td {
+    padding: 0.5rem;
+    line-height: 1.5;
+}
+
+.arena-worker-table .arena-col-worker-status  { width: 5%; }
+.arena-worker-table .arena-col-worker-id      { width: 25%; }
+.arena-worker-table .arena-col-worker-activity{ width: 27%; }
+.arena-worker-table .arena-col-worker-lastjob { width: 25%; }
+.arena-worker-table .arena-col-worker-actions { width: 18%; }
+
+.arena-clickable-row {
+    cursor: pointer;
+}
+
+.arena-category-color-swatch {
+    display: inline-block;
+    width: 0.875rem;
+    height: 0.875rem;
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: 50%;
+    margin-right: 0.35rem;
+    vertical-align: -0.1rem;
+}
+
+.arena-icon-sm .material-symbols-outlined {
+    font-size: 1rem;
+    vertical-align: -0.15em;
+}
+
+.arena-country-flag {
+    width: 2rem;
+    height: auto;
+    border-radius: 3px;
+    border: 1px solid var(--arena-outline-variant);
+    vertical-align: middle;
+    object-fit: cover;
+    margin-right: 0.25rem;
+}

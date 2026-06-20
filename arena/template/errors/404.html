@@ -1,0 +1,18 @@
+{% extends "_base.html" %}
+{% block title_suffix %}— Page Not Found{% endblock %}
+{% block content %}
+    <div class="d-flex flex-column flex-md-row align-items-center justify-content-center gap-4 py-5 container">
+        <div class="col-md-6 text-center">
+            <img src="{{ img404_url }}"
+                 alt="Page not found illustration"
+                 class="arena-error-illustration img-fluid">
+        </div>
+        <div class="col-md-6 text-center text-md-start">
+            <p class="arena-error-code mb-2">Error 404</p>
+            <h1 class="display-4 fw-bold mb-3">Oops!</h1>
+            <p class="lead mb-4 text-muted">We can't find the page you are looking for.</p>
+            <a href="{{ request.url_for("arena_dashboard") }}"
+               class="btn btn-primary btn-lg px-4">Let's go back to dashboard</a>
+        </div>
+    </div>
+{% endblock %}

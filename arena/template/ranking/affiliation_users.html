@@ -1,0 +1,107 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; {{ affiliation.name }} &mdash; User Ranking{% endblock %}
+{% block nav_ranking %}active{% endblock %}
+{% block nav_ranking_affiliations %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex gap-3 mb-3">
+                {% if affiliation.logo_base64 %}
+                    <div class="flex-shrink-0 d-flex align-items-center">
+                        <img src="{{ request.url_for('arena_affiliation_logo', affiliation_id=affiliation.id) }}"
+                             width="128"
+                             height="128"
+                             class="rounded object-fit-cover"
+                             alt="{{ affiliation.name }} logo">
+                    </div>
+                {% endif %}
+                <div class="flex-grow-1">
+                    <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                        <h1 class="arena-card-title mb-0">
+                            {% if not affiliation.logo_base64 %}{{ render_icon(icon="corporate_fare") }}{% endif %}
+                            {{ affiliation.name }}
+                        </h1>
+                        <a href="{{ request.url_for("arena_ranking_affiliations") }}"
+                           class="btn btn-link btn-sm text-muted text-decoration-none">
+                            {{ render_icon(icon="arrow_back") }}
+                            Affiliation Ranking
+                        </a>
+                    </div>
+                    <form method="get"
+                          class="d-flex flex-wrap gap-2 align-items-end"
+                          id="affiliation-user-ranking-filter-form">
+                        {% with label="Search", input_type="text", value=search, placeholder="Name or email…", autocomplete="off" %}
+                            {% include "_partials/filter_search_field.html" %}
+                        {% endwith %}
+                        {% include "_partials/filter_submit_button.html" %}
+                        {% set _filters_active = search %}
+                        {% with clear_url=request.url_for("arena_ranking_affiliation_users", affiliation_id=affiliation.id), filters_active=_filters_active %}
+                            {% include "_partials/filter_clear_link.html" %}
+                        {% endwith %}
+                    </form>
+                </div>
+            </div>
+            <p class="text-muted small mb-2">{{ pagination.total }} user{{ 's' if pagination.total != 1 else '' }}</p>
+            {% with pagination=pagination, page_param="page", label="User ranking pagination", nav_margin="mb-2" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th class="text-end">#</th>
+                            <th></th>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Location</th>
+                            <th class="text-end">Rating</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in pagination.items %}
+                            <tr>
+                                <td class="text-end arena-monospace text-muted">{{ user.rank }}</td>
+                                <td class="text-center">
+                                    <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=user.id) }}"
+                                         width="32"
+                                         height="32"
+                                         class="rounded-circle object-fit-cover"
+                                         alt="{{ user.name }}">
+                                </td>
+                                <td class="fw-semibold">{{ user.name }}</td>
+                                <td class="text-muted small arena-monospace">{{ user.email_mascarado }}</td>
+                                <td class="text-nowrap">
+                                    {% if user.country_code %}
+                                        <img src="{{ request.url_for('static_vendor', path='img/flags/' + user.country_code.lower() + '.svg') }}"
+                                             class="arena-country-flag"
+                                             alt="">
+                                        {{ user.country_name }}
+                                        {% if user.subdivision_name %}, {{ user.subdivision_name }}{% endif %}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end arena-mono-right">{{ user.rating }}</td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="6" class="arena-empty-state">No users found.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% with pagination=pagination, page_param="page", label="User ranking pagination" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+        </div>
+    </div>
+{% endblock %}

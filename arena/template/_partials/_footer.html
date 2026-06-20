@@ -1,0 +1,30 @@
+{#  NOCA -- Next Online Contest Administrator
+    Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. #}
+{# ── Arena shared footer partial ── #}
+{% set next_rating_update = next_rating_update_text(request) if next_rating_update_text is defined else none %}
+{% set session_expiry = token_expiry_text(request) if token_expiry_text is defined else none %}
+<footer class="arena-footer">
+    <div class="arena-footer-inner">
+        <div class="arena-footer-meta">
+            <span>&copy; 2026 Noca Arena &mdash; v{{ app_version }}</span>
+            {% if next_rating_update %}
+                <span class="arena-footer-rating">Next difficulty and rating update in {{ next_rating_update }}</span>
+            {% endif %}
+            {% if session_expiry %}
+                <span class="arena-footer-session-expiry"
+                      title="Your session token will expire in {{ session_expiry }}">
+                    Session expires in {{ session_expiry }}
+                </span>
+            {% endif %}
+        </div>
+        <nav class="arena-footer-links" aria-label="Footer links">
+            <a href="{{ request.url_for("arena_status") }}">Status</a>
+            <a href="#">Contact</a>
+            <a href="https://www.github.com/dclobato/noca">GitHub</a>
+            <a href="/legal/terms">Terms</a>
+        </nav>
+    </div>
+</footer>

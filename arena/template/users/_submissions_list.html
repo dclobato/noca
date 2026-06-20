@@ -1,0 +1,134 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% from "_macros.html" import render_icon %}
+<section class="arena-progress-list">
+    <div class="arena-progress-list-header">
+        <h2>Submissions</h2>
+        <span>{{ submissions.first }}&ndash;{{ submissions.last }} of {{ submissions.total }}</span>
+    </div>
+    {# ── Filter bar ── #}
+    <form method="get"
+          action="{{ request.url_for("arena_user_profile") }}"
+          class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <input type="hidden" name="tab" value="submissions">
+        <input type="search"
+               name="submissions_search"
+               value="{{ submissions_search or '' }}"
+               placeholder="Search by number or title&hellip;"
+               class="form-control form-control-sm"
+               style="max-width: 20rem"
+               aria-label="Search submissions">
+        <select name="submissions_verdict"
+                class="form-select form-select-sm"
+                style="max-width: 12rem"
+                aria-label="Filter by verdict">
+            <option value="" {% if not submissions_verdict %}selected{% endif %}>Any verdict</option>
+            {% for v in all_verdicts %}
+                <option value="{{ v.value }}"
+                        {% if submissions_verdict == v.value %}selected{% endif %}>
+                    {{ verdict_labels.get(v.value, v.value) }}
+                </option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn arena-btn-primary arena-icon-button btn-sm">
+            {{ render_icon(icon="search") }}
+            <span>Filter</span>
+        </button>
+        {% if submissions_search or submissions_verdict %}
+            <a href="{{ request.url_for("arena_user_profile") }}?tab=submissions"
+               class="btn btn-outline-secondary arena-icon-button btn-sm">
+                {{ render_icon(icon="close") }}
+                <span>Clear filters</span>
+            </a>
+        {% endif %}
+    </form>
+    {# ── Submissions table ── #}
+    {% if submissions.items %}
+        {% with nav_margin="mb-2" %}
+            {% include "users/_submissions_pagination.html" %}
+        {% endwith %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle arena-progress-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Problem</th>
+                        <th scope="col">Language</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Verdict</th>
+                        <th scope="col" class="text-end">Runtime</th>
+                        <th scope="col"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in submissions.items %}
+                        <tr>
+                            <td>
+                                <a href="{{ request.url_for('arena_problem_detail', arena_number=row.problem_number) }}">
+                                    {{ row.problem_number }}: {{ row.problem_title }}
+                                </a>
+                            </td>
+                            <td>
+                                <span class="d-flex align-items-center gap-1">
+                                    <i class="{{ row.language_icon }}"
+                                       aria-hidden="true"
+                                       style="font-size: 1.1rem"></i>
+                                    <span class="small">{{ row.language_name }}</span>
+                                </span>
+                            </td>
+                            <td class="small text-muted text-nowrap">{{ arena_format_datetime(row.submitted_at, current_user) }}</td>
+                            <td>
+                                <span class="d-flex align-items-center gap-1">
+                                    {% if row.verdict %}
+                                        <span class="badge {{ verdict_badge_classes.get(row.verdict, 'bg-secondary') }}">{{ verdict_labels.get(row.verdict, row.verdict) }}</span>
+                                    {% elif row.status %}
+                                        <span class="badge bg-secondary font-monospace">{{ row.status }}</span>
+                                    {% else %}
+                                        <span class="text-muted">&mdash;</span>
+                                    {% endif %}
+                                    {% if row.verdict and row.verdict != "AC" %}
+                                        {% if row.has_ai_review %}
+                                            {{ render_icon(icon="psychology_alt", filled=True, classes="text-success", title="AI review available") }}
+                                        {% elif row.submit_to_ai %}
+                                            {{ render_icon(icon="psychology_alt", classes="text-warning opacity-75", title="AI review pending") }}
+                                        {% endif %}
+                                        {% if row.has_teacher_feedback %}
+                                            {{ render_icon(icon="rate_review", filled=True, classes="text-success", title="Teacher feedback available") }}
+                                        {% endif %}
+                                    {% endif %}
+                                </span>
+                            </td>
+                            <td class="small text-muted text-end">
+                                {% if row.max_wall_time_ms is not none %}
+                                    {{ row.max_wall_time_ms }} ms
+                                {% else %}
+                                    &mdash;
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="{{ request.url_for('arena_submission_detail', submission_id=row.submission_id) }}"
+                                   class="btn btn-outline-secondary arena-icon-button btn-sm">
+                                    {{ render_icon(icon="open_in_new") }}
+                                    <span>Details</span>
+                                </a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="arena-empty-state">
+            {% if submissions_search or submissions_verdict %}
+                No submissions match your filters.
+            {% else %}
+                No submissions yet.
+            {% endif %}
+        </p>
+    {% endif %}
+    {% include "users/_submissions_pagination.html" %}
+</section>

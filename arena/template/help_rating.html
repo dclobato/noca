@@ -1,0 +1,251 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— Difficulty &amp; Rating System{% endblock %}
+{% block nav_help_rating %}active{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='katex.min.css') }}">
+{% endblock %}
+{% block content %}
+    <div class="arena-page-container px-5">
+        <div class="arena-page-header">
+            <h1 class="arena-page-title">{{ render_icon(icon="help", classes="me-2") }}Help: Difficulty &amp; Rating System</h1>
+            <p class="arena-page-subtitle">
+                How problem difficulty, user ratings, and affiliation ratings are calculated in Noca Arena.
+            </p>
+        </div>
+        {# ── Rating update schedule ── #}
+        <div class="arena-help-section mb-4">
+            <h2 class="arena-help-heading">
+                {{ render_icon(icon="schedule", classes="me-1") }}When are difficulty and ratings updated?
+            </h2>
+            <p>
+                Problem difficulty, user ratings, and affiliation ratings are recomputed in a sequential batch cycle
+                {% if rating_interval_text %}
+                    that runs every <strong>{{ rating_interval_text }}</strong>.
+                {% else %}
+                    on the cadence published by the rating worker.
+                {% endif %}
+                The three stages always run in order — problem difficulty first, then user ratings, then
+                affiliation ratings — so every stage always reflects the freshest data from the previous
+                stage.
+                {% if rating_interval_text %}You can see the countdown to the next cycle in the footer of every page.{% endif %}
+            </p>
+        </div>
+        {# ── Tabs ── #}
+        <div class="arena-card p-0">
+            <ul class="nav nav-tabs arena-profile-tabs px-3 pt-3"
+                id="ratingTabs"
+                role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active"
+                            id="tab-difficulty-btn"
+                            data-bs-toggle="tab"
+                            data-bs-target="#tab-difficulty"
+                            type="button"
+                            role="tab"
+                            aria-controls="tab-difficulty"
+                            aria-selected="true">
+                        {{ render_icon(icon="bar_chart", classes="me-1") }}Problem Difficulty
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link"
+                            id="tab-user-btn"
+                            data-bs-toggle="tab"
+                            data-bs-target="#tab-user"
+                            type="button"
+                            role="tab"
+                            aria-controls="tab-user"
+                            aria-selected="false">{{ render_icon(icon="person", classes="me-1") }}User Rating</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link"
+                            id="tab-affiliation-btn"
+                            data-bs-toggle="tab"
+                            data-bs-target="#tab-affiliation"
+                            type="button"
+                            role="tab"
+                            aria-controls="tab-affiliation"
+                            aria-selected="false">{{ render_icon(icon="group", classes="me-1") }}Affiliation</button>
+                </li>
+            </ul>
+            <div class="tab-content arena-profile-tab-content px-3 pb-3"
+                 id="ratingTabsContent">
+                {# ── Problem difficulty ── #}
+                <div class="tab-pane fade show active"
+                     id="tab-difficulty"
+                     role="tabpanel"
+                     aria-labelledby="tab-difficulty-btn">
+                    <p>
+                        Each problem receives a difficulty score on a scale from <strong>0.1</strong>
+                        (very easy) to <strong>10.0</strong> (very hard), stored internally as an integer
+                        in [1, 100] for finer precision. The score combines two signals: how often users
+                        solve the problem and how many attempts they need before succeeding. A Bayesian
+                        prior keeps new problems near the middle of the scale until enough data
+                        accumulates. Once a problem has enough attempts, a contrast transform pushes its
+                        score toward the easy or hard end, so the catalogue separates into clearly easy
+                        and clearly hard problems rather than a mass of average ones.
+                    </p>
+                    <h3 class="arena-help-subheading">Step 1 — Bayesian solve rate</h3>
+                    <p>
+                        Let $a$ = unique users who attempted the problem, $s$ = unique users who solved it,
+                        $\alpha = {{ alpha | int }}$ (prior weight), and $p_0 = {{ prior_solve_rate }}$ (prior solve rate):
+                    </p>
+                    <div class="arena-help-formula">$$\hat{p} = \frac{s + \alpha \, p_0}{a + \alpha}$$</div>
+                    <h3 class="arena-help-subheading">Step 2 — Bayesian average tries</h3>
+                    <p>
+                        Let $T$ = total submission attempts by solvers before their first accepted solution,
+                        $\beta = {{ beta | int }}$ (prior weight), and $t_0 = {{ prior_tries | int }}$ (prior average tries):
+                    </p>
+                    <div class="arena-help-formula">$$\bar{t} = \frac{T + \beta \, t_0}{s + \beta}$$</div>
+                    <h3 class="arena-help-subheading">Step 3 — Raw central estimate</h3>
+                    <p>
+                        The two signals are weighted by $w_p = {{ "%.2f" | format(w_solve_rate) }}$
+                        and $w_t = {{ "%.2f" | format(w_tries) }}$,
+                        capping the tries component at $T_{\max} = {{ max_relevant_tries | int }}$, into a
+                        raw estimate $r \in [0, 1]$:
+                    </p>
+                    <div class="arena-help-formula">$$r = w_p \,(1 - \hat{p}) + w_t \,\frac{\ln \bar{t}}{\ln T_{\max}}$$</div>
+                    <h3 class="arena-help-subheading">Step 4 — Bimodal contrast</h3>
+                    <p>
+                        To avoid clustering every problem in the middle of the scale, the raw estimate is
+                        pushed toward the easy/hard extremes with a logistic <em>contrast</em> curve. It is
+                        centred on the population median raw $m$ (so the easy/hard split stays balanced),
+                        and its slope — the gain $g$ — grows with the number of attempts $a$, so problems
+                        with little data stay near the centre and only well-attempted problems are driven to
+                        the extremes. With $g_{\max} = {{ contrast_gain_max | int }}$, scale
+                        $N = {{ contrast_gain_scale | int }}$, and $\operatorname{logit}(x) = \ln \frac{x}{1 - x}$:
+                    </p>
+                    <div class="arena-help-formula">$$g(a) = 1 + (g_{\max} - 1)\bigl(1 - e^{-a/N}\bigr)$$</div>
+                    <div class="arena-help-formula">
+                        $$c = \frac{1}{1 + e^{-g\,(\operatorname{logit} r \,-\, \operatorname{logit} m)}}$$
+                    </div>
+                    <p class="arena-help-note">
+                        A gain of 1 leaves the distribution unchanged; a gain above 1 hollows out the centre.
+                        A problem whose raw equals the pivot $m$ maps to the middle of the scale.
+                    </p>
+                    <div id="contrast-curve-chart"
+                         class="arena-help-chart"
+                         data-contrast-curve
+                         data-contrast-gain-max="{{ contrast_gain_max }}"
+                         data-contrast-gain-scale="{{ contrast_gain_scale }}"></div>
+                    <p class="arena-help-note">
+                        The chart uses a balanced pivot $m = 0.5$. As a problem gathers attempts its gain
+                        rises from 1 toward $g_{\max} = {{ contrast_gain_max | int }}$, steepening the curve
+                        around the pivot: raw scores just below $m$ are pulled toward <em>easy</em> and those
+                        just above are pushed toward <em>hard</em>, hollowing out the centre into a bimodal
+                        spread.
+                    </p>
+                    <h3 class="arena-help-subheading">Step 5 — Final difficulty</h3>
+                    <p>
+                        The contrasted value is mapped to an internal integer $d_{\text{int}} \in [1, 100]$,
+                        then divided by 10 to produce the display value $d \in [0.1, 10.0]$:
+                    </p>
+                    <div class="arena-help-formula">
+                        $$d_{\text{int}} = \operatorname{round}\!\left(\max\!\left(1,\;\min\!\left(100,\;1 + 99\,c\right)\right)\right)$$
+                    </div>
+                    <div class="arena-help-formula">$$d = d_{\text{int}} / 10$$</div>
+                    <p class="arena-help-note">Stored as integer $d_{\text{int}} \in [1, 100]$; displayed as $d \in [0.1, 10.0]$.</p>
+                </div>
+                {# ── User score ── #}
+                <div class="tab-pane fade"
+                     id="tab-user"
+                     role="tabpanel"
+                     aria-labelledby="tab-user-btn">
+                    <p>
+                        A user's rating is the sum of points earned for every problem they have solved.
+                        Harder problems pay exponentially more points, so the leaderboard strongly rewards
+                        tackling difficult problems.
+                    </p>
+                    <h3 class="arena-help-subheading">Points per problem</h3>
+                    <p>
+                        Points are computed from the internal integer difficulty $d_{\text{int}} \in [1, 100]$, with
+                        base points $B = {{ base_points | int }}$ and growth factor $G = {{ growth }}$. Dividing the
+                        exponent by 11 rescales the internal $[1, 100]$ range onto the exponent range $[0, 9]$, so
+                        every problem pays exactly what it would on the $[0.1, 10.0]$ display scale:
+                    </p>
+                    <div class="arena-help-formula">$$\operatorname{pts}(d_{\text{int}}) = B \cdot G^{(d_{\text{int}} - 1) / 11}$$</div>
+                    <p class="arena-help-note">
+                        This yields {{ pts_difficulty_1 }} points for difficulty&nbsp;0.1 ($d_{\text{int}} = 1$) and
+                        approximately {{ pts_difficulty_10 }} points for difficulty&nbsp;10.0 ($d_{\text{int}} = 100$) —
+                        about {{ pts_ratio }}× more for the hardest problems.
+                    </p>
+                    <h3 class="arena-help-subheading">Total user rating</h3>
+                    <p>
+                        Summing over every problem $p$ the user has solved — using each problem's internal
+                        difficulty $d_{\text{int}}(p)$ — and rounding to the nearest integer:
+                    </p>
+                    <div class="arena-help-formula">
+                        $$U = \operatorname{round}\!\left(\sum_{p \,\in\, \text{solved}} \operatorname{pts}\bigl(d_{\text{int}}(p)\bigr)\right)$$
+                    </div>
+                    <p>
+                        User ratings are recomputed from scratch each cycle using the current problem
+                        difficulties, so a user's rating can change even without new submissions if
+                        the difficulty of a previously solved problem changes.
+                    </p>
+                    <h3 class="arena-help-subheading">Rating confidence</h3>
+                    <p>
+                        A rating computed from only a few solved problems may not yet reflect a user's true
+                        ability, because the difficulty sample is small. The <strong>confidence</strong>
+                        indicator measures how statistically reliable the rating is, expressed as a
+                        percentage from 0 % (no data) to 100 % (fully converged).
+                    </p>
+                    <p>
+                        Let $n$ be the number of problems the user has solved and
+                        $k = {{ confidence_scale }}$ be the saturation scale:
+                    </p>
+                    <div class="arena-help-formula">$$C(n) = \operatorname{round}\!\left(100 \cdot \left(1 - e^{-n/k}\right)\right)$$</div>
+                    <p class="arena-help-note">
+                        The function grows quickly at first and then flattens:
+                        around $n = {{ confidence_scale }}$ solved problems the confidence reaches ~63 %,
+                        and it exceeds 95 % only after roughly $3k \approx {{ confidence_scale * 3 }}$ solved problems.
+                        Confidence is shown alongside ratings on leaderboards to help readers interpret
+                        ratings from users who have solved very few problems.
+                    </p>
+                </div>
+                {# ── Affiliation rating ── #}
+                <div class="tab-pane fade"
+                     id="tab-affiliation"
+                     role="tabpanel"
+                     aria-labelledby="tab-affiliation-btn">
+                    <p>
+                        An affiliation's rating is a geometrically weighted average of its members'
+                        user ratings. Members are ranked by rating (highest first); the top member
+                        contributes the most, and each successive member contributes progressively less.
+                        This rewards groups with consistently strong performers rather than a single
+                        standout.
+                    </p>
+                    <h3 class="arena-help-subheading">Formula</h3>
+                    <p>
+                        Let $s_0 \ge s_1 \ge \cdots \ge s_{n-1}$ be the member scores sorted in
+                        descending order, and let
+                        {% if affiliation_factor %}
+                            $f = {{ affiliation_factor }}$
+                        {% else %}
+                            $f$
+                        {% endif %}
+                        be the decay factor:
+                    </p>
+                    <div class="arena-help-formula">$$S = \frac{1}{f} \sum_{i=0}^{n-1} \left(1 - \frac{1}{f}\right)^{\!i} s_i$$</div>
+                    <p class="arena-help-note">
+                        The weights sum to 1 as $n \to \infty$, so the affiliation rating is always
+                        bounded by the top member's score. A larger decay factor $f$ causes the weights
+                        to decrease more slowly, meaning more members contribute meaningfully.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('arena_static_js', path='render-katex.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-contrast-curve.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}

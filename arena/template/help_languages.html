@@ -1,0 +1,127 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— Languages &amp; Verdicts{% endblock %}
+{% block nav_help_languages %}active{% endblock %}
+{% block content %}
+    <div class="arena-page-container px-5">
+        <div class="arena-page-header">
+            <h1 class="arena-page-title">{{ render_icon(icon="terminal", classes="me-2") }}Languages &amp; Verdicts</h1>
+            <p class="arena-page-subtitle">Supported programming languages and the meaning of each possible judgment verdict.</p>
+        </div>
+        {# ── Tabs ── #}
+        <div class="arena-card p-0">
+            <ul class="nav nav-tabs arena-profile-tabs px-3 pt-3"
+                id="languagesVerdictsTabs"
+                role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active"
+                            id="tab-languages-btn"
+                            data-bs-toggle="tab"
+                            data-bs-target="#tab-languages"
+                            type="button"
+                            role="tab"
+                            aria-controls="tab-languages"
+                            aria-selected="true">
+                        {{ render_icon(icon="code", classes="me-1") }}Available languages
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link"
+                            id="tab-verdicts-btn"
+                            data-bs-toggle="tab"
+                            data-bs-target="#tab-verdicts"
+                            type="button"
+                            role="tab"
+                            aria-controls="tab-verdicts"
+                            aria-selected="false">
+                        {{ render_icon(icon="gavel", classes="me-1") }}Judgment Verdicts
+                    </button>
+                </li>
+            </ul>
+            <div class="tab-content arena-profile-tab-content px-3 pb-3"
+                 id="languagesVerdictsTabsContent">
+                {# ── Available languages ── #}
+                <div class="tab-pane fade show active"
+                     id="tab-languages"
+                     role="tabpanel"
+                     aria-labelledby="tab-languages-btn">
+                    <p>
+                        Compile and run commands are shown exactly as they are executed inside the sandbox container.
+                        Languages without a compilation step run the source file directly.
+                    </p>
+                    {% if languages %}
+                        <div class="arena-help-lang-list mt-3">
+                            {% for lang in languages %}
+                                <div class="arena-help-lang-entry">
+                                    <div class="arena-help-lang-header">
+                                        <img src="{{ request.url_for('static_vendor', path='img/devicon/' ~ lang.icon.split('-')[1] ~ '-original.svg') }}"
+                                             class="arena-help-lang-icon"
+                                             width="48"
+                                             height="48"
+                                             alt="{{ lang.name }}">
+                                        <strong class="arena-help-lang-name">{{ lang.name }}</strong>
+                                        {% if lang.version %}<span class="arena-help-version">{{ lang.version }}</span>{% endif %}
+                                    </div>
+                                    {% if lang.compile_cmd %}
+                                        <div class="arena-help-lang-row">
+                                            <span class="arena-help-lang-label">Compile</span>
+                                            <pre class="arena-help-cmd">{{ lang.compile_cmd | fmt_shell_cmd }}</pre>
+                                        </div>
+                                    {% else %}
+                                        <div class="arena-help-lang-row">
+                                            <span class="arena-help-lang-label">Compile</span>
+                                            <span class="arena-help-version">No compilation step</span>
+                                        </div>
+                                    {% endif %}
+                                    <div class="arena-help-lang-row">
+                                        <span class="arena-help-lang-label">Run</span>
+                                        <pre class="arena-help-cmd">{{ lang.run_cmd | fmt_shell_cmd }}</pre>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="arena-help-note mt-3">No languages are currently active.</p>
+                    {% endif %}
+                </div>
+                {# ── Verdicts ── #}
+                <div class="tab-pane fade"
+                     id="tab-verdicts"
+                     role="tabpanel"
+                     aria-labelledby="tab-verdicts-btn">
+                    <p>
+                        After your submission is judged, it receives one of the verdicts below.
+                        The judge runs your code against all test cases and reports the most severe outcome.
+                    </p>
+                    <div class="table-responsive mt-3">
+                        <table class="arena-table">
+                            <thead>
+                                <tr>
+                                    <th>Verdict</th>
+                                    <th>Meaning</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for verdict, description in verdicts.items() %}
+                                    <tr>
+                                        <td>
+                                            <span class="badge {{ verdict_badge_classes.get(verdict.value, 'bg-secondary') }} font-monospace">{{ verdict.value }}</span>
+                                        </td>
+                                        <td>{{ description }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

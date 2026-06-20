@@ -1,0 +1,67 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Admin Dashboard{% endblock %}
+{% block nav_admin_dashboard %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <h1 class="arena-card-title mb-4">
+                {{ render_icon(icon="space_dashboard") }}
+                Admin Dashboard
+            </h1>
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_admin_dashboard_service_status") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="monitor_heart") }}</span>
+                        <div>
+                            <div class="fw-semibold">Service Status</div>
+                            <div class="text-muted small">Worker presence and queue health</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_admin_dashboard_ai_credits") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="credit_card") }}</span>
+                        <div>
+                            <div class="fw-semibold">AI Credits Usage</div>
+                            <div class="text-muted small">All AI credit consumption transactions</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_admin_dashboard_login_history") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="login") }}</span>
+                        <div>
+                            <div class="fw-semibold">Login History</div>
+                            <div class="text-muted small">All Arena login events across all users</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_admin_dashboard_submissions") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="send") }}</span>
+                        <div>
+                            <div class="fw-semibold">Submissions</div>
+                            <div class="text-muted small">Browse all Arena submissions with filters</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

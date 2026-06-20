@@ -1,0 +1,46 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Ranking{% endblock %}
+{% block nav_ranking %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <h1 class="arena-card-title mb-4">
+                {{ render_icon(icon="leaderboard") }}
+                Ranking
+            </h1>
+            <p class="text-muted mb-4">Choose a ranking to explore.</p>
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_ranking_users") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="person") }}</span>
+                        <div>
+                            <div class="fw-semibold">User Ranking</div>
+                            <div class="text-muted small">All competitors ranked by rating</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_ranking_affiliations") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="corporate_fare") }}</span>
+                        <div>
+                            <div class="fw-semibold">Affiliation Ranking</div>
+                            <div class="text-muted small">Teams and institutions ranked by rating</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

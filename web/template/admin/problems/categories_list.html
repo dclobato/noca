@@ -1,0 +1,79 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— Problem Categories{% endblock %}
+{% block extra_head %}
+    <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if is_uberadmin %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+            {% else %}
+                <li class="breadcrumb-item">Dashboard</li>
+            {% endif %}
+            <li class="breadcrumb-item active" aria-current="page">Problem Categories</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+            <div>
+                <h1 class="h3 mb-1">Problem Categories</h1>
+            </div>
+            <a href="{{ request.url_for("new_category_form") }}"
+               class="btn btn-primary btn-sm">{{ render_icon(icon="add", classes="me-1") }}Add new category</a>
+        </div>
+        {% if categories %}
+            <div class="card shadow-sm">
+                <div class="card-body p-0">
+                    <table class="table table-sm align-middle mb-0" id="category-list">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Name</th>
+                                <th class="noca-col-8">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cat in categories %}
+                                <tr id="{{ cat.id }}">
+                                    <td>
+                                        <span class="badge bg-secondary">{{ cat.name }}</span>
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm noca-icon-btn-group"
+                                             role="group"
+                                             aria-label="Category actions">
+                                            <a href="{{ request.url_for('edit_category_form', category_id=cat.id) }}"
+                                               class="btn btn-outline-secondary noca-icon-btn"
+                                               title="Rename">{{ render_icon(icon="edit") }}</a>
+                                            {% if is_uberadmin %}
+                                                <form method="post"
+                                                      action="{{ request.url_for('delete_category', category_id=cat.id) }}"
+                                                      class="noca-icon-btn-wrap"
+                                                      onsubmit="return confirm('Delete category {{ cat.name | e }}?')">
+                                                    <button type="submit"
+                                                            class="btn btn-outline-danger noca-icon-btn"
+                                                            title="Delete">{{ render_icon(icon="delete") }}</button>
+                                                </form>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        {% else %}
+            <div class="text-muted text-center py-5">
+                {{ render_icon(icon="sell", classes=["display-6", "d-block", "mb-2"]) }}
+                No categories yet. <a href="{{ request.url_for("new_category_form") }}">Add the first one</a>.
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

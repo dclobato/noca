@@ -1,0 +1,72 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+.noca-pre-wrap-sm {
+    white-space: pre-wrap;
+    font-size: 0.85em;
+}
+
+.noca-code-example {
+    font-size: 0.78em;
+}
+
+.noca-source-code-pre {
+    overflow-x: auto;
+}
+
+.noca-source-code-pre code.hljs {
+    display: block;
+    padding: 1rem;
+}
+
+.noca-source-code-pre .hljs-ln {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.noca-source-code-pre .hljs-ln-numbers {
+    width: 1%;
+    min-width: 3rem;
+    padding-right: 0.75rem;
+    border-right: 1px solid #dee2e6;
+    color: #6c757d;
+    text-align: right;
+    vertical-align: top;
+    user-select: none;
+}
+
+.noca-source-code-pre .hljs-ln-code {
+    padding-left: 0.75rem;
+    vertical-align: top;
+}
+
+/* PDF statement embed */
+.noca-pdf-embed {
+    width: 100%;
+    height: 60vh;
+    border: none;
+    display: block;
+}
+
+/* Sample test case pre blocks */
+.noca-sample-pre {
+    font-family: monospace;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* Rendered Markdown/LaTeX for sample test-case explanations: keep the block
+   compact by trimming the trailing margin marked adds to the last paragraph. */
+.noca-tc-explanation > :last-child {
+    margin-bottom: 0;
+}
+
+/* Whitespace utilities */
+.noca-pre-wrap {
+    white-space: pre-wrap;
+}

@@ -1,0 +1,55 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; System Status{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="mb-3">
+            <h1 class="mb-1">
+                {{ render_icon(icon="monitor_heart") }}
+                System Status
+            </h1>
+            <p class="text-muted mb-0">Current availability of Arena background services.</p>
+        </div>
+        <div class="row g-3">
+            {% for status in worker_statuses %}
+                <div class="col-12 col-md-4">
+                    <section class="arena-card h-100 text-center">
+                        <h2 class="arena-card-title justify-content-center">
+                            {{ render_icon(icon=status.icon) }}
+                            {{ status.title }}
+                        </h2>
+                        {% if status.state.value == "available" %}
+                            <span class="text-success d-inline-flex flex-column align-items-center gap-2"
+                                  title="Available"
+                                  aria-label="{{ status.title }}: Available">
+                                {{ render_icon(icon="check_circle", filled=True, classes="fs-1") }}
+                                <span class="fw-semibold">Available</span>
+                            </span>
+                        {% elif status.state.value == "unavailable" %}
+                            <span class="text-danger d-inline-flex flex-column align-items-center gap-2"
+                                  title="Unavailable"
+                                  aria-label="{{ status.title }}: Unavailable">
+                                {{ render_icon(icon="cancel", filled=True, classes="fs-1") }}
+                                <span class="fw-semibold">Unavailable</span>
+                            </span>
+                        {% else %}
+                            <span class="text-secondary d-inline-flex flex-column align-items-center gap-2"
+                                  title="Unknown"
+                                  aria-label="{{ status.title }}: Unknown">
+                                {{ render_icon(icon="help", filled=True, classes="fs-1") }}
+                                <span class="fw-semibold">Unknown</span>
+                            </span>
+                        {% endif %}
+                    </section>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+{% endblock %}

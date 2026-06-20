@@ -1,0 +1,174 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— Tasks{% endblock %}
+{% block extra_head %}
+    {% if not contest.is_past %}
+        <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
+                defer></script>
+    {% endif %}
+    {% if not access_blocked and contest.is_running and not contest.is_past %}
+        <script src="{{ request.url_for('static_js', path='refresh-timer.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
+{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Tasks</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Tasks</h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        {% if access_blocked %}
+            <div class="alert alert-info d-flex align-items-center gap-2">
+                {{ render_icon(icon="schedule") }}
+                Tasks are only available after the contest starts.
+            </div>
+        {% else %}
+            {% if current_user.role == RoleEnum.TEAM.value and contest.is_running %}
+                <div class="mb-3 d-flex gap-2 flex-wrap">
+                    <button type="button"
+                            class="btn btn-danger btn-sm"
+                            data-bs-toggle="modal"
+                            data-bs-target="#sosConfirmModal">
+                        {{ render_icon(icon="dangerous", filled=True, classes="me-1") }}SOS
+                    </button>
+                    {% if contest.allow_print_requests %}
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-toggle="modal"
+                                data-bs-target="#printModal">
+                            {{ render_icon(icon="print", classes="me-1") }}Print source code
+                        </button>
+                    {% endif %}
+                </div>
+            {% endif %}
+            {% if contest.is_running %}
+                <div class="mb-2">
+                    <small class="text-muted">Will update in <span id="refresh-timer" data-htmx-wrapper="tasks-list-wrapper">60</span> seconds</small>
+                </div>
+            {% endif %}
+            {% include "contest/tasks_list.html" %}
+        {% endif %}
+        {# end access_blocked #}
+    </div>
+    {# ── Print modal (TEAM only, outside HTMX-swappable region) ─────────── #}
+    {% if current_user.role == RoleEnum.TEAM.value and contest.allow_print_requests %}
+        <div class="modal fade"
+             id="printModal"
+             tabindex="-1"
+             aria-labelledby="printModalLabel"
+             aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="printModalLabel">{{ render_icon(icon="print", classes="me-1") }}Print Source Code</h5>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <form method="post"
+                          action="{{ request.url_for('contest_tasks_print', slug=contest.login_slug) }}"
+                          enctype="multipart/form-data">
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label for="print-problem-id" class="form-label">Problem</label>
+                                <select class="form-select" id="print-problem-id" name="problem_id" required>
+                                    <option value="">-- select a problem --</option>
+                                    {% for p in problems %}<option value="{{ p.id }}">{{ problem_map[p.id] }}</option>{% endfor %}
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="print-source-file" class="form-label">Source file</label>
+                                <input class="form-control"
+                                       type="file"
+                                       id="print-source-file"
+                                       name="source_file"
+                                       required>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button"
+                                    class="btn btn-secondary btn-sm"
+                                    data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-primary btn-sm">{{ render_icon(icon="send", classes="me-1") }}Submit</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+    {# ── SOS confirmation modal (TEAM only, outside HTMX-swappable region) ─ #}
+    {% if current_user.role == RoleEnum.TEAM.value %}
+        <div class="modal fade"
+             id="sosConfirmModal"
+             tabindex="-1"
+             aria-labelledby="sosConfirmModalLabel"
+             aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title" id="sosConfirmModalLabel">
+                            {{ render_icon(icon="dangerous", filled=True, classes="me-1") }}Request Assistance (SOS)
+                        </h5>
+                        <button type="button"
+                                class="btn-close btn-close-white"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-1">This will notify staff that your team needs immediate help.</p>
+                        <p class="text-muted small mb-0">A staff member will come to your station as soon as possible.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <form method="post"
+                              action="{{ request.url_for('contest_tasks_sos', slug=contest.login_slug) }}"
+                              class="d-inline">
+                            <button type="submit" class="btn btn-danger btn-sm">
+                                {{ render_icon(icon="dangerous", filled=True, classes="me-1") }}Confirm SOS
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+    {# ── Task detail modal (STAFF / ADMIN / UBERADMIN, outside HTMX-swappable region) ──── #}
+    {% if current_user.role in (RoleEnum.STAFF.value, RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
+        <div class="modal fade"
+             id="taskDetailModal"
+             tabindex="-1"
+             aria-labelledby="taskDetailModalLabel"
+             aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="taskDetailModalLabel">Task Detail</h5>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" id="task-modal-body">{# Populated by tasks.js from data attributes on the Open button #}</div>
+                    <div class="modal-footer" id="task-modal-footer">{# Populated by tasks.js #}</div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_js', path='tasks.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}

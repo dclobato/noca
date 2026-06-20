@@ -1,0 +1,107 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Problem Set Report{% endblock %}
+{% block nav_classes %}active{% endblock %}
+{% block nav_classes_manage %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="table_view") }}
+                    Problem Set Report
+                </h1>
+                <a href="{{ back_url }}#set-{{ report.set_id }}"
+                   class="btn btn-secondary btn-sm">
+                    {{ render_icon(icon="arrow_back") }}
+                    Return to problem sets list
+                </a>
+            </div>
+            <div class="mb-3">
+                <p class="mb-1 fw-semibold">{{ report.name }}</p>
+                <p class="text-muted small mb-0">{{ class_detail.name }}</p>
+            </div>
+            {% if report.students %}
+                <div class="d-flex flex-wrap gap-3 mb-3">
+                    <span class="badge text-bg-warning fs-6">{{ report.no_ac_student_count }} student{{ 's' if report.no_ac_student_count != 1 else '' }} with 0 AC</span>
+                    <span class="badge text-bg-secondary fs-6">{{ report.no_submission_student_count }} student{{ 's' if report.no_submission_student_count != 1 else '' }} with no submission</span>
+                </div>
+            {% endif %}
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th></th>
+                            {% for problem in report.problems %}
+                                <th class="text-center">
+                                    <a href="{{ request.url_for('arena_problem_detail', arena_number=problem.arena_number) }}">{{ problem.arena_number }}</a>
+                                </th>
+                            {% endfor %}
+                            {% if report.snapshot_available %}<th class="text-end">Snapshot rating</th>{% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in report.students %}
+                            <tr id="student-{{ row.user_id }}">
+                                <td>
+                                    <a href="{{ request.url_for('arena_class_problem_set_report_student', class_id=class_id, set_id=report.set_id, user_id=row.user_id) }}"
+                                       class="d-inline-flex align-items-center gap-2">
+                                        <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=row.user_id) }}"
+                                             width="32"
+                                             height="32"
+                                             class="rounded-circle object-fit-cover flex-shrink-0"
+                                             alt="">
+                                        <span>{{ row.user_name }}</span>
+                                    </a>
+                                </td>
+                                <td class="text-end text-nowrap font-monospace small">
+                                    {{ row.verdicts | select('equalto', 'AC') | list | length }}/{{ report.problems | length }}
+                                </td>
+                                {% for verdict in row.verdicts %}
+                                    <td class="text-center">
+                                        {% if verdict %}
+                                            <span class="badge {{ verdict_badge_classes.get(verdict, 'bg-secondary') }} font-monospace">{{ verdict }}</span>
+                                        {% else %}
+                                            --
+                                        {% endif %}
+                                    </td>
+                                {% endfor %}
+                                {% if report.snapshot_available %}
+                                    <td class="text-end">{{ row.snapshot_rating if row.snapshot_rating is not none else '—' }}</td>
+                                {% endif %}
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="{{ 2 + (report.problems | length) + (1 if report.snapshot_available else 0) }}"
+                                    class="arena-empty-state">No registered students found.</td>
+                            </tr>
+                        {% endfor %}
+                        {% if report.students %}
+                            <tr class="fw-semibold text-muted small">
+                                <td colspan="2">AC per problem</td>
+                                {% for i in range(report.problems | length) %}
+                                    {% set ns = namespace(count=0) %}
+                                    {% for student in report.students %}
+                                        {% if student.verdicts[i] == 'AC' %}
+                                            {% set ns.count = ns.count + 1 %}
+                                        {% endif %}
+                                    {% endfor %}
+                                    <td class="text-center">{{ ns.count }}</td>
+                                {% endfor %}
+                                {% if report.snapshot_available %}<td></td>{% endif %}
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% endblock %}

@@ -1,0 +1,171 @@
+{% from "_macros.html" import render_icon %}
+{% macro task_modal_button(t, finished=False, finish_url='', release_url='') %}
+    <button type="button"
+            class="btn {{ 'btn-outline-secondary' if finished else 'btn-primary' }} btn-sm"
+            data-bs-toggle="modal"
+            data-bs-target="#taskDetailModal"
+            data-task-id="{{ t.id }}"
+            data-task-type="{{ t.type }}"
+            {% if finished %}data-task-finished="true"{% endif %}
+            data-team-name="{{ team_map.get(t.team_id, '?') | e }}"
+            data-team-location="{{ team_location_map.get(t.team_id, '') | e }}"
+            data-problem-label="{{ problem_map.get(t.problem_id, {}).get('label', '') | e if t.problem_id else '' }}"
+            data-problem-title="{{ problem_map.get(t.problem_id, {}).get('title', '') | e if t.problem_id else '' }}"
+            data-problem-color="{{ problem_map.get(t.problem_id, {}).get('color', '') | e if t.problem_id else '' }}"
+            data-source-url="{{ request.url_for('contest_tasks_source', slug=contest.login_slug, task_id=t.id) }}"
+            {% if not finished %}data-finish-url="{{ finish_url }}" data-release-url="{{ release_url }}"{% endif %}
+            title="{{ 'View task details' if finished else 'Open task' }}">
+        {{ render_icon(icon='visibility' if finished else 'folder_open', classes="me-1") }}{{ 'View' if finished else 'Open' }}
+    </button>
+{% endmacro %}
+<div id="tasks-list-wrapper"
+     {% if contest.is_running and current_user.role in (RoleEnum.TEAM.value, RoleEnum.STAFF.value, RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %} hx-get="{{ request.url_for('contest_tasks_list', slug=contest.login_slug) }}" hx-trigger="every 60s" hx-swap="outerHTML" {% endif %}>
+    {% if not lock_service_available and current_user.role in (RoleEnum.STAFF.value, RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
+        <div class="alert alert-warning small mx-3 mt-3 mb-0">Lock service unavailable. Possible double work/rework.</div>
+    {% endif %}
+    {% if not tasks %}
+        <div class="text-center text-muted py-5">
+            {{ render_icon(icon="check_box", classes=["display-6", "d-block", "mb-2"]) }}
+            No tasks yet.
+        </div>
+    {% else %}
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="text-end noca-col-6">Time</th>
+                                <th class="text-center noca-col-3">Type</th>
+                                {% if current_user.role in (RoleEnum.STAFF.value, RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
+                                    <th>Team</th>
+                                {% endif %}
+                                <th class="text-center noca-col-8">Status</th>
+                                {% if current_user.role in (RoleEnum.STAFF.value, RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
+                                    <th class="noca-col-8">Staff</th>
+                                {% endif %}
+                                <th class="text-end noca-col-7">Queue time</th>
+                                {% if current_user.role in (RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
+                                    <th class="text-end noca-col-7">Service time</th>
+                                {% endif %}
+                                {% if current_user.role in (RoleEnum.STAFF.value, RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
+                                    <th class="noca-col-6"></th>
+                                {% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for t in tasks %}
+                                <tr id="{{ t.id }}">
+                                    <td class="small text-end">{{ contest_minutes(t.created_timestamp_seconds) }}</td>
+                                    {# Type icon #}
+                                    <td class="text-center">
+                                        {% if t.type == TaskType.PRINT.value %}
+                                            {{ render_icon(icon="print") }}
+                                        {% elif t.type == TaskType.SOS.value %}
+                                            {{ render_icon(icon="dangerous", filled=True, classes="text-danger") }}
+                                        {% else %}
+                                            {% set balloon_color = problem_color_map.get(t.problem_id, '#888888') if t.problem_id else '#888888' %}
+                                            {% set is_first_balloon = t.type == TaskType.FIRST_BALLOON.value %}
+                                            <img src="/assets/{{ 'star' if is_first_balloon else 'balloon' }}/{{ balloon_color[1:] }}"
+                                                 width="24"
+                                                 height="36"
+                                                 class="{{ 'noca-first-balloon' if is_first_balloon else '' }}"
+                                                 alt="{{ 'star balloon' if is_first_balloon else 'balloon' }}"
+                                                 title="{{ 'First balloon' if is_first_balloon else 'Balloon' }}">
+                                        {% endif %}
+                                    </td>
+                                    {# Team column (staff/admin only) #}
+                                    {% if current_user.role in (RoleEnum.STAFF.value, RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
+                                        <td class="small">
+                                            {{ team_map.get(t.team_id, '?') }}
+                                            {% if team_location_map.get(t.team_id) %}
+                                                <br>
+                                                <span class="text-muted">{{ team_location_map.get(t.team_id) }}</span>
+                                            {% endif %}
+                                        </td>
+                                    {% endif %}
+                                    {# Status badge #}
+                                    <td class="text-center">
+                                        {% if t.finished_at is not none %}
+                                            <span class="badge bg-success">Finished</span>
+                                        {% elif t.staff_id is not none %}
+                                            <span class="badge bg-info text-dark">Processing</span>
+                                        {% else %}
+                                            <span class="badge bg-warning text-dark">On queue</span>
+                                        {% endif %}
+                                    </td>
+                                    {# Staff column (staff/admin only) #}
+                                    {% if current_user.role in (RoleEnum.STAFF.value, RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
+                                        <td class="small text-muted">
+                                            {% if t.staff_id is not none %}
+                                                {{ staff_map.get(t.staff_id, '?') }}
+                                            {% else %}
+                                                —
+                                            {% endif %}
+                                        </td>
+                                    {% endif %}
+                                    {# Queue time column (all roles) #}
+                                    <td class="text-end small text-muted">{{ queue_time_map.get(t.id) or '—' }}</td>
+                                    {# Service time column (admin/uberadmin only) #}
+                                    {% if current_user.role in (RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
+                                        <td class="text-end small text-muted">{{ service_time_map.get(t.id) or '—' }}</td>
+                                    {% endif %}
+                                    {# Action column #}
+                                    {% if current_user.role == RoleEnum.STAFF.value %}
+                                        <td class="text-center">
+                                            {% if t.finished_at is none %}
+                                                {% if not lock_service_available %}
+                                                    {{ task_modal_button(t, finish_url=request.url_for('contest_tasks_finish', slug=contest.login_slug, task_id=t.id) ) }}
+                                                {% elif t.acquired_by_me %}
+                                                    {# Staff holds the lock: open detail modal #}
+                                                    {{ task_modal_button(t, finish_url=request.url_for('contest_tasks_finish', slug=contest.login_slug, task_id=t.id) , release_url=request.url_for('contest_tasks_release', slug=contest.login_slug, task_id=t.id)) }}
+                                                {% elif t.staff_id is none %}
+                                                    {# Unacquired: show acquire button #}
+                                                    <form method="post"
+                                                          action="{{ request.url_for('contest_tasks_acquire', slug=contest.login_slug, task_id=t.id) }}"
+                                                          class="d-inline">
+                                                        <button type="submit"
+                                                                class="btn btn-outline-primary btn-sm"
+                                                                title="Acquire task">
+                                                            {{ render_icon(icon="touch_app", classes="me-1") }}Acquire
+                                                        </button>
+                                                    </form>
+                                                {% else %}
+                                                    {# Acquired by someone else: show who holds it #}
+                                                    <span class="text-muted small">
+                                                        {{ render_icon(icon="lock", filled=True, classes="me-1") }}{{ staff_map.get(t.staff_id, '?') }}
+                                                    </span>
+                                                {% endif %}
+                                            {% else %}
+                                                {# Finished: show read-only detail modal #}
+                                                {{ task_modal_button(t, finished=True) }}
+                                            {% endif %}
+                                        </td>
+                                    {% elif current_user.role in (RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
+                                        <td class="text-center">
+                                            {% if t.finished_at is not none %}
+                                                {# Finished: show read-only detail modal #}
+                                                {{ task_modal_button(t, finished=True) }}
+                                            {% elif lock_service_available and t.staff_id is not none %}
+                                                <form method="post"
+                                                      action="{{ request.url_for('contest_tasks_release', slug=contest.login_slug, task_id=t.id) }}"
+                                                      class="d-inline"
+                                                      onsubmit="return confirm('Force release this task lock? The staff member will lose their hold.');">
+                                                    <button type="submit"
+                                                            class="btn btn-outline-danger btn-sm noca-icon-btn"
+                                                            title="Force Release">
+                                                        {{ render_icon(icon="lock_open") }}
+                                                    </button>
+                                                </form>
+                                            {% endif %}
+                                        </td>
+                                    {% endif %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+</div>

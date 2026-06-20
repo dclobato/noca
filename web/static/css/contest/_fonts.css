@@ -1,0 +1,44 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+@font-face {
+    font-family: 'Material Symbols Outlined';
+    font-style: normal;
+    src: url('/static/webfonts/mso.woff2') format('woff');
+}
+
+@font-face {
+    font-family: 'devicon';
+    src: url('/static/vendor/fonts/devicon.woff?qd25fp') format('woff'),
+    url('/static/vendor/fonts/devicon.ttf?qd25fp') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+.material-symbols-outlined {
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px; /* Preferred icon size */
+    display: inline-block;
+    line-height: 1;
+    text-transform: none;
+    letter-spacing: normal;
+    word-wrap: normal;
+    white-space: nowrap;
+    direction: ltr;
+    vertical-align: middle;
+}
+
+.material-symbols-filled {
+    font-variation-settings: 'FILL' 1;
+}
+
+.material-symbols-outline {
+    font-variation-settings: 'FILL' 0;
+}

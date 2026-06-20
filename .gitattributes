@@ -1,0 +1,53 @@
+###############################
+# Git Line Endings            #
+###############################
+
+# Set default behaviour to automatically normalize line endings.
+* text=auto
+
+# Force batch scripts to always use CRLF line endings so that if a repo is accessed
+# in Windows via a file share from Linux, the scripts will work.
+*.{cmd,[cC][mM][dD]} text eol=crlf
+*.{bat,[bB][aA][tT]} text eol=crlf
+
+# Force bash scripts to always use LF line endings so that if a repo is accessed
+# in Unix via a file share from Windows, the scripts will work.
+*.sh text eol=lf
+
+# Go files should use LF only
+*.go text eol=lf
+
+###############################
+# Common text formats         #
+###############################
+
+*.py    text eol=lf diff=python
+*.c     text eol=lf diff=cpp
+*.h     text eol=lf diff=cpp
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.sql   text eol=lf
+Dockerfile    text eol=lf
+Makefile      text eol=lf
+Makefile.win  text eol=crlf
+*.service     text eol=lf
+
+###############################
+# Binary files                #
+###############################
+
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.pdf    binary
+*.zip    binary
+*.tar    binary
+*.gz     binary
+*.db     binary
+*.sqlite binary
+*.pyc    binary

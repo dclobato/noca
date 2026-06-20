@@ -1,0 +1,193 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Submissions{% endblock %}
+{% block nav_admin_dashboard %}active{% endblock %}
+{% block nav_admin_dashboard_submissions %}active{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
+{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="send") }}
+                    Submissions
+                </h1>
+            </div>
+            <form method="get"
+                  class="d-flex flex-wrap gap-2 align-items-end mb-3"
+                  id="submissions-filter-form">
+                {% with label="Search user", value=search, placeholder="User name or email…" %}
+                    {% include "_partials/filter_search_field.html" %}
+                {% endwith %}
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="verdict_filter">Verdict</label>
+                    <select class="form-select form-select-sm"
+                            id="verdict_filter"
+                            name="verdict_filter">
+                        <option value="">All verdicts</option>
+                        {% for v in Verdict %}
+                            <option value="{{ v.value }}"
+                                    {% if verdict_filter == v.value %}selected{% endif %}>{{ v.value }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="ai_filter">AI review</label>
+                    <select class="form-select form-select-sm" id="ai_filter" name="ai_filter">
+                        <option value="">All</option>
+                        <option value="yes" {% if ai_filter == 'yes' %}selected{% endif %}>Submitted</option>
+                        <option value="no" {% if ai_filter == 'no' %}selected{% endif %}>Not submitted</option>
+                    </select>
+                </div>
+                {% if available_languages %}
+                    <div>
+                        <label class="form-label form-label-sm mb-1" for="language_filter">Language</label>
+                        <select class="form-select form-select-sm"
+                                id="language_filter"
+                                name="language_filter">
+                            <option value="">All languages</option>
+                            {% for lang_id, lang_name in available_languages %}
+                                <option value="{{ lang_id }}"
+                                        {% if language_filter == lang_id %}selected{% endif %}>{{ lang_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                {% endif %}
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="problem_filter">Problem #</label>
+                    <input type="text"
+                           class="form-control form-control-sm arena-filter-narrow"
+                           id="problem_filter"
+                           name="problem_filter"
+                           value="{{ problem_filter }}"
+                           placeholder="e.g. 10">
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="date_from">From</label>
+                    <input type="text"
+                           class="form-control form-control-sm arena-date-input"
+                           id="date_from"
+                           name="date_from"
+                           value="{{ date_from }}"
+                           placeholder="YYYY-MM-DD"
+                           data-fp-date
+                           data-fp-range-end="#date_to">
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="date_to">To</label>
+                    <input type="text"
+                           class="form-control form-control-sm arena-date-input"
+                           id="date_to"
+                           name="date_to"
+                           value="{{ date_to }}"
+                           placeholder="YYYY-MM-DD"
+                           data-fp-date>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="sort_dir">Order</label>
+                    <select class="form-select form-select-sm" id="sort_dir" name="sort_dir">
+                        <option value="desc" {% if sort_dir == 'desc' %}selected{% endif %}>Newest first</option>
+                        <option value="asc" {% if sort_dir == 'asc' %}selected{% endif %}>Oldest first</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="per_page">Per page</label>
+                    <select class="form-select form-select-sm" id="per_page" name="per_page">
+                        {% for n in [10, 25, 50, 100, 500] %}
+                            <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% include "_partials/filter_submit_button.html" %}
+                {% set _filters_active = search or verdict_filter or ai_filter or language_filter or problem_filter or date_from or date_to or sort_dir != 'desc' or per_page != 25 %}
+                {% with clear_url=request.url_for("arena_admin_dashboard_submissions"), filters_active=_filters_active %}
+                    {% include "_partials/filter_clear_link.html" %}
+                {% endwith %}
+            </form>
+            <p class="text-muted small mb-2">{{ submissions.total }} submission{{ 's' if submissions.total != 1 else '' }}</p>
+            {% with pagination=submissions, page_param="page", label="Submissions pagination", nav_margin="mb-2" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th>Date / Time</th>
+                            <th>User</th>
+                            <th>Problem</th>
+                            <th>Language</th>
+                            <th>Verdict</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in submissions.items %}
+                            <tr>
+                                <td class="text-nowrap">{{ arena_format_datetime(row.submitted_at, current_user) }}</td>
+                                <td>
+                                    <a href="{{ request.url_for('arena_admin_user_profile', user_id=row.user_id) }}"
+                                       class="text-decoration-none">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=row.user_id) }}"
+                                                 width="32"
+                                                 height="32"
+                                                 class="rounded-circle object-fit-cover flex-shrink-0"
+                                                 alt="">
+                                            <span>{{ row.user_name }}</span>
+                                        </div>
+                                    </a>
+                                </td>
+                                <td class="text-nowrap">{{ row.problem_number }}: {{ row.problem_title }}</td>
+                                <td class="text-nowrap">{{ row.language_name }}</td>
+                                <td>
+                                    {% if row.verdict %}
+                                        <span class="badge {{ verdict_badge_classes.get(row.verdict, 'bg-secondary') }} font-monospace">
+                                            {{ row.verdict }}
+                                        </span>
+                                    {% elif row.status %}
+                                        <span class="badge bg-secondary font-monospace">{{ row.status }}</span>
+                                    {% else %}
+                                        <span class="text-muted">&mdash;</span>
+                                    {% endif %}
+                                    {% if row.has_ai_review %}
+                                        <span class="ms-1 text-muted" title="AI review available">{{ render_icon(icon="psychology_alt") }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="{{ request.url_for('arena_submission_detail', submission_id=row.submission_id) }}"
+                                       class="btn btn-outline-secondary btn-sm arena-icon-button">
+                                        {{ render_icon(icon="open_in_new") }}
+                                        <span>View</span>
+                                    </a>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-3">No submissions found.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% with pagination=submissions, page_param="page", label="Submissions pagination" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/l10n/default.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/plugins/rangePlugin.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='flatpickr-init.js') }}?v={{ app_version }}"></script>
+{% endblock %}

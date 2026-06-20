@@ -1,0 +1,131 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Affiliation Ranking{% endblock %}
+{% block nav_ranking %}active{% endblock %}
+{% block nav_ranking_affiliations %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="corporate_fare") }}
+                    Affiliation Ranking
+                </h1>
+                <a href="{{ request.url_for("arena_ranking_index") }}"
+                   class="btn btn-link btn-sm text-muted text-decoration-none">
+                    {{ render_icon(icon="arrow_back") }}
+                    Ranking
+                </a>
+            </div>
+            <form method="get"
+                  class="d-flex flex-wrap gap-2 align-items-end mb-3"
+                  id="affiliation-ranking-filter-form">
+                {% with label="Search", input_type="text", value=search, placeholder="Affiliation name…", autocomplete="off" %}
+                    {% include "_partials/filter_search_field.html" %}
+                {% endwith %}
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="filter-country-code">Country</label>
+                    <select class="form-select form-select-sm"
+                            id="filter-country-code"
+                            name="country_code">
+                        <option value="">— All countries —</option>
+                        {% for c in countries %}
+                            <option value="{{ c.code }}"
+                                    {% if c.code == country_code %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="filter-subdivision-code">Subdivision</label>
+                    <select class="form-select form-select-sm"
+                            id="filter-subdivision-code"
+                            name="subdivision_code"
+                            {% if not country_code %}disabled{% endif %}>
+                        <option value="">— Subdivision —</option>
+                        {% for s in subdivisions %}
+                            <option value="{{ s.code }}"
+                                    {% if s.code == subdivision_code %}selected{% endif %}>{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% include "_partials/filter_submit_button.html" %}
+                {% set _filters_active = search or country_code or subdivision_code %}
+                {% with clear_url=request.url_for("arena_ranking_affiliations"), filters_active=_filters_active %}
+                    {% include "_partials/filter_clear_link.html" %}
+                {% endwith %}
+            </form>
+            <p class="text-muted small mb-2">{{ pagination.total }} affiliation{{ 's' if pagination.total != 1 else '' }}</p>
+            {% with pagination=pagination, page_param="page", label="Affiliation ranking pagination", nav_margin="mb-2" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th class="text-end">#</th>
+                            <th></th>
+                            <th>Name</th>
+                            <th>Country</th>
+                            <th>Subdivision</th>
+                            <th class="text-end">Rating</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for aff in pagination.items %}
+                            <tr>
+                                <td class="text-end arena-monospace text-muted">{{ aff.rank }}</td>
+                                <td class="text-center">
+                                    {% if aff.has_logo %}
+                                        <img src="{{ request.url_for('arena_affiliation_logo_thumbnail', affiliation_id=aff.id) }}"
+                                             width="32"
+                                             height="32"
+                                             class="rounded object-fit-cover"
+                                             alt="{{ aff.name }} logo">
+                                    {% else %}
+                                        <span class="text-muted">{{ render_icon(icon="corporate_fare") }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="{{ request.url_for('arena_ranking_affiliation_users', affiliation_id=aff.id) }}"
+                                       class="fw-semibold">{{ aff.name }}</a>
+                                </td>
+                                <td class="text-nowrap">
+                                    {% if aff.country_code %}
+                                        <img src="{{ request.url_for('static_vendor', path='img/flags/' + aff.country_code.lower() + '.svg') }}"
+                                             class="arena-country-flag"
+                                             alt="">
+                                        {{ aff.country_name }}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if aff.subdivision_name %}
+                                        {{ aff.subdivision_name }}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end arena-mono-right">{{ aff.rating }}</td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="6" class="arena-empty-state">No affiliations found.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% with pagination=pagination, page_param="page", label="Affiliation ranking pagination" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+        </div>
+    </div>
+{% endblock %}

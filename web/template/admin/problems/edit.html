@@ -1,0 +1,688 @@
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}
+    —
+    {% if problem %}
+        {{ problem.title }}
+    {% else %}
+        New Problem
+    {% endif %}
+{% endblock %}
+{% block extra_head %}
+    <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
+            defer></script>
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='easymde.min.css') }}">
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='fontawesome-all.min.css') }}">
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='katex.min.css') }}">
+{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('manage_problems', slug=contest.login_slug) }}">Problems</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">
+                {% if problem %}
+                    {{ problem.title }}
+                {% else %}
+                    New Problem
+                {% endif %}
+            </li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">
+                {% if problem %}
+                    Edit Problem
+                {% else %}
+                    New Problem
+                {% endif %}
+            </h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        {% for err in errors %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endfor %}
+        {% if not is_edit_allowed %}
+            <div class="alert alert-warning py-2 small">
+                {{ render_icon(icon="lock", classes="me-1") }}
+                {% if contest.is_running %}
+                    Contest is running — only the Limits tab may be updated. Problem content and test cases stay locked.
+                {% elif contest.is_past %}
+                    Contest has ended — this problem cannot be edited.
+                {% elif not contest.active %}
+                    Contest is inactive — this problem cannot be edited.
+                {% else %}
+                    Problem editing is not allowed at this time.
+                {% endif %}
+            </div>
+        {% endif %}
+        {% if problem and is_edit_allowed and not is_remove_allowed %}
+            <div class="alert alert-info py-2 small">
+                {{ render_icon(icon="info", classes="me-1") }}
+                Note: this problem cannot be removed while the contest is running.
+            </div>
+        {% endif %}
+        {% if problem %}<input type="hidden" id="problem-id-hint" value="{{ problem.id }}">{% endif %}
+        {% set _active_tab = active_tab if active_tab is defined else 'content' %}
+        {% set _edit_form_action %}
+            {% if problem %}
+                {{ request.url_for('edit_problem_submit', slug=contest.login_slug, problem_id=problem.id) }}
+            {% else %}
+                {{ request.url_for('new_problem_submit', slug=contest.login_slug) }}
+            {% endif %}
+        {% endset %}
+        <ul class="nav nav-tabs mb-0"
+            id="problem-edit-tabs"
+            role="tablist"
+            data-active-tab="{{ _active_tab }}">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {% if _active_tab == 'content' %}active{% endif %}"
+                        id="tab-content-btn"
+                        data-bs-toggle="tab"
+                        data-bs-target="#tab-content"
+                        type="button"
+                        role="tab"
+                        aria-controls="tab-content"
+                        aria-selected="{{ 'true' if _active_tab == 'content' else 'false' }}">Content</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {% if _active_tab == 'limits' %}active{% endif %}"
+                        id="tab-limits-btn"
+                        data-bs-toggle="tab"
+                        data-bs-target="#tab-limits"
+                        type="button"
+                        role="tab"
+                        aria-controls="tab-limits"
+                        aria-selected="{{ 'true' if _active_tab == 'limits' else 'false' }}">Limits</button>
+            </li>
+        </ul>
+        {% if problem %}
+            <form id="edit-form"
+                  method="post"
+                  action="{{ _edit_form_action | trim }}"
+                  enctype="multipart/form-data">
+            </form>
+        {% else %}
+            <form id="edit-form"
+                  method="post"
+                  action="{{ _edit_form_action | trim }}"
+                  enctype="multipart/form-data">
+            {% endif %}
+            <div class="tab-content border border-top-0 rounded-bottom p-4 mb-4">
+                <div class="tab-pane fade {% if _active_tab == 'content' %}show active{% endif %}"
+                     id="tab-content"
+                     role="tabpanel"
+                     aria-labelledby="tab-content-btn">
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header fw-semibold">Basic Info</div>
+                        <div class="card-body">
+                            <div class="row g-3">
+                                <div class="col-12 col-md-8">
+                                    <label for="title" class="form-label">
+                                        Title <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="title"
+                                           name="title"
+                                           form="edit-form"
+                                           maxlength="200"
+                                           required
+                                           value="{{ form_data.title if form_data.title is defined else '' }}"
+                                           {% if not is_edit_allowed %}disabled{% endif %}>
+                                </div>
+                            </div>
+                            <div class="row g-3 mt-1">
+                                <div class="col-12">
+                                    <label class="form-label">Balloon color</label>
+                                    {% set _init_color = form_data.color if form_data.color is defined else '#FF0000' %}
+                                    <input type="hidden"
+                                           name="color"
+                                           id="color-value"
+                                           form="edit-form"
+                                           value="{{ _init_color }}">
+                                    <div class="d-flex flex-wrap gap-1 align-items-center"
+                                         id="balloon-color-picker">
+                                        {% for hex in balloon_colors %}
+                                            <button type="button"
+                                                    class="noca-balloon-opt btn p-0"
+                                                    data-color="{{ hex }}"
+                                                    title="{{ hex }}"
+                                                    {% if not is_edit_allowed %}disabled{% endif %}>
+                                                <img src="{{ request.url_for('balloon', color=hex[1:]) }}"
+                                                     height="40"
+                                                     alt="">
+                                            </button>
+                                        {% endfor %}
+                                        <span class="vr align-self-stretch mx-1"></span>
+                                        <div class="position-relative">
+                                            <label for="color-custom-input"
+                                                   class="btn btn-sm btn-outline-secondary noca-balloon-opt"
+                                                   id="custom-color-btn"
+                                                   title="Custom color">
+                                                {{ render_icon(icon="colorize", classes="fs-5") }}
+                                            </label>
+                                            <input type="color"
+                                                   id="color-custom-input"
+                                                   value="{{ _init_color }}"
+                                                   class="noca-color-custom-input"
+                                                   {% if not is_edit_allowed %}disabled{% endif %}>
+                                        </div>
+                                        <img id="balloon-preview"
+                                             height="40"
+                                             src="{{ request.url_for('balloon', color=_init_color[1:]) }}"
+                                             alt="selected color"
+                                             class="ms-1 noca-balloon-custom-preview">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row g-3 mt-1">
+                                <div class="col-12 col-md-6">
+                                    <label for="author" class="form-label">
+                                        Author <span class="text-muted small">(optional)</span>
+                                    </label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="author"
+                                           name="author"
+                                           form="edit-form"
+                                           value="{{ form_data.author if form_data.author is defined else '' }}"
+                                           {% if not is_edit_allowed %}disabled{% endif %}>
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label for="notes" class="form-label">
+                                        Notes <span class="text-muted small">(optional)</span>
+                                    </label>
+                                    <textarea class="form-control"
+                                              id="notes"
+                                              name="notes"
+                                              form="edit-form"
+                                              rows="2"
+                                              {% if not is_edit_allowed %} disabled {% endif %}>{{ form_data.notes if form_data.notes is defined else '' }}</textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header fw-semibold">Problem Statement</div>
+                        <div class="card-body">
+                            <span id="stmt-state-sentinel"
+                                  class="d-none"
+                                  data-has-pdf="{{ 'true' if (problem and has_pdf) else 'false' }}"
+                                  data-has-md="{{ 'true' if (problem and has_md) else 'false' }}"
+                                  data-is-edit="{{ 'true' if problem else 'false' }}"></span>
+                            <input type="hidden"
+                                   name="statement_source"
+                                   id="statement_source"
+                                   form="edit-form"
+                                   value="{{ 'unchanged' if (problem and (has_pdf or has_md)) else 'md' }}">
+                            {% if problem and has_pdf %}
+                                <div class="mb-3" id="stmt-pdf-preview">
+                                    <object data="{{ request.url_for('problem_statement', slug=contest.login_slug, problem_id=problem.id) }}"
+                                            type="application/pdf"
+                                            width="100%"
+                                            height="350px"
+                                            class="rounded border">
+                                        <p class="p-3 text-muted small">
+                                            PDF preview not available.
+                                            <a href="{{ request.url_for('problem_statement', slug=contest.login_slug, problem_id=problem.id) }}">Open PDF</a>
+                                        </p>
+                                    </object>
+                                    <div class="d-flex gap-2 mt-2 flex-wrap">
+                                        <a href="{{ request.url_for('problem_statement', slug=contest.login_slug, problem_id=problem.id) }}?download=1"
+                                           class="btn btn-sm btn-outline-secondary">
+                                            {{ render_icon(icon="download", classes="me-1") }}Download PDF
+                                        </a>
+                                        {% if is_edit_allowed %}
+                                            <button type="button"
+                                                    id="stmt-replace-with-md"
+                                                    class="btn btn-sm btn-outline-warning">
+                                                {{ render_icon(icon="edit", classes="me-1") }}Replace with empty Markdown
+                                            </button>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            {% endif %}
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    {% if problem and has_pdf %}
+                                        Replace statement (PDF or Markdown)
+                                    {% elif problem and has_md %}
+                                        Replace (PDF or Markdown)
+                                    {% else %}
+                                        Upload statement <span class="text-muted small">(or type it in the space below)</span>
+                                    {% endif %}
+                                </label>
+                                <input type="file"
+                                       class="form-control"
+                                       name="statement_file"
+                                       id="stmt-file-input"
+                                       form="edit-form"
+                                       accept=".pdf,.md"
+                                       {% if not is_edit_allowed %}disabled{% endif %}>
+                                <div class="form-text">
+                                    Upload a <code>.pdf</code> or <code>.md</code> file.
+                                    After uploading a PDF, Markdown editor will be disabled.
+                                    After uploading a <code>.md</code>, its content will be loaded into the editor.
+                                </div>
+                            </div>
+                            <div class="mb-1">
+                                <label class="form-label">Statement (Markdown)</label>
+                                <textarea id="stmt-md-editor"
+                                          name="md_content"
+                                          form="edit-form"
+                                          {% if not is_edit_allowed %}disabled{% endif %}>{{ md_content | e }}</textarea>
+                                <div class="form-text small">Only text and formatting. External links and images are not allowed.</div>
+                                <div class="form-text small mt-1">
+                                    Support for <span class="fw-semibold">LaTeX</span> (
+                                    <span class="text-muted">$x^n + 3 = 0$</span>
+                                    )
+                                    and <span class="fw-semibold">Mermaid diagrams</span> (
+                                    <span class="text-muted" style="font-family: monospace;">```mermaid ...```</span>
+                                    )
+                                    <a href="#"
+                                       class="ms-1"
+                                       data-bs-toggle="modal"
+                                       data-bs-target="#syntaxModal">View syntax examples</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header fw-semibold">Categories</div>
+                        <div class="card-body">
+                            <input type="hidden"
+                                   name="category_names"
+                                   id="category_names_input"
+                                   form="edit-form"
+                                   value="{{ category_names_csv if problem else '' }}">
+                            <div id="category-chips" class="d-flex flex-wrap gap-2 mb-2">
+                                {% if problem %}
+                                    {% for cat in problem.categories %}
+                                        <span class="badge bg-secondary d-flex align-items-center gap-1 category-chip"
+                                              data-name="{{ cat.name }}">
+                                            {{ cat.name }}
+                                            {% if is_edit_allowed %}
+                                                <button type="button"
+                                                        class="btn-close btn-close-white noca-chip-close"
+                                                        onclick="removeChip(this)"></button>
+                                            {% endif %}
+                                        </span>
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
+                            {% if is_edit_allowed %}
+                                <div class="position-relative" id="category-autocomplete-wrapper">
+                                    <div class="input-group input-group-sm">
+                                        <input type="text"
+                                               id="category-input"
+                                               class="form-control"
+                                               data-autocomplete-url="{{ request.url_for("problem_categories_autocomplete") }}"
+                                               placeholder="Add categories (comma-separated or pick from list)…">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary"
+                                                onclick="addCategories()">Add</button>
+                                    </div>
+                                    <div id="category-suggestions"
+                                         class="dropdown-menu w-100 d-none noca-category-dropdown"></div>
+                                </div>
+                                <div class="form-text">
+                                    New category names will be created automatically. Changes are saved only after clicking Save Changes.
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if not problem %}
+                        <div class="card shadow-sm mb-4">
+                            <div class="card-header fw-semibold">Test Cases</div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label small">
+                                        Upload test cases ZIP <span class="text-muted">(optional — you can also add inline below)</span>
+                                    </label>
+                                    <input type="file"
+                                           class="form-control form-control-sm"
+                                           id="testcases_zip_input"
+                                           name="testcases_zip"
+                                           accept=".zip"
+                                           onchange="updateTcCount()">
+                                    <div class="form-text">
+                                        ZIP may use directory layout (<code>in/001.in</code> / <code>out/001.out</code> or <code>out/001.sol</code>) or flat layout (<code>001.in</code> / <code>001.out</code> or <code>001.sol</code>).
+                                    </div>
+                                </div>
+                                <div id="tc-add-rows"></div>
+                                <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+                                    <button type="button"
+                                            class="btn btn-outline-primary btn-sm"
+                                            onclick="addTcRow()">
+                                        {{ render_icon(icon="add", classes="me-1") }}Add test case
+                                    </button>
+                                    <button type="button"
+                                            class="btn btn-outline-secondary btn-sm"
+                                            onclick="addTcZipRow()">
+                                        {{ render_icon(icon="upload", classes="me-1") }}Upload test case
+                                    </button>
+                                </div>
+                                <div class="form-text mt-1">
+                                    Use <em>Upload test case</em> for cases too large to edit inline — the ZIP must
+                                    contain <code>input.txt</code> and <code>output.txt</code>
+                                    (optionally <code>explanation.txt</code>).
+                                </div>
+                                <div id="tc-count-warning" class="text-danger small mt-1 d-none">
+                                    At least one test case is required (or upload a ZIP above).
+                                </div>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="card shadow-sm mb-4">
+                            <div class="card-header fw-semibold">Test Cases</div>
+                            <div class="card-body">
+                                <form method="post"
+                                      action="{{ request.url_for('upload_testcase_zip', slug=contest.login_slug, problem_id=problem.id) }}"
+                                      enctype="multipart/form-data"
+                                      class="d-flex align-items-center gap-2 mb-1">
+                                    <input type="file"
+                                           class="form-control form-control-sm"
+                                           name="testcases_zip"
+                                           accept=".zip"
+                                           required
+                                           {% if not is_edit_allowed %}disabled{% endif %}>
+                                    <button type="submit"
+                                            class="btn btn-sm btn-outline-secondary text-nowrap"
+                                            {% if not is_edit_allowed %}disabled{% endif %}>
+                                        {{ render_icon(icon="upload", classes="me-1") }}Upload ZIP
+                                    </button>
+                                </form>
+                                <div class="form-text mb-3">
+                                    ZIP may use directory layout (<code>in/001.in</code> / <code>out/001.out</code> or <code>out/001.sol</code>) or flat layout (<code>001.in</code> / <code>001.out</code> or <code>001.sol</code>). <strong>Replaces all existing test cases.</strong>
+                                </div>
+                                {% include "admin/problems/testcases_table.html" %}
+                                <div id="tc-add-rows"></div>
+                                {% if is_edit_allowed %}
+                                    <div class="d-flex flex-wrap gap-2 align-items-center mt-1">
+                                        <button type="button"
+                                                class="btn btn-outline-primary btn-sm"
+                                                id="tc-add-row-btn"
+                                                data-tc-form-id="edit-form">
+                                            {{ render_icon(icon="add", classes="me-1") }}Add test case
+                                        </button>
+                                        <form method="post"
+                                              action="{{ request.url_for('add_test_case_zip', slug=contest.login_slug, problem_id=problem.id) }}"
+                                              enctype="multipart/form-data">
+                                            <input type="file"
+                                                   name="zip_file"
+                                                   accept=".zip"
+                                                   class="d-none"
+                                                   data-tc-replace-input>
+                                            <button type="button"
+                                                    class="btn btn-outline-secondary btn-sm"
+                                                    data-tc-replace-trigger>
+                                                {{ render_icon(icon="upload", classes="me-1") }}Upload test case
+                                            </button>
+                                        </form>
+                                    </div>
+                                    <div class="form-text mt-1">
+                                        New test cases are saved only after clicking <strong>Save</strong>.
+                                        Use <em>Upload test case</em> for cases too large to edit inline — the ZIP must
+                                        contain <code>input.txt</code> and <code>output.txt</code>
+                                        (optionally <code>explanation.txt</code>).
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="tab-pane fade {% if _active_tab == 'limits' %}show active{% endif %}"
+                     id="tab-limits"
+                     role="tabpanel"
+                     aria-labelledby="tab-limits-btn">
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header fw-semibold">Failover Limits</div>
+                        <div class="card-body">
+                            <div class="row g-3">
+                                <div class="col-6 col-md-3">
+                                    <label for="time_limit_ms" class="form-label">
+                                        Time limit (ms) <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="number"
+                                           class="form-control"
+                                           id="time_limit_ms"
+                                           name="time_limit_ms"
+                                           form="edit-form"
+                                           min="1"
+                                           step="1"
+                                           placeholder="e.g. 1000"
+                                           required
+                                           value="{{ form_data.time_limit_ms if form_data.time_limit_ms is defined else '' }}"
+                                           {% if not is_edit_allowed %}disabled{% endif %}>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <label for="memory_limit_kb" class="form-label">
+                                        Memory limit (KB) <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="number"
+                                           class="form-control"
+                                           id="memory_limit_kb"
+                                           name="memory_limit_kb"
+                                           form="edit-form"
+                                           min="1"
+                                           step="1"
+                                           placeholder="e.g. 262144"
+                                           required
+                                           value="{{ form_data.memory_limit_kb if form_data.memory_limit_kb is defined else '' }}"
+                                           {% if not is_edit_allowed %}disabled{% endif %}>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <label for="pids_limit" class="form-label">
+                                        PIDs limit <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="number"
+                                           class="form-control"
+                                           id="pids_limit"
+                                           name="pids_limit"
+                                           form="edit-form"
+                                           min="1"
+                                           step="1"
+                                           placeholder="e.g. 64"
+                                           required
+                                           value="{{ form_data.pids_limit if form_data.pids_limit is defined else '' }}"
+                                           {% if not is_edit_allowed %}disabled{% endif %}>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <label for="output_limit_in_bytes" class="form-label">
+                                        Output limit (bytes) <span class="text-muted small">(optional)</span>
+                                    </label>
+                                    <input type="number"
+                                           class="form-control"
+                                           id="output_limit_in_bytes"
+                                           name="output_limit_in_bytes"
+                                           form="edit-form"
+                                           min="1"
+                                           step="1"
+                                           placeholder="blank = no limit"
+                                           value="{{ form_data.output_limit_in_bytes if form_data.output_limit_in_bytes is defined and form_data.output_limit_in_bytes else '' }}"
+                                           {% if not is_edit_allowed %}disabled{% endif %}>
+                                </div>
+                                <div class="col-12 mt-2">
+                                    <small class="text-muted">
+                                        <i class="bi bi-info-circle"></i> Fallback limits always use exactly 1 repetition per test case.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% include "admin/problems/profiling_limits.html" %}
+                </div>
+            </div>
+            <input type="hidden"
+                   name="active_tab"
+                   id="active-tab-input"
+                   form="edit-form"
+                   value="{{ _active_tab }}">
+            <input type="hidden"
+                   name="tc_remove_ids"
+                   id="tc_remove_ids"
+                   form="edit-form"
+                   value="">
+            {% if not problem %}</form>{% endif %}
+        <div class="d-flex gap-2 mb-4">
+            <button type="submit"
+                    class="btn btn-primary"
+                    form="edit-form"
+                    {% if not is_edit_allowed and not is_limits_edit_allowed %}disabled{% endif %}>
+                {{ render_icon(icon="check", classes="me-1") }}
+                {% if problem %}
+                    Save Changes
+                {% else %}
+                    Create Problem
+                {% endif %}
+            </button>
+            <a href="{{ request.url_for('manage_problems', slug=contest.login_slug) }}"
+               class="btn btn-outline-secondary">Cancel</a>
+        </div>
+        {% if not is_edit_allowed and not is_limits_edit_allowed %}
+            <div class="text-muted small mb-4">Editing is not available — see the notice above.</div>
+        {% endif %}
+        {% if problem %}
+            <form id="profiling-form"
+                  method="post"
+                  action="{{ request.url_for('enqueue_problem_profiling', slug=contest.login_slug, problem_id=problem.id) }}"
+                  enctype="multipart/form-data">
+            </form>
+            <form id="fallback-limits-form"
+                  method="post"
+                  action="{{ request.url_for('apply_problem_fallback_limits', slug=contest.login_slug, problem_id=problem.id) }}">
+            </form>
+        {% endif %}
+        {# Syntax examples modal #}
+        <div class="modal fade"
+             id="syntaxModal"
+             tabindex="-1"
+             aria-labelledby="syntaxModalLabel"
+             aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="syntaxModalLabel">LaTeX and Mermaid Syntax</h5>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6 class="fw-semibold">LaTeX</h6>
+                                <p class="small text-muted">
+                                    Use inline math with single <code>$</code>:
+                                </p>
+                                <pre class="small bg-light p-2 rounded">$x^2 + y^2 = z^2$</pre>
+                                <p class="small text-muted mb-2">Common symbols:</p>
+                                <div class="small">
+                                    <div>
+                                        <code>\frac{a}{b}</code> → fraction
+                                    </div>
+                                    <div>
+                                        <code>x_2</code> → subscript
+                                    </div>
+                                    <div>
+                                        <code>\neq, \le, \ge</code> → ≠, ≤, ≥
+                                    </div>
+                                    <div>
+                                        <code>\alpha, \beta, \Omega</code> → Greek letters
+                                    </div>
+                                    <div>
+                                        <code>\sum, \int</code> → Σ, ∫
+                                    </div>
+                                    <div>
+                                        <code>\sqrt{x}</code> → square root
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6 class="fw-semibold">Mermaid</h6>
+                                <p class="small text-muted">
+                                    Use fenced code block with <code>mermaid</code>:
+                                </p>
+                                <pre class="small bg-light p-2 rounded"><code>```mermaid&#10;graph TD&#10;    A[Start] --&gt; B{Decision}&#10;    B --&gt;|Yes| C[End]&#10;    B --&gt;|No| D[Loop]&#10;    D --&gt; B&#10;```</code></pre>
+                                <p class="small text-muted mb-2">Keywords:</p>
+                                <div class="small">
+                                    <div>
+                                        <code>flowchart, sequenceDiagram, classDiagram</code>
+                                    </div>
+                                    <div>
+                                        <code>-->, ---, ==></code> → arrows
+                                    </div>
+                                    <div>
+                                        <code>[], {}, ()</code> → shapes
+                                    </div>
+                                    <div>
+                                        <code>|text|</code> → labels
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {# End syntax modal #}
+    </div>
+{% endblock %}
+{% block extra_script %}
+    {% if problem %}
+        <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_vendor', path='Sortable.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='tc-reorder-sortable.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='tc-add-row.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
+    <script src="{{ request.url_for('static_js', path='admin-problems-edit.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='tc-replace-row.js') }}?v={{ app_version }}"
+            defer></script>
+    {% if problem %}
+        <script src="{{ request.url_for('static_shared_js', path='tc-pending-remove.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
+    <script src="{{ request.url_for('static_vendor', path='easymde.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='problem-statement-editor-core.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('static_js', path='problem-statement-editor.js') }}?v={{ app_version }}"
+            defer></script>
+    {% if problem and (is_edit_allowed or is_limits_edit_allowed) %}
+        <script src="{{ request.url_for('static_shared_js', path='problem-edit-unsaved-guard.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
+{% endblock %}

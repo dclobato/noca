@@ -1,0 +1,57 @@
+{% extends "_base.html" %}
+{% block title_suffix %}- Test Case #{{ tc_ordinal }} Detail{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_runs', slug=contest.login_slug) }}">Runs</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a href="{{ back_url }}">{{ back_label }}</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Test Case #{{ tc_ordinal }}</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container-fluid py-5">
+        <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+            <div>
+                <h1 class="h3 mb-1">Test Case #{{ tc_ordinal }}</h1>
+                <p class="text-muted mb-0">
+                    {{ problem_label }}: {{ submission.problem.title }} / <i class="{{ submission.language.icon }} me-1"></i>{{ submission.language.name }}
+                </p>
+            </div>
+            <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm">&larr; {{ back_label }}</a>
+        </div>
+        <div class="row g-3">
+            <div class="col-lg-4">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-header fw-semibold small">Input</div>
+                    <div class="card-body bg-body-tertiary">
+                        <pre class="bg-light p-3 rounded small mb-0 noca-sample-pre">{{ tc_input | e }}</pre>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-header fw-semibold small">Expected Output</div>
+                    <div class="card-body bg-body-tertiary">
+                        <pre class="bg-light p-3 rounded small mb-0 noca-sample-pre">{{ tc_expected | e }}</pre>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-header fw-semibold small">Team Output</div>
+                    <div class="card-body bg-body-tertiary">
+                        <pre class="bg-light p-3 rounded small mb-0 noca-sample-pre">{{ tc_team_output | e }}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

@@ -1,0 +1,167 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; AI Credits Usage{% endblock %}
+{% block nav_admin_dashboard %}active{% endblock %}
+{% block nav_admin_dashboard_ai_credits %}active{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
+{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="credit_card") }}
+                    AI Credits Usage
+                </h1>
+            </div>
+            {% if ai_turnaround_stats %}
+                <div class="alert alert-info small py-2 mb-3" role="status">
+                    <p class="mb-1">
+                        Average turn around for last {{ ai_turnaround_stats.sample_count }} reviews:
+                        {{ format_compact_duration(ai_turnaround_stats.average_seconds | round | int) }}
+                        (std dev {{ format_compact_duration(ai_turnaround_stats.stddev_seconds | round | int) }})
+                    </p>
+                    <p class="mb-0">
+                        Median turnaround for last {{ ai_turnaround_stats.sample_count }} reviews:
+                        {{ format_compact_duration(ai_turnaround_stats.median_seconds | round | int) }}
+                    </p>
+                </div>
+            {% else %}
+                <div class="alert alert-secondary small py-2 mb-3" role="status">Turnaround statistics are not available.</div>
+            {% endif %}
+            <form method="get"
+                  class="d-flex flex-wrap gap-2 align-items-end mb-3"
+                  id="ai-credits-filter-form">
+                {% with label="Search user", value=search, placeholder="Full name or email…" %}
+                    {% include "_partials/filter_search_field.html" %}
+                {% endwith %}
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="date_from">From</label>
+                    <input type="text"
+                           class="form-control form-control-sm arena-date-input"
+                           id="date_from"
+                           name="date_from"
+                           value="{{ date_from }}"
+                           placeholder="YYYY-MM-DD"
+                           data-fp-date
+                           data-fp-range-end="#date_to">
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="date_to">To</label>
+                    <input type="text"
+                           class="form-control form-control-sm arena-date-input"
+                           id="date_to"
+                           name="date_to"
+                           value="{{ date_to }}"
+                           placeholder="YYYY-MM-DD"
+                           data-fp-date>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="sort_dir">Order</label>
+                    <select class="form-select form-select-sm" id="sort_dir" name="sort_dir">
+                        <option value="desc" {% if sort_dir == 'desc' %}selected{% endif %}>Newest first</option>
+                        <option value="asc" {% if sort_dir == 'asc' %}selected{% endif %}>Oldest first</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="per_page">Per page</label>
+                    <select class="form-select form-select-sm" id="per_page" name="per_page">
+                        {% for n in [10, 25, 50, 100, 500] %}
+                            <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% include "_partials/filter_submit_button.html" %}
+                {% set _filters_active = search or date_from or date_to or sort_dir != 'desc' or per_page != 25 %}
+                {% with clear_url=request.url_for("arena_admin_dashboard_ai_credits"), filters_active=_filters_active %}
+                    {% include "_partials/filter_clear_link.html" %}
+                {% endwith %}
+            </form>
+            <p class="text-muted small mb-2">{{ transactions.total }} transaction{{ 's' if transactions.total != 1 else '' }}</p>
+            {% with pagination=transactions, page_param="page", label="AI credits pagination", nav_margin="mb-2" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th>Date / Time</th>
+                            <th>User</th>
+                            <th>Submission</th>
+                            <th class="text-end">Cost</th>
+                            <th class="text-end">Turnaround</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for tx in transactions.items %}
+                            <tr>
+                                <td class="text-nowrap">{{ arena_format_datetime(tx.created_at, current_user) }}</td>
+                                <td>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=tx.user_id) }}"
+                                             width="32"
+                                             height="32"
+                                             class="rounded-circle object-fit-cover flex-shrink-0"
+                                             alt="">
+                                        <div>
+                                            <a href="{{ request.url_for('arena_admin_user_profile', user_id=tx.user_id) }}"
+                                               class="text-decoration-none">{{ tx.user.nome }}</a>
+                                            <br>
+                                            <small class="text-muted">{{ tx.user.email }}</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    {% if tx.submission_id %}
+                                        <a href="{{ request.url_for('arena_submission_detail', submission_id=tx.submission_id) }}"
+                                           class="text-decoration-none small">Submission</a>
+                                    {% else %}
+                                        <span class="text-muted">&mdash;</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-nowrap text-end font-monospace">
+                                    {% if tx.submission
+                                        and tx.submission.ai_review
+                                        and tx.submission.ai_review.ai_review_cost is not none %}
+                                        ${{ "%.6f" | format(tx.submission.ai_review.ai_review_cost) }}
+                                    {% else %}
+                                        <span class="text-muted">Pending</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-nowrap text-end font-monospace">
+                                    {% if tx.submission_id in turnaround_seconds %}
+                                        {{ format_compact_duration(turnaround_seconds[tx.submission_id]) }}
+                                    {% else %}
+                                        <span class="text-muted">&mdash;</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-3">No AI credit consumption records found.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% with pagination=transactions, page_param="page", label="AI credits pagination" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/l10n/default.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='flatpickr/plugins/rangePlugin.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='flatpickr-init.js') }}?v={{ app_version }}"></script>
+{% endblock %}

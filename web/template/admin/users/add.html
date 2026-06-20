@@ -1,0 +1,224 @@
+{% extends "_base.html" %}
+{% block title_suffix %}— Add User{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('manage_users', slug=contest.login_slug) }}">Users</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Add User</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Add User</h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        <div class="row g-4">
+            <div class="col-12 col-lg-7">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        {% if is_locked %}
+                            <div class="alert alert-warning py-2 small">Contest has ended — new users cannot be added.</div>
+                        {% endif %}
+                        {% if errors %}
+                            <div class="alert alert-danger py-2 small">
+                                {% if errors | length == 1 %}
+                                    {{ errors[0] }}
+                                {% else %}
+                                    <ul class="mb-0 ps-3">
+                                        {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+                                    </ul>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                        <form method="post"
+                              action="{{ request.url_for('add_user_submit', slug=contest.login_slug) }}"
+                              novalidate>
+                            <div class="mb-3">
+                                <label for="username" class="form-label">Username</label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="username"
+                                       name="username"
+                                       value="{{ form_data.username }}"
+                                       {% if is_locked %}disabled{% endif %}
+                                       required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="fullname" class="form-label">Full name</label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="fullname"
+                                       name="fullname"
+                                       value="{{ form_data.fullname }}"
+                                       {% if is_locked %}disabled{% endif %}
+                                       required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="role" class="form-label">Role</label>
+                                <select class="form-select"
+                                        id="role"
+                                        name="role"
+                                        {% if is_locked %}disabled{% endif %}
+                                        required>
+                                    <option value="" disabled {% if not form_data.role %}selected{% endif %}>Select role…</option>
+                                    <option value="{{ RoleEnum.ADMIN.value }}"
+                                            {% if form_data.role == RoleEnum.ADMIN.value %}selected{% endif %}>
+                                        Admin
+                                    </option>
+                                    <option value="{{ RoleEnum.JUDGE.value }}"
+                                            {% if form_data.role == RoleEnum.JUDGE.value %}selected{% endif %}>
+                                        Judge
+                                    </option>
+                                    <option value="{{ RoleEnum.STAFF.value }}"
+                                            {% if form_data.role == RoleEnum.STAFF.value %}selected{% endif %}>
+                                        Staff
+                                    </option>
+                                    <option value="{{ RoleEnum.TEAM.value }}"
+                                            {% if form_data.role == RoleEnum.TEAM.value %}selected{% endif %}>
+                                        Team
+                                    </option>
+                                    <option value="{{ RoleEnum.USER.value }}"
+                                            {% if form_data.role == RoleEnum.USER.value %}selected{% endif %}>
+                                        User
+                                    </option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="site_id" class="form-label">Site</label>
+                                <select class="form-select"
+                                        id="site_id"
+                                        name="site_id"
+                                        {% if is_locked %}disabled{% endif %}>
+                                    <option value="" {% if not form_data.site_id %}selected{% endif %}>No site</option>
+                                    {% for site_id, site_name in sites %}
+                                        <option value="{{ site_id }}"
+                                                {% if form_data.site_id == site_id %}selected{% endif %}>
+                                            {{ site_name }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <div class="form-text">Required for Team and Staff users. Optional for other roles.</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="password" class="form-label">
+                                    Password <span class="text-muted small">(leave blank to auto-generate)</span>
+                                </label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="password"
+                                       name="password"
+                                       value="{{ form_data.password }}"
+                                       {% if is_locked %}disabled{% endif %}>
+                            </div>
+                            <div class="mb-3">
+                                <label for="email" class="form-label">Email</label>
+                                <input type="email"
+                                       class="form-control"
+                                       id="email"
+                                       name="email"
+                                       value="{{ form_data.email }}"
+                                       {% if is_locked %}disabled{% endif %}>
+                                <div class="form-text">Optional. Used to send credentials by email.</div>
+                            </div>
+                            {% if not is_locked %}<button type="submit" class="btn btn-primary btn-sm">Create user</button>{% endif %}
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% if success and credentials %}
+                <div class="col-12 col-lg-5">
+                    <div class="card border-success shadow-sm">
+                        <div class="card-header bg-success text-white">User created</div>
+                        <div class="card-body">
+                            <dl class="mb-0">
+                                <dt>Username</dt>
+                                <dd>
+                                    <code>{{ credentials.username }}</code>
+                                </dd>
+                                <dt>Full name</dt>
+                                <dd>
+                                    {{ credentials.fullname }}
+                                </dd>
+                                <dt>Role</dt>
+                                <dd>
+                                    {{ credentials.role }}
+                                </dd>
+                                <dt>Password</dt>
+                                <dd>
+                                    <code>{{ credentials.password }}</code>
+                                </dd>
+                                <dt>Email</dt>
+                                <dd>
+                                    {{ credentials.email or "No email" }}
+                                </dd>
+                                <dt>Site</dt>
+                                <dd>
+                                    {{ credentials.site or "No site" }}
+                                </dd>
+                                {% if credentials.location %}
+                                    <dt>Location</dt>
+                                    <dd>
+                                        {{ credentials.location }}
+                                    </dd>
+                                {% endif %}
+                            </dl>
+                            <hr>
+                            <div class="d-flex flex-wrap gap-2">
+                                <form method="post"
+                                      action="{{ request.url_for('download_user_credentials', slug=contest.login_slug) }}">
+                                    <input type="hidden" name="username" value="{{ credentials.username }}">
+                                    <input type="hidden" name="fullname" value="{{ credentials.fullname }}">
+                                    <input type="hidden" name="role" value="{{ credentials.role }}">
+                                    <input type="hidden" name="password" value="{{ credentials.password }}">
+                                    <input type="hidden" name="email" value="{{ credentials.email or '' }}">
+                                    <input type="hidden" name="site" value="{{ credentials.site or '' }}">
+                                    <input type="hidden"
+                                           name="location"
+                                           value="{{ credentials.location or '' }}">
+                                    <button type="submit" class="btn btn-outline-success btn-sm">Download credentials JSON</button>
+                                </form>
+                                {% if credentials.email %}
+                                    <form method="post"
+                                          action="{{ request.url_for('send_single_user_credentials_email', slug=contest.login_slug) }}">
+                                        <input type="hidden" name="username" value="{{ credentials.username }}">
+                                        <input type="hidden" name="fullname" value="{{ credentials.fullname }}">
+                                        <input type="hidden" name="role" value="{{ credentials.role }}">
+                                        <input type="hidden" name="password" value="{{ credentials.password }}">
+                                        <input type="hidden" name="email" value="{{ credentials.email }}">
+                                        <input type="hidden" name="site" value="{{ credentials.site or '' }}">
+                                        <input type="hidden"
+                                               name="location"
+                                               value="{{ credentials.location or '' }}">
+                                        <button type="submit" class="btn btn-outline-primary btn-sm">Send credentials by email</button>
+                                    </form>
+                                {% endif %}
+                            </div>
+                            {% if email_delivery_message %}
+                                <div class="alert {% if email_delivery_success %} alert-success {% else %} alert-danger {% endif %} py-2 small mt-3 mb-0">
+                                    {{ email_delivery_message }}
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "_base.html" %}
+{% block title_suffix %}&mdash; {{ title }}{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+            <div>
+                <h1 class="h3 mb-1">{{ title }}</h1>
+                <p class="text-muted mb-0">Noca Arena</p>
+            </div>
+        </div>
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <div id="legal-markdown-rendered"></div>
+                <script id="legal-markdown-src" type="text/plain">{{ markdown_content | e }}</script>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('arena_static_js', path='render-legal-markdown.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}

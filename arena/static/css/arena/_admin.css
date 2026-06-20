@@ -1,0 +1,222 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ── Admin user management ── */
+.arena-admin-action-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--arena-outline-variant);
+    margin-bottom: 1rem;
+}
+
+.arena-admin-action-group {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.arena-admin-action-bar .form-control,
+.arena-admin-action-bar .form-select {
+    min-height: 2rem;
+}
+
+.arena-admin-name-form .form-control {
+    width: min(14rem, 45vw);
+}
+
+.arena-admin-toolbar-button.btn {
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    white-space: nowrap;
+}
+
+.arena-admin-role-select-inline {
+    width: min(11rem, 40vw);
+}
+
+.arena-admin-avatar-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.arena-admin-inline-field {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.arena-admin-inline-field .form-control {
+    flex: 1 1 14rem;
+}
+
+.arena-admin-role-select {
+    width: min(14rem, 100%);
+}
+
+/* ── Category autocomplete picker (problem form) ─────────────────────────── */
+
+.arena-cat-picker {
+    position: relative;
+}
+
+.arena-cat-picker-input-wrap {
+    position: relative;
+}
+
+.arena-cat-dropdown {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    z-index: 1056;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    box-shadow: var(--bs-box-shadow-sm);
+    max-height: 220px;
+    overflow-y: auto;
+    display: none;
+}
+
+.arena-cat-dropdown.open {
+    display: block;
+}
+
+.arena-cat-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font-size: 0.875rem;
+}
+
+.arena-cat-dropdown-item:hover,
+.arena-cat-dropdown-item:focus {
+    background: var(--bs-tertiary-bg);
+    outline: none;
+}
+
+.arena-cat-dropdown-empty {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--bs-secondary-color);
+}
+
+.arena-cat-pill-remove {
+    background: none;
+    border: none;
+    padding: 0 0 0 0.2rem;
+    cursor: pointer;
+    line-height: 1;
+    opacity: 0.75;
+    color: inherit;
+    font-size: 0.75em;
+    vertical-align: middle;
+}
+
+.arena-cat-pill-remove:hover {
+    opacity: 1;
+}
+
+/* ── Admin list filter search input ─────────────────────────────────────── */
+
+.arena-filter-search {
+    min-width: 180px;
+    max-width: 320px;
+}
+
+.arena-filter-narrow {
+    width: 7rem;
+}
+
+.arena-autocomplete-menu {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    left: 0;
+    right: 0;
+    z-index: 1050;
+    max-height: 16rem;
+    overflow-y: auto;
+    background: var(--arena-surface-container-lowest);
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+    box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.14);
+}
+
+.arena-autocomplete-option {
+    display: block;
+    width: 100%;
+    padding: 0.45rem 0.65rem;
+    border: 0;
+    border-bottom: 1px solid var(--arena-surface-container);
+    background: transparent;
+    color: var(--arena-on-surface);
+    font-size: 0.875rem;
+    text-align: left;
+}
+
+.arena-autocomplete-option:last-child {
+    border-bottom: 0;
+}
+
+.arena-autocomplete-option:hover,
+.arena-autocomplete-option:focus-visible {
+    background: var(--arena-surface-container-low);
+    outline: none;
+}
+
+/* ── Category filter dropdown (problem list) ─────────────────────────────── */
+
+.arena-cat-filter-menu {
+    min-width: 220px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 0.5rem;
+}
+
+.arena-cat-filter-item label {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.25rem;
+    border-radius: var(--bs-border-radius-sm);
+    width: 100%;
+    font-size: 0.875rem;
+}
+
+.arena-cat-filter-item label:hover {
+    background: var(--bs-tertiary-bg);
+}
+
+/* ── Problem image preview (admin form) ──────────────────────────────────── */
+
+.arena-problem-image-preview {
+    display: block;
+    max-height: 120px;
+}
+
+/* ── Help version label ──────────────────────────────────────────────────── */
+
+.arena-help-version {
+    font-size: 0.8125rem;
+    color: var(--arena-on-surface-variant);
+    font-style: italic;
+}

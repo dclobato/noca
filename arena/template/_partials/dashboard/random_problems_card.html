@@ -1,0 +1,60 @@
+{#  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% from "_macros.html" import render_icon %}
+<section class="arena-card h-100">
+    <h2 class="arena-card-title">
+        {{ render_icon(icon="casino") }}
+        Random Problems
+    </h2>
+    <div class="table-responsive arena-dashboard-table-wrap">
+        <table class="arena-table arena-dashboard-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Title</th>
+                    <th style="width:120px">Difficulty</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for problem in random_problems %}
+                    <tr>
+                        <td class="arena-monospace">
+                            <a href="{{ request.url_for('arena_problem_detail', arena_number=problem.arena_number) }}"
+                               class="text-decoration-none">{{ problem.arena_number }}</a>
+                        </td>
+                        <td>
+                            <a href="{{ request.url_for('arena_problem_detail', arena_number=problem.arena_number) }}"
+                               class="text-decoration-none fw-medium">{{ problem.title }}</a>
+                        </td>
+                        <td>
+                            {% if problem.rating is not none %}
+                                <div class="progress arena-rating-progress"
+                                     role="progressbar"
+                                     aria-valuenow="{{ problem.rating }}"
+                                     aria-valuemin="0.1"
+                                     aria-valuemax="10"
+                                     aria-label="Difficulty {{ '%.1f'|format(problem.rating) }} out of 10"
+                                     title="Difficulty: {{ '%.1f'|format(problem.rating) }}/10">
+                                    <div class="progress-bar arena-rating-bar-{{ (problem.rating | round) | int }}"
+                                         style="width:{{ problem.rating * 10 }}%">
+                                        {{ "%.1f"|format(problem.rating) }}
+                                    </div>
+                                </div>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="3" class="text-muted text-center py-3">No problems available yet.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>

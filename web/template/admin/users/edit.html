@@ -1,0 +1,150 @@
+{% extends "_base.html" %}
+{% block title_suffix %}— Edit User{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('manage_users', slug=contest.login_slug) }}">Users</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Edit User</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Edit User</h1>
+            <p class="text-muted mb-0">{{ edit_user.fullname or edit_user.username }}</p>
+        </div>
+        <div class="row g-4">
+            <div class="col-12 col-lg-4">
+                <div class="card shadow-sm">
+                    <div class="card-body text-center">
+                        <img src="/user/{{ edit_user.id }}/avatar?v={{ edit_user.dta_foto or '0' }}"
+                             alt="{{ edit_user.fullname or edit_user.username }}"
+                             class="rounded-circle mb-3 noca-avatar-lg">
+                        <div class="small text-muted mb-3">
+                            {% if edit_user.com_foto %}
+                                Custom photo uploaded
+                            {% else %}
+                                Using generated avatar
+                            {% endif %}
+                        </div>
+                        {% if not is_locked and can_remove_photo and edit_user.com_foto %}
+                            <form method="post"
+                                  action="{{ request.url_for('user_photo_remove', user_id=edit_user.id) }}">
+                                <input type="hidden" name="return_to" value="admin_edit">
+                                <button type="submit"
+                                        class="btn btn-outline-danger btn-sm"
+                                        onclick="return confirm('Remove this user photo?');">Remove photo</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-8">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        {% if is_locked %}
+                            <div class="alert alert-warning py-2 small">Contest has ended — user details cannot be changed.</div>
+                        {% endif %}
+                        <form method="post"
+                              action="{{ request.url_for('edit_user_submit', slug=contest.login_slug, user_id=edit_user.id) }}"
+                              novalidate>
+                            <div class="mb-3">
+                                <label class="form-label">Username</label>
+                                <p class="form-control-plaintext">
+                                    <code>{{ edit_user.username }}</code>
+                                </p>
+                            </div>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label for="fullname" class="form-label">Full name</label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="fullname"
+                                           name="fullname"
+                                           value="{{ edit_user.fullname }}"
+                                           {% if is_locked %}disabled{% endif %}
+                                           required>
+                                </div>
+                                <div class="col-12">
+                                    <label for="email" class="form-label">Email</label>
+                                    <input type="email"
+                                           class="form-control"
+                                           id="email"
+                                           name="email"
+                                           value="{{ edit_user.email_normalizado or '' }}"
+                                           {% if is_locked %}disabled{% endif %}>
+                                    <div class="form-text">Optional. Used to send credentials and contest information.</div>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label">Role</label>
+                                    <p class="form-control-plaintext mb-1">{{ role_labels[edit_user.role.value] }}</p>
+                                    <div class="form-text">Role cannot be changed after the user is created.</div>
+                                </div>
+                                <div class="col-12 col-md-8">
+                                    <label for="site_id" class="form-label">Site</label>
+                                    <select class="form-select"
+                                            id="site_id"
+                                            name="site_id"
+                                            {% if is_locked %}disabled{% endif %}>
+                                        <option value="" {% if not edit_user.site_id %}selected{% endif %}>No site</option>
+                                        {% for site_id, site_name in sites %}
+                                            <option value="{{ site_id }}"
+                                                    {% if edit_user.site_id == site_id %}selected{% endif %}>
+                                                {{ site_name }}
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                    <div class="form-text">Team and Staff users must have a site assigned.</div>
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <label for="location" class="form-label">Location</label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="location"
+                                           name="location"
+                                           maxlength="16"
+                                           value="{{ edit_user.location or '' }}"
+                                           placeholder="e.g. Room A3"
+                                           {% if is_locked %}disabled{% endif %}>
+                                    <div class="form-text">Optional, up to 16 characters.</div>
+                                </div>
+                                <div class="col-12">
+                                    <label for="password" class="form-label">
+                                        New password <span class="text-muted small">(leave blank to keep current)</span>
+                                    </label>
+                                    <input type="text"
+                                           class="form-control"
+                                           id="password"
+                                           name="password"
+                                           value=""
+                                           {% if is_locked %}disabled{% endif %}>
+                                </div>
+                            </div>
+                            {% if not is_locked %}
+                                <div class="mt-4">
+                                    <button type="submit" class="btn btn-primary btn-sm">Save changes</button>
+                                </div>
+                            {% endif %}
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

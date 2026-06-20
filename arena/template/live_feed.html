@@ -1,0 +1,34 @@
+{% extends "_base.html" %}
+{% block title_suffix %}Live feed{% endblock %}
+{% block content %}
+    <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+        <h1 class="mb-0">Live submission feed</h1>
+        <span class="badge bg-secondary" id="live-feed-status">Connecting…</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle live-feed-table">
+            <thead>
+                <tr>
+                    <th scope="col">Date/time</th>
+                    <th scope="col">User from</th>
+                    <th scope="col">Problem</th>
+                    <th scope="col">Language</th>
+                    <th scope="col">Verdict</th>
+                </tr>
+            </thead>
+            <tbody id="live-feed-body"
+                   data-feed-url="{{ request.url_for("arena_live_feed") }}"
+                   data-events-url="{{ request.url_for("arena_live_events") }}">
+                <tr>
+                    <td colspan="5" class="text-center text-muted">Loading…</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <p class="live-feed-summary text-muted small mb-0"
+       id="live-feed-summary">Live last {{ live_feed_limit }} submissions</p>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_shared_js', path='live-feed-core.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='live-feed.js') }}?v={{ app_version }}"></script>
+{% endblock %}
