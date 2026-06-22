@@ -987,6 +987,39 @@ The Arena notification serialiser (`arena/routes/notifications.py`) uses this di
 
 ---
 
+## `user_presence.py`
+
+Purpose:
+- track which end users are currently online, backed by Valkey, to drive the
+  green online-dot overlaid on user avatars
+- identity-domain aware (`arena` now, `contest` later) so the Web module can
+  reuse it without key collisions
+
+Canonical location:
+- `shared/services/user_presence.py`
+
+Key functions / constants:
+- `PRESENCE_PREFIX = "noca:user-presence"`, `MAX_PRESENCE_BATCH = 500`
+- `user_live_key(domain, user_id)` — `noca:user-presence:{domain}:live:{user_id}`; its existence means "online"
+- `online_set_key(domain)` — `noca:user-presence:{domain}:online`; sorted set (member = user id, score = last-seen epoch) used for counting
+- `mark_user_online(client, *, domain, user_id, ttl_seconds)` — atomic Lua `eval`: `SET ... EX` the live key + `ZADD` the online set (best-effort)
+- `mark_user_offline(client, *, domain, user_id)` — atomic `DEL` live key + `ZREM` from the online set
+- `get_users_online_map(client, *, domain, user_ids) -> dict[str, bool]` — one batch `mget`; dedupes/caps ids
+- `count_online_users(client, *, domain, ttl_seconds) -> int | None` — `ZREMRANGEBYSCORE` to purge stale members, then `ZCARD`; returns `None` when unavailable (kept distinct from a real `0`)
+
+Notes:
+- accepts a `ValkeyRuntime` or a raw `valkey.asyncio.Valkey` client and never raises:
+  writes drop silently on outage, reads degrade to "everyone offline", and the count returns `None`
+- model mirrors `valkey_service/worker_presence.py` (live key + TTL + batch read); the online
+  sorted set adds global counting without enumerating keys (no `SCAN`/set ops needed)
+- the Arena footer counter reads a cached value refreshed by the `_online_users_count_poller`
+  background task (`arena/main.py`), so `count_online_users` is not called per request
+- Arena wiring: `arena/routes/presence.py` (heartbeat + status endpoints),
+  `arena/dependencies/auth.py` (best-effort mark-online per page view),
+  `shared/static/js/noca-presence.js` + `shared/static/css/presence.css` (client)
+
+---
+
 ## Arena module — shared service instances
 
 The arena module initializes its own instances of the shared services listed below. All

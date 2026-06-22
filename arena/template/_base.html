@@ -73,10 +73,13 @@
                             <a href="{{ request.url_for("arena_user_profile") }}"
                                class="arena-avatar-link"
                                aria-label="Open profile">
-                                <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=current_user.id) }}?v={{ (current_user.dta_foto.timestamp() | int) if current_user.dta_foto else 0 }}"
-                                     alt="{{ current_user.nome }}"
-                                     class="arena-avatar"
-                                     title="{{ current_user.nome }}">
+                                <span class="avatar-wrapper avatar-wrapper--sm"
+                                      data-user-id="{{ current_user.id }}">
+                                    <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=current_user.id) }}?v={{ (current_user.dta_foto.timestamp() | int) if current_user.dta_foto else 0 }}"
+                                         alt="{{ current_user.nome }}"
+                                         class="arena-avatar"
+                                         title="{{ current_user.nome }}">
+                                </span>
                             </a>
                         {% endif %}
                     </div>
@@ -237,6 +240,14 @@
         <script src="{{ request.url_for("arena_static_js", path="arena-layout.js") }}?v={{ app_version }}"></script>
         {% if current_user %}
             <script src="{{ request.url_for("arena_static_js", path="arena-notifications.js") }}?v={{ app_version }}"></script>
+            {% if presence_enabled %}
+                <div data-noca-presence
+                     data-heartbeat-url="{{ request.url_for("arena_presence_heartbeat") }}"
+                     data-status-url="{{ request.url_for("arena_presence_status") }}"
+                     data-interval-seconds="{{ presence_heartbeat_seconds }}"
+                     hidden></div>
+                <script src="{{ request.url_for('static_shared_js', path='noca-presence.js') }}?v={{ app_version }}"></script>
+            {% endif %}
         {% endif %}
         {% block extra_script %}{% endblock %}
     </body>

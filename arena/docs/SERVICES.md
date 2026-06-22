@@ -766,16 +766,22 @@ Paginated query service for a user's submission history.
 | Function | Description |
 |----------|-------------|
 | `get_user_submissions(session, user_id, search, verdict_filter, params)` | Returns `Pagination[SubmissionListRow]` for the given user, ordered by `created_at DESC` (newest first). Supports optional `search` (ilike on problem title or number) and `verdict_filter` (exact `final_verdict` match). Uses a subquery to find the most-recent non-SUPERSEDED judgment per submission. |
+| `build_arena_submission_query(..., id_filter=None, ...)` | Shared query builder. `id_filter` (a sequence of submission IDs) restricts results via `IN` when not `None`; an **empty** sequence matches no rows, while `None` disables the filter. Used by the per-user status snapshot endpoint to scope to a validated, owner-checked ID set. |
 
-`SubmissionListRow` fields: `submission_id`, `problem_id`, `problem_number`, `problem_title`, `language_id`, `language_name`, `language_icon`, `submitted_at`, `verdict`, `status`, `max_wall_time_ms`, `submit_to_ai`, `has_ai_review`, `has_teacher_feedback`.
+`SubmissionListRow` fields: `submission_id`, `problem_id`, `problem_number`, `problem_title`, `language_id`, `language_name`, `language_icon`, `submitted_at`, `verdict`, `status`, `max_wall_time_ms`, `submit_to_ai`, `has_ai_review`, `has_teacher_feedback`, `is_final`. `is_final` is `True` when `status` is one of the terminal `TERMINAL_JUDGMENT_STATUSES` (`DONE`/`FAILED`/`SUPERSEDED`); `FAILED`/`SUPERSEDED` are final without a verdict, so this — not "has a verdict" — is the authoritative "stop watching" signal for the realtime profile updates.
 
 The service does not commit and does **not** enqueue. Callers must commit the
 database transaction and then call `enqueue_arena_submission_job(valkey_runtime,
 result.job)` — this ordering guarantees the worker never picks up a job whose
-rows are not yet visible in the database. Per-user result delivery on the profile
-page remains polling-based; the autojudge adapter additionally publishes an
-`ArenaVerdictEvent` to the `arena:results` Valkey channel that powers the public
-live feed (see `live_feed_service.py`).
+rows are not yet visible in the database. The autojudge adapter publishes an
+`ArenaVerdictEvent` to the `arena:results` Valkey channel that powers both the
+public live feed (see `live_feed_service.py`) and the per-user profile submissions
+tab. The profile tab consumes that channel through a user-scoped SSE endpoint
+(`arena/routes/user_submission_status.py`) which only signals a refresh when one
+of the viewer's own submissions finalizes; the browser then refetches the
+owner-scoped `status.json` snapshot and updates verdict/runtime cells in place
+(firing confetti on a fresh `AC`). A low-frequency client fallback poll bounds
+staleness because Valkey pub/sub is not durable.
 
 ---
 

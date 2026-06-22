@@ -1,5 +1,25 @@
 # Changelog
 
+## [12.2.0] - 2026-06-21
+
+### Features
+
+- **ops**: Add unattended backup and restore workflows for PostgreSQL, Valkey,
+  deployment configuration, and bind-mounted data
+- **ops**: Add local backup retention, Restic uploads, remote snapshot
+  retention, and snapshot-based restores
+- **arena**: Add Valkey-backed online presence indicators, heartbeat and status
+  endpoints, and an authenticated footer counter
+- **arena**: Stream owner-scoped profile submission status updates with polling
+  fallback and accepted-submission celebrations
+
+### Bug Fixes
+
+- **ops**: Require Restic credentials and repository configuration through
+  environment variables
+- **ops**: Archive deployment configuration file contents instead of dangling
+  relative symlinks
+
 ## [12.1.0] - 2026-06-20
 
 ### Features

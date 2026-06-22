@@ -12,6 +12,9 @@
  * stay in the per-module stylesheets.
  */
 
+/* Online-presence avatar indicator (shared by web + arena). */
+@import url("/static/shared-css/presence.css");
+
 /* ── Icon button group ───────────────────────────────────────────────────────
    Pairs with the shared `.noca-icon-btn` segmented button rows. */
 .noca-icon-btn-group > .noca-icon-btn-wrap {

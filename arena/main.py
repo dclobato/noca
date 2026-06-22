@@ -62,6 +62,8 @@ from arena.routes.help import router as arena_help_router
 from arena.routes.legal import router as arena_legal_router
 from arena.routes.live import router as arena_live_router
 from arena.routes.notifications import router as arena_notifications_router
+from arena.routes.presence import ARENA_PRESENCE_DOMAIN
+from arena.routes.presence import router as arena_presence_router
 from arena.routes.problem_sets import router as arena_problem_sets_router
 from arena.routes.problem_sets_autocomplete import router as arena_problem_sets_autocomplete_router
 from arena.routes.problem_sets_report import router as arena_problem_sets_report_router
@@ -72,6 +74,7 @@ from arena.routes.status import router as arena_status_router
 from arena.routes.student_problem_sets import router as arena_student_problem_sets_router
 from arena.routes.submissions import router as arena_submissions_router
 from arena.routes.user_security import router as arena_user_security_router
+from arena.routes.user_submission_status import router as arena_user_submission_status_router
 from arena.routes.users import router as arena_users_router
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.qrcode_service import QRCodeService
@@ -100,6 +103,7 @@ from shared.services.imageprocessing_service import ImageProcessingConfig, Image
 from shared.services.network_utils import NetworkService
 from shared.services.startup_wait import wait_for_db, wait_for_valkey
 from shared.services.token_revocation import ValkeyRevocationStore
+from shared.services.user_presence import count_online_users
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
 from shared.timing import format_compact_duration
 
@@ -143,6 +147,22 @@ def _next_rating_update_text(request: Request) -> str | None:
         Relative duration text, or ``None`` when the scheduler has no active deadline.
     """
     return format_next_rating_update(getattr(request.app.state, "next_rating_update", None))
+
+
+def _arena_online_user_count(request: Request) -> int | None:
+    """Return the cached count of online Arena users for footer rendering.
+
+    Reads the value refreshed by ``_online_users_count_poller`` so the
+    synchronous template helper needs no per-request Valkey access. Returns
+    ``None`` when presence is disabled or the poller has not produced a value.
+
+    Args:
+        request: Current FastAPI request whose app state stores the count.
+
+    Returns:
+        The online-user count, or ``None`` when unavailable.
+    """
+    return getattr(request.app.state, "arena_online_user_count", None)
 
 
 def _token_expiry_text(request: Request) -> str | None:
@@ -230,6 +250,33 @@ async def _next_rating_update_poller(app: FastAPI, stop_event: asyncio.Event) ->
         app.state.next_rating_update = next_update
         app.state.rating_interval_text = rating_interval_text
         app.state.affiliation_rating_factor = affiliation_rating_factor
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop_event.wait(), timeout=poll_interval_s)
+
+
+async def _online_users_count_poller(app: FastAPI, stop_event: asyncio.Event) -> None:
+    """Refresh the cached online-user count into app state.
+
+    Counting online users requires aggregating the presence sorted set, which is
+    too costly to do on every footer render. Each Arena instance polls the count
+    on the heartbeat cadence so the synchronous footer helper can read a cached
+    value. Concurrent polling across instances is safe — the read is idempotent.
+
+    Args:
+        app: The Arena FastAPI application.
+        stop_event: Setting this event terminates the poller.
+    """
+    poll_interval_s = settings.PRESENCE_HEARTBEAT_SECONDS
+    while not stop_event.is_set():
+        count = await count_online_users(
+            app.state.valkey_runtime,
+            domain=ARENA_PRESENCE_DOMAIN,
+            ttl_seconds=settings.PRESENCE_TTL_SECONDS,
+        )
+        # Retain the last valid count on unavailability so a Valkey outage never
+        # shows a misleading "0 online"; the footer hides until the first value.
+        if count is not None:
+            app.state.arena_online_user_count = count
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop_event.wait(), timeout=poll_interval_s)
 
@@ -366,6 +413,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     arena_templates.env.globals["format_compact_duration"] = format_compact_duration
     arena_templates.env.globals["arena_user_timezone_name"] = timezone_name_for_user
     arena_templates.env.globals["app_version"] = APP_VERSION
+    arena_templates.env.globals["presence_enabled"] = settings.PRESENCE_ENABLED
+    arena_templates.env.globals["presence_heartbeat_seconds"] = settings.PRESENCE_HEARTBEAT_SECONDS
+    arena_templates.env.globals["arena_online_user_count"] = _arena_online_user_count
     arena_templates.env.globals["next_rating_update_text"] = _next_rating_update_text
     arena_templates.env.globals["token_expiry_text"] = _token_expiry_text
     arena_templates.env.globals["verdict_badge_classes"] = VERDICT_BADGE_CLASSES
@@ -391,6 +441,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         RATING_AFFILIATION_FACTOR_KEY,
     )
 
+    app.state.online_count_poller_task = None
+    app.state.arena_online_user_count = None
+    if settings.PRESENCE_ENABLED:
+        online_count_poller_stop = asyncio.Event()
+        app.state.online_count_poller_stop = online_count_poller_stop
+        app.state.online_count_poller_task = asyncio.create_task(
+            _online_users_count_poller(app, online_count_poller_stop),
+            name="online-users-count-poller",
+        )
+        logger.info("- Online-users count poller started")
+
     logger.info("| Arena running |".center(80, "-"))
 
     yield
@@ -400,6 +461,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     app.state.rating_poller_stop.set()
     await asyncio.gather(app.state.rating_poller_task, return_exceptions=True)
     logger.info("Next-rating-update poller stopped")
+
+    if app.state.online_count_poller_task is not None:
+        app.state.online_count_poller_stop.set()
+        await asyncio.gather(app.state.online_count_poller_task, return_exceptions=True)
+        logger.info("Online-users count poller stopped")
 
     app.state.revocation_store.close()
     logger.info("ValkeyRevocationStore closed")
@@ -489,8 +555,10 @@ app.include_router(arena_legal_router)
 app.include_router(arena_help_router)
 app.include_router(arena_problems_router)
 app.include_router(arena_users_router)
+app.include_router(arena_user_submission_status_router)
 app.include_router(arena_user_security_router)
 app.include_router(arena_notifications_router)
+app.include_router(arena_presence_router)
 app.include_router(arena_affiliations_router)
 app.include_router(arena_ranking_router)
 app.include_router(arena_admin_affiliations_router)

@@ -6,7 +6,9 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% from "_macros.html" import render_icon %}
-<section class="arena-progress-list">
+<section class="arena-progress-list"
+         data-status-url="{{ request.url_for("arena_user_submissions_status") }}"
+         data-events-url="{{ request.url_for("arena_user_submissions_events") }}">
     <div class="arena-progress-list-header">
         <h2>Submissions</h2>
         <span>{{ submissions.first }}&ndash;{{ submissions.last }} of {{ submissions.total }}</span>
@@ -66,7 +68,8 @@
                 </thead>
                 <tbody>
                     {% for row in submissions.items %}
-                        <tr>
+                        <tr data-submission-id="{{ row.submission_id }}"
+                            data-final="{{ 'true' if row.is_final else 'false' }}">
                             <td>
                                 <a href="{{ request.url_for('arena_problem_detail', arena_number=row.problem_number) }}">
                                     {{ row.problem_number }}: {{ row.problem_title }}
@@ -82,14 +85,16 @@
                             </td>
                             <td class="small text-muted text-nowrap">{{ arena_format_datetime(row.submitted_at, current_user) }}</td>
                             <td>
-                                <span class="d-flex align-items-center gap-1">
-                                    {% if row.verdict %}
-                                        <span class="badge {{ verdict_badge_classes.get(row.verdict, 'bg-secondary') }}">{{ verdict_labels.get(row.verdict, row.verdict) }}</span>
-                                    {% elif row.status %}
-                                        <span class="badge bg-secondary font-monospace">{{ row.status }}</span>
-                                    {% else %}
-                                        <span class="text-muted">&mdash;</span>
-                                    {% endif %}
+                                <span class="d-flex align-items-center gap-1 js-submission-verdict">
+                                    <span class="js-verdict-badge">
+                                        {% if row.verdict %}
+                                            <span class="badge {{ verdict_badge_classes.get(row.verdict, 'bg-secondary') }}">{{ verdict_labels.get(row.verdict, row.verdict) }}</span>
+                                        {% elif row.status %}
+                                            <span class="badge bg-secondary font-monospace">{{ row.status }}</span>
+                                        {% else %}
+                                            <span class="text-muted">&mdash;</span>
+                                        {% endif %}
+                                    </span>
                                     {% if row.verdict and row.verdict != "AC" %}
                                         {% if row.has_ai_review %}
                                             {{ render_icon(icon="psychology_alt", filled=True, classes="text-success", title="AI review available") }}
@@ -102,7 +107,7 @@
                                     {% endif %}
                                 </span>
                             </td>
-                            <td class="small text-muted text-end">
+                            <td class="small text-muted text-end js-submission-runtime">
                                 {% if row.max_wall_time_ms is not none %}
                                     {{ row.max_wall_time_ms }} ms
                                 {% else %}

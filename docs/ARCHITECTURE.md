@@ -52,6 +52,11 @@ Durable Arena notifications follow this same boundary: worker-side producers
 insert rows in PostgreSQL through shared schema and service helpers, and the
 Arena HTTP process owns user-facing display and read state.
 
+User online-presence (the green dot on avatars) lives entirely on the Valkey
+side of the boundary: the shared `user_presence` service writes a short-TTL live
+key per user and reads presence in batch, best-effort with no database writes, so
+a Valkey outage simply shows everyone as offline.
+
 Authenticated worker pause/resume follows the boundary too. The Arena admin can
 pause or resume the queue-consuming workers (autojudge, aiassistant; rating is
 always-on) from the dashboard. PostgreSQL is the authoritative, monotonic source

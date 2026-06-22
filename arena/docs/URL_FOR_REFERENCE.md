@@ -79,6 +79,13 @@ Use this endpoint for runtime health probes.
 | `POST /arena/notifications/read-all` | `arena_notifications_mark_all_read` | — | `notifications.py` |
 | `POST /arena/notifications/{notification_id}/read` | `arena_notification_mark_read` | `notification_id=` | `notifications.py` |
 
+## Presence Routes (`arena/routes/presence.py`)
+
+| Hardcoded path | Endpoint name | Path params | File |
+|---|---|---|---|
+| `POST /arena/presence/heartbeat` | `arena_presence_heartbeat` | — | `presence.py` |
+| `POST /arena/presence/status` | `arena_presence_status` | body `{"ids": [...]}` | `presence.py` |
+
 ## Class Routes (`arena/routes/classes.py`)
 
 | `url_for` call | Generated path | Notes |
@@ -163,6 +170,8 @@ Use this endpoint for runtime health probes.
 | `GET /user/profile/rating-history` | `arena_user_profile_rating_history` | — | `user_profile_api.py` |
 | `GET /user/profile/submission-heatmap` | `arena_user_profile_submission_heatmap` | — | `user_profile_api.py` |
 | `POST /user/profile/api-key` | `arena_user_profile_api_key_update` | — | `user_profile_api.py` |
+| `GET /user/submissions/status.json` | `arena_user_submissions_status` | Query: `ids` (CSV of owned submission UUIDs) | `user_submission_status.py` |
+| `GET /user/submissions/status/events` | `arena_user_submissions_events` | Query: `ids` (CSV of owned submission UUIDs) | `user_submission_status.py` |
 | `GET /user/{user_id}/photo` | `arena_user_photo_by_id` | `user_id=` | `users.py` |
 | `GET /user/{user_id}/avatar` | `arena_user_avatar_by_id` | `user_id=` | `users.py` |
 

@@ -27,9 +27,12 @@
                   id="profile-photo-form">
                 <div class="arena-avatar-change-wrapper" title="Change photo">
                     <label for="profile_photo" class="arena-avatar-change-trigger">
-                        <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=current_user.id) }}?v={{ (current_user.dta_foto.timestamp() | int) if current_user.dta_foto else 0 }}"
-                             alt="{{ current_user.nome }}"
-                             class="arena-avatar arena-profile-avatar">
+                        <span class="avatar-wrapper avatar-wrapper--lg"
+                              data-user-id="{{ current_user.id }}">
+                            <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=current_user.id) }}?v={{ (current_user.dta_foto.timestamp() | int) if current_user.dta_foto else 0 }}"
+                                 alt="{{ current_user.nome }}"
+                                 class="arena-avatar arena-profile-avatar">
+                        </span>
                         <div class="arena-avatar-change-overlay">
                             {{ render_icon(icon="photo_camera", classes="fs-5") }}
                             <span class="small">Change</span>
@@ -677,4 +680,12 @@
     <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-rating-history-chart.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-submission-heatmap.js') }}?v={{ app_version }}"></script>
+    {% if active_tab == "submissions" %}
+        <script src="{{ request.url_for('static_vendor', path='tsparticles.confetti.bundle.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='confetti-celebrate.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('arena_static_js', path='profile-submissions-live.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
 {% endblock %}

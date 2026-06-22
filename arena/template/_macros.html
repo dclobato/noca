@@ -8,6 +8,18 @@
     <span class="material-symbols-outlined {{ final_classes | join(" ") }}"
           {% if title %}title="{{ title }}"{% endif %}>{{ icon }}</span>
 {% endmacro %}
+{% macro render_avatar(user_id, src, alt="", size_class="avatar-wrapper--md", img_class="rounded-circle object-fit-cover", width=32, height=32, title=None) %}
+    {# Avatar wrapped for the online-presence dot. `noca-presence.js` reads
+       data-user-id and toggles the `online` class on the wrapper. #}
+    <span class="avatar-wrapper {{ size_class }}" data-user-id="{{ user_id }}">
+        <img src="{{ src }}"
+             {% if width %}width="{{ width }}"{% endif %}
+             {% if height %}height="{{ height }}"{% endif %}
+             class="{{ img_class }}"
+             alt="{{ alt }}"
+             {% if title %}title="{{ title }}"{% endif %}>
+    </span>
+{% endmacro %}
 {% macro render_flash_messages(dismissible=True, with_icons=True, full_width=False) %}
     {% set _flashed = get_flashed_messages(with_categories=True) %}
     {% if _flashed %}

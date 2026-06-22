@@ -32,14 +32,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from arena.config import settings
 from arena.database import get_db
 from arena.models.arena_users import ArenaUser
 from arena.services import arena_auth_service
 from arena.services.session_service import mark_auth_refresh_eligible
 from shared.age_check import AgeStatus, check_age
 from shared.services.arena_notification_service import count_unread_arena_notifications
+from shared.services.user_presence import mark_user_online
 
 logger = logging.getLogger(__name__)
+
+#: Identity domain used when marking Arena users online (see arena/routes/presence.py).
+_PRESENCE_DOMAIN = "arena"
 
 _SESSION_FLASH_KEY = "_flash_messages"
 _FORCE_LOGOUT_MESSAGE = "You were logged out for security reasons. Please log in again."
@@ -124,6 +129,7 @@ async def get_current_arena_user(
             user_id=user.id,
         )
         mark_auth_refresh_eligible(request)
+        await _refresh_presence(request, user)
         return user
 
     # Token identity mismatch: revoke and force logout.
@@ -138,6 +144,30 @@ async def get_current_arena_user(
 
     _write_flash(request, _FORCE_LOGOUT_MESSAGE, _FORCE_LOGOUT_CATEGORY)
     raise ForceLogoutException(request)
+
+
+async def _refresh_presence(request: Request, user: ArenaUser) -> None:
+    """Best-effort: mark a fully-authorized user online on each page view.
+
+    Restricted to ``GET`` requests so it marks navigation only: the dedicated
+    heartbeat (a ``POST``) and the batch status endpoint (also a ``POST``) are
+    excluded, keeping a normal poll tick to a single presence write instead of
+    three.  The client heartbeat keeps idle-but-open tabs online.  Silently does
+    nothing when presence is disabled or the Valkey runtime is unavailable.
+    """
+    if not settings.PRESENCE_ENABLED:
+        return
+    if request.method != "GET":
+        return
+    runtime = getattr(request.app.state, "valkey_runtime", None)
+    if runtime is None:
+        return
+    await mark_user_online(
+        runtime,
+        domain=_PRESENCE_DOMAIN,
+        user_id=str(user.id),
+        ttl_seconds=settings.PRESENCE_TTL_SECONDS,
+    )
 
 
 def _user_access_gates_are_clear(user: ArenaUser) -> bool:

@@ -28,7 +28,11 @@ from arena.services.session_service import (
     build_login_redirect_response,
     missing_profile_fields,
 )
-from arena.services.submission_list_service import SubmissionListRow, get_user_submissions
+from arena.services.submission_list_service import (
+    ARENA_SUBMISSIONS_PER_PAGE,
+    SubmissionListRow,
+    get_user_submissions,
+)
 from arena.services.user_progress_service import (
     UserProgress,
     UserProgressSummary,
@@ -110,7 +114,7 @@ async def arena_user_photo_by_id(
 
 
 _NOTIFICATIONS_PER_PAGE = 25
-_SUBMISSIONS_PER_PAGE = 25
+_SUBMISSIONS_PER_PAGE = ARENA_SUBMISSIONS_PER_PAGE
 _CREDITS_PER_PAGE = 25
 
 

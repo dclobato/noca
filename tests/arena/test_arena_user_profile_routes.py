@@ -36,6 +36,7 @@ from arena.routes.help import router as arena_help_router
 from arena.routes.notifications import router as arena_notifications_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.routes.root import router as arena_root_router
+from arena.routes.user_submission_status import router as arena_user_submission_status_router
 from arena.routes.users import router as arena_users_router
 from arena.services.session_service import missing_profile_fields
 from arena.services.token_service import ArenaTokenAction
@@ -52,9 +53,18 @@ from shared.db_schema.arena import (
     arena_problem_solvers,
     arena_problem_tried,
     arena_problems,
+    arena_submission_judgments,
+    arena_submissions,
 )
-from shared.enumerations import ArenaRole
+from shared.enumerations import (
+    VERDICT_BADGE_CLASSES,
+    VERDICT_LABELS,
+    ArenaRole,
+    JudgmentStatus,
+    Verdict,
+)
 from shared.services.network_utils import NetworkService
+from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-arena-profile-tests-only-32bytes"
 
@@ -101,6 +111,8 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     templates.env.globals["arena_datetime_local_value"] = datetime_local_value
     templates.env.globals["arena_format_datetime"] = format_user_datetime
     templates.env.globals["arena_user_timezone_name"] = timezone_name_for_user
+    templates.env.globals["verdict_badge_classes"] = VERDICT_BADGE_CLASSES
+    templates.env.globals["verdict_labels"] = VERDICT_LABELS
     setup_flash(templates)
     app.state.arena_templates = templates
 
@@ -201,6 +213,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     app.include_router(arena_root_router)
     app.include_router(arena_help_router)
     app.include_router(arena_users_router)
+    app.include_router(arena_user_submission_status_router)
     app.include_router(arena_notifications_router)
     app.include_router(arena_ranking_router)
     return app
@@ -1033,3 +1046,86 @@ async def test_user_profile_credits_tab_renders_balance_and_statement(
     assert "Credit Statement" in response.text
     assert "Top-up" in response.text
     assert "+4" in response.text
+
+
+async def _create_submission_row(
+    session: AsyncSession,
+    *,
+    user: ArenaUser,
+    problem_id: str,
+    status: JudgmentStatus,
+    verdict: Verdict | None = None,
+) -> str:
+    """Insert a language, submission, and judgment; return the submission id."""
+    language = Language(
+        id=f"lang-{uuid.uuid4().hex[:8]}",
+        name="Profile Test Lang",
+        icon="devicon-python-plain",
+        compile_image="noca/test:compile",
+        run_image="noca/test:run",
+        compile_cmd=["true"],
+        run_cmd=["true"],
+        source_filename="main.txt",
+        artifact_path="/sandbox/main.txt",
+        artifact_is_source=True,
+        compile_timeout_s=10.0,
+        active=True,
+    )
+    session.add(language)
+    await session.flush()
+    submission_id = str(uuid.uuid4())
+    await session.execute(
+        arena_submissions.insert().values(
+            id=submission_id,
+            user_id=user.id,
+            problem_id=problem_id,
+            language_id=language.id,
+            source_code="print(1)\n",
+            source_hash=uuid.uuid4().hex,
+            source_size_bytes=8,
+        )
+    )
+    await session.execute(
+        arena_submission_judgments.insert().values(
+            id=str(uuid.uuid4()),
+            submission_id=submission_id,
+            status=status.value,
+            autojudge_verdict=verdict.value if verdict else None,
+            final_verdict=verdict.value if verdict else None,
+        )
+    )
+    return submission_id
+
+
+@pytest.mark.asyncio
+async def test_profile_submissions_tab_renders_realtime_hooks(session: AsyncSession) -> None:
+    """The submissions tab exposes the DOM hooks and ordered scripts for live updates."""
+    user = await _create_arena_user(session)
+    problem_id = await _create_progress_problem(session, user, title="Echo", rating=50, arena_number=4321)
+    submission_id = await _create_submission_row(
+        session, user=user, problem_id=problem_id, status=JudgmentStatus.JUDGING
+    )
+    await session.commit()
+    app = _build_arena_app(session)
+    token = _login_token(app, user)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/user/profile?tab=submissions")
+
+    assert response.status_code == 200
+    html = response.text
+    # Row + cell hooks the live updater targets.
+    assert f'data-submission-id="{submission_id}"' in html
+    assert 'data-final="false"' in html  # JUDGING is non-final
+    assert "js-verdict-badge" in html
+    assert "js-submission-runtime" in html
+    # Endpoint URLs the live updater reads from the section wrapper.
+    assert "data-status-url=" in html
+    assert "data-events-url=" in html
+    # Confetti contract: vendor bundle + shared module load before the consumer,
+    # so window.NocaConfetti exists when profile-submissions-live.js runs.
+    assert "tsparticles.confetti.bundle.min.js" in html
+    assert "confetti-celebrate.js" in html
+    assert "profile-submissions-live.js" in html
+    assert html.index("confetti-celebrate.js") < html.index("profile-submissions-live.js")
