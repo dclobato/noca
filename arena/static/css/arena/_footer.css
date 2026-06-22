@@ -68,9 +68,25 @@
 }
 
 .arena-footer-links {
+    align-items: center;
     display: flex;
     flex-wrap: wrap;
     gap: 1rem;
+}
+
+.arena-footer-online {
+    align-items: center;
+    color: var(--arena-on-surface-variant);
+    display: inline-flex;
+    gap: 0.35rem;
+}
+
+.arena-footer-online-dot {
+    background-color: var(--bs-success, #198754);
+    border-radius: 50%;
+    display: inline-block;
+    height: 0.5rem;
+    width: 0.5rem;
 }
 
 .arena-footer a {

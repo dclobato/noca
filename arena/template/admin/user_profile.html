@@ -25,9 +25,12 @@
         <section class="arena-card mb-3">
             <div class="d-flex align-items-center gap-3">
                 <div class="arena-admin-avatar-actions">
-                    <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=target_user.id) }}"
-                         alt="{{ target_user.nome }}"
-                         class="arena-avatar arena-profile-avatar">
+                    <span class="avatar-wrapper avatar-wrapper--lg"
+                          data-user-id="{{ target_user.id }}">
+                        <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=target_user.id) }}"
+                             alt="{{ target_user.nome }}"
+                             class="arena-avatar arena-profile-avatar">
+                    </span>
                     {% if target_user.com_foto %}
                         <form method="post"
                               action="{{ request.url_for('arena_admin_user_remove_photo', user_id=target_user.id) }}">

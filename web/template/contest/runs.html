@@ -172,6 +172,8 @@
                 defer></script>
         <script src="{{ request.url_for('static_vendor', path='tsparticles.confetti.bundle.min.js') }}"
                 defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='confetti-celebrate.js') }}?v={{ app_version }}"
+                defer></script>
         <script src="{{ request.url_for('static_js', path='runs-confetti.js') }}?v={{ app_version }}"
                 defer></script>
     {% endif %}

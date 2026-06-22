@@ -289,6 +289,34 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
+    # Online presence (green-dot indicator on user avatars)
+    # ------------------------------------------------------------------
+    PRESENCE_ENABLED: bool = Field(
+        default=True,
+        validation_alias="NOCA_ARENA_PRESENCE_ENABLED",
+        description="Enable the online-presence indicator on Arena user avatars.",
+    )
+    PRESENCE_TTL_SECONDS: int = Field(
+        default=60,
+        ge=10,
+        le=600,
+        validation_alias="NOCA_ARENA_PRESENCE_TTL_SECONDS",
+        description=(
+            "Seconds a user stays 'online' after their last heartbeat or page view. "
+            "Must be greater than NOCA_ARENA_PRESENCE_HEARTBEAT_SECONDS."
+        ),
+    )
+    PRESENCE_HEARTBEAT_SECONDS: int = Field(
+        default=30,
+        ge=5,
+        le=300,
+        validation_alias="NOCA_ARENA_PRESENCE_HEARTBEAT_SECONDS",
+        description=(
+            "Client heartbeat / dot-refresh interval in seconds. Must be smaller than NOCA_ARENA_PRESENCE_TTL_SECONDS."
+        ),
+    )
+
+    # ------------------------------------------------------------------
     # AI assistant batch window (mirrors aiassistant config for display)
     # ------------------------------------------------------------------
     AI_BATCH_POLL_INTERVAL_SECONDS: float = Field(
@@ -397,6 +425,16 @@ class Settings(BaseSettings):
         Arena identity domains never collide under the shared mount.
         """
         return Path(self.PROBLEM_TESTCASE_DIR_ROOT) / ARENA_TC_SUBDIR
+
+    @model_validator(mode="after")
+    def validate_presence_settings(self) -> Settings:
+        """Ensure the heartbeat interval stays below the presence TTL."""
+        if self.PRESENCE_HEARTBEAT_SECONDS >= self.PRESENCE_TTL_SECONDS:
+            raise ValueError(
+                "NOCA_ARENA_PRESENCE_HEARTBEAT_SECONDS must be smaller than "
+                "NOCA_ARENA_PRESENCE_TTL_SECONDS so a still-active user never expires."
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_email_settings(self) -> Settings:

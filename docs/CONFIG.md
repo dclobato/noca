@@ -240,6 +240,14 @@ The web container's entrypoint runs `scripts/web/create_uberadmin.py` only when 
 |----------|---------|-------------|
 | `NOCA_ARENA_LIVE_FEED_LIMIT` | `20` | Maximum number of finalized submissions returned by `/live/feed.json` and shown on the public Arena live feed page (1–100). |
 
+### Online presence
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOCA_ARENA_PRESENCE_ENABLED` | `true` | Enable the online-presence green dot on Arena user avatars. When disabled, the client script and endpoints become inert. |
+| `NOCA_ARENA_PRESENCE_TTL_SECONDS` | `60` | Seconds a user stays "online" after their last heartbeat or page view (10–600). Must be greater than the heartbeat interval. |
+| `NOCA_ARENA_PRESENCE_HEARTBEAT_SECONDS` | `30` | Client heartbeat / dot-refresh interval in seconds (5–300). Must be smaller than the TTL. |
+
 ### Reverse geocoder
 
 | Variable | Default | Description |

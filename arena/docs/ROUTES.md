@@ -98,6 +98,17 @@ database records created by worker-side producers, such as `autojudge`.
 | `POST` | `/arena/notifications/read-all` | Marks all unread notifications as read for the current user and returns the updated unread count. |
 | `POST` | `/arena/notifications/{notification_id}/read` | Marks one current-user notification as read and returns the updated unread count. Returns 404 for missing or foreign notifications. |
 
+## Presence (`arena/routes/presence.py`)
+
+All routes require an authenticated Arena user; guests receive `401` and no
+presence data. Presence lives entirely in Valkey (best-effort, short TTL, no
+database writes) and powers the green online-dot on user avatars.
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| `POST` | `/arena/presence/heartbeat` | Marks the current user online for `NOCA_ARENA_PRESENCE_TTL_SECONDS`. Returns `{"ok": true, "enabled": true}` (or `{"ok": false, "enabled": false}` when presence is disabled). |
+| `POST` | `/arena/presence/status` | Body `{"ids": [...]}` (max 500 distinct ids honoured). Returns `{"enabled": true, "online": [id, ...]}` — only the online ids from the batch; any queried id absent from the list is offline. The auth check runs before the body is parsed or Valkey is touched. |
+
 ## Classes (`arena/routes/classes.py`)
 
 All routes require an authenticated Arena user unless noted. Browser GET requests
@@ -179,6 +190,15 @@ GET page, such as the submission detail page, as the `next` target.
 | `POST` | `/user/profile/api-key` | Authenticated JSON endpoint to set, replace, or clear the current user's personal AI API key. Accepts `{"api_key": "<value>"}`. An empty or absent value clears the key. The key is encrypted at rest; the plaintext is never returned after this call. Returns `{"ok": true, "cleared": <bool>}`. |
 | `GET` | `/user/{user_id}/photo` | Public diagnostic route returning the stored full-size Arena user photo, or generated SVG fallback when no photo is stored. |
 | `GET` | `/user/{user_id}/avatar` | Public diagnostic route returning the stored resized Arena user avatar, or generated SVG fallback when no photo is stored. |
+
+## User Submission Status (`arena/routes/user_submission_status.py`)
+
+Realtime backing for the profile submissions tab's in-place verdict updates and AC confetti.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/user/submissions/status.json` | Authenticated JSON snapshot of the current verdict/status for a validated, owner-scoped set of submission IDs. Query `?ids=` is a comma-separated list of submission UUIDs (max 25); malformed UUIDs or an over-limit count return `400`, an empty/absent value returns `{"submissions": []}`, and guests get `401`. Each row reports `submission_id`, `status`, `is_final` (terminal `DONE`/`FAILED`/`SUPERSEDED`), `verdict`, `verdict_label`, `verdict_badge_class`, and `max_wall_time_ms`. The sole data source the browser renders from. |
+| `GET` | `/user/submissions/status/events` | Authenticated, user-scoped SSE channel. Resolves the requested `?ids=` against the current user **once** at connect, then emits a generic `data: refresh` ping only when one of those owned submissions finalizes (plus `data: ping` heartbeats). No verdict data leaves the server; the per-event predicate is in-memory set membership (no per-verdict DB query). Guests get `401`; malformed/over-limit IDs `400`. |
 
 ## User Security (`arena/routes/user_security.py`)
 

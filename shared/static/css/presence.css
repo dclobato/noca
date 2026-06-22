@@ -1,0 +1,32 @@
+/* NOCA -- Next Online Contest Administrator */
+/* Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org> */
+/* This program is distributed in the hope that it will be useful, */
+/* but WITHOUT ANY WARRANTY; without even the implied warranty of */
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. */
+
+/*
+ * Online-presence indicator overlaid on user avatars. Module-neutral so both
+ * the web (contest) and arena modules can reuse it; imported from
+ * `common.css`. The `.online` class is toggled at runtime by
+ * `noca-presence.js`.
+ */
+
+.avatar-wrapper {
+    position: relative;
+    display: inline-block;
+    line-height: 0;
+}
+
+/* Simple green "online" dot, bottom-right, with a white ring for contrast. */
+.avatar-wrapper.online::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 13px;
+    height: 13px;
+    background-color: var(--arena-primary, #2f9e41);
+    border: 2px solid #fff;
+    border-radius: 50%;
+    z-index: 2;
+}

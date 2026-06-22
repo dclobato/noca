@@ -110,6 +110,12 @@ class JudgmentStatus(StrEnum):
     SUPERSEDED = "SUPERSEDED"  # replaced by a rejudge
 
 
+TERMINAL_JUDGMENT_STATUSES: frozenset[JudgmentStatus] = frozenset(
+    {JudgmentStatus.DONE, JudgmentStatus.FAILED, JudgmentStatus.SUPERSEDED}
+)
+"""Judgment statuses that are terminal. ``FAILED`` and ``SUPERSEDED`` are final without a verdict."""
+
+
 class ProfilingStatus(StrEnum):
     """Lifecycle states of a profiling run."""
 

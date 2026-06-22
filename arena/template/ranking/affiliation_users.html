@@ -6,7 +6,7 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon with context %}
+{% from "_macros.html" import render_icon, render_avatar with context %}
 {% block title_suffix %}&mdash; {{ affiliation.name }} &mdash; User Ranking{% endblock %}
 {% block nav_ranking %}active{% endblock %}
 {% block nav_ranking_affiliations %}active{% endblock %}
@@ -70,11 +70,7 @@
                             <tr>
                                 <td class="text-end arena-monospace text-muted">{{ user.rank }}</td>
                                 <td class="text-center">
-                                    <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=user.id) }}"
-                                         width="32"
-                                         height="32"
-                                         class="rounded-circle object-fit-cover"
-                                         alt="{{ user.name }}">
+                                    {{ render_avatar(user.id, request.url_for('arena_user_avatar_by_id', user_id=user.id) , alt=user.name, img_class="rounded-circle object-fit-cover") }}
                                 </td>
                                 <td class="fw-semibold">{{ user.name }}</td>
                                 <td class="text-muted small arena-monospace">{{ user.email_mascarado }}</td>

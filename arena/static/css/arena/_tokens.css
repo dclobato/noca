@@ -10,12 +10,12 @@
    Design tokens — Stitch "Competitive Programming Arena" theme
    ============================================================ */
 :root {
-    --arena-primary:                  #006b21;
+    --arena-primary:                  #2f9e41;
     --arena-primary-container:        #09872d;
     --arena-on-primary:               #ffffff;
     --arena-on-primary-container:     #f7fff1;
 
-    --arena-secondary:                #bb0213;
+    --arena-secondary:                #cd191e;
     --arena-secondary-container:      #e02a29;
     --arena-on-secondary:             #ffffff;
 

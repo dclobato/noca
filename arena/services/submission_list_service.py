@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -25,7 +26,13 @@ from shared.db_schema.arena import (
     arena_submissions,
     arena_users,
 )
+from shared.enumerations import TERMINAL_JUDGMENT_STATUSES
 from shared.services.arena_query_helpers import active_arena_judgment_subquery
+
+# Page size for the profile submissions tab. Shared so the realtime status
+# endpoints cap the number of watchable IDs at exactly what the page can render
+# (a larger page must never produce more IDs than the endpoints accept).
+ARENA_SUBMISSIONS_PER_PAGE = 25
 
 
 @dataclass(frozen=True)
@@ -47,6 +54,9 @@ class SubmissionListRow:
         submit_to_ai: ``True`` when the submission has been queued for AI review.
         has_ai_review: ``True`` when a completed AI review exists for this submission.
         has_teacher_feedback: ``True`` when a teacher left feedback on this submission.
+        is_final: ``True`` when the active judgment status is terminal (``DONE``,
+            ``FAILED``, or ``SUPERSEDED``). ``FAILED`` and ``SUPERSEDED`` are final
+            without a verdict, so this is the authoritative "stop watching" signal.
     """
 
     submission_id: str
@@ -63,11 +73,13 @@ class SubmissionListRow:
     submit_to_ai: bool
     has_ai_review: bool
     has_teacher_feedback: bool
+    is_final: bool
 
 
 def build_arena_submission_query(
     *,
     user_id: str | None = None,
+    id_filter: Sequence[str] | None = None,
     problem_search: str | None = None,
     user_search: str | None = None,
     verdict_filter: str | None = None,
@@ -90,6 +102,9 @@ def build_arena_submission_query(
 
     Args:
         user_id: When set, restricts results to this Arena user's submissions.
+        id_filter: When not ``None``, restricts results to these submission IDs via
+            ``IN``. An empty sequence intentionally matches **no** rows; pass ``None``
+            to disable the filter entirely.
         problem_search: ilike match against problem title or cast(arena_number).
         user_search: ilike match against arena_users.nome or email_normalizado.
             Only evaluated when ``include_user=True``.
@@ -168,6 +183,9 @@ def build_arena_submission_query(
 
     if user_id is not None:
         stmt = stmt.where(arena_submissions.c.user_id == user_id)
+
+    if id_filter is not None:
+        stmt = stmt.where(arena_submissions.c.id.in_(id_filter))
 
     if problem_search:
         term = f"%{problem_search}%"
@@ -251,6 +269,7 @@ async def get_user_submissions(
             submit_to_ai=row[11],
             has_ai_review=row[12] is not None,
             has_teacher_feedback=row[13] is not None,
+            is_final=row[9] in TERMINAL_JUDGMENT_STATUSES,
         )
         for row in rows
     ]

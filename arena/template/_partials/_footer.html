@@ -21,6 +21,16 @@
             {% endif %}
         </div>
         <nav class="arena-footer-links" aria-label="Footer links">
+            {% if current_user %}
+                {% set online_count = arena_online_user_count(request) if arena_online_user_count is defined else none %}
+                {% if online_count is not none %}
+                    <span class="arena-footer-online"
+                          title="Users active in the last few minutes">
+                        <span class="arena-footer-online-dot" aria-hidden="true"></span>
+                        {{ online_count }} online
+                    </span>
+                {% endif %}
+            {% endif %}
             <a href="{{ request.url_for("arena_status") }}">Status</a>
             <a href="#">Contact</a>
             <a href="https://www.github.com/dclobato/noca">GitHub</a>
