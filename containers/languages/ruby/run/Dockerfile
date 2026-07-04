@@ -9,12 +9,14 @@
 # Long-lived pool container. Contestant code is executed through isolate,
 # while Docker remains the outer safety boundary.
 #
-# Pinned family: ruby:3.3-slim-bookworm (Debian bookworm slim)
+# Pinned family: ruby:4.0-slim-bookworm (Debian bookworm slim)
 
 ARG ISOLATE_BASE_REF=noca/isolate-base:latest
 FROM ${ISOLATE_BASE_REF} AS isolate
 
-FROM ruby:3.3-slim-bookworm
+FROM ruby:4.0-slim-bookworm
+
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libcap2 libseccomp2 \

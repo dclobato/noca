@@ -55,7 +55,8 @@
                     </thead>
                     <tbody>
                         {% for user in pagination.items %}
-                            <tr>
+                            {% set user_profile_url = request.url_for('arena_user_profile_public', user_id=user.id) if user.public_profile else None %}
+                            <tr {% if user_profile_url %}data-href="{{ user_profile_url }}"{% endif %}>
                                 <td class="text-end arena-monospace text-muted">{{ user.rank }}</td>
                                 <td class="text-center">
                                     {{ render_avatar(user.id, request.url_for('arena_user_avatar_by_id', user_id=user.id) , alt=user.name, img_class="rounded-circle object-fit-cover") }}
@@ -69,7 +70,8 @@
                                                  width="32"
                                                  height="32"
                                                  class="rounded object-fit-cover me-1"
-                                                 alt="{{ user.affiliation_name }} logo">
+                                                 alt="{{ user.affiliation_name }} logo"
+                                                 data-no-row-link>
                                         {% endif %}
                                         {{ user.affiliation_name }}
                                     {% else %}
@@ -102,4 +104,8 @@
             {% endwith %}
         </div>
     </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('arena_static_js', path='arena-row-href.js') }}?v={{ app_version }}"
+            defer></script>
 {% endblock %}

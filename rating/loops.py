@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from shared.services.arena_badges import compute_badge_awards
 from shared.services.arena_heatmap import compute_all_user_heatmaps
 from shared.services.arena_rating import (
     NextRatingUpdateCallback,
@@ -32,7 +33,7 @@ from shared.services.arena_rating import (
     rate_all_problems,
     rate_all_users,
 )
-from shared.services.arena_stats import compute_all_problem_statistics
+from shared.services.arena_stats import compute_all_problem_statistics, compute_all_user_statistics
 
 
 async def run_problem_rating_loop(
@@ -201,6 +202,52 @@ async def run_affiliation_rating_loop(
         user_done.clear()
 
 
+async def run_user_stats_loop(
+    session_factory: async_sessionmaker[AsyncSession],
+    interval_seconds: int,
+    stop_event: asyncio.Event,
+    logger: logging.Logger,
+    *,
+    run_immediately: bool = False,
+) -> None:
+    """Recompute per-user statistics snapshots on a fixed interval.
+
+    Independent of the problem/user/affiliation rating chain: it runs on its
+    own timer (``STATS_INTERVAL``) and writes the ``arena_user_statistics``
+    table read by the Arena public profile page. Failures are logged and the
+    loop keeps running so a transient error does not stop future cycles.
+
+    Args:
+        session_factory: Async session factory for database access.
+        interval_seconds: Seconds between statistics cycles.
+        stop_event: Setting this event triggers graceful shutdown.
+        logger: Logger instance for cycle reporting.
+        run_immediately: When True, skip the initial interval wait and run on
+            the first iteration.
+    """
+    if not run_immediately:
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+
+    while not stop_event.is_set():
+        try:
+            async with session_factory() as session:
+                count = await compute_all_user_statistics(session)
+                await session.commit()
+            logger.info("User statistics cycle complete (%d users updated)", count)
+        except OSError as exc:
+            logger.warning("User statistics cycle skipped — DB unreachable: %s", exc)
+        except Exception:
+            logger.exception("User statistics cycle failed")
+
+        if stop_event.is_set():
+            break
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+        except TimeoutError:
+            continue
+
+
 async def run_problem_stats_loop(
     session_factory: async_sessionmaker[AsyncSession],
     interval_seconds: int,
@@ -238,6 +285,64 @@ async def run_problem_stats_loop(
             logger.warning("Problem statistics cycle skipped — DB unreachable: %s", exc)
         except Exception:
             logger.exception("Problem statistics cycle failed")
+
+        if stop_event.is_set():
+            break
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+        except TimeoutError:
+            continue
+
+
+async def run_badge_assignment_loop(
+    session_factory: async_sessionmaker[AsyncSession],
+    interval_seconds: int,
+    stop_event: asyncio.Event,
+    logger: logging.Logger,
+    *,
+    lookback_seconds: int = 600,
+    reconcile_interval_seconds: int = 86400,
+    run_immediately: bool = False,
+) -> None:
+    """Award Arena gamification badges from Accepted submissions on a fixed interval.
+
+    Independent of the rating chain: it runs on its own timer (``BADGE_INTERVAL``).
+    Each cycle runs the cheap incremental pass; ``compute_badge_awards`` derives
+    whether a full reconciliation is due from the durable
+    ``arena_badge_cycle_state.last_reconciled_at`` (so a process restart does not
+    force one), running it at most every ``reconcile_interval_seconds``. The full
+    pass ignores the watermark and re-evaluates all AC history, keeping CLEAN_CODE
+    dynamic and repairing anything the incremental path missed. Failures are
+    logged and the loop keeps running.
+
+    Args:
+        session_factory: Async session factory for database access.
+        interval_seconds: Seconds between badge-assignment cycles.
+        stop_event: Setting this event triggers graceful shutdown.
+        logger: Logger instance for cycle reporting.
+        lookback_seconds: Overlap subtracted from the incremental watermark.
+        reconcile_interval_seconds: Minimum seconds between full reconciliations.
+        run_immediately: When True, skip the initial interval wait.
+    """
+    if not run_immediately:
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+
+    while not stop_event.is_set():
+        try:
+            async with session_factory() as session:
+                count = await compute_badge_awards(
+                    session,
+                    reconcile_interval_seconds=reconcile_interval_seconds,
+                    lookback_seconds=lookback_seconds,
+                    now=datetime.now(UTC),
+                )
+                await session.commit()
+            logger.info("Badge assignment cycle complete (%d badges awarded)", count)
+        except OSError as exc:
+            logger.warning("Badge assignment cycle skipped — DB unreachable: %s", exc)
+        except Exception:
+            logger.exception("Badge assignment cycle failed")
 
         if stop_event.is_set():
             break

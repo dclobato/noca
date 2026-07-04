@@ -167,6 +167,41 @@ def _enviar_email_conta_criada_confirmada(
     return result.success
 
 
+def enviar_email_conta_existente(
+    email: str,
+    email_service: EmailService,
+    url_base: str,
+) -> bool:
+    """Notify an address that a signup was attempted for an existing account.
+
+    This keeps the sign-up flow enumeration-safe: both the fresh-signup and the
+    already-registered branches return the identical neutral response, and the
+    only account-specific signal (log in or reset your password) is delivered
+    out-of-band to the address owner instead of to the requester.
+
+    Args:
+        email: Raw email address submitted on the sign-up form.
+        email_service: Configured email delivery service.
+        url_base: Base URL used to build the login and reset links.
+
+    Returns:
+        ``True`` when the email was dispatched successfully.
+    """
+    base = url_base.rstrip("/")
+    body = _render_email_template(
+        "account_already_exists.jinja2",
+        login_url=f"{base}/auth/login",
+        reset_url=f"{base}/auth/password-reset",
+    )
+    result = email_service.send_email(
+        to_email=email,
+        to_name="Noca Arena user",
+        subject="You already have a Noca Arena account",
+        text_body=body,
+    )
+    return result.success
+
+
 async def registrar_usuario(
     nome: str,
     email: str,

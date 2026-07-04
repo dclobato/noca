@@ -18,6 +18,7 @@ size stored in the database.
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -27,11 +28,30 @@ from shared.tc_zip import normalize_testcase_bytes
 CONTEST_TC_SUBDIR = "contest"
 #: Subdirectory under ``NOCA_PROBLEM_TESTCASE_DIR`` for Arena problems.
 ARENA_TC_SUBDIR = "arena"
+_PROBLEM_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+
+
+def get_problem_testcase_dir(problem_id: str, testcase_dir: Path) -> Path:
+    """Return the guarded directory for one problem's test-case files."""
+    if not _PROBLEM_ID_RE.fullmatch(problem_id):
+        raise ValueError(f"Invalid problem id for testcase path: {problem_id!r}")
+    root = testcase_dir.resolve()
+    base = (root / problem_id).resolve(strict=False)
+    if not base.is_relative_to(root):
+        raise ValueError(f"Problem testcase path escapes configured root: {problem_id!r}")
+    return base
 
 
 def get_testcase_path(problem_id: str, ordinal: int, ext: str, testcase_dir: Path) -> Path:
     """Return the path for one test-case file (``ext`` is ``"in"`` or ``"out"``)."""
-    return testcase_dir / problem_id / f"{ordinal:03d}.{ext}"
+    if ext not in {"in", "out"}:
+        raise ValueError(f"Invalid testcase extension: {ext!r}")
+    base = get_problem_testcase_dir(problem_id, testcase_dir)
+    path = (base / f"{ordinal:03d}.{ext}").resolve(strict=False)
+    root = testcase_dir.resolve()
+    if not path.is_relative_to(root):
+        raise ValueError(f"Testcase path escapes configured root: {problem_id!r}")
+    return path
 
 
 def save_testcase_files(
@@ -49,7 +69,7 @@ def save_testcase_files(
         tuple[int, int]: ``(input_size_bytes, output_size_bytes)`` of the
         normalized content written to disk.
     """
-    base = testcase_dir / problem_id
+    base = get_problem_testcase_dir(problem_id, testcase_dir)
     base.mkdir(parents=True, exist_ok=True)
     in_norm = normalize_testcase_bytes(in_bytes)
     out_norm = normalize_testcase_bytes(out_bytes)
@@ -113,12 +133,12 @@ def delete_testcase_files(problem_id: str, ordinal: int, testcase_dir: Path) -> 
 
 def delete_all_testcase_files(problem_id: str, testcase_dir: Path) -> None:
     """Delete all test-case files for one problem."""
-    shutil.rmtree(testcase_dir / problem_id, ignore_errors=True)
+    shutil.rmtree(get_problem_testcase_dir(problem_id, testcase_dir), ignore_errors=True)
 
 
 def renumber_testcase_files(problem_id: str, old_ordinal: int, new_ordinal: int, testcase_dir: Path) -> None:
     """Rename a test-case pair from ``old_ordinal`` to ``new_ordinal``."""
-    base = testcase_dir / problem_id
+    base = get_problem_testcase_dir(problem_id, testcase_dir)
     for ext in ("in", "out"):
         src = base / f"{old_ordinal:03d}.{ext}"
         dst = base / f"{new_ordinal:03d}.{ext}"
@@ -128,7 +148,7 @@ def renumber_testcase_files(problem_id: str, old_ordinal: int, new_ordinal: int,
 
 def reorder_testcase_files(problem_id: str, ordinal_map: dict[int, int], testcase_dir: Path) -> None:
     """Rename test-case files through temporary paths for an arbitrary reorder."""
-    base = testcase_dir / problem_id
+    base = get_problem_testcase_dir(problem_id, testcase_dir)
     if not base.exists():
         return
 

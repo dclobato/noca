@@ -10,6 +10,7 @@ Routes:
   GET  /submissions/{submission_id}                         arena_submission_detail
   POST /submissions/{submission_id}/request-ai-review       arena_submission_request_ai_review
   POST /submissions/{submission_id}/teacher-feedback        arena_submission_teacher_feedback
+  POST /submissions/{submission_id}/teacher-feedback/remove arena_submission_teacher_feedback_remove
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_users import ArenaUser
 from arena.services.ai_turnaround_stats_service import get_batch_turnaround_stats
 from arena.services.arena_problem_set_report_service import can_teacher_view_submission
-from arena.services.arena_teacher_feedback_service import upsert_teacher_feedback
+from arena.services.arena_teacher_feedback_service import delete_teacher_feedback, upsert_teacher_feedback
 from arena.services.session_service import build_current_next_url, build_login_redirect_response
 from arena.services.user_ai_credit_service import consume_ai_credit
 from shared.db_schema import languages as languages_table
@@ -762,4 +763,79 @@ async def arena_submission_teacher_feedback_submit(
     await session.commit()
 
     flash("Feedback saved.", FlashCategory.SUCCESS)
+    return RedirectResponse(url=redirect_url, status_code=303)
+
+
+@router.post(
+    "/submissions/{submission_id}/teacher-feedback/remove",
+    name="arena_submission_teacher_feedback_remove",
+)
+async def arena_submission_teacher_feedback_remove(
+    submission_id: str,
+    request: Request,
+    flash: FlashDep,
+    back_class_id: Annotated[str, Form()] = "",
+    back_set_id: Annotated[str, Form()] = "",
+    back_user_id: Annotated[str, Form()] = "",
+    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    """Delete existing teacher feedback on a submission.
+
+    Authorization mirrors :func:`arena_submission_teacher_feedback_submit`:
+    the assigned teacher of the submission's persisted problem-set class, or
+    an Arena admin, may remove feedback. Unlike the write path, the
+    submission's current verdict is irrelevant here — stale feedback left
+    behind by a later rejudge to AC can still be removed.
+
+    Args:
+        submission_id: UUID of the ``arena_submissions`` row.
+        request: Current HTTP request.
+        flash: Flash-message dependency for user feedback.
+        back_class_id: Navigation-only class id for the return link.
+        back_set_id: Navigation-only problem-set id for the return link.
+        back_user_id: Navigation-only student id for the return link.
+        current_user: Authenticated Arena user, or ``None`` for guests.
+        session: Active database session.
+
+    Returns:
+        Response: 303 redirect to the submission detail page.
+
+    Raises:
+        HTTPException: 404 when the submission is missing, not set-tied, or
+            the actor is not allowed to manage feedback for it.
+    """
+    if current_user is None:
+        return build_login_redirect_response(
+            request,
+            next_url=request.url_for("arena_submission_detail", submission_id=submission_id).path,
+        )
+
+    row = (
+        await session.execute(select(arena_submissions.c.problem_set_id).where(arena_submissions.c.id == submission_id))
+    ).one_or_none()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Submission not found.")
+
+    (problem_set_id,) = row
+
+    if not await _can_manage_feedback(session, actor=current_user, submission_problem_set_id=problem_set_id):
+        raise HTTPException(status_code=404, detail="Submission not found.")
+
+    redirect_url = _feedback_redirect_url(
+        request,
+        submission_id,
+        back_class_id=back_class_id,
+        back_set_id=back_set_id,
+        back_user_id=back_user_id,
+    )
+
+    deleted = await delete_teacher_feedback(session, submission_id=submission_id)
+    await session.commit()
+
+    if deleted:
+        flash("Feedback removed.", FlashCategory.SUCCESS)
+    else:
+        flash("No feedback to remove.", FlashCategory.WARNING)
     return RedirectResponse(url=redirect_url, status_code=303)

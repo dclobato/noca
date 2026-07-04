@@ -22,6 +22,7 @@ from arena.models.arena_problems import ArenaCategory
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_category_service
 from arena.services.pagination_service import parse_page
+from shared.services.admin_audit import record_admin_action
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
 
@@ -266,6 +267,16 @@ async def admin_category_delete(
     category = await _get_category_or_404(category_id, session)
     category_name = category.name
     await admin_category_service.delete_category(session, category)
+    await record_admin_action(
+        session,
+        request,
+        module="arena",
+        actor_user_id=admin.id,
+        action="delete",
+        target_type="arena_category",
+        target_id=category_id,
+        detail=f"name={category_name}",
+    )
     await session.commit()
     flash(f"Category {category_name} removed.", FlashCategory.SUCCESS)
     return RedirectResponse(

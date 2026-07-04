@@ -10,7 +10,7 @@ import logging
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +18,8 @@ from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_users import ArenaUser
 from shared.db_schema import languages as languages_table
+from shared.db_schema.arena import arena_rating_cycle_state
+from shared.db_schema.arena.arena_rating_cycle_state import RATING_CYCLE_STATE_ID
 from shared.enumerations import Verdict
 from shared.services.arena_rating import (
     ALPHA,
@@ -28,6 +30,7 @@ from shared.services.arena_rating import (
     CONTRAST_GAIN_SCALE,
     GROWTH,
     MAX_RELEVANT_TRIES,
+    PIVOT_BLEND_SCALE,
     PRIOR_SOLVE_RATE,
     PRIOR_TRIES,
     W_SOLVE_RATE,
@@ -106,9 +109,41 @@ async def arena_help_rating(
                 "confidence_scale": CONFIDENCE_SCALE,
                 "contrast_gain_max": CONTRAST_GAIN_MAX,
                 "contrast_gain_scale": CONTRAST_GAIN_SCALE,
+                "pivot_blend_scale": PIVOT_BLEND_SCALE,
             },
         )
     )
+
+
+@router.get(
+    "/help/rating/difficulty-distribution",
+    response_class=JSONResponse,
+    name="arena_help_difficulty_distribution",
+)
+async def arena_help_difficulty_distribution(
+    session: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Return the latest problem-difficulty histogram snapshot.
+
+    Reads the singleton ``arena_rating_cycle_state`` row written by the rating
+    worker at the end of every difficulty-recompute cycle. Returns an explicit
+    empty shape when no snapshot has been computed yet.
+
+    Args:
+        session: Database session for reading the snapshot row.
+    """
+    row = (
+        await session.execute(
+            select(arena_rating_cycle_state.c.data, arena_rating_cycle_state.c.computed_at).where(
+                arena_rating_cycle_state.c.id == RATING_CYCLE_STATE_ID
+            )
+        )
+    ).first()
+    if row is None or row.data is None:
+        return JSONResponse({"counts": [], "total_problems": 0, "computed_at": None})
+    payload = dict(row.data)
+    payload["computed_at"] = row.computed_at.isoformat() if row.computed_at else None
+    return JSONResponse(payload)
 
 
 @router.get("/help/languages", response_class=HTMLResponse, name="arena_help_languages")

@@ -11,5 +11,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
   document.querySelectorAll("pre code").forEach(function (block) {
     hljs.highlightElement(block);
+    if (block.hasAttribute("data-highlight-line-numbers") && hljs.lineNumbersBlock) {
+      hljs.lineNumbersBlock(block);
+    }
   });
 });

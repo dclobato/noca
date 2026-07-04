@@ -75,6 +75,15 @@ The web module is a server-rendered FastAPI application (~13k LOC) with these ma
   `hampusborgos/country-flags` (SHA recorded in `[tool.assets]` of the root
   `pyproject.toml`). They are served at `/static/vendor/img/flags/{code}.svg` by
   the `static_vendor` mount in the arena app.
+- The `/static/css` and `/static/js` mounts (both the app-specific and
+  `shared-*` variants, in both web and arena) use
+  `shared.static_files.ShortCacheStaticFiles` instead of plain `StaticFiles`,
+  stamping every response with `Cache-Control: public, max-age=300`. The
+  top-level bundles (`contest.css`, `arena.css`) are requested with a
+  `?v={app_version}` cache-busting query, but the CSS files they pull in via
+  `@import` (and the shared JS files referenced from templates) are not
+  individually versioned, so without a short max-age a CDN/browser could keep
+  serving a pre-deploy sub-file for hours after a release.
 
 It owns:
 
@@ -634,6 +643,32 @@ The task queue (`TaskType` enum) provides in-contest services:
 - JWT token contains `contest_id` in extra data
 - Every database query includes contest scoping
 - Cross-contest data access is impossible by design
+
+### Arena default-deny access control
+
+The arena module is locked down by default: a single global FastAPI dependency,
+`arena.dependencies.access_control.enforce_arena_authentication` (registered via
+`dependencies=[...]` on the `FastAPI` app in `arena/main.py`), requires a valid
+logged-in session for **every** route except a small public allowlist:
+
+- exact paths `/`, `/dashboard`, `/problems` (the problem list only — the
+  `/problems/{number}` detail and its sub-resources stay protected), `/health`,
+  and the root favicon assets
+- prefixes `/legal`, `/help`, and `/auth` (the whole `/auth/*` namespace, since
+  login, signup, activation, 2FA, password reset, and parental-consent flows all
+  run while logged out)
+
+The gate is intentionally cheap: it reads only `request.state.validated_token`
+and `token_cap_exceeded` (populated by `ArenaAuthMiddleware` after JWT
+validation — no database I/O) and raises `HTTPException(401)` for any non-public
+path without a valid session. The Arena exception handler
+(`arena/error_handlers.py`) converts that 401 into a 303 login redirect for
+browsers, an `HX-Redirect` for HTMX requests, or a plain 401 for API clients.
+Static files are Starlette `Mount`s, not `APIRoute`s, so the gate never runs for
+`/static/*`. Per-route `get_current_arena_user` / `require_arena_*` dependencies
+still run on top of the gate and enforce full database-backed identity gating and
+role checks. New routes are protected automatically unless their path is added to
+the allowlist.
 
 ## 8. Important design consequences
 

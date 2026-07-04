@@ -6,13 +6,19 @@
 
 """Tests for shared enumerations."""
 
+from pathlib import Path
+
 from shared.enumerations import (
     ARENA_AI_BATCH_JOB_TERMINAL_STATUSES,
+    ARENA_BADGE_METADATA,
     VERDICT_BADGE_CLASSES,
     VERDICT_LABELS,
     ArenaAIBatchJobStatus,
+    ArenaBadge,
     Verdict,
 )
+
+_BADGES_ASSET_DIR = Path(__file__).resolve().parents[2] / "arena" / "static" / "img" / "badges"
 
 
 def test_verdict_labels_cover_all_verdicts() -> None:
@@ -51,6 +57,21 @@ def test_verdict_badge_classes_keep_existing_defaults() -> None:
         Verdict.RE.value: "bg-warning text-dark",
         Verdict.CE.value: "bg-secondary",
     } == VERDICT_BADGE_CLASSES
+
+
+def test_arena_badge_metadata_covers_all_badges() -> None:
+    """Every badge should have display metadata with the expected keys."""
+    assert set(ARENA_BADGE_METADATA) == {badge.value for badge in ArenaBadge}
+    for meta in ARENA_BADGE_METADATA.values():
+        assert set(meta) == {"label", "description", "image"}
+
+
+def test_arena_badge_image_matches_value_and_asset_exists() -> None:
+    """Each badge value should map to its '<value>.png' asset present on disk."""
+    for badge in ArenaBadge:
+        meta = ARENA_BADGE_METADATA[badge.value]
+        assert meta["image"] == f"{badge.value}.png"
+        assert (_BADGES_ASSET_DIR / meta["image"]).is_file()
 
 
 def test_arena_ai_batch_job_status_values_cover_local_state_machine() -> None:

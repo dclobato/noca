@@ -32,6 +32,10 @@ class TopRatedUser:
         rating: Computed Arena user rating.
         confidence: Confidence percentage for the computed rating.
         solved_problems: Number of solved problems reflected in the rating.
+        public_profile: True when the user has opted in to a public profile
+            page. The eligibility filter already requires
+            ``ranking_visible=True``, so a public profile link is safe
+            whenever this is True.
     """
 
     id: str
@@ -40,6 +44,7 @@ class TopRatedUser:
     rating: int
     confidence: int
     solved_problems: int
+    public_profile: bool
 
 
 def _eligible_users_where() -> list[ColumnElement[bool]]:
@@ -62,7 +67,7 @@ def build_ranked_users_cte() -> CTE:
         CTE: SQLAlchemy CTE named ``ranked_users`` with columns
         ``id``, ``nome``, ``email_normalizado``, ``affiliation_id``,
         ``country_code``, ``subdivision_code``, ``created_at``,
-        ``rating``, ``solved``, and ``global_rank``.
+        ``rating``, ``solved``, ``public_profile``, and ``global_rank``.
     """
     return (
         select(
@@ -75,6 +80,7 @@ def build_ranked_users_cte() -> CTE:
             ArenaUser.created_at,
             func.coalesce(ArenaUser.user_rating, 0).label("rating"),
             func.coalesce(ArenaUser.solved_problems, 0).label("solved"),
+            ArenaUser.public_profile,
             func.rank().over(order_by=[func.coalesce(ArenaUser.user_rating, 0).desc()]).label("global_rank"),
         )
         .where(*_eligible_users_where())
@@ -151,6 +157,7 @@ async def get_top_rated_users(session: AsyncSession, *, limit: int, only_users: 
                 func.coalesce(ArenaUser.user_rating, 0).label("rating"),
                 func.coalesce(ArenaUser.solved_problems, 0).label("solved_problems"),
                 ArenaUser.created_at,
+                ArenaUser.public_profile,
             )
             .where(*conditions)
             .order_by(
@@ -162,7 +169,6 @@ async def get_top_rated_users(session: AsyncSession, *, limit: int, only_users: 
             .limit(limit)
         )
     ).all()
-
     top_users: list[TopRatedUser] = []
     previous_rating: int | None = None
     current_rank = 0
@@ -178,6 +184,7 @@ async def get_top_rated_users(session: AsyncSession, *, limit: int, only_users: 
                 rating=row.rating,
                 confidence=_rating_confidence(row.solved_problems),
                 solved_problems=row.solved_problems,
+                public_profile=bool(row.public_profile),
             )
         )
 

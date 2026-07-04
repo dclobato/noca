@@ -168,35 +168,9 @@
                     </div>
                 {% endif %}
                 {# ── Output comparison (WA verdict, first failing test case) ─ #}
-                {% if test_result and (j_verdict == "WA" or test_result.stderr_excerpt) %}
-                    <div class="mt-3 pt-3 border-top">
-                        <p class="small text-muted mb-2">
-                            {{ render_icon(icon="compare_arrows") }}
-                            Output mismatch on test case #{{ test_result.test_case_ordinal }}
-                            {% if not test_result.is_sample %}
-                                <span class="badge bg-secondary ms-1" title="Secret test case">secret</span>
-                            {% endif %}
-                        </p>
-                        {% if j_verdict == "WA" %}
-                            <div class="arena-output-compare">
-                                <div>
-                                    <p class="arena-output-compare-label text-danger">Your output</p>
-                                    <pre class="arena-output-pre">{% if test_result.stdout_excerpt %}{{ test_result.stdout_excerpt | e }}{% else %}<span class="text-muted fst-italic">(empty)</span>{% endif %}</pre>
-                                </div>
-                                <div>
-                                    <p class="arena-output-compare-label text-success">Expected output</p>
-                                    <pre class="arena-output-pre">{% if test_result.expected_output %}{{ test_result.expected_output | e }}{% else %}<span class="text-muted fst-italic">(empty)</span>{% endif %}</pre>
-                                </div>
-                            </div>
-                        {% endif %}
-                        {% if test_result.stderr_excerpt %}
-                            <div class="mt-2">
-                                <p class="fw-semibold small text-warning-emphasis mb-1">Standard error</p>
-                                <pre class="arena-output-pre">{{ test_result.stderr_excerpt | e }}</pre>
-                            </div>
-                        {% endif %}
-                    </div>
-                {% endif %}
+                {% with test_result_verdict=j_verdict %}
+                    {% include "_partials/_submission_test_result_context.html" %}
+                {% endwith %}
                 {# ── AI review section ──────────────────────────────────── #}
                 {# Admins and judges see the review (read-only); owners also get the request UI #}
                 {% set can_see_ai_review = j_verdict and j_verdict != "AC" %}
@@ -345,6 +319,15 @@
                                     {{ render_icon(icon="edit") }}
                                     {{ "Edit feedback" if teacher_feedback else "Add feedback" }}
                                 </button>
+                                {% if teacher_feedback %}
+                                    <button type="button"
+                                            class="btn btn-outline-danger btn-sm d-inline-flex align-items-center gap-1"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#teacher-feedback-remove-modal">
+                                        {{ render_icon(icon="delete") }}
+                                        Remove feedback
+                                    </button>
+                                {% endif %}
                             {% endif %}
                         </h3>
                         {% if teacher_feedback %}
@@ -382,7 +365,7 @@
                     </a>
                 {% endif %}
             </h2>
-            <pre class="mb-0 p-0"><code class="{{ highlight_language_class }} rounded">{{ source_code | e }}</code></pre>
+            <pre class="mb-0 arena-source-code-pre"><code class="{{ highlight_language_class }} rounded" data-highlight-line-numbers>{{ source_code | e }}</code></pre>
         </section>
         {# ── Teacher feedback modal (managing teacher/admin only) ── #}
         {% if can_give_feedback %}
@@ -427,11 +410,46 @@
                 </div>
             </div>
         {% endif %}
+        {# ── Teacher feedback removal modal (managing teacher/admin only) ── #}
+        {% if can_give_feedback and teacher_feedback %}
+            <div class="modal fade"
+                 id="teacher-feedback-remove-modal"
+                 tabindex="-1"
+                 aria-labelledby="teacher-feedback-remove-modal-label"
+                 aria-hidden="true">
+                <div class="modal-dialog">
+                    <form method="post"
+                          class="modal-content"
+                          action="{{ request.url_for('arena_submission_teacher_feedback_remove', submission_id=submission_id) }}">
+                        <div class="modal-header">
+                            <h2 class="modal-title fs-5" id="teacher-feedback-remove-modal-label">Remove feedback</h2>
+                            <button type="button"
+                                    class="btn-close"
+                                    data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <input type="hidden" name="back_class_id" value="{{ back_class_id or '' }}">
+                            <input type="hidden" name="back_set_id" value="{{ back_set_id or '' }}">
+                            <input type="hidden" name="back_user_id" value="{{ back_user_id or '' }}">
+                            <p class="mb-0">Remove the feedback given to this student on this submission?</p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button"
+                                    class="btn btn-secondary btn-sm"
+                                    data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-danger btn-sm">Remove feedback</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
     </div>
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for('static_vendor', path='highlight/highlight.min.js') }}"></script>
     <script src="{{ request.url_for('static_vendor', path='highlight/languages/' ~ highlight_language ~ '.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='highlight/plugins/highlightjs-line-numbers.min.js') }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='highlight-code-blocks.js') }}?v={{ app_version }}"></script>
     {% if ai_review %}
         <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"

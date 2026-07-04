@@ -4,10 +4,10 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Arena public ranking routes.
+"""Arena ranking routes.
 
-All routes are public — no authentication is required. ``current_user`` is
-an optional dependency so the sidebar renders correctly for logged-in users.
+All routes require a logged-in user (enforced by the global access-control
+gate); ``current_user`` is injected for sidebar and header rendering.
 """
 
 from typing import Any, cast
@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
-from arena.dependencies.auth import get_current_arena_user
+from arena.dependencies.auth import require_arena_user
 from arena.models.arena_users import ArenaUser
 from arena.services import ranking_service
 from arena.services.pagination_service import parse_page
@@ -35,7 +35,7 @@ def _html(response: Any) -> HTMLResponse:
 @router.get("", response_class=HTMLResponse, name="arena_ranking_index")
 async def ranking_index(
     request: Request,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
 ) -> Response:
     """Render the ranking landing page with choices for user and affiliation ranking."""
     templates = request.app.state.arena_templates
@@ -53,7 +53,7 @@ async def ranking_users(
     request: Request,
     page: str | None = None,
     search: str | None = None,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the paginated user ranking."""
@@ -84,7 +84,7 @@ async def ranking_affiliations(
     search: str | None = None,
     country_code: str | None = None,
     subdivision_code: str | None = None,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the paginated affiliation ranking."""
@@ -129,7 +129,7 @@ async def ranking_affiliation_users(
     affiliation_id: str,
     page: str | None = None,
     search: str | None = None,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the user ranking scoped to a single affiliation."""

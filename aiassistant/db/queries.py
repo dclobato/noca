@@ -383,14 +383,15 @@ async def store_ai_review_failed_notification(
     submission: SubmissionForReview,
     is_user_key: bool,
 ) -> None:
-    """Insert the user notification for a failed AI review due to an invalid API key.
+    """Insert the user notification for a failed AI review.
 
     Sends a permanent-failure notification to the user.  The message content
     differs depending on whether the invalid key belongs to the user or to the
     platform:
 
     - User-owned key: instructs the user to update their key in profile settings.
-    - Platform key: reports a temporary service outage without leaking key details.
+    - Platform key: informs the user the review failed, that their credit was
+      refunded, and that they may request the review again.
 
     Args:
         conn: Active async database connection (within a transaction).
@@ -402,8 +403,12 @@ async def store_ai_review_failed_notification(
         title = "AI review failed"
         message = "Your OpenAI API key is invalid. Please update it in your profile settings."
     else:
-        title = "AI review unavailable"
-        message = "The AI review service is temporarily unavailable. Please try again later."
+        title = "AI review credit refunded"
+        message = (
+            f"Your AI review for problem {submission.problem_number} - "
+            f"{submission.problem_title} could not be completed due to a service issue. "
+            f"Your credit has been refunded — you can request the review again."
+        )
 
     await create_arena_notification(
         conn,

@@ -15,6 +15,8 @@
 
 FROM python:3.14-slim-bookworm
 
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_CACHE_DIR=/tmp/uv-cache \

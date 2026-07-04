@@ -343,7 +343,7 @@ async def test_image_content_block_omitted_when_no_image() -> None:
 
 @pytest.mark.asyncio
 async def test_caption_appended_to_user_text() -> None:
-    """The image caption is appended to the input_text block when provided."""
+    """The image caption is embedded in the input_text block when provided."""
     mock_client = _make_mock_client()
 
     with patch("aiassistant.reviewer.AsyncOpenAI", return_value=mock_client):
@@ -358,7 +358,8 @@ async def test_caption_appended_to_user_text() -> None:
     content = mock_client.responses.create.call_args.kwargs["input"][0]["content"]
     text_blocks = [item for item in content if item["type"] == "input_text"]
     assert len(text_blocks) == 1
-    assert "Image caption: Figure 1: directed graph with 5 nodes." in text_blocks[0]["text"]
+    assert "<image_caption>" in text_blocks[0]["text"]
+    assert "Figure 1: directed graph with 5 nodes." in text_blocks[0]["text"]
 
 
 @pytest.mark.asyncio

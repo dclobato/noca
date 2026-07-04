@@ -164,7 +164,9 @@
                     <tbody>
                         {% for row in pagination.items %}
                             <tr id="{{ row.problem.id }}">
-                                <td class="arena-monospace">{{ row.problem.arena_number }}</td>
+                                <td class="arena-monospace">
+                                    <a href="{{ request.url_for('arena_problem_detail', arena_number=row.problem.arena_number) }}">{{ row.problem.arena_number }}</a>
+                                </td>
                                 <td>{{ row.problem.title }}</td>
                                 <td>
                                     {% for cat in row.categories %}

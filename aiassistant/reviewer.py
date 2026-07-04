@@ -24,10 +24,126 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
+from aiassistant.guardrails import (
+    build_review_user_text,
+    sanitize_ai_review_response,
+    wrap_untrusted_review_artifact,
+)
 from aiassistant.prompts import SYSTEM_PROMPT
 from shared.language_registry import default_language_registry
 
 _LANGUAGE_REGISTRY = default_language_registry()
+
+# Extensions accepted by OpenAI's context-stuffing file upload endpoint.
+_OPENAI_SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".art",
+        ".bat",
+        ".brf",
+        ".c",
+        ".cls",
+        ".css",
+        ".csv",
+        ".diff",
+        ".doc",
+        ".docx",
+        ".dot",
+        ".eml",
+        ".es",
+        ".h",
+        ".hs",
+        ".htm",
+        ".html",
+        ".hwp",
+        ".hwpx",
+        ".ics",
+        ".ifb",
+        ".java",
+        ".js",
+        ".json",
+        ".keynote",
+        ".ksh",
+        ".ltx",
+        ".mail",
+        ".markdown",
+        ".md",
+        ".mht",
+        ".mhtml",
+        ".mjs",
+        ".nws",
+        ".odt",
+        ".pages",
+        ".patch",
+        ".pdf",
+        ".pl",
+        ".pm",
+        ".pot",
+        ".potm",
+        ".potx",
+        ".ppa",
+        ".pps",
+        ".ppsm",
+        ".ppsx",
+        ".ppt",
+        ".pptm",
+        ".pptx",
+        ".pwz",
+        ".py",
+        ".rst",
+        ".rtf",
+        ".scala",
+        ".sh",
+        ".shtml",
+        ".srt",
+        ".sty",
+        ".svg",
+        ".svgz",
+        ".tex",
+        ".text",
+        ".txt",
+        ".tsv",
+        ".vcf",
+        ".vtt",
+        ".wiz",
+        ".xla",
+        ".xlb",
+        ".xlc",
+        ".xlm",
+        ".xls",
+        ".xlsx",
+        ".xlt",
+        ".xlw",
+        ".xml",
+        ".yaml",
+        ".yml",
+    }
+)
+
+# Map unsupported extensions to the closest supported equivalent.
+_EXTENSION_FALLBACK: dict[str, str] = {
+    ".cc": ".c",
+    ".cpp": ".c",
+    ".cxx": ".c",
+    ".c++": ".c",
+    ".kt": ".java",
+    ".kts": ".java",
+    ".cs": ".txt",
+    ".go": ".txt",
+    ".rb": ".txt",
+    ".rs": ".txt",
+    ".lua": ".txt",
+    ".pas": ".txt",
+    ".f90": ".txt",
+    ".f95": ".txt",
+    ".swift": ".txt",
+}
+
+
+def _openai_safe_extension(ext: str) -> str:
+    """Return an OpenAI-accepted extension for *ext*, falling back to ``.txt``."""
+    if ext in _OPENAI_SUPPORTED_EXTENSIONS:
+        return ext
+    return _EXTENSION_FALLBACK.get(ext, ".txt")
 
 
 @dataclass
@@ -39,6 +155,8 @@ class ReviewResult:
     output_tokens: int
     total_cost: float | None
     used_platform_key: bool
+    redacted: bool = False
+    redaction_reason: str | None = None
 
 
 async def call_ai_review(
@@ -91,7 +209,8 @@ async def call_ai_review(
     """
     client = AsyncOpenAI(api_key=api_key)
     lang = _LANGUAGE_REGISTRY.get(language_id)
-    ext = lang.default_extension if lang is not None else ".txt"
+    raw_ext = lang.default_extension if lang is not None else ".txt"
+    ext = _openai_safe_extension(raw_ext)
 
     code_path: str | None = None
     stmt_path: str | None = None
@@ -101,10 +220,10 @@ async def call_ai_review(
     try:
         try:
             with tempfile.NamedTemporaryFile(suffix=ext, mode="w", encoding="utf-8", delete=False) as cf:
-                cf.write(source_code)
+                cf.write(wrap_untrusted_review_artifact("submitted_source", source_code))
                 code_path = cf.name
             with tempfile.NamedTemporaryFile(suffix=".md", mode="w", encoding="utf-8", delete=False) as sf:
-                sf.write(problem_statement)
+                sf.write(wrap_untrusted_review_artifact("problem_statement", problem_statement))
                 stmt_path = sf.name
 
             with open(code_path, "rb") as f:
@@ -122,16 +241,11 @@ async def call_ai_review(
                 if lang.compile_cmd:
                     lang_info_lines.append(f"Compile command: {' '.join(lang.compile_cmd)}")
                 lang_info_lines.append(f"Run command: {' '.join(lang.run_cmd)}")
-            lang_context = ("\n\nLanguage context:\n" + "\n".join(lang_info_lines)) if lang_info_lines else ""
-
-            user_text = (
-                "Analyze the submitted program against the statement. "
-                "Give hints only; do not provide the corrected solution." + lang_context
+            user_text = build_review_user_text(
+                lang_context="\n".join(lang_info_lines),
+                extra_task_instructions=extra_task_instructions,
+                image_caption=image_caption,
             )
-            if extra_task_instructions:
-                user_text += f"\n\n{extra_task_instructions}"
-            if image_caption:
-                user_text += f"\n\nImage caption: {image_caption}"
 
             image_content: list[Any] = []
             if image_base64 and image_mime:
@@ -180,10 +294,13 @@ async def call_ai_review(
     if usage is not None:
         cost = (input_tokens / 1_000_000) * input_price + (output_tokens / 1_000_000) * output_price
 
+    sanitized = sanitize_ai_review_response(response.output_text)
     return ReviewResult(
-        response_text=response.output_text,
+        response_text=sanitized.text,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         total_cost=cost,
         used_platform_key=is_platform_key,
+        redacted=sanitized.redacted,
+        redaction_reason=sanitized.reason,
     )

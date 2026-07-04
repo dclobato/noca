@@ -81,6 +81,7 @@
                     <thead>
                         <tr>
                             <th>#</th>
+                            <th class="text-center">Feedback</th>
                             <th>Name</th>
                             <th>Categories</th>
                             <th class="text-end">Difficulty</th>
@@ -92,6 +93,18 @@
                             <tr id="problem-{{ row.problem_id }}">
                                 <td class="arena-monospace">
                                     <a href="{{ request.url_for('arena_problem_detail', arena_number=row.arena_number) }}">{{ row.arena_number }}</a>
+                                </td>
+                                <td class="text-center">
+                                    {% set n = non_ac_counts.get(row.problem_id, 0) %}
+                                    {% if n > 0 %}
+                                        <a href="{{ request.url_for('arena_class_problem_set_batch_feedback', class_id=class_detail.class_id, set_id=problem_set.id, problem_id=row.problem_id) }}"
+                                           class="btn arena-icon-button btn-sm text-primary"
+                                           data-bs-toggle="tooltip"
+                                           title="{{ n }} submission{{ 's' if n != 1 else '' }} needing feedback"
+                                           aria-label="{{ n }} submissions needing feedback">
+                                            {{ render_icon(icon="rate_review") }}
+                                        </a>
+                                    {% endif %}
                                 </td>
                                 <td>
                                     <a href="{{ request.url_for('arena_problem_detail', arena_number=row.arena_number) }}">{{ row.title }}</a>
@@ -111,7 +124,7 @@
                             </tr>
                         {% else %}
                             <tr>
-                                <td colspan="5" class="arena-empty-state">This problem set has no problems yet.</td>
+                                <td colspan="6" class="arena-empty-state">This problem set has no problems yet.</td>
                             </tr>
                         {% endfor %}
                     </tbody>

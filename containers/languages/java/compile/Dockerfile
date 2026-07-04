@@ -2,9 +2,11 @@
 #
 # Short-lived container — one per submission, destroyed after artifact extraction.
 #
-# Pinned: eclipse-temurin:21.0.10+7-jdk (Ubuntu 24.04) @ sha256:3b0a98dfbdf1067c20a7854cec159551777d2ee1381bc76cd4bd0719f543b148
+# Pinned: eclipse-temurin:25.0.3+9-jdk @ sha256:dfc0093e3dbf43dae57827111c6e374f5b44fac19a9451584b2b336b81474d64
 
-FROM eclipse-temurin:21-jdk@sha256:3b0a98dfbdf1067c20a7854cec159551777d2ee1381bc76cd4bd0719f543b148
+FROM eclipse-temurin:25-jdk@sha256:dfc0093e3dbf43dae57827111c6e374f5b44fac19a9451584b2b336b81474d64
+
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
 RUN groupadd --system judge && useradd --system --gid judge --create-home judge
 

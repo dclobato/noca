@@ -31,11 +31,13 @@ import arena.models.arena_users  # noqa: F401
 from arena.dependencies.auth import get_current_arena_user
 from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.models.arena_affiliations import ArenaAffiliation
+from arena.models.arena_badges import ArenaUserBadge
 from arena.models.arena_users import ArenaUser
 from arena.routes.help import router as arena_help_router
 from arena.routes.notifications import router as arena_notifications_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.routes.root import router as arena_root_router
+from arena.routes.user_public_profile import router as arena_user_public_profile_router
 from arena.routes.user_submission_status import router as arena_user_submission_status_router
 from arena.routes.users import router as arena_users_router
 from arena.services.session_service import missing_profile_fields
@@ -55,10 +57,15 @@ from shared.db_schema.arena import (
     arena_problems,
     arena_submission_judgments,
     arena_submissions,
+    arena_user_rating_history,
+    arena_user_statistics,
+    arena_user_submission_heatmap,
 )
 from shared.enumerations import (
+    ARENA_BADGE_METADATA,
     VERDICT_BADGE_CLASSES,
     VERDICT_LABELS,
+    ArenaBadge,
     ArenaRole,
     JudgmentStatus,
     Verdict,
@@ -213,6 +220,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     app.include_router(arena_root_router)
     app.include_router(arena_help_router)
     app.include_router(arena_users_router)
+    app.include_router(arena_user_public_profile_router)
     app.include_router(arena_user_submission_status_router)
     app.include_router(arena_notifications_router)
     app.include_router(arena_ranking_router)
@@ -920,6 +928,104 @@ async def test_profile_affiliation_routes_search_update_and_clear(
 
 
 @pytest.mark.asyncio
+async def test_profile_badges_tab_renders_earned_badges_with_locked_placeholders(
+    session: AsyncSession,
+) -> None:
+    """Earned badges render with full info; unearned badges appear as locked placeholders."""
+    user = await _create_arena_user(session)
+    now = datetime.now(UTC)
+    session.add_all(
+        [
+            ArenaUserBadge(
+                id=str(uuid.uuid4()),
+                user_id=user.id,
+                badge=ArenaBadge.HELLO_WORLD,
+                awarded_at=now - timedelta(days=1),
+            ),
+            ArenaUserBadge(
+                id=str(uuid.uuid4()),
+                user_id=user.id,
+                badge=ArenaBadge.ONE_SHOT,
+                awarded_at=now,
+            ),
+        ]
+    )
+    await session.commit()
+    app = _build_arena_app(session)
+    token = _login_token(app, user)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/user/profile?tab=badges")
+
+    assert response.status_code == 200
+    assert 'id="badges-tab-pane"' in response.text
+    assert 'class="nav-link active"' in response.text
+    # Badges appear in badge_metadata order (fixed), not by awarded_at.
+    assert response.text.index("Hello, World!") < response.text.index("One Shot")
+    assert "Solve a problem on first attempt" in response.text
+    assert "Solve at least one problem" in response.text
+    assert "/static/img/badges/oneshot.png" in response.text
+    assert 'width="96"' in response.text
+    assert 'height="96"' in response.text
+    # Unearned badges render as locked placeholders, not with their real names.
+    assert "Full Clear" not in response.text
+    assert "missing_badge.png" in response.text
+    assert "???" in response.text
+
+
+@pytest.mark.asyncio
+async def test_profile_badges_tab_shows_locked_placeholders_when_no_badges_earned(
+    session: AsyncSession,
+) -> None:
+    """The badges tab shows locked placeholders for all unearned badges."""
+    user = await _create_arena_user(session)
+    app = _build_arena_app(session)
+    token = _login_token(app, user)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/user/profile?tab=badges")
+
+    assert response.status_code == 200
+    assert "No badges earned yet." not in response.text
+    assert 'class="arena-badge-grid"' in response.text
+    assert "missing_badge.png" in response.text
+    assert "???" in response.text
+
+
+@pytest.mark.asyncio
+async def test_profile_badges_tab_skips_badges_without_metadata(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing metadata entry should not break the badges tab."""
+    user = await _create_arena_user(session)
+    session.add(
+        ArenaUserBadge(
+            id=str(uuid.uuid4()),
+            user_id=user.id,
+            badge=ArenaBadge.ONE_SHOT,
+            awarded_at=datetime.now(UTC),
+        )
+    )
+    await session.commit()
+    monkeypatch.delitem(ARENA_BADGE_METADATA, ArenaBadge.ONE_SHOT.value)
+    app = _build_arena_app(session)
+    token = _login_token(app, user)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/user/profile?tab=badges")
+
+    assert response.status_code == 200
+    assert "One Shot" not in response.text
+    # Grid still renders locked placeholders for all other badges in metadata.
+    assert 'class="arena-badge-grid"' in response.text
+    assert "missing_badge.png" in response.text
+
+
+@pytest.mark.asyncio
 async def test_profile_solved_and_attempted_tabs_render_separate_lists(
     session: AsyncSession,
 ) -> None:
@@ -1129,3 +1235,182 @@ async def test_profile_submissions_tab_renders_realtime_hooks(session: AsyncSess
     assert "confetti-celebrate.js" in html
     assert "profile-submissions-live.js" in html
     assert html.index("confetti-celebrate.js") < html.index("profile-submissions-live.js")
+
+
+@pytest.mark.asyncio
+async def test_public_profile_viewer_renders_opted_in_user(session: AsyncSession) -> None:
+    """An authenticated viewer can render a user's opted-in public profile."""
+    user = await _create_arena_user(session)
+    user.ranking_visible = True
+    user.public_profile = True
+    user.user_rating = 321
+    user.solved_problems = 7
+    await session.commit()
+    viewer = await _create_ranked_arena_user(session, name="Profile Viewer", rating=1)
+    app = _build_arena_app(session)
+    token = _login_token(app, viewer)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get(f"/profile/{user.id}")
+
+    assert response.status_code == 200
+    assert user.nome in response.text
+    assert "321 pts" in response.text
+    assert "public-user-rating-chart" in response.text
+    assert "public-user-submission-heatmap" in response.text
+    assert f"/profile/{user.id}/statistics.json" in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("ranking_visible", "public_profile"),
+    [(False, False), (False, True), (True, False)],
+)
+async def test_public_profile_viewer_gets_404_without_both_visibility_flags(
+    session: AsyncSession,
+    *,
+    ranking_visible: bool,
+    public_profile: bool,
+) -> None:
+    """Both public visibility flags are required for non-admin viewer access."""
+    user = await _create_arena_user(session)
+    user.ranking_visible = ranking_visible
+    user.public_profile = public_profile
+    await session.commit()
+    viewer = await _create_ranked_arena_user(session, name="Flags Viewer", rating=1)
+    app = _build_arena_app(session)
+    token = _login_token(app, viewer)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get(f"/profile/{user.id}")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_public_profile_viewer_gets_404_for_inactive_account(
+    session: AsyncSession,
+) -> None:
+    """Inactive accounts remain hidden even after opting in to a public profile."""
+    user = await _create_arena_user(session)
+    user.ativo = False
+    user.ranking_visible = True
+    user.public_profile = True
+    await session.commit()
+    viewer = await _create_ranked_arena_user(session, name="Inactive Viewer", rating=1)
+    app = _build_arena_app(session)
+    token = _login_token(app, viewer)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get(f"/profile/{user.id}/statistics.json")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_public_profile_unconfirmed_but_active_account_is_accessible(
+    session: AsyncSession,
+) -> None:
+    """Email confirmation is not required for public profile access; only ativo is."""
+    user = await _create_arena_user(session)
+    user.ativo = True
+    user.email_confirmado = False
+    user.ranking_visible = True
+    user.public_profile = True
+    await session.commit()
+    viewer = await _create_ranked_arena_user(session, name="Unconfirmed Viewer", rating=1)
+    app = _build_arena_app(session)
+    token = _login_token(app, viewer)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get(f"/profile/{user.id}/statistics.json")
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_public_profile_admin_bypasses_visibility_and_account_eligibility(
+    session: AsyncSession,
+) -> None:
+    """Arena administrators can inspect a hidden inactive profile."""
+    target = await _create_ranked_arena_user(session, name="Hidden User", rating=100)
+    target.ativo = False
+    target.email_confirmado = False
+    target.ranking_visible = False
+    target.public_profile = False
+    admin = await _create_arena_user(session)
+    admin.role = ArenaRole.ARENA_ADMIN
+    await session.commit()
+    app = _build_arena_app(session)
+    token = _login_token(app, admin)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get(f"/profile/{target.id}/statistics.json")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "total_submissions": 0,
+        "verdicts": [],
+        "languages": [],
+        "computed_at": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_public_profile_json_endpoints_return_stored_snapshots(session: AsyncSession) -> None:
+    """Public profile chart endpoints return the target user's persisted data."""
+    user = await _create_arena_user(session)
+    user.ranking_visible = True
+    user.public_profile = True
+    computed_at = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
+    await session.execute(
+        arena_user_rating_history.insert().values(
+            user_id=user.id,
+            rating=456,
+            computed_at=computed_at,
+        )
+    )
+    await session.execute(
+        arena_user_submission_heatmap.insert().values(
+            user_id=user.id,
+            data=[["2026-06-22", 3]],
+            range_start="2025-06-24",
+            range_end="2026-06-22",
+            computed_at=computed_at,
+        )
+    )
+    await session.execute(
+        arena_user_statistics.insert().values(
+            user_id=user.id,
+            data={
+                "total_submissions": 3,
+                "verdicts": [{"verdict": "AC", "count": 3}],
+                "languages": [{"language_id": "py", "name": "Python", "count": 3}],
+            },
+            computed_at=computed_at,
+        )
+    )
+    await session.commit()
+    viewer = await _create_ranked_arena_user(session, name="Snapshot Viewer", rating=1)
+    app = _build_arena_app(session)
+    token = _login_token(app, viewer)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        rating_response = await client.get(f"/profile/{user.id}/rating-history.json")
+        heatmap_response = await client.get(f"/profile/{user.id}/submission-heatmap.json")
+        statistics_response = await client.get(f"/profile/{user.id}/statistics.json")
+
+    assert rating_response.status_code == 200
+    assert rating_response.json()["history"][0]["rating"] == 456
+    assert rating_response.headers["cache-control"] == "public, max-age=300"
+    assert heatmap_response.status_code == 200
+    assert heatmap_response.json()["heatmap"] == [["2026-06-22", 3]]
+    assert statistics_response.status_code == 200
+    assert statistics_response.json()["total_submissions"] == 3
+    assert statistics_response.json()["computed_at"].startswith("2026-06-22T12:00:00")

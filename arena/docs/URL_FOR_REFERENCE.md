@@ -28,6 +28,7 @@ Use this endpoint for runtime health probes.
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
 | `GET /help/rating` | `arena_help_rating` | — | `help.py` |
+| `GET /help/rating/difficulty-distribution` | `arena_help_difficulty_distribution` | — | `help.py` |
 | `GET /help/languages` | `arena_help_languages` | — | `help.py` |
 
 ## Legal Routes (`arena/routes/legal.py`)
@@ -114,6 +115,8 @@ Use this endpoint for runtime health probes.
 | `request.url_for('arena_class_problem_set_delete', class_id=ID, set_id=SID)` | `/classes/{ID}/problem-sets/{SID}/delete` | POST only; form also sends `password`, `page`, `sort`, `direction` |
 | `request.url_for('arena_class_problem_set_report', class_id=ID, set_id=SID)` | `/classes/{ID}/problem-sets/{SID}/report` | Teacher/admin report page; optional return query params `page`, `sort`, `direction` |
 | `request.url_for('arena_class_problem_set_report_student', class_id=ID, set_id=SID, user_id=UID)` | `/classes/{ID}/problem-sets/{SID}/report/student/{UID}` | Teacher/admin student drill-down; optional return query params `page`, `sort`, `direction` |
+| `request.url_for('arena_class_problem_set_batch_feedback', class_id=ID, set_id=SID, problem_id=PID)` | `/classes/{ID}/problem-sets/{SID}/problems/{PID}/batch-feedback` | Teacher/admin batch-feedback page for one problem |
+| `request.url_for('arena_class_problem_set_batch_feedback_submit', class_id=ID, set_id=SID, problem_id=PID)` | `/classes/{ID}/problem-sets/{SID}/problems/{PID}/batch-feedback` | POST only; form fields: `feedback__{submission_id}` per entry |
 | `request.url_for('arena_class_problem_set_problem_autocomplete', class_id=ID, set_id=SID)` | `/classes/{ID}/problem-sets/{SID}/problems/autocomplete` | Teacher/admin JSON endpoint; query: `q` |
 | `request.url_for('arena_class_request_approve', request_id=ID)` | `/classes/registration-requests/{ID}/approve` | POST only; creates CLASS_REGISTRATION_APPROVED in-app notification + best-effort email to student |
 | `request.url_for('arena_class_request_deny', request_id=ID)` | `/classes/registration-requests/{ID}/deny` | POST only; creates CLASS_REGISTRATION_DENIED in-app notification + best-effort email to student (with optional reason) |
@@ -154,7 +157,7 @@ Use this endpoint for runtime health probes.
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
-| `GET /user/profile` | `arena_user_profile` | Query: `tab`, `solved_page`, `attempted_page`, `notifications_page` | `users.py` |
+| `GET /user/profile` | `arena_user_profile` | Query: `tab` (`badges` supported), `solved_page`, `attempted_page`, `notifications_page` | `users.py` |
 | `GET /user/profile/complete` | `arena_user_profile_completion` | — | `users.py` |
 | `POST /user/profile/photo` | `arena_user_profile_photo_update` | — | `users.py` |
 | `POST /user/profile/personal-data` | `arena_user_profile_personal_data_update` | JSON: `name`, `date_of_birth`, optional location/affiliation/programming language, `prefered_language` | `user_profile_api.py` |
@@ -174,6 +177,15 @@ Use this endpoint for runtime health probes.
 | `GET /user/submissions/status/events` | `arena_user_submissions_events` | Query: `ids` (CSV of owned submission UUIDs) | `user_submission_status.py` |
 | `GET /user/{user_id}/photo` | `arena_user_photo_by_id` | `user_id=` | `users.py` |
 | `GET /user/{user_id}/avatar` | `arena_user_avatar_by_id` | `user_id=` | `users.py` |
+
+## Public Profile Routes (`arena/routes/user_public_profile.py`)
+
+| Hardcoded path | Endpoint name | Path params | File |
+|---|---|---|---|
+| `GET /profile/{user_id}` | `arena_user_profile_public` | `user_id=` | `user_public_profile.py` |
+| `GET /profile/{user_id}/rating-history.json` | `arena_user_profile_rating_history_public` | `user_id=` | `user_public_profile.py` |
+| `GET /profile/{user_id}/submission-heatmap.json` | `arena_user_profile_submission_heatmap_public` | `user_id=` | `user_public_profile.py` |
+| `GET /profile/{user_id}/statistics.json` | `arena_user_profile_statistics_public` | `user_id=` | `user_public_profile.py` |
 
 ## User Security Routes (`arena/routes/user_security.py`)
 
@@ -202,9 +214,10 @@ and summarizes the recent Valkey turnaround statistics above its filters.
 | `POST /admin/dashboard/workers/resume` | `arena_admin_dashboard_worker_resume` | Form: `worker_class`, `worker_id` | `admin_dashboard.py` |
 | `POST /admin/dashboard/workers/flush-now` | `arena_admin_dashboard_worker_flush_now` | Form: `worker_class`, `worker_id` | `admin_dashboard.py` |
 | `POST /admin/dashboard/workers/poll-now` | `arena_admin_dashboard_worker_poll_now` | Form: `worker_class`, `worker_id` | `admin_dashboard.py` |
-| `GET /admin/dashboard/ai-credits` | `arena_admin_dashboard_ai_credits` | `search=`, `sort_dir=`, `per_page=`, `page=`, `date_from=`, `date_to=` | `admin_dashboard.py` |
+| `GET /admin/dashboard/ai-usage` | `arena_admin_dashboard_ai_usage` | `search=`, `sort_dir=`, `per_page=`, `page=`, `date_from=`, `date_to=` | `admin_dashboard.py` |
 | `GET /admin/dashboard/login-history` | `arena_admin_dashboard_login_history` | `search=`, `sort_dir=`, `per_page=`, `page=`, `date_from=`, `date_to=` | `admin_dashboard_history.py` |
 | `GET /admin/dashboard/submissions` | `arena_admin_dashboard_submissions` | `search=`, `verdict_filter=`, `ai_filter=`, `language_filter=`, `problem_filter=`, `date_from=`, `date_to=`, `sort_dir=`, `per_page=`, `page=` | `admin_dashboard_history.py` |
+| `GET /admin/dashboard/security-events` | `arena_admin_dashboard_security_events` | `module=`, `event_type=`, `per_page=`, `page=` | `admin_dashboard_history.py` |
 
 ## Arena Admin – User Management Routes
 
@@ -230,6 +243,7 @@ GET routes: `arena/routes/admin_users.py` · POST routes: `arena/routes/admin_us
 | `POST /admin/users/{user_id}/toggle-parental-consent` | `arena_admin_user_toggle_parental_consent` | `user_id=` | `admin_users_actions.py` |
 | `POST /admin/users/{user_id}/toggle-can-edit` | `arena_admin_user_toggle_can_edit` | `user_id=` | `admin_users_actions.py` |
 | `POST /admin/users/{user_id}/toggle-ranking-visible` | `arena_admin_user_toggle_ranking_visible` | `user_id=` | `admin_users_actions.py` |
+| `POST /admin/users/{user_id}/toggle-public-profile` | `arena_admin_user_toggle_public_profile` | `user_id=` | `admin_users_actions.py` |
 
 ## Arena Admin – Category Management Routes (`arena/routes/admin_categories.py`)
 

@@ -4,6 +4,9 @@ This document describes the end-to-end life cycle of an Arena AI code review
 request, from the user clicking "Request AI Review" through to the review being
 displayed on the submission detail page.
 
+For the worker module boundary, runtime loops, and security guardrails, see
+[AI assistant module](AIASSISTANT.md).
+
 There are two distinct execution paths:
 
 - **Online path (fast-track)** — used when the user has configured a personal
@@ -116,8 +119,16 @@ under concurrent workers.
 | `arena_submission_ai_reviews` | `submission_id`, `ai_response`, `ai_response_at`, `_ai_review_cost`, `used_platform_key` | Stores the completed review result |
 | `arena_ai_batch_jobs` | `submission_id`, `openai_batch_id`, `local_status`, `openai_status`, `input_file_id`, `code_file_id`, `statement_file_id`, `error_file_id`, `last_error`, `request_counts_*`, `last_polled_at`, `submitted_at`, `completed_at` | Durable state machine for batch-path jobs (`submitted_at` drives stale detection) |
 | `arena_notifications` | `notification_kind`, `source_ref`, `message` | `AI_REVIEW_COMPLETED` or `AI_REVIEW_FAILED` notification row |
+| `security_events` | `event_type`, `actor_user_id`, `metadata` | Stores `ai_response_redacted` audit rows when output guardrails suppress code-like content |
 
 ---
+
+Both paths apply the security guardrails documented in
+[AI assistant module](AIASSISTANT.md#security-guardrails). The worker wraps
+uploaded source and statement files in untrusted-data boundaries, tells the
+model not to follow instructions inside those files, redacts fenced code blocks
+and overlong code-like output before storage, and records an
+`ai_response_redacted` security event when redaction occurs.
 
 ## 5. Online path (fast-track)
 

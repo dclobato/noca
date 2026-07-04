@@ -28,7 +28,7 @@ from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi_flash import setup_flash
@@ -38,6 +38,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from arena.config import settings
 from arena.database import create_engine, create_session_factory
+from arena.dependencies.access_control import enforce_arena_authentication
 from arena.error_handlers import register_error_handlers
 from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.routes.admin_affiliations import router as arena_admin_affiliations_router
@@ -66,6 +67,7 @@ from arena.routes.presence import ARENA_PRESENCE_DOMAIN
 from arena.routes.presence import router as arena_presence_router
 from arena.routes.problem_sets import router as arena_problem_sets_router
 from arena.routes.problem_sets_autocomplete import router as arena_problem_sets_autocomplete_router
+from arena.routes.problem_sets_batch_feedback import router as arena_problem_sets_batch_feedback_router
 from arena.routes.problem_sets_report import router as arena_problem_sets_report_router
 from arena.routes.problems import router as arena_problems_router
 from arena.routes.ranking import router as arena_ranking_router
@@ -73,6 +75,7 @@ from arena.routes.root import router as arena_root_router
 from arena.routes.status import router as arena_status_router
 from arena.routes.student_problem_sets import router as arena_student_problem_sets_router
 from arena.routes.submissions import router as arena_submissions_router
+from arena.routes.user_public_profile import router as arena_user_public_profile_router
 from arena.routes.user_security import router as arena_user_security_router
 from arena.routes.user_submission_status import router as arena_user_submission_status_router
 from arena.routes.users import router as arena_users_router
@@ -101,9 +104,12 @@ from shared.services.email_service import EmailConfig, EmailService
 from shared.services.geolocation import GeolocationIP
 from shared.services.imageprocessing_service import ImageProcessingConfig, ImageProcessingService
 from shared.services.network_utils import NetworkService
+from shared.services.security_events_reaper import run_security_events_reaper
+from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
 from shared.services.startup_wait import wait_for_db, wait_for_valkey
 from shared.services.token_revocation import ValkeyRevocationStore
 from shared.services.user_presence import count_online_users
+from shared.static_files import ShortCacheStaticFiles
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
 from shared.timing import format_compact_duration
 
@@ -452,6 +458,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         )
         logger.info("- Online-users count poller started")
 
+    app.state.security_events_reaper_stop = asyncio.Event()
+    app.state.security_events_reaper_task = None
+    if settings.SECURITY_EVENTS_RETENTION_DAYS > 0:
+        app.state.security_events_reaper_task = asyncio.create_task(
+            run_security_events_reaper(
+                app.state.arena_db_session,
+                poll_interval_seconds=settings.SECURITY_EVENTS_REAPER_INTERVAL_SECONDS,
+                retention_days=settings.SECURITY_EVENTS_RETENTION_DAYS,
+                modules=["arena", "aiassistant"],
+                stop_event=app.state.security_events_reaper_stop,
+                logger=logger,
+            ),
+            name="security-events-reaper",
+        )
+        logger.info(
+            "- Security-events reaper started (interval=%ss, retention=%sd, modules=arena,aiassistant)",
+            settings.SECURITY_EVENTS_REAPER_INTERVAL_SECONDS,
+            settings.SECURITY_EVENTS_RETENTION_DAYS,
+        )
+    else:
+        logger.warning("- Security-events reaper disabled (retention=0)")
+
     logger.info("| Arena running |".center(80, "-"))
 
     yield
@@ -467,6 +495,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         await asyncio.gather(app.state.online_count_poller_task, return_exceptions=True)
         logger.info("Online-users count poller stopped")
 
+    if app.state.security_events_reaper_task is not None:
+        app.state.security_events_reaper_stop.set()
+        await asyncio.gather(app.state.security_events_reaper_task, return_exceptions=True)
+        logger.info("Security-events reaper stopped")
+
     app.state.revocation_store.close()
     logger.info("ValkeyRevocationStore closed")
 
@@ -481,38 +514,56 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("*" * 80)
 
 
-app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+    dependencies=[Depends(enforce_arena_authentication)],
+)
 register_error_handlers(app)
 
 # Middleware order matters: SessionMiddleware must wrap ArenaAuthMiddleware so
 # that the session is available when the auth middleware writes flash messages
 # via the dependency.  FastAPI processes middleware in reverse registration
 # order (last registered = outermost), so SessionMiddleware is registered last.
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    settings=SecurityHeaderSettings(
+        enabled=settings.SECURITY_HEADERS_ENABLED,
+        csp_report_only=settings.CSP_REPORT_ONLY,
+        hsts_enabled=settings.COOKIE_SECURE or settings.ENVIRONMENT == Environment.PRODUCTION,
+    ),
+)
 app.add_middleware(ArenaAuthMiddleware)
-app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET_KEY)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.JWT_SECRET_KEY,
+    https_only=settings.COOKIE_SECURE,
+)
 
 
 app.mount(
     "/static/css",
-    StaticFiles(directory=_ARENA_DIR / "static" / "css"),
+    ShortCacheStaticFiles(directory=_ARENA_DIR / "static" / "css"),
     name="arena_static_css",
 )
 
 app.mount(
     "/static/shared-css",
-    StaticFiles(directory=_SHARED_DIR / "static" / "css"),
+    ShortCacheStaticFiles(directory=_SHARED_DIR / "static" / "css"),
     name="static_shared_css",
 )
 
 app.mount(
     "/static/js",
-    StaticFiles(directory=_ARENA_DIR / "static" / "js"),
+    ShortCacheStaticFiles(directory=_ARENA_DIR / "static" / "js"),
     name="arena_static_js",
 )
 
 app.mount(
     "/static/shared-js",
-    StaticFiles(directory=_SHARED_DIR / "static" / "js"),
+    ShortCacheStaticFiles(directory=_SHARED_DIR / "static" / "js"),
     name="static_shared_js",
 )
 
@@ -548,6 +599,7 @@ app.include_router(arena_classes_router)
 app.include_router(arena_classes_members_router)
 app.include_router(arena_problem_sets_router)
 app.include_router(arena_problem_sets_report_router)
+app.include_router(arena_problem_sets_batch_feedback_router)
 app.include_router(arena_problem_sets_autocomplete_router)
 app.include_router(arena_student_problem_sets_router)
 app.include_router(arena_submissions_router)
@@ -555,6 +607,7 @@ app.include_router(arena_legal_router)
 app.include_router(arena_help_router)
 app.include_router(arena_problems_router)
 app.include_router(arena_users_router)
+app.include_router(arena_user_public_profile_router)
 app.include_router(arena_user_submission_status_router)
 app.include_router(arena_user_security_router)
 app.include_router(arena_notifications_router)

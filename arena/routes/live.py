@@ -4,7 +4,7 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Public Arena live submission feed (no authentication required)."""
+"""Arena live submission feed (requires a logged-in user)."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings
 from arena.database import get_db
-from arena.dependencies.auth import get_current_arena_user
+from arena.dependencies.auth import require_arena_user
 from arena.models.arena_users import ArenaUser
 from arena.services.live_feed_service import build_arena_live_feed_snapshot
 from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_LABELS
@@ -37,9 +37,9 @@ def _html(response: Any) -> HTMLResponse:
 @router.get("/live", response_class=HTMLResponse, name="arena_live")
 async def arena_live_page(
     request: Request,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
 ) -> HTMLResponse:
-    """Render the public Arena live submission feed page."""
+    """Render the Arena live submission feed page."""
     templates = request.app.state.arena_templates
     return _html(
         templates.TemplateResponse(
@@ -56,7 +56,7 @@ async def arena_live_page(
 @router.get("/live/feed.json", name="arena_live_feed")
 async def arena_live_feed_json(
     request: Request,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Return the latest finalized Arena submissions snapshot."""

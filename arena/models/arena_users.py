@@ -28,6 +28,7 @@ from shared.services.arena_rating import CONFIDENCE_SCALE
 if TYPE_CHECKING:
     from arena.models.arena_affiliations import ArenaAffiliation
     from arena.models.arena_auth_records import ArenaBackup2FA, ArenaLoginHistory
+    from arena.models.arena_badges import ArenaUserBadge
     from arena.models.arena_notifications import ArenaNotification
     from arena.models.arena_submissions import ArenaSubmission, ArenaUserSolvedProblem, ArenaUserTriedProblem
 
@@ -63,6 +64,7 @@ class ArenaUser(LocationMixin, ArenaBase):
         role: ArenaRole enum value.
         can_edit: User may add/edit problems on the Arena problem base (admins always may).
         ranking_visible: User consents to appear in the public ranking; rating is still computed when False.
+        public_profile: User opts in to a public profile page; requires ranking_visible=True.
         ativo: Account is enabled and may log in.
         dta_ativacao_conta: Timestamp of account activation.
         email_confirmado: Email address has been verified.
@@ -103,6 +105,7 @@ class ArenaUser(LocationMixin, ArenaBase):
     role: Mapped[ArenaRole]
     can_edit: Mapped[bool]
     ranking_visible: Mapped[bool]
+    public_profile: Mapped[bool]
     ativo: Mapped[bool]
     dta_ativacao_conta: Mapped[datetime | None]
     email_confirmado: Mapped[bool]
@@ -126,6 +129,9 @@ class ArenaUser(LocationMixin, ArenaBase):
     dta_rating_update: Mapped[datetime | None]
     user_rating: Mapped[int | None]
     solved_problems: Mapped[int | None]
+    current_streak: Mapped[int]
+    longest_streak: Mapped[int]
+    last_ac_date: Mapped[date | None]
     country_code: Mapped[str | None]
     subdivision_code: Mapped[str | None]
     affiliation_id: Mapped[str | None]
@@ -157,6 +163,12 @@ class ArenaUser(LocationMixin, ArenaBase):
         back_populates="user",
         cascade="all, delete-orphan",
         foreign_keys="ArenaNotification.user_id",
+    )
+    badges: Mapped[list[ArenaUserBadge]] = relationship(
+        "ArenaUserBadge",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        foreign_keys="ArenaUserBadge.user_id",
     )
 
     codigos_otp: Mapped[list[ArenaBackup2FA]] = relationship(

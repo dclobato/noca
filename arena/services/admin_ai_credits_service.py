@@ -21,6 +21,83 @@ from arena.services.pagination_service import Pagination, PaginationParams, clam
 from shared.db_schema.arena import arena_ai_batch_jobs, arena_submission_ai_reviews
 
 
+async def get_batch_job_statuses(
+    session: AsyncSession,
+    submission_ids: set[str],
+) -> dict[str, str]:
+    """Return the batch job ``local_status`` for each submission that has one.
+
+    Args:
+        session: Active async database session.
+        submission_ids: Submission identifiers on the current transaction page.
+
+    Returns:
+        Mapping from submission identifier to ``local_status`` string.
+        Submissions without a batch job row are omitted.
+    """
+    if not submission_ids:
+        return {}
+
+    query = select(
+        arena_ai_batch_jobs.c.submission_id,
+        arena_ai_batch_jobs.c.local_status,
+    ).where(arena_ai_batch_jobs.c.submission_id.in_(submission_ids))
+    rows = (await session.execute(query)).all()
+    return {str(submission_id): str(local_status) for submission_id, local_status in rows}
+
+
+async def get_batch_job_errors(
+    session: AsyncSession,
+    submission_ids: set[str],
+) -> dict[str, str]:
+    """Return the ``last_error`` for batch jobs that have one.
+
+    Args:
+        session: Active async database session.
+        submission_ids: Submission identifiers on the current transaction page.
+
+    Returns:
+        Mapping from submission identifier to ``last_error`` string.
+        Submissions without a batch job row or with a null ``last_error`` are omitted.
+    """
+    if not submission_ids:
+        return {}
+
+    query = select(
+        arena_ai_batch_jobs.c.submission_id,
+        arena_ai_batch_jobs.c.last_error,
+    ).where(
+        arena_ai_batch_jobs.c.submission_id.in_(submission_ids),
+        arena_ai_batch_jobs.c.last_error.isnot(None),
+    )
+    rows = (await session.execute(query)).all()
+    return {str(submission_id): str(last_error) for submission_id, last_error in rows}
+
+
+async def get_refunded_submission_ids(
+    session: AsyncSession,
+    submission_ids: set[str],
+) -> set[str]:
+    """Return submission IDs on the page that have a matching refund transaction.
+
+    Args:
+        session: Active async database session.
+        submission_ids: Submission identifiers on the current transaction page.
+
+    Returns:
+        Subset of ``submission_ids`` where a ``refund`` credit transaction exists.
+    """
+    if not submission_ids:
+        return set()
+
+    query = select(ArenaAiCreditTransaction.submission_id).where(
+        ArenaAiCreditTransaction.submission_id.in_(submission_ids),
+        ArenaAiCreditTransaction.transaction_type == "refund",
+    )
+    rows = (await session.execute(query)).scalars().all()
+    return {str(sid) for sid in rows}
+
+
 async def get_batch_turnaround_seconds(
     session: AsyncSession,
     submission_ids: set[str],

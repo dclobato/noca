@@ -7,6 +7,8 @@
 ARG APP_BASE_REF=noca/app-base:latest
 FROM ${APP_BASE_REF}
 
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
+
 RUN --mount=type=cache,target=/tmp/uv-cache \
     uv sync --frozen --no-dev --package noca-rating --no-install-workspace
 

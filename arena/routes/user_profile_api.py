@@ -75,6 +75,7 @@ class PersonalDataUpdateRequest(BaseModel):
     language_id: str | None = None
     prefered_language: Literal["en-US", "pt-BR"] = "en-US"
     ranking_visible: bool | None = None
+    public_profile: bool | None = None
 
 
 class ApiKeyUpdateRequest(BaseModel):
@@ -335,6 +336,14 @@ async def arena_user_profile_personal_data_update(
     current_user.prefered_language = payload.prefered_language
     if payload.ranking_visible is not None:
         current_user.ranking_visible = payload.ranking_visible
+    effective_ranking_visible = current_user.ranking_visible
+    effective_public_profile = (
+        payload.public_profile if payload.public_profile is not None else current_user.public_profile
+    )
+    if not effective_ranking_visible and effective_public_profile:
+        effective_public_profile = False
+    if effective_public_profile != current_user.public_profile:
+        current_user.public_profile = effective_public_profile
     age_status = await user_service.update_date_of_birth(
         current_user,
         parsed_date_of_birth,
@@ -354,6 +363,7 @@ async def arena_user_profile_personal_data_update(
         "language_name": language_name,
         "prefered_language": current_user.prefered_language,
         "ranking_visible": current_user.ranking_visible,
+        "public_profile": current_user.public_profile,
     }
     if date_of_birth_changed and age_status != AgeStatus.ALLOWED:
         raw_token: str | None = getattr(request.state, "raw_arena_token", None)

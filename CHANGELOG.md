@@ -1,5 +1,135 @@
 # Changelog
 
+## [13.1.2] - 2026-07-03
+
+### Bug Fixes
+
+- **security**: Allow Cloudflare's Web Analytics beacon in the CSP
+  (`static.cloudflareinsights.com` in `script-src`, `cloudflareinsights.com` in
+  `connect-src`) so enforcing mode does not block the edge-injected script, and
+  document the reverse-proxy trust failure mode (`NOCA_FORWARDED_ALLOW_IPS`) that
+  breaks `request.url_for()` scheme and client-IP handling behind a containerized
+  proxy; fetch the Bootstrap CSS source map to silence the DevTools 404
+- **rating**: Exclude `ARENA_ADMIN`/`ARENA_JUDGE` from the first-solver badge
+
+## [13.1.1] - 2026-07-03
+
+### Bug Fixes
+
+- **shared**: Type security-event row mappings with SQLAlchemy's `RowMapping`
+  so the all-module mypy CI job passes
+
+## [13.1.0] - 2026-07-03
+
+### Features
+
+- **security**: Add Valkey-backed auth throttling with a fail-open in-memory
+  fallback for Web and Arena login, password reset, signup, 2FA, activation,
+  and consent flows
+- **security**: Add the `security_events` audit log, module-scoped admin
+  viewers, retention reapers, and privileged admin-action recording for Web
+  and Arena
+- **security**: Add shared browser security headers, production secure-cookie
+  validation, proxy-correct client IP handling, default-deny Web auth,
+  testcase path guards, and AI review guardrails
+- **arena**: Add 10 new gamification badges for language breadth, first-solver
+  activity, hand-in timing, burst solving, trimming attempts, and related
+  achievements
+- **arena**: Add compile logs, failing testcase context, expected output,
+  stderr, and existing AI review context to teacher batch-feedback reviews
+
+### Bug Fixes
+
+- **arena**: Hide signup account enumeration by returning the same success
+  response for existing accounts and sending an out-of-band account-exists
+  email
+- **arena**: Unify needs-feedback logic across problem-list and student-report
+  pages
+
+### Documentation
+
+- **aiassistant**: Update AI assistant and AI review flow documentation for the
+  current worker behavior
+- **config**: Document the new security-event retention settings and related
+  Web/Arena service routes
+
+## [13.0.0] - 2026-07-01
+
+### BREAKING CHANGES
+
+- **containers**: Upgrade judge runtimes (Node 24, Temurin 25, Ruby 4.0, Rust 1.96, .NET 10, Lua 5.5). Contestant-visible language runtimes change major/minor versions across the board (Node 22->24, JDK/Temurin 21->25, Ruby 3.3->4.0, Rust 1.94->1.96, .NET 8->10, Lua 5.4->5.5). Existing accepted solutions that rely on removed/changed standard-library behavior, deprecated APIs, or version-specific compiler/runtime quirks may need resubmission. Judge images must be rebuilt and `shared/language_configs.py` reseeded via `scripts/bootstrap_languages.py` before deploying.
+
+### Features
+
+- **arena**: Add teacher batch feedback page for problem-set problems
+- **arena**: Redirect batch feedback to problem list, allow removing teacher feedback, show source line numbers
+
+### Bug Fixes
+
+- **arena**: Base needs-feedback badge on most recent non-AC submission
+- **arena**: Render KaTeX CSS on batch feedback page and correct needs-feedback count
+
+### Build & Infrastructure
+
+- **ci**: Authenticate setup-uv GitHub API calls to avoid rate limits
+
+## [12.4.1] - 2026-07-01
+
+### Bug Fixes
+
+- **static**: Shorten CSS/JS cache lifetime to bound rollout staleness
+- **tests**: Fix contest admin template path tests
+
+### Build & Infrastructure
+
+- **ci**: Add validation and image publishing workflows
+- **ci**: Add source labels to container images
+
+## [12.4.0] - 2026-07-01
+
+### Features
+
+- **arena**: Lock down Arena pages with default-deny access control
+- **health**: Rate limit public health endpoints
+- **rating**: Gate problem-difficulty pivot by per-problem attempt count
+- **rating**: Snapshot problem-difficulty distribution as a histogram
+
+## [12.3.2] - 2026-06-28
+
+### Bug Fixes
+
+- **ui**: Stack sample test case blocks
+- **autojudge**: Move `-lm` after source file and add `-D_GNU_SOURCE` for C
+- **aiassistant**: Map unsupported file extensions before OpenAI upload
+
+### Performance
+
+- **judge**: Add JVM determinism flags to Java run command
+
+## [12.3.1] - 2026-06-27
+
+### Bug Fixes
+
+- **arena**: Use standalone error template and silence DB-down log flood
+- **arena**: Eagerly load affiliation on public profile to avoid async lazy-load error
+- **aiassistant**: Refund platform credit on batch failure and add AI Usage status dashboard
+
+### Refactoring
+
+- **arena**: Rename AI Credits route and template to AI Usage
+
+## [12.3.0] - 2026-06-22
+
+### Features
+
+- **arena**: Add public Arena user profile page with precomputed statistics (verdict distribution, language breakdown, recent activity)
+- **arena**: Add `public_profile` opt-in flag for Arena users to control profile visibility
+- **arena**: Add problem-count badges for 10, 25, 100, and 500 distinct solved problems
+- **arena**: Show earned gamification badges on user profile pages
+- **arena**: Link admin problem numbers to their detail pages
+- **arena**: Add user badge persistence for gamification (append-only `arena_user_badges` ledger)
+- **rating**: Award Arena gamification badges from a dedicated badge-assignment loop in the rating worker
+
 ## [12.2.0] - 2026-06-21
 
 ### Features

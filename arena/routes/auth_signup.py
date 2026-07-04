@@ -20,6 +20,8 @@ from arena.config import settings
 from arena.database import get_db
 from arena.models.arena_users import ArenaUser
 from arena.routes.auth_common import (
+    AUTH_RATE_LIMITER,
+    _auth_rate_limit_settings,
     _login_failure_message,
     _token_failure_message,
     _validate_password_fields,
@@ -27,10 +29,18 @@ from arena.routes.auth_common import (
 from arena.services import user_email_service, user_registration_service, user_service
 from arena.services.token_service import ArenaTokenAction
 from shared.age_check import AgeStatus, check_age
+from shared.services.auth_rate_limit import (
+    build_auth_throttle_identity,
+    check_auth_throttle,
+    record_auth_failure,
+    reset_auth_throttle,
+)
 from shared.services.imageprocessing_service import ImageProcessingError
 from shared.services.password_service import PasswordPolicy
+from shared.services.security_events import record_request_security_event
 
 router = APIRouter(prefix="/auth", tags=["arena-auth"])
+_SIGNUP_SUCCESS_MESSAGE = "If this account can be created, we will send the next steps by email."
 
 
 def _html(response: Any) -> HTMLResponse:
@@ -104,6 +114,7 @@ def _signup_response(
     email_responsavel_legal: str = "",
     terms_checked: bool = False,
     status_code: int = 422,
+    headers: dict[str, str] | None = None,
 ) -> HTMLResponse:
     """Render signup with submitted safe fields preserved."""
     templates = request.app.state.arena_templates
@@ -119,6 +130,7 @@ def _signup_response(
                 terms_checked=terms_checked,
             ),
             status_code=status_code,
+            headers=headers,
         )
     )
 
@@ -227,6 +239,43 @@ async def arena_signup_submit(
             terms_checked=terms_checked,
         )
 
+    throttle_settings = _auth_rate_limit_settings()
+    throttle_identity = build_auth_throttle_identity(
+        request,
+        module="arena",
+        action="signup",
+        identifier=email,
+        settings=throttle_settings,
+    )
+    throttle_check = await check_auth_throttle(
+        request,
+        throttle_identity,
+        settings=throttle_settings,
+        fallback_limiter=AUTH_RATE_LIMITER,
+    )
+    if not throttle_check.allowed:
+        await record_request_security_event(
+            session,
+            request,
+            module="arena",
+            event_type="auth_throttle_lockout",
+            severity="warning",
+            identifier_hash=throttle_identity.identifier_hash,
+            metadata={"action": "signup", "reason": throttle_check.reason},
+        )
+        await session.commit()
+        flash("Too many failed attempts. Try again later.", FlashCategory.DANGER)
+        return _signup_response(
+            request,
+            full_name=full_name,
+            date_of_birth=date_of_birth,
+            email=email,
+            email_responsavel_legal=email_responsavel_legal,
+            terms_checked=terms_checked,
+            status_code=429,
+            headers={"Retry-After": str(throttle_check.retry_after_seconds or throttle_settings.lockout_seconds)},
+        )
+
     result = await user_registration_service.registrar_usuario(
         nome=full_name,
         email=email,
@@ -243,6 +292,30 @@ async def arena_signup_submit(
         aceitou_termos_privacidade=True,
         dta_aceitacao_termos_privacidade=datetime.now(UTC),
     )
+    if result.status == user_service.UserOperationStatus.USER_ALREADY_REGISTERED:
+        failure = await record_auth_failure(
+            request,
+            throttle_identity,
+            settings=throttle_settings,
+            fallback_limiter=AUTH_RATE_LIMITER,
+        )
+        await record_request_security_event(
+            session,
+            request,
+            module="arena",
+            event_type="signup_existing_account",
+            severity="warning" if failure.locked else "info",
+            identifier_hash=throttle_identity.identifier_hash,
+            metadata={"action": "signup", "reason": failure.reason},
+        )
+        await session.commit()
+        user_registration_service.enviar_email_conta_existente(
+            email,
+            request.app.state.email_service,
+            _base_url(request),
+        )
+        flash(_SIGNUP_SUCCESS_MESSAGE, FlashCategory.SUCCESS)
+        return _redirect_to(request, "arena_login")
     if result.status != user_service.UserOperationStatus.SUCCESS or result.user is None:
         flash(_signup_failure_message(result.status), FlashCategory.DANGER)
         return _signup_response(
@@ -282,6 +355,7 @@ async def arena_signup_submit(
             )
 
     await session.commit()
+    await reset_auth_throttle(request, throttle_identity, fallback_limiter=AUTH_RATE_LIMITER)
     email_sent = user_registration_service.enviar_email_ativacao(
         result.user,
         result.token or "",
@@ -303,24 +377,10 @@ async def arena_signup_submit(
             request.app.state.email_service,
             _base_url(request),
         )
-    if email_sent and parental_email_sent and age_status == AgeStatus.NEEDS_PARENTAL_CONSENT:
-        flash(
-            "Account created. Check your email to activate it and ask your parent "
-            "or legal guardian to confirm consent.",
-            FlashCategory.SUCCESS,
-        )
-    elif email_sent and not parental_email_sent and age_status == AgeStatus.NEEDS_PARENTAL_CONSENT:
-        flash(
-            "Account created, but the consent email could not be sent. Log in after email confirmation to resend it.",
-            FlashCategory.WARNING,
-        )
-    elif email_sent:
-        flash("Account created. Check your email to activate your account.", FlashCategory.SUCCESS)
+    if email_sent and parental_email_sent:
+        flash(_SIGNUP_SUCCESS_MESSAGE, FlashCategory.SUCCESS)
     else:
-        flash(
-            "Account created, but the confirmation email could not be sent. Contact support to activate it.",
-            FlashCategory.WARNING,
-        )
+        flash(_SIGNUP_SUCCESS_MESSAGE, FlashCategory.WARNING)
     return _redirect_to(request, "arena_login")
 
 

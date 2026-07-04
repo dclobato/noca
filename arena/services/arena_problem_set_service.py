@@ -23,7 +23,7 @@ the transaction boundary (``session.flush()`` is used internally).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 
@@ -39,7 +39,7 @@ from shared.db_schema.arena import (
     arena_submission_judgments,
     arena_submissions,
 )
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, Verdict
 
 
 class ArenaProblemSetServiceError(Exception):
@@ -537,6 +537,22 @@ async def _set_tied_verdicts(session: AsyncSession, set_id: str) -> dict[tuple[s
     for r in rows:
         grouped.setdefault((r.user_id, r.problem_id), []).append(r.final_verdict)
     return grouped
+
+
+def _needs_feedback(verdicts: Iterable[str | None]) -> bool:
+    """Return True when at least one judged verdict exists and none of them is Accepted.
+
+    A submission still awaiting judgment (``verdict is None``) does not by
+    itself count as needing feedback.
+    """
+    has_judged_verdict = False
+    for verdict in verdicts:
+        if verdict is None:
+            continue
+        if verdict == Verdict.AC.value:
+            return False
+        has_judged_verdict = True
+    return has_judged_verdict
 
 
 async def problem_accepting_set_for_user(

@@ -30,6 +30,7 @@ from arena.models.arena_users import ArenaUser
 from arena.services import admin_affiliation_service
 from arena.services.pagination_service import parse_page
 from arena.services.profile_location_service import list_countries, list_subdivisions
+from shared.services.admin_audit import record_admin_action
 from shared.services.imageprocessing_service import ImageProcessingError
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
@@ -350,6 +351,16 @@ async def admin_affiliation_delete(
     affiliation = await _get_affiliation_or_404(affiliation_id, session)
     affiliation_name = affiliation.name
     await admin_affiliation_service.delete_affiliation(session, affiliation)
+    await record_admin_action(
+        session,
+        request,
+        module="arena",
+        actor_user_id=admin.id,
+        action="delete",
+        target_type="arena_affiliation",
+        target_id=affiliation_id,
+        detail=f"name={affiliation_name}",
+    )
     await session.commit()
     flash(f"Affiliation '{affiliation_name}' removed.", FlashCategory.SUCCESS)
     return RedirectResponse(

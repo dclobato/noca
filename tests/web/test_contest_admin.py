@@ -1,3 +1,9 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -11,6 +17,8 @@ from web.routes.contest_admin_helpers import (
     _end_contest_now,
     _is_actor_password_valid,
 )
+
+_ADD_CONTEST_TEMPLATE = Path(__file__).resolve().parents[2] / "web" / "template" / "uberadmin" / "add_contest.html"
 
 
 def _build_running_contest() -> Contest:
@@ -95,14 +103,14 @@ def test_is_actor_password_valid_accepts_matching_uberadmin_password() -> None:
 
 
 def test_create_contest_modal_copy_mentions_languages_editable_until_start() -> None:
-    template = Path("/home/dclobato/noca/web/template/uberadmin/add_contest.html").read_text(encoding="utf-8")
+    template = _ADD_CONTEST_TEMPLATE.read_text(encoding="utf-8")
 
     assert "can be changed only until the contest starts" in template
     assert "cannot be changed</strong> after the" not in template
 
 
 def test_create_contest_template_owner_fields_share_rows_and_email_button() -> None:
-    template = Path("/home/dclobato/noca/web/template/uberadmin/add_contest.html").read_text(encoding="utf-8")
+    template = _ADD_CONTEST_TEMPLATE.read_text(encoding="utf-8")
 
     assert 'class="col-12 col-sm-8"' in template
     assert 'name="owner_fullname"' in template

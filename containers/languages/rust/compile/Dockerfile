@@ -2,9 +2,11 @@
 #
 # Short-lived container — one per submission, destroyed after artifact extraction.
 #
-# Pinned family: rust:1.94.1-bookworm (Debian bookworm)
+# Pinned family: rust:1.96.1-bookworm (Debian bookworm)
 
-FROM rust:1.94.1-bookworm
+FROM rust:1.96.1-bookworm
+
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
 RUN groupadd --system judge && useradd --system --gid judge --create-home judge
 

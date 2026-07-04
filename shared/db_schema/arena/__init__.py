@@ -8,6 +8,8 @@
 
 from .arena_ai_batch_jobs import arena_ai_batch_jobs
 from .arena_ai_credit_transactions import arena_ai_credit_transactions
+from .arena_badge_cycle_state import arena_badge_cycle_state
+from .arena_badges import arena_user_badges
 from .arena_classes import (
     arena_class_memberships,
     arena_class_registration_requests,
@@ -29,6 +31,7 @@ from .arena_problems import (
     arena_problems,
     arena_test_cases,
 )
+from .arena_rating_cycle_state import arena_rating_cycle_state
 from .arena_rating_history import (
     arena_affiliation_rating_history,
     arena_problem_rating_history,
@@ -44,6 +47,7 @@ from .arena_submissions import (
     arena_submission_test_results,
     arena_submissions,
 )
+from .arena_user_statistics import arena_user_statistics
 from .arena_users import arena_affiliations, arena_backup_2fa, arena_login_history, arena_users
 from .arena_worker_control import arena_worker_command_audit, arena_worker_pause_state
 
@@ -52,6 +56,7 @@ __all__ = [
     "arena_ai_batch_jobs",
     "arena_ai_credit_transactions",
     "arena_affiliations",
+    "arena_badge_cycle_state",
     "arena_class_memberships",
     "arena_class_registration_requests",
     "arena_classes",
@@ -69,6 +74,7 @@ __all__ = [
     "arena_problem_ratings",
     "arena_problem_solvers",
     "arena_problem_statistics",
+    "arena_rating_cycle_state",
     "arena_problem_tried",
     "arena_problems",
     "arena_submission_ai_reviews",
@@ -77,8 +83,10 @@ __all__ = [
     "arena_submission_test_results",
     "arena_submissions",
     "arena_test_cases",
+    "arena_user_badges",
     "arena_user_rating_history",
     "arena_user_submission_heatmap",
+    "arena_user_statistics",
     "arena_users",
     "arena_worker_command_audit",
     "arena_worker_pause_state",

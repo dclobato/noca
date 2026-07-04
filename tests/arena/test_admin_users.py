@@ -659,6 +659,69 @@ async def test_admin_user_profile_renders_hidden_ranking_state(session: AsyncSes
 
 
 @pytest.mark.asyncio
+async def test_admin_user_profile_renders_public_profile_disabled_state(session: AsyncSession) -> None:
+    """Admin profile renders the enable button when public_profile is off."""
+    app = _build_admin_app(session)
+    admin = await _create_arena_user(
+        session,
+        name="Admin",
+        email="admin-public-disabled@test.example",
+        role=ArenaRole.ARENA_ADMIN,
+    )
+    target = await _create_arena_user(
+        session,
+        name="Default Public User",
+        email="public-disabled@test.example",
+    )
+    target.public_profile = False
+    await session.commit()
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.get(f"/admin/users/{target.id}")
+
+    assert response.status_code == 200
+    assert 'id="confirmTogglePublicProfileModal"' in response.text
+    assert "Enable public profile" in response.text
+    # Modal must include the password confirmation field
+    assert 'id="confirm-pw-public-profile"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_admin_user_profile_renders_public_profile_enabled_state(session: AsyncSession) -> None:
+    """Admin profile renders the disable button when public_profile is on."""
+    app = _build_admin_app(session)
+    admin = await _create_arena_user(
+        session,
+        name="Admin",
+        email="admin-public-enabled@test.example",
+        role=ArenaRole.ARENA_ADMIN,
+    )
+    target = await _create_arena_user(
+        session,
+        name="Public User",
+        email="public-enabled@test.example",
+    )
+    target.public_profile = True
+    await session.commit()
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.get(f"/admin/users/{target.id}")
+
+    assert response.status_code == 200
+    assert "Disable public profile" in response.text
+
+
+@pytest.mark.asyncio
 async def test_admin_user_profile_shows_parental_consent_action_for_minor(session: AsyncSession) -> None:
     app = _build_admin_app(session)
     admin = await _create_arena_user(session, name="Admin", email="admin@test.example", role=ArenaRole.ARENA_ADMIN)

@@ -1,0 +1,157 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon, render_avatar %}
+{% block title_suffix %}&mdash; {{ profile_user.nome }}{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3 d-flex flex-column flex-grow-1">
+        {# ── Section 1: Identity ──────────────────────────────────────── #}
+        <section class="arena-card mb-3">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <span class="avatar-wrapper avatar-wrapper--lg"
+                      data-user-id="{{ profile_user.id }}">
+                    <img src="{{ request.url_for('arena_user_avatar_by_id', user_id=profile_user.id) }}?v={{ (profile_user.dta_foto.timestamp() | int) if profile_user.dta_foto else 0 }}"
+                         alt="{{ profile_user.nome }}"
+                         class="arena-avatar arena-profile-avatar">
+                </span>
+                <div class="flex-grow-1">
+                    <div class="arena-profile-name">{{ profile_user.nome }}</div>
+                    <div class="arena-list-item-meta">
+                        {% if profile_user.affiliation_name %}
+                            {{ profile_user.affiliation_name }}
+                        {% else %}
+                            <span class="text-arena-muted">No affiliation</span>
+                        {% endif %}
+                    </div>
+                    <div class="small text-arena-muted">
+                        {% if profile_user.country_code %}
+                            <img src="{{ request.url_for('static_vendor', path='img/flags/' + profile_user.country_code.lower() + '.svg') }}"
+                                 class="arena-country-flag"
+                                 alt="">
+                            {{ profile_user.country_name }}
+                            {% if profile_user.subdivision_name %}, {{ profile_user.subdivision_name }}{% endif %}
+                        {% else %}
+                            Location not set
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </section>
+        {# ── Section 2: Badges ─────────────────────────────────────────── #}
+        <section class="arena-card mb-3">
+            <h2 class="arena-card-title h6">
+                {{ render_icon(icon="workspace_premium") }}
+                Badges
+            </h2>
+            {% if badges %}
+                <div class="arena-badge-grid">
+                    {% for user_badge in badges %}
+                        {% set metadata = badge_metadata.get(user_badge.badge.value) %}
+                        {% if metadata %}
+                            <article class="arena-badge-item">
+                                <img src="{{ request.url_for('arena_static_img', path='badges/' ~ metadata.image) }}"
+                                     alt="{{ metadata.label }} badge"
+                                     class="arena-badge-image"
+                                     width="96"
+                                     height="96">
+                                <h3 class="arena-badge-name">{{ metadata.label }}</h3>
+                                <p class="arena-badge-description">{{ metadata.description }}</p>
+                            </article>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="arena-empty-state">No badges earned yet.</p>
+            {% endif %}
+        </section>
+        {# ── Section 3: Activity ───────────────────────────────────────── #}
+        <section class="arena-card mb-3">
+            <div class="row g-3 mb-3">
+                <div class="col-12">
+                    <h2 class="h6 mb-2">
+                        {{ render_icon(icon="calendar_month") }}
+                        Submissions in the last 52 weeks
+                    </h2>
+                    {% with chart_id="public-user-submission-heatmap", data_url=heatmap_url %}
+                        {% include "users/_submission_heatmap.html" %}
+                    {% endwith %}
+                </div>
+            </div>
+            <div class="row g-3 mb-3">
+                <div class="col-12 col-lg-7">
+                    <h2 class="h6 mb-2">
+                        {{ render_icon(icon="star", filled=True) }}
+                        Rating history
+                    </h2>
+                    <div id="public-user-rating-chart"
+                         class="arena-rating-chart-container"
+                         data-arena-rating-chart
+                         data-rating-chart-url="{{ rating_history_url }}"
+                         data-rating-chart-mode="default"
+                         data-rating-chart-value-kind="points"></div>
+                </div>
+                <div class="col-12 col-lg-5">
+                    <dl class="arena-profile-details">
+                        <dt>Current rating</dt>
+                        <dd>
+                            <span class="arena-profile-rating">
+                                {{ render_icon(icon="star", filled=True) }}
+                                {{ profile_user.user_rating or 0 }} pts
+                            </span>
+                        </dd>
+                        <dt>Solved problems</dt>
+                        <dd>
+                            {{ profile_user.solved_problems or 0 }}
+                        </dd>
+                        <dt>Current streak</dt>
+                        <dd>
+                            {{ profile_user.current_streak }} day{{ 's' if profile_user.current_streak != 1 else '' }}
+                        </dd>
+                        <dt>Longest streak</dt>
+                        <dd>
+                            {{ profile_user.longest_streak }} day{{ 's' if profile_user.longest_streak != 1 else '' }}
+                        </dd>
+                        {% if profile_user.last_ac_date %}
+                            <dt>Last accepted</dt>
+                            <dd>
+                                {{ profile_user.last_ac_date.strftime("%b %d, %Y") }}
+                            </dd>
+                        {% endif %}
+                    </dl>
+                </div>
+            </div>
+            <div class="row g-3"
+                 data-arena-user-stats
+                 data-stats-url="{{ statistics_url }}">
+                <div class="col-12 col-md-6">
+                    <div class="arena-card h-100">
+                        <h2 class="h6 mb-2">Verdict distribution</h2>
+                        <div id="public-user-stats-verdicts"
+                             class="arena-stats-chart arena-stats-chart--pie"></div>
+                    </div>
+                </div>
+                <div class="col-12 col-md-6">
+                    <div class="arena-card h-100">
+                        <h2 class="h6 mb-2">Language distribution</h2>
+                        <div id="public-user-stats-languages"
+                             class="arena-stats-chart arena-stats-chart--pie"></div>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <p class="text-muted small mb-0" data-stats-computed-at></p>
+                </div>
+            </div>
+        </section>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-rating-history-chart.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-submission-heatmap.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-user-statistics.js') }}?v={{ app_version }}"></script>
+{% endblock %}

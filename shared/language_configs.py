@@ -27,8 +27,8 @@ PYTHON3_PATH = "/usr/local/bin/python3"
 JAVA_PATH = "/opt/java/openjdk/bin/java"
 NODE_PATH = "/usr/local/bin/node"
 DOTNET_PATH = "/usr/bin/dotnet"
-LUA_PATH = "/usr/bin/lua5.4"
-LUAC_PATH = "/usr/bin/luac5.4"
+LUA_PATH = "/usr/local/bin/lua"
+LUAC_PATH = "/usr/local/bin/luac"
 SWIPL_PATH = "/usr/bin/swipl"
 RUBY_PATH = "/usr/local/bin/ruby"
 BASH_PATH = "/bin/bash"
@@ -70,10 +70,11 @@ def default_language_configs() -> list[LanguageConfig]:
                 "gcc",
                 "-std=c17",
                 "-O2",
-                "-lm",
+                "-D_GNU_SOURCE",
                 "-o",
                 BINARY_PATH,
                 f"{SANDBOX_DIR}/source.c",
+                "-lm",
             ],
             run_cmd=[BINARY_PATH],
             source_filename="source.c",
@@ -157,13 +158,19 @@ def default_language_configs() -> list[LanguageConfig]:
                 JAVA_PATH,
                 "-Xss64m",
                 "-Xmx256m",
+                # Determinism flags (found in 2017): remove major sources of non-deterministic
+                # JVM scheduling so that identical submissions produce consistent timings.
+                "-Xbatch",
+                "-XX:+UseSerialGC",
+                "-XX:-TieredCompilation",
+                "-XX:CICompilerCount=1",
                 "-jar",
                 JAR_PATH,
             ],
             source_filename="Main.java",
             default_extension=".java",
             artifact_path=JAR_PATH,
-            version="OpenJDK 21.0.10+7 (Eclipse Temurin)",
+            version="OpenJDK 25.0.3+9 (Eclipse Temurin)",
         ),
         LanguageConfig(
             id="javascript",
@@ -189,7 +196,7 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=10.0,
             profiling_repetitions_default=3,
             profiled_pids_floor=32,
-            version="node v22.22.2",
+            version="node v24.18.0",
         ),
         LanguageConfig(
             id="kotlin",
@@ -219,7 +226,7 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=120.0,
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
-            version="kotlinc-jvm 2.0.21 (JRE 21.0.10+7-LTS)",
+            version="kotlinc-jvm 2.3.0 (JRE 25.0.3+9-LTS)",
         ),
         LanguageConfig(
             id="fpc-pascal",
@@ -294,7 +301,7 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=60.0,
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
-            version="rustc 1.94.1",
+            version="rustc 1.96.1",
         ),
         LanguageConfig(
             id="c-sharp",
@@ -308,36 +315,35 @@ def default_language_configs() -> list[LanguageConfig]:
                 "sh",
                 "-c",
                 (
-                    "mkdir -p /sandbox/csharp && "
-                    "cp /sandbox/source.cs /sandbox/csharp/Program.cs && "
-                    "printf '%s\\n' "
-                    "'<Project Sdk=\"Microsoft.NET.Sdk\">' "
-                    "'  <PropertyGroup>' "
-                    "'    <OutputType>Exe</OutputType>' "
-                    "'    <TargetFramework>net8.0</TargetFramework>' "
-                    "'    <ImplicitUsings>enable</ImplicitUsings>' "
-                    "'    <Nullable>disable</Nullable>' "
-                    "'    <AssemblyName>solution</AssemblyName>' "
-                    "'  </PropertyGroup>' "
-                    "'</Project>' "
-                    "> /sandbox/csharp/solution.csproj && "
+                    # File-based apps (.NET 10) let a single .cs file carry #:package,
+                    # #:sdk, #:project, and #:property directives that would let a
+                    # submission pull NuGet packages, switch SDKs (e.g. ASP.NET Core),
+                    # or reference paths outside the sandbox. None of that is part of
+                    # the single-file, no-dependencies contract, so any such directive
+                    # is rejected up front.
+                    "if grep -Eq '^[[:space:]]*#:' /sandbox/source.cs; then "
+                    "echo 'File-based app directives are not allowed.' >&2; "
+                    "exit 1; "
+                    "fi && "
                     "printf '%s\\n' "
                     '\'<?xml version="1.0" encoding="utf-8"?>\' '
                     "'<configuration>' "
                     "'  <packageSources><clear /></packageSources>' "
                     "'</configuration>' "
-                    "> /sandbox/csharp/NuGet.Config && "
-                    "dotnet publish /sandbox/csharp/solution.csproj "
+                    "> /sandbox/NuGet.Config && "
+                    "dotnet publish /sandbox/source.cs "
                     "-c Release "
                     "--self-contained false "
+                    "-p:PublishAot=false "
                     "-p:UseAppHost=false "
+                    "-p:AssemblyName=solution "
                     "-p:DebugType=None "
                     "-p:DebugSymbols=false "
-                    "--configfile /sandbox/csharp/NuGet.Config "
+                    "--configfile /sandbox/NuGet.Config "
                     "--ignore-failed-sources "
                     "--nologo "
-                    "-o /sandbox/csharp/out && "
-                    "tar -cf /sandbox/solution.tar -C /sandbox/csharp/out ."
+                    "-o /sandbox/out && "
+                    "tar -cf /sandbox/solution.tar -C /sandbox/out ."
                 ),
             ],
             run_cmd=[
@@ -357,7 +363,7 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=120.0,
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
-            version="dotnet 8.0.419",
+            version="dotnet 10.0.301",
         ),
         LanguageConfig(
             id="haskell",
@@ -406,7 +412,7 @@ def default_language_configs() -> list[LanguageConfig]:
             artifact_is_source=True,
             compile_timeout_s=10.0,
             profiling_repetitions_default=3,
-            version="Lua 5.4.4",
+            version="Lua 5.5.0",
         ),
         LanguageConfig(
             id="prolog",
@@ -530,7 +536,7 @@ def default_language_configs() -> list[LanguageConfig]:
             artifact_is_source=True,
             compile_timeout_s=10.0,
             profiling_repetitions_default=3,
-            version="ruby 3.3.8",
+            version="ruby 4.0.5",
         ),
         LanguageConfig(
             id="bash",

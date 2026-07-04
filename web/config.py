@@ -105,6 +105,20 @@ class Settings(BaseSettings):
         validation_alias="NOCA_WEB_TASK_REAPER_INTERVAL_SECONDS",
         description="Polling interval for the task reaper in seconds (3 to 30 minutes).",
     )
+    SECURITY_EVENTS_RETENTION_DAYS: int = Field(
+        default=180,
+        ge=0,
+        le=3650,
+        validation_alias="NOCA_SECURITY_EVENTS_RETENTION_DAYS",
+        description="Days to retain security-event rows before the reaper deletes them (0 disables cleanup).",
+    )
+    SECURITY_EVENTS_REAPER_INTERVAL_SECONDS: int = Field(
+        default=86400,
+        ge=3600,
+        le=604800,
+        validation_alias="NOCA_WEB_SECURITY_EVENTS_REAPER_INTERVAL_SECONDS",
+        description="Polling interval for the security-events retention reaper in seconds (1 hour to 7 days).",
+    )
     SHOW_COMPILE_RUN_CMDS: bool = Field(
         default=False,
         validation_alias="NOCA_WEB_SHOW_COMPILE_RUN_CMDS",
@@ -119,6 +133,56 @@ class Settings(BaseSettings):
         default=3,
         ge=1,
         description="Maximum submissions a team may send within the rate-limit window.",
+    )
+    HEALTH_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        description="Enable public /health endpoint rate limiting.",
+    )
+    HEALTH_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=60,
+        ge=1,
+        description="Fixed-window length in seconds for /health rate limiting.",
+    )
+    HEALTH_RATE_LIMIT_MAX_REQUESTS: int = Field(
+        default=30,
+        ge=1,
+        description="Maximum public /health requests per client IP in each window.",
+    )
+    HEALTH_RATE_LIMIT_TRUSTED_CIDRS: str = Field(
+        default="127.0.0.0/8,::1/128",
+        description="Comma-separated CIDRs exempt from /health rate limiting.",
+    )
+    SECURITY_HEADERS_ENABLED: bool = Field(
+        default=True,
+        description="Enable shared browser security headers.",
+    )
+    CSP_REPORT_ONLY: bool = Field(
+        default=True,
+        description="Send Content-Security-Policy-Report-Only instead of enforcing CSP.",
+    )
+    AUTH_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        description="Enable Valkey-backed authentication throttling.",
+    )
+    AUTH_RATE_LIMIT_WINDOW_SECONDS: int = Field(
+        default=900,
+        ge=1,
+        description="Failure-count window for auth throttling in seconds.",
+    )
+    AUTH_RATE_LIMIT_IP_MAX_FAILURES: int = Field(
+        default=20,
+        ge=1,
+        description="Maximum auth failures per client IP before lockout.",
+    )
+    AUTH_RATE_LIMIT_ACCOUNT_MAX_FAILURES: int = Field(
+        default=5,
+        ge=1,
+        description="Maximum auth failures per account identifier before lockout.",
+    )
+    AUTH_RATE_LIMIT_LOCKOUT_SECONDS: int = Field(
+        default=900,
+        ge=1,
+        description="Auth lockout duration in seconds.",
     )
     UBERADMIN_USERNAME: str = Field(
         default="",
@@ -296,6 +360,27 @@ class Settings(BaseSettings):
             raise ValueError("NOCA_FORWARDED_ALLOW_IPS cannot combine '*' with specific IPs/CIDRs.")
         return normalized
 
+    @field_validator("HEALTH_RATE_LIMIT_TRUSTED_CIDRS", mode="after")
+    @classmethod
+    def normalize_health_rate_limit_trusted_cidrs(cls, v: str) -> str:
+        """Normalize trusted CIDRs for health endpoint rate-limit bypass."""
+        normalized_parts: list[str] = []
+        for raw_part in v.split(","):
+            part = raw_part.strip()
+            if not part:
+                continue
+            try:
+                ip_network(part, strict=False)
+            except ValueError as exc:
+                raise ValueError(
+                    f"NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS must contain valid CIDRs only. Invalid value: '{part}'"
+                ) from exc
+            normalized_parts.append(part)
+        normalized = ",".join(normalized_parts)
+        if not normalized:
+            raise ValueError("NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS cannot be empty.")
+        return normalized
+
     @field_validator("EMAIL_MBOX_LOG_DIR", mode="after")
     @classmethod
     def normalize_mbox_log_dir(cls, v: str | None) -> str | None:
@@ -331,6 +416,13 @@ class Settings(BaseSettings):
             missing.append("NOCA_SMTP_PASSWORD")
         if missing:
             raise ValueError(f"Missing required SMTP settings: {', '.join(missing)}")
+        return self
+
+    @model_validator(mode="after")
+    def validate_security_settings(self) -> Settings:
+        """Validate production security settings."""
+        if self.ENVIRONMENT == Environment.PRODUCTION and not self.COOKIE_SECURE:
+            raise ValueError("NOCA_COOKIE_SECURE must be true when NOCA_ENVIRONMENT=production.")
         return self
 
     @field_validator("PROBLEM_STATEMENT_DIR", "PROBLEM_TESTCASE_DIR_ROOT", mode="after")

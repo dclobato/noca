@@ -40,6 +40,7 @@ with a degraded payload when either required backend is unavailable.
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
 | `GET /uberadmin/` | `uberadmin_dashboard` | — | `uberadmin_dashboard.py` |
+| `GET /uberadmin/security-events` | `uberadmin_security_events` | `event_type=`, `per_page=`, `page=` | `uberadmin_security.py` |
 | `GET /uberadmin/uberadmins` | `list_uberadmins_route` | — | `uberadmin_users.py` |
 | `GET /uberadmin/uberadmins/new` | `add_uberadmin` | — | `uberadmin_dashboard.py` |
 | `POST /uberadmin/uberadmins/new` | `add_uberadmin_submit` | — | `uberadmin_dashboard.py` |

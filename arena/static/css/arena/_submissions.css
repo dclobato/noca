@@ -108,4 +108,35 @@ body.arena-editor-resizing {
     flex-shrink: 0;
 }
 
+/* ── Source code display with Highlight.js line numbers ─────────────────── */
+.arena-source-code-pre {
+    overflow-x: auto;
+}
+
+.arena-source-code-pre code.hljs {
+    display: block;
+    padding: 1rem;
+}
+
+.arena-source-code-pre .hljs-ln {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.arena-source-code-pre .hljs-ln-numbers {
+    width: 1%;
+    min-width: 3rem;
+    padding-right: 0.75rem;
+    border-right: 1px solid var(--bs-border-color);
+    color: var(--bs-secondary-color);
+    text-align: right;
+    vertical-align: top;
+    user-select: none;
+}
+
+.arena-source-code-pre .hljs-ln-code {
+    padding-left: 0.75rem;
+    vertical-align: top;
+}
+
 /* Live submission feed — shared rules in shared/static/css/common.css */

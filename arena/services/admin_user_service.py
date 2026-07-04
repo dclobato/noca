@@ -171,24 +171,59 @@ async def toggle_can_edit(usuario: ArenaUser, session: AsyncSession) -> None:
     )
 
 
-async def toggle_ranking_visible(usuario: ArenaUser, session: AsyncSession) -> None:
+async def toggle_ranking_visible(usuario: ArenaUser, session: AsyncSession) -> bool:
     """Toggle the public-ranking visibility flag for an Arena user.
 
     When ``ranking_visible`` is False the user's name and rating are hidden from
     all public ranking lists and excluded from affiliation rating computation.
     The user's own rating is still computed and visible on their profile.
 
+    If the toggle hides the user from the ranking, any existing
+    ``public_profile`` opt-in is cleared automatically because a public
+    profile page is meaningless without ranking visibility.
+
     Args:
         usuario: Arena user to toggle.
         session: Active async database session.
+
+    Returns:
+        bool: True when ``public_profile`` was also cleared as a side-effect.
     """
     usuario.ranking_visible = not usuario.ranking_visible
+    public_profile_cleared = False
+    if not usuario.ranking_visible and usuario.public_profile:
+        usuario.public_profile = False
+        public_profile_cleared = True
+        logger.info("Auto-cleared public_profile for %s (ranking_visible set to False)", usuario.email)
     await session.flush()
     logger.info(
         "Set ranking_visible=%s for %s",
         usuario.ranking_visible,
         usuario.email,
     )
+    return public_profile_cleared
+
+
+async def toggle_public_profile(usuario: ArenaUser, session: AsyncSession) -> str | None:
+    """Toggle the public-profile opt-in flag for an Arena user.
+
+    Enabling ``public_profile`` is only allowed when ``ranking_visible`` is True;
+    otherwise the toggle is blocked and a human-readable reason is returned so
+    the caller can flash it to the admin.
+
+    Args:
+        usuario: Arena user to toggle.
+        session: Active async database session.
+
+    Returns:
+        str | None: Error message when the toggle is blocked, otherwise ``None``.
+    """
+    if not usuario.public_profile and not usuario.ranking_visible:
+        return "Public profile requires ranking visibility to be enabled first."
+    usuario.public_profile = not usuario.public_profile
+    await session.flush()
+    logger.info("Set public_profile=%s for %s", usuario.public_profile, usuario.email)
+    return None
 
 
 async def admin_remove_photo(usuario: ArenaUser, session: AsyncSession) -> None:

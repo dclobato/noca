@@ -121,9 +121,9 @@
                                        class="nav-link nav-link-sub {% block nav_admin_dashboard_service_status %}{% endblock %}">
                                         <span>Service Status</span>
                                     </a>
-                                    <a href="{{ request.url_for("arena_admin_dashboard_ai_credits") }}"
-                                       class="nav-link nav-link-sub {% block nav_admin_dashboard_ai_credits %}{% endblock %}">
-                                        <span>AI Credits Usage</span>
+                                    <a href="{{ request.url_for("arena_admin_dashboard_ai_usage") }}"
+                                       class="nav-link nav-link-sub {% block nav_admin_dashboard_ai_usage %}{% endblock %}">
+                                        <span>AI Usage</span>
                                     </a>
                                     <a href="{{ request.url_for("arena_admin_dashboard_login_history") }}"
                                        class="nav-link nav-link-sub {% block nav_admin_dashboard_login_history %}{% endblock %}">
@@ -132,6 +132,10 @@
                                     <a href="{{ request.url_for("arena_admin_dashboard_submissions") }}"
                                        class="nav-link nav-link-sub {% block nav_admin_dashboard_submissions %}{% endblock %}">
                                         <span>Submissions</span>
+                                    </a>
+                                    <a href="{{ request.url_for("arena_admin_dashboard_security_events") }}"
+                                       class="nav-link nav-link-sub {% block nav_admin_dashboard_security_events %}{% endblock %}">
+                                        <span>Security Events</span>
                                     </a>
                                 </div>
                             {% endif %}

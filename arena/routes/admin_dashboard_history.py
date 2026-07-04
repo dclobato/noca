@@ -29,6 +29,8 @@ from arena.services.user_timezone_service import timezone_name_for_user
 from shared.db_schema import languages as languages_table
 from shared.db_schema.arena import arena_submissions
 from shared.enumerations import Verdict
+from shared.services.pagination_service import effective_per_page
+from shared.services.security_events import list_security_event_filter_values, list_security_events_paginated
 
 router = APIRouter(prefix="/admin/dashboard", tags=["arena-admin"])
 
@@ -37,6 +39,10 @@ _HISTORY_DEFAULT_PER_PAGE = 25
 
 _SUBMISSIONS_ALLOWED_PER_PAGE: set[int] = {10, 25, 50, 100, 500}
 _SUBMISSIONS_DEFAULT_PER_PAGE = 25
+
+_SECURITY_EVENTS_ALLOWED_PER_PAGE: set[int] = {10, 25, 50, 100, 500}
+_SECURITY_EVENTS_DEFAULT_PER_PAGE = 25
+_SECURITY_EVENTS_MODULES = ["arena", "aiassistant"]
 
 
 def _html(response: Any) -> HTMLResponse:
@@ -178,6 +184,54 @@ async def admin_dashboard_submissions(
                 "date_to": date_to or "",
                 "available_languages": available_languages,
                 "Verdict": Verdict,
+            },
+        )
+    )
+
+
+@router.get("/security-events", response_class=HTMLResponse, name="arena_admin_dashboard_security_events")
+async def admin_dashboard_security_events(
+    request: Request,
+    page: str | None = None,
+    per_page: str | None = None,
+    module: str = "",
+    event_type: str = "",
+    admin: ArenaUser = Depends(require_arena_admin),
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    """Render paginated Arena-side security events (arena and its AI worker)."""
+    resolved_page = parse_page(page)
+    resolved_per_page = effective_per_page(
+        per_page,
+        allowed=_SECURITY_EVENTS_ALLOWED_PER_PAGE,
+        default=_SECURITY_EVENTS_DEFAULT_PER_PAGE,
+    )
+    selected_module = module.strip()
+    if selected_module not in _SECURITY_EVENTS_MODULES:
+        selected_module = ""
+    event_modules = [selected_module] if selected_module else _SECURITY_EVENTS_MODULES
+    event_type_filter = event_type.strip() or None
+    filter_values = await list_security_event_filter_values(session, modules=event_modules)
+    events = await list_security_events_paginated(
+        session,
+        page=resolved_page,
+        per_page=resolved_per_page,
+        modules=event_modules,
+        event_type=event_type_filter,
+    )
+    templates = request.app.state.arena_templates
+    return _html(
+        templates.TemplateResponse(
+            request,
+            "admin/dashboard_security_events.html",
+            {
+                "current_user": admin,
+                "security_events": events,
+                "available_modules": _SECURITY_EVENTS_MODULES,
+                "selected_module": selected_module,
+                "available_event_types": filter_values.event_types,
+                "selected_event_type": event_type_filter or "",
+                "per_page": resolved_per_page,
             },
         )
     )

@@ -7,9 +7,9 @@
 #}
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon, render_avatar with context %}
-{% block title_suffix %}&mdash; AI Credits Usage{% endblock %}
+{% block title_suffix %}&mdash; AI Usage{% endblock %}
 {% block nav_admin_dashboard %}active{% endblock %}
-{% block nav_admin_dashboard_ai_credits %}active{% endblock %}
+{% block nav_admin_dashboard_ai_usage %}active{% endblock %}
 {% block extra_head %}
     <link rel="stylesheet"
           href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
@@ -20,7 +20,7 @@
             <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
                 <h1 class="arena-card-title mb-0">
                     {{ render_icon(icon="credit_card") }}
-                    AI Credits Usage
+                    AI Usage
                 </h1>
             </div>
             {% if ai_turnaround_stats %}
@@ -40,7 +40,7 @@
             {% endif %}
             <form method="get"
                   class="d-flex flex-wrap gap-2 align-items-end mb-3"
-                  id="ai-credits-filter-form">
+                  id="ai-usage-filter-form">
                 {% with label="Search user", value=search, placeholder="Full name or email…" %}
                     {% include "_partials/filter_search_field.html" %}
                 {% endwith %}
@@ -82,12 +82,12 @@
                 </div>
                 {% include "_partials/filter_submit_button.html" %}
                 {% set _filters_active = search or date_from or date_to or sort_dir != 'desc' or per_page != 25 %}
-                {% with clear_url=request.url_for("arena_admin_dashboard_ai_credits"), filters_active=_filters_active %}
+                {% with clear_url=request.url_for("arena_admin_dashboard_ai_usage"), filters_active=_filters_active %}
                     {% include "_partials/filter_clear_link.html" %}
                 {% endwith %}
             </form>
-            <p class="text-muted small mb-2">{{ transactions.total }} transaction{{ 's' if transactions.total != 1 else '' }}</p>
-            {% with pagination=transactions, page_param="page", label="AI credits pagination", nav_margin="mb-2" %}
+            <p class="text-muted small mb-2">{{ transactions.total }} record{{ 's' if transactions.total != 1 else '' }}</p>
+            {% with pagination=transactions, page_param="page", label="AI usage pagination", nav_margin="mb-2" %}
                 {% include "_partials/pagination.html" %}
             {% endwith %}
             <div class="table-responsive">
@@ -97,12 +97,15 @@
                             <th>Date / Time</th>
                             <th>User</th>
                             <th>Submission</th>
+                            <th>Status</th>
                             <th class="text-end">Cost</th>
                             <th class="text-end">Turnaround</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for tx in transactions.items %}
+                            {% set batch_status = batch_job_statuses.get(tx.submission_id) if tx.submission_id else none %}
+                            {% set is_refunded = tx.submission_id in refunded_submission_ids %}
                             <tr>
                                 <td class="text-nowrap">{{ arena_format_datetime(tx.created_at, current_user) }}</td>
                                 <td>
@@ -124,13 +127,28 @@
                                         <span class="text-muted">&mdash;</span>
                                     {% endif %}
                                 </td>
+                                <td class="text-nowrap">
+                                    {% if tx.submission and tx.submission.ai_review %}
+                                        <span class="badge bg-success">Completed</span>
+                                    {% elif batch_status == "failed" %}
+                                        {% set _err = batch_job_errors.get(tx.submission_id) if tx.submission_id else none %}
+                                        <span class="badge bg-danger" {% if _err %}title="{{ _err }}"{% endif %}>Failed</span>
+                                    {% elif batch_status == "expired" %}
+                                        {% set _err = batch_job_errors.get(tx.submission_id) if tx.submission_id else none %}
+                                        <span class="badge bg-warning text-dark"
+                                              {% if _err %}title="{{ _err }}"{% endif %}>Expired</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Pending</span>
+                                    {% endif %}
+                                    {% if is_refunded %}<span class="badge bg-light text-secondary border ms-1">Refunded</span>{% endif %}
+                                </td>
                                 <td class="text-nowrap text-end font-monospace">
                                     {% if tx.submission
                                         and tx.submission.ai_review
                                         and tx.submission.ai_review.ai_review_cost is not none %}
                                         ${{ "%.6f" | format(tx.submission.ai_review.ai_review_cost) }}
                                     {% else %}
-                                        <span class="text-muted">Pending</span>
+                                        <span class="text-muted">&mdash;</span>
                                     {% endif %}
                                 </td>
                                 <td class="text-nowrap text-end font-monospace">
@@ -143,13 +161,13 @@
                             </tr>
                         {% else %}
                             <tr>
-                                <td colspan="5" class="text-center text-muted py-3">No AI credit consumption records found.</td>
+                                <td colspan="6" class="text-center text-muted py-3">No AI usage records found.</td>
                             </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            {% with pagination=transactions, page_param="page", label="AI credits pagination" %}
+            {% with pagination=transactions, page_param="page", label="AI usage pagination" %}
                 {% include "_partials/pagination.html" %}
             {% endwith %}
         </div>

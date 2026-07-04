@@ -24,12 +24,14 @@ from _helpers import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.db_schema.arena import arena_problem_ratings
+from shared.db_schema.arena import arena_problem_ratings, arena_rating_cycle_state
+from shared.services.arena_difficulty_histogram import BIN_COUNT, build_difficulty_histogram
 from shared.services.arena_rating import (
     _NEUTRAL_PIVOT,
     CONTRAST_GAIN_MAX,
     _apply_contrast,
     _contrast_gain,
+    _effective_pivot,
     _raw_difficulty,
     rate_all_problems,
     rate_problem,
@@ -159,6 +161,55 @@ async def test_rate_all_problems_covers_never_attempted(session: AsyncSession) -
         assert row is not None, f"dta_rating_update not set for problem {pid}"
 
 
+@pytest.mark.asyncio
+async def test_rate_all_problems_persists_difficulty_histogram(session: AsyncSession) -> None:
+    """rate_all_problems must upsert a 20-bin histogram snapshot covering every problem."""
+    user = await _make_user(session)
+    await _make_problem(session, user)
+    p2 = await _make_problem(session, user)
+    await _seed_rating_row(session, p2.id, attempted=50, solved=25, total_tries=60)
+
+    count = await rate_all_problems(session)
+
+    row = (
+        await session.execute(
+            select(arena_rating_cycle_state.c.data, arena_rating_cycle_state.c.computed_at).where(
+                arena_rating_cycle_state.c.id == "singleton"
+            )
+        )
+    ).one()
+    assert row.data is not None
+    assert row.computed_at is not None
+    assert row.data["bins"] == BIN_COUNT
+    assert len(row.data["counts"]) == BIN_COUNT
+    assert row.data["total_problems"] == count
+    assert sum(row.data["counts"]) == count
+
+
+# ---------------------------------------------------------------------------
+# Difficulty histogram bucketing
+# ---------------------------------------------------------------------------
+
+
+def test_build_difficulty_histogram_buckets_edges() -> None:
+    """Display difficulty 0.1 falls in bin 0; display difficulty 10.0 falls in the last bin."""
+    payload = build_difficulty_histogram([1, 100])
+
+    assert payload["bins"] == BIN_COUNT
+    assert payload["total_problems"] == 2
+    assert len(payload["counts"]) == BIN_COUNT
+    assert payload["counts"][0] == 1
+    assert payload["counts"][BIN_COUNT - 1] == 1
+
+
+def test_build_difficulty_histogram_empty() -> None:
+    """An empty difficulty list yields an all-zero histogram with total_problems 0."""
+    payload = build_difficulty_histogram([])
+
+    assert payload["total_problems"] == 0
+    assert payload["counts"] == [0] * BIN_COUNT
+
+
 # ---------------------------------------------------------------------------
 # Raw difficulty (Bayesian solve-rate + avg-tries)
 # ---------------------------------------------------------------------------
@@ -213,6 +264,42 @@ def test_contrast_pushes_away_from_pivot_with_data() -> None:
     pushed = _apply_contrast(raw, _NEUTRAL_PIVOT, 1000)  # high gain
     linear = _apply_contrast(raw, _NEUTRAL_PIVOT, 0)  # gain == 1 (no reshaping)
     assert pushed > linear > 50
+
+
+# ---------------------------------------------------------------------------
+# Per-problem pivot blending (low-attempt problems pulled toward the centre)
+# ---------------------------------------------------------------------------
+
+
+def test_effective_pivot_zero_attempts_is_neutral() -> None:
+    """With no attempts the effective pivot is exactly the neutral pivot."""
+    assert _effective_pivot(0.20, 0) == pytest.approx(_NEUTRAL_PIVOT)
+
+
+def test_effective_pivot_ramps_toward_population_with_attempts() -> None:
+    """The pivot moves monotonically from neutral toward the population median."""
+    pop = 0.20  # an "easy" population pivot, below neutral
+    p_low = _effective_pivot(pop, 2)
+    p_mid = _effective_pivot(pop, 10)
+    p_high = _effective_pivot(pop, 1000)
+    assert _NEUTRAL_PIVOT > p_low > p_mid > p_high
+    assert p_high == pytest.approx(pop, abs=1e-3)
+
+
+def test_effective_pivot_noop_when_population_equals_neutral() -> None:
+    """When the population pivot is already neutral, attempts cannot move it."""
+    for n in (0, 1, 25, 1000):
+        assert _effective_pivot(_NEUTRAL_PIVOT, n) == pytest.approx(_NEUTRAL_PIVOT)
+
+
+def test_low_attempt_problem_stays_near_centre_despite_skewed_pivot() -> None:
+    """A 1-attempt problem maps near the centre even against an easy population pivot."""
+    raw = _raw_difficulty(attempted_users=1, solved_users=1, total_tries_before_solve=1)
+    skewed_pop = 0.21  # easy-skewed population median
+    centred = _apply_contrast(raw, _effective_pivot(skewed_pop, 1), 1)
+    unguarded = _apply_contrast(raw, skewed_pop, 1)  # measured directly against the skew
+    assert unguarded > 70  # old behaviour pushed it to the hard end
+    assert 40 <= centred <= 60  # new behaviour keeps it near the scale centre
 
 
 # ---------------------------------------------------------------------------

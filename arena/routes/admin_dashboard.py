@@ -291,8 +291,8 @@ async def _trigger(
     return RedirectResponse(request.url_for("arena_admin_dashboard_service_status"), status_code=303)
 
 
-@router.get("/ai-credits", response_class=HTMLResponse, name="arena_admin_dashboard_ai_credits")
-async def admin_dashboard_ai_credits(
+@router.get("/ai-usage", response_class=HTMLResponse, name="arena_admin_dashboard_ai_usage")
+async def admin_dashboard_ai_usage(
     request: Request,
     page: str | None = None,
     per_page: str | None = None,
@@ -326,20 +326,36 @@ async def admin_dashboard_ai_credits(
         date_from_utc=date_from_utc,
         date_to_utc=date_to_utc,
     )
+    submission_ids = {tx.submission_id for tx in transactions.items if tx.submission_id is not None}
     turnaround_seconds = await admin_ai_credits_service.get_batch_turnaround_seconds(
         session,
-        {tx.submission_id for tx in transactions.items if tx.submission_id is not None},
+        submission_ids,
+    )
+    batch_job_statuses = await admin_ai_credits_service.get_batch_job_statuses(
+        session,
+        submission_ids,
+    )
+    batch_job_errors = await admin_ai_credits_service.get_batch_job_errors(
+        session,
+        submission_ids,
+    )
+    refunded_submission_ids = await admin_ai_credits_service.get_refunded_submission_ids(
+        session,
+        submission_ids,
     )
     ai_turnaround_stats = await ai_turnaround_stats_service.get_batch_turnaround_stats(request.app.state.valkey_runtime)
     templates = request.app.state.arena_templates
     return _html(
         templates.TemplateResponse(
             request,
-            "admin/dashboard_ai_credits.html",
+            "admin/dashboard_ai_usage.html",
             {
                 "current_user": admin,
                 "transactions": transactions,
                 "turnaround_seconds": turnaround_seconds,
+                "batch_job_statuses": batch_job_statuses,
+                "batch_job_errors": batch_job_errors,
+                "refunded_submission_ids": refunded_submission_ids,
                 "ai_turnaround_stats": ai_turnaround_stats,
                 "search": search,
                 "sort_dir": sort_dir,

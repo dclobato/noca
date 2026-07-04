@@ -9,6 +9,7 @@
 from .arena_affiliations import ArenaAffiliation
 from .arena_ai_credit_transactions import ArenaAiCreditTransaction
 from .arena_auth_records import ArenaBackup2FA, ArenaLoginHistory
+from .arena_badges import ArenaUserBadge
 from .arena_classes import (
     ArenaClass,
     ArenaClassMembership,
@@ -54,6 +55,7 @@ __all__ = [
     "ArenaSubmissionTestResult",
     "ArenaTestCase",
     "ArenaUser",
+    "ArenaUserBadge",
     "ArenaUserSolvedProblem",
     "ArenaUserTriedProblem",
 ]

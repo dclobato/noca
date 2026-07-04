@@ -1,0 +1,146 @@
+Algebra
+Algebra: Arbitrary-Precision Arithmetic
+Algebra: Balanced Ternary
+Algebra: Binary Exponentiation
+Algebra: Bit manipulation
+Algebra: Chinese Remainder Theorem
+Algebra: Continued fractions
+Algebra: Discrete Log
+Algebra: Discrete Root
+Algebra: Enumerating submasks of a bitmask
+Algebra: Euclidean algorithm for computing the greatest common divisor
+Algebra: Euler's totient function
+Algebra: Extended Euclidean Algorithm
+Algebra: Factorial modulo p
+Algebra: Factoring Exponentiation
+Algebra: Fast Fourier transform
+Algebra: Fibonacci Numbers
+Algebra: Garner's Algorithm
+Algebra: Gray code
+Algebra: Integer factorization
+Algebra: Linear Congruence Equation
+Algebra: Linear Diophantine Equations
+Algebra: Linear Sieve
+Algebra: Modular Inverse
+Algebra: Montgomery Multiplication
+Algebra: Number of divisors / sum of divisors
+Algebra: Operations on polynomials and series
+Algebra: Primality tests
+Algebra: Primitive Root
+Algebra: Sieve of Eratosthenes
+Combinatorics
+Combinatorics: Binomial Coefficients
+Combinatorics: Burnside's lemma / Pólya enumeration theorem
+Combinatorics: Catalan Numbers
+Combinatorics: Finding Power of Factorial Divisor
+Combinatorics: Generating all K-combinations
+Data Structures
+Data Structures: Binary Indexed Tree
+Data Structures: B-tree
+Data Structures: Balanced tree
+Data Structures: Binary search tree
+Data Structures: Disjoint Set Union
+Data Structures: Fenwick Tree
+Data Structures: Hash
+Data Structures: Heap
+Data Structures: List, Stack, Queue, Deque
+Data Structures: Minimum Stack / Minimum Queue
+Data Structures: Mo's algorithm
+Data Structures: Randomized Heap
+Data Structures: Segment Tree
+Data Structures: Sparse Table
+Data Structures: Sqrt Decomposition
+Data Structures: Sqrt Tree
+Data Structures: Sqrt-decomposition based data structure
+Data Structures: Treap
+Dynamic Programming
+Dynamic Programming: Divide and Conquer
+Dynamic Programming: Knapsack Problem
+Dynamic Programming: Knuth's Optimization
+Dynamic Programming: Longest increasing subsequence
+Geometry
+Geometry: Area of simple polygon
+Geometry: Check if two segments intersect
+Geometry: Circle-Circle Intersection
+Geometry: Circle-Line Intersection
+Geometry: Common tangents to two circles
+Geometry: Convex hull construction
+Geometry: Convex polygons
+Geometry: Delaunay triangulation and Voronoi diagram
+Geometry: Finding faces of a planar graph
+Geometry: Finding the equation of a line for a segment
+Geometry: Finding the nearest pair of points
+Geometry: Half-plane intersection
+Geometry: Intersection Point of Lines
+Geometry: Intersection of Segments
+Geometry: Length of the union of segments
+Geometry: Li Chao tree
+Geometry: Manhattan Distance
+Geometry: Minimum Enclosing Circle
+Geometry: Oriented area of a triangle
+Geometry: Pick's Theorem
+Geometry: Point location in O(log N)
+Geometry: Vertical decomposition
+Graphs
+Graphs: 0-1 BFS
+Graphs: 2-SAT
+Graphs: Bellman-Ford
+Graphs: Bipartite Graph
+Graphs: Breadth First Search
+Graphs: Centroid decomposition
+Graphs: Condensation Graph
+Graphs: Depth First Search
+Graphs: Dijkstra
+Graphs: Dinic's algorithm
+Graphs: D´Esopo-Pape algorithm
+Graphs: Edge connectivity / Vertex connectivity
+Graphs: Eulerian Path
+Graphs: Finding Articulation Points
+Graphs: Finding Bridges
+Graphs: Finding Connected Components
+Graphs: Floyd-Warshall
+Graphs: Ford-Fulkerson and Edmonds-Karp
+Graphs: Heavy-light decomposition
+Graphs: Hungarian Algorithm
+Graphs: Kirchhoff Theorem
+Graphs: Kuhn's Algorithm
+Graphs: Lowest Common Ancestor
+Graphs: Minimum Spanning Tree
+Graphs: Minimum-cost flow
+Graphs: Prüfer code
+Graphs: Push-relabel
+Graphs: Strong Orientation
+Graphs: Strongly Connected Components
+Graphs: Topological Sorting
+Graphs: Tree painting
+Linear Algebra
+Linear Algebra: Gauss & Determinant
+Linear Algebra: Gauss & System of Linear Equations
+Linear Algebra: Kraut & Determinant
+Linear Algebra: Rank of a matrix
+Miscellaneous
+Miscellaneous: Farey Sequences
+Miscellaneous: Josephus problem
+Miscellaneous: K-th order statistic
+Miscellaneous: Minimal Excluded element in an array
+Miscellaneous: RMQ task
+Miscellaneous: Scheduling
+Miscellaneous: Search the subsegment with the maximum/minimum sum
+Miscellaneous: Sprague-Grundy theorem
+Miscellaneous: The Stern-Brocot Tree
+Miscellaneous: Tortoise and Hare Algorithm
+Numerical Methods
+Numerical Methods: Binary Search
+Numerical Methods: Newton's method for finding roots
+Numerical Methods: Simulated Annealing
+Numerical Methods: Ternary Search
+String Processing
+String Processing: Aho-Corasick algorithm
+String Processing: Lyndon factorization
+String Processing: Prefix function - Knuth-Morris-Pratt
+String Processing: Rabin-Karp for String Matching
+String Processing: String Hashing
+String Processing: Suffix Array
+String Processing: Suffix Automaton
+String Processing: Suffix Tree
+String Processing: Z-function

@@ -36,6 +36,7 @@ from arena.routes.admin_user_route_support import (
 from arena.services import admin_user_service, user_ai_credit_service, user_security_notification_service, user_service
 from shared.age_check import AgeStatus
 from shared.enumerations import ArenaRole
+from shared.services.admin_audit import record_admin_action
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,16 @@ async def admin_user_change_role(
         "Admin %s (%s) change_role on %s (%s)", admin.id, admin.email_normalizado, target.id, target.email_normalizado
     )
     await admin_user_service.change_role(target, resolved_role, session)
+    await record_admin_action(
+        session,
+        request,
+        module="arena",
+        actor_user_id=admin.id,
+        action="role_change",
+        target_type="arena_user",
+        target_id=target.id,
+        detail=f"role={resolved_role.value}",
+    )
     await session.commit()
     flash("Role updated.", FlashCategory.SUCCESS)
     return _choose_redirect(request, user_id, nav)
@@ -99,6 +110,15 @@ async def admin_user_toggle_active(
         "Admin %s (%s) toggle_active on %s (%s)", admin.id, admin.email_normalizado, target.id, target.email_normalizado
     )
     await admin_user_service.toggle_active(target, session)
+    await record_admin_action(
+        session,
+        request,
+        module="arena",
+        actor_user_id=admin.id,
+        action="activate" if target.ativo else "deactivate",
+        target_type="arena_user",
+        target_id=target.id,
+    )
     await session.commit()
     flash("Account activated." if target.ativo else "Account deactivated.", FlashCategory.SUCCESS)
     return _choose_redirect(request, user_id, nav)
@@ -196,9 +216,43 @@ async def admin_user_toggle_ranking_visible(
         target.id,
         target.email_normalizado,
     )
-    await admin_user_service.toggle_ranking_visible(target, session)
+    public_profile_cleared = await admin_user_service.toggle_ranking_visible(target, session)
     await session.commit()
     msg = "User is now visible in the ranking." if target.ranking_visible else "User is now hidden from the ranking."
+    flash(msg, FlashCategory.SUCCESS)
+    if public_profile_cleared:
+        flash("Public profile was also disabled.", FlashCategory.WARNING)
+    return _choose_redirect(request, user_id, nav)
+
+
+@router.post("/users/{user_id}/toggle-public-profile", name="arena_admin_user_toggle_public_profile")
+async def admin_user_toggle_public_profile(
+    request: Request,
+    user_id: str,
+    flash: FlashDep,
+    nav: Annotated[NavState, Depends()],
+    confirm_password: str = Form(...),
+    admin: ArenaUser = Depends(require_arena_admin),
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    """Toggle the public-profile opt-in flag for an Arena user (hidden state fields restore navigation context)."""
+    if not admin.check_password(confirm_password):
+        flash("Incorrect password.", FlashCategory.DANGER)
+        return _choose_redirect(request, user_id, nav)
+    target = await _get_target_or_404(user_id, session)
+    logger.info(
+        "Admin %s (%s) toggle_public_profile on %s (%s)",
+        admin.id,
+        admin.email_normalizado,
+        target.id,
+        target.email_normalizado,
+    )
+    error = await admin_user_service.toggle_public_profile(target, session)
+    if error is not None:
+        flash(error, FlashCategory.DANGER)
+        return _choose_redirect(request, user_id, nav)
+    await session.commit()
+    msg = "Public profile enabled." if target.public_profile else "Public profile disabled."
     flash(msg, FlashCategory.SUCCESS)
     return _choose_redirect(request, user_id, nav)
 
@@ -243,6 +297,15 @@ async def admin_user_disable_2fa(
     )
     was_enabled = target.usa_2fa
     await admin_user_service.admin_disable_2fa(target, session)
+    await record_admin_action(
+        session,
+        request,
+        module="arena",
+        actor_user_id=admin.id,
+        action="disable_2fa",
+        target_type="arena_user",
+        target_id=target.id,
+    )
     await session.commit()
     flash("2FA disabled.", FlashCategory.SUCCESS)
     if was_enabled:

@@ -1,0 +1,146 @@
+Álgebra
+Álgebra: Aritmética de Precisão Arbitrária (BigInt)
+Álgebra: Ternário Balanceado
+Álgebra: Exponenciação Binária
+Álgebra: Manipulação de Bits
+Álgebra: Teorema Chinês do Resto
+Álgebra: Frações Contínuas
+Álgebra: Logaritmo Discreto
+Álgebra: Raiz Discreta
+Álgebra: Enumeração de Submáscaras de uma Bitmask
+Álgebra: Algoritmo de Euclides para o Máximo Divisor Comum
+Álgebra: Função Totiente de Euler
+Álgebra: Algoritmo Estendido de Euclides
+Álgebra: Fatorial Módulo p
+Álgebra: Exponenciação de Fatoração
+Álgebra: Transformada Rápida de Fourier
+Álgebra: Números de Fibonacci
+Álgebra: Algoritmo de Garner
+Álgebra: Código de Gray
+Álgebra: Fatoração de Inteiros
+Álgebra: Equação de Congruência Linear
+Álgebra: Equações Diofantinas Lineares
+Álgebra: Crivo Linear
+Álgebra: Inverso Modular
+Álgebra: Multiplicação de Montgomery
+Álgebra: Número de Divisores / Soma de Divisores
+Álgebra: Operações em Polinômios e Séries
+Álgebra: Testes de Primalidade
+Álgebra: Raiz Primitiva
+Álgebra: Crivo de Eratóstenes
+Combinatória
+Combinatória: Coeficientes Binomiais
+Combinatória: Lema de Burnside / Teorema de Contagem de Pólya
+Combinatória: Números de Catalan
+Combinatória: Teorema de Legendre
+Combinatória: Geração de todas as K-combinações
+Estruturas de Dados
+Estruturas de Dados: Árvore Indexada Binariamente
+Estruturas de Dados: Árvore B
+Estruturas de Dados: Árvore Balanceada
+Estruturas de Dados: Árvore Binária de Busca
+Estruturas de Dados: União de Conjuntos Disjuntos
+Estruturas de Dados: Árvore de Fenwick
+Estruturas de Dados: Tabelas Hash
+Estruturas de Dados: Heap
+Estruturas de Dados: Lista, Pilha, Fila, Deque
+Estruturas de Dados: Pilha de Mínimo / Fila de Mínimo
+Estruturas de Dados: Algoritmo de Mo
+Estruturas de Dados: Heap Randomizado
+Estruturas de Dados: Árvore de Segmentos
+Estruturas de Dados: Sparse Table
+Estruturas de Dados: Decomposição em Raiz Quadrada
+Estruturas de Dados: Sqrt Tree
+Estruturas de Dados: Estrutura de Dados Baseada em Sqrt-Decomposition
+Estruturas de Dados: Treap
+Programação Dinâmica
+Programação Dinâmica: Divisão e Conquista
+Programação Dinâmica: Problema da Mochila
+Programação Dinâmica: Otimização de Knuth
+Programação Dinâmica: Maior Subsequência Crescente
+Geometria
+Geometria: Área de Polígono Simples
+Geometria: Verificar se Dois Segmentos se Interceptam
+Geometria: Interseção Círculo-Círculo
+Geometria: Interseção Círculo-Reta
+Geometria: Tangentes Comuns a Dois Círculos
+Geometria: Construção de Envoltória Convexa
+Geometria: Polígonos Convexos
+Geometria: Triangulação de Delaunay e Diagrama de Voronoi
+Geometria: Encontrar Faces de um Grafo Planar
+Geometria: Encontrar a Equação da Reta a partir de um Segmento
+Geometria: Encontrar o Par de Pontos Mais Próximo
+Geometria: Interseção de Semi-planos
+Geometria: Ponto de Interseção de Retas
+Geometria: Interseção de Segmentos
+Geometria: Comprimento da União de Segmentos
+Geometria: Árvore de Li Chao
+Geometria: Distância de Manhattan
+Geometria: Círculo Mínimo Delimitador
+Geometria: Área Orientada de um Triângulo
+Geometria: Teorema de Pick
+Geometria: Localização de Pontos
+Geometria: Decomposição Vertical
+Grafos
+Grafos: BFS 0-1
+Grafos: 2-SAT
+Grafos: Bellman-Ford
+Grafos: Grafo Bipartido
+Grafos: Busca em Largura
+Grafos: Decomposição em Centroides
+Grafos: Grafo de Condensação
+Grafos: Busca em Profundidade
+Grafos: Dijkstra
+Grafos: Algoritmo de Dinic
+Grafos: Algoritmo de D´Esopo-Pape
+Grafos: Conectividade de Arestas / Conectividade de Vértices
+Grafos: Caminho Euleriano
+Grafos: Vértices de Corte
+Grafos: Encontrar Pontes
+Grafos: Encontrar Componentes Conexos
+Grafos: Floyd-Warshall
+Grafos: Ford-Fulkerson e Edmonds-Karp
+Grafos: Decomposição Heavy-Light
+Grafos: Algoritmo Húngaro
+Grafos: Teorema de Kirchhoff
+Grafos: Algoritmo de Kuhn
+Grafos: Ancestral Comum Mais Baixo
+Grafos: Árvore Geradora Mínima
+Grafos: Fluxo de Custo Mínimo
+Grafos: Código de Prüfer
+Grafos: Push-Relabel
+Grafos: Orientação Forte
+Grafos: Componentes Fortemente Conexos
+Grafos: Ordenação Topológica
+Grafos: Pintura de Árvores
+Álgebra Linear
+Álgebra Linear: Eliminação de Gauss & Determinante
+Álgebra Linear: Eliminação de Gauss & Sistema de Equações Lineares
+Álgebra Linear: Algoritmo de Kraut & Determinante
+Álgebra Linear: Posto de uma Matriz
+Miscelânea
+Miscelânea: Sequências de Farey
+Miscelânea: Problema de Josephus
+Miscelânea: K-ésima Estatística de Ordem
+Miscelânea: Menor Elemento Excluído em um Array
+Miscelânea: Problema do Menor Valor em um Intervalo
+Miscelânea: Escalonamento / Agendamento de Tarefas
+Miscelânea: Buscar o Subsegmento com a Soma Máxima/Mínima
+Miscelânea: Teorema de Sprague-Grundy
+Miscelânea: A Árvore de Stern-Brocot
+Miscelânea: Algoritmo de Detecção de Ciclos de Floyd
+Métodos Numéricos
+Métodos Numéricos: Busca Binária
+Métodos Numéricos: Método de Newton para Encontrar Raízes
+Métodos Numéricos: Simulated Annealing
+Métodos Numéricos: Busca Ternária
+Processamento de Strings
+Processamento de Strings: Algoritmo de Aho-Corasick
+Processamento de Strings: Fatoração de Lyndon
+Processamento de Strings: Knuth-Morris-Pratt
+Processamento de Strings: Algoritmo de Rabin-Karp para Casamento de Cadeias
+Processamento de Strings: Hashing de Strings
+Processamento de Strings: Suffix Array
+Processamento de Strings: Autômato de Sufixos
+Processamento de Strings: Árvore de Sufixos
+Processamento de Strings: Função Z

@@ -16,7 +16,7 @@ from _helpers import _make_problem, _make_user
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rating.loops import run_problem_rating_loop, run_user_rating_loop
+from rating.loops import run_problem_rating_loop, run_user_rating_loop, run_user_stats_loop
 from shared.db_schema.arena import arena_problem_ratings, arena_users
 
 
@@ -207,3 +207,37 @@ async def test_problem_rating_loop_on_cycle_start_exception_does_not_stop_loop(e
     # The loop must complete despite the callback raising.
     await asyncio.wait_for(task, timeout=5)
     assert cycle_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_user_stats_loop_runs_immediately_and_stops(
+    engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Startup mode computes one user-statistics cycle immediately."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    stop = asyncio.Event()
+    calls = 0
+
+    async def _compute(_session: AsyncSession) -> int:
+        nonlocal calls
+        calls += 1
+        stop.set()
+        return 4
+
+    monkeypatch.setattr("rating.loops.compute_all_user_statistics", _compute)
+
+    await asyncio.wait_for(
+        run_user_stats_loop(
+            session_factory=factory,
+            interval_seconds=3600,
+            stop_event=stop,
+            logger=__import__("logging").getLogger("test"),
+            run_immediately=True,
+        ),
+        timeout=5,
+    )
+
+    assert calls == 1

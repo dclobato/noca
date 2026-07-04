@@ -1,0 +1,40 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% from "_macros.html" import render_icon with context %}
+{% set result_verdict = test_result_verdict | default("") %}
+{% set output_label = test_result_output_label | default("Your output") %}
+{% set context_classes = test_result_context_classes | default("mt-3 pt-3 border-top") %}
+{% if test_result and (result_verdict == "WA" or test_result.stderr_excerpt) %}
+    <div class="{{ context_classes }}">
+        <p class="small text-muted mb-2">
+            {{ render_icon(icon="compare_arrows") }}
+            Output mismatch on test case #{{ test_result.test_case_ordinal }}
+            {% if not test_result.is_sample %}
+                <span class="badge bg-secondary ms-1" title="Secret test case">secret</span>
+            {% endif %}
+        </p>
+        {% if result_verdict == "WA" %}
+            <div class="arena-output-compare">
+                <div>
+                    <p class="arena-output-compare-label text-danger">{{ output_label }}</p>
+                    <pre class="arena-output-pre">{% if test_result.stdout_excerpt %}{{ test_result.stdout_excerpt | e }}{% else %}<span class="text-muted fst-italic">(empty)</span>{% endif %}</pre>
+                </div>
+                <div>
+                    <p class="arena-output-compare-label text-success">Expected output</p>
+                    <pre class="arena-output-pre">{% if test_result.expected_output %}{{ test_result.expected_output | e }}{% else %}<span class="text-muted fst-italic">(empty)</span>{% endif %}</pre>
+                </div>
+            </div>
+        {% endif %}
+        {% if test_result.stderr_excerpt %}
+            <div class="mt-2">
+                <p class="fw-semibold small text-warning-emphasis mb-1">Standard error</p>
+                <pre class="arena-output-pre">{{ test_result.stderr_excerpt | e }}</pre>
+            </div>
+        {% endif %}
+    </div>
+{% endif %}

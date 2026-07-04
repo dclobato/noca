@@ -28,6 +28,7 @@ from arena.services.arena_problem_set_service import (
     ProblemRow,
     _assert_teacher,
     _load_set_and_class,
+    _needs_feedback,
     _set_tied_verdicts,
     list_problems_in_set,
 )
@@ -243,7 +244,7 @@ class StudentProblemGroup:
     problem_title: str
     submissions: tuple[StudentSubmissionEntry, ...]
     best_verdict: str | None
-    has_unfeedback_non_ac: bool
+    needs_feedback: bool
 
 
 async def get_student_problem_submissions_for_set(
@@ -332,20 +333,19 @@ async def get_student_problem_submissions_for_set(
             )
         )
 
-    return tuple(
-        StudentProblemGroup(
-            problem_id=pid,
-            arena_number=group_meta[pid][0],
-            problem_title=group_meta[pid][1],
-            submissions=tuple(entries),
-            best_verdict=best_verdict(entry.verdict for entry in entries),
-            has_unfeedback_non_ac=(
-                not any(entry.verdict == Verdict.AC.value for entry in entries)
-                and any(entry.verdict not in (None, Verdict.AC.value) and not entry.has_feedback for entry in entries)
-            ),
+    result = []
+    for pid, entries in groups.items():
+        result.append(
+            StudentProblemGroup(
+                problem_id=pid,
+                arena_number=group_meta[pid][0],
+                problem_title=group_meta[pid][1],
+                submissions=tuple(entries),
+                best_verdict=best_verdict(entry.verdict for entry in entries),
+                needs_feedback=_needs_feedback(entry.verdict for entry in entries),
+            )
         )
-        for pid, entries in groups.items()
-    )
+    return tuple(result)
 
 
 async def can_teacher_view_submission(

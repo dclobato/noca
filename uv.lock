@@ -873,6 +873,7 @@ dependencies = [
     { name = "pillow" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
+    { name = "pytz" },
     { name = "relative-datetime" },
     { name = "requests" },
     { name = "secretsmanager" },
@@ -891,6 +892,7 @@ requires-dist = [
     { name = "pillow", specifier = "==12.2.0" },
     { name = "pydantic-settings", specifier = "==2.14.1" },
     { name = "python-dotenv", specifier = "==1.2.2" },
+    { name = "pytz", specifier = "==2026.2" },
     { name = "relative-datetime", specifier = "==0.1.4" },
     { name = "requests", specifier = "==2.34.2" },
     { name = "secretsmanager", git = "https://github.com/dclobato/secrets-manager.git?rev=v1.0.0" },
@@ -933,7 +935,7 @@ requires-dist = [
 
 [[package]]
 name = "noca-workspace"
-version = "12.2.0"
+version = "13.1.2"
 source = { virtual = "." }
 
 [package.dev-dependencies]

@@ -39,6 +39,9 @@ class RankedUser:
         country_name: Country display name, or None.
         subdivision_name: Subdivision display name, or None.
         rating: Computed Arena user rating.
+        public_profile: True when the user has opted in to a public profile
+            page. The CTE only emits users with ``ranking_visible=True``,
+            so a public profile page can be linked whenever this is True.
     """
 
     id: str
@@ -52,6 +55,7 @@ class RankedUser:
     country_name: str | None
     subdivision_name: str | None
     rating: int
+    public_profile: bool
 
 
 @dataclass(frozen=True)
@@ -148,6 +152,7 @@ async def get_ranked_users_paginated(
             country_name=country_name(row.country_code),
             subdivision_name=subdivision_name(row.subdivision_code),
             rating=row.rating,
+            public_profile=bool(row.public_profile),
         )
         for row in rows
     ]

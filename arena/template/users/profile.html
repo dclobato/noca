@@ -110,6 +110,18 @@
                 </button>
             </li>
             <li class="nav-item" role="presentation">
+                <button class="nav-link {% if active_tab == 'badges' %}active{% endif %}"
+                        id="badges-tab"
+                        data-profile-tab="badges"
+                        type="button"
+                        role="tab"
+                        aria-controls="badges-tab-pane"
+                        aria-selected="{{ 'true' if active_tab == 'badges' else 'false' }}">
+                    {{ render_icon(icon="workspace_premium") }}
+                    <span>Badges</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
                 <button class="nav-link {% if active_tab == 'solved' %}active{% endif %}"
                         id="solved-tab"
                         data-profile-tab="solved"
@@ -254,6 +266,25 @@
                                                 Show my name and rating in the public ranking
                                             </label>
                                         </div>
+                                        <div class="form-check mt-2">
+                                            <input type="checkbox"
+                                                   class="form-check-input"
+                                                   id="profile-public-profile-input"
+                                                   name="public_profile"
+                                                   {% if current_user.public_profile %}checked{% endif %}
+                                                   {% if not current_user.ranking_visible %}disabled{% endif %}>
+                                            <label class="form-check-label" for="profile-public-profile-input">Make my profile page publicly accessible</label>
+                                            <div class="form-text text-arena-muted">Requires "Show my name and rating in the public ranking" to be enabled.</div>
+                                        </div>
+                                        {% if current_user.public_profile and current_user.ranking_visible %}
+                                            <a href="{{ request.url_for('arena_user_profile_public', user_id=current_user.id) }}"
+                                               target="_blank"
+                                               rel="noopener"
+                                               class="btn btn-outline-secondary arena-icon-button btn-sm mt-2">
+                                                {{ render_icon(icon="open_in_new") }}
+                                                <span>View public profile</span>
+                                            </a>
+                                        {% endif %}
                                     </dd>
                                     <dt class="visually-hidden">Language preferences</dt>
                                     <dd>
@@ -449,6 +480,41 @@
                                     </div>
                                 {% endif %}
                             </div>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+            <div class="tab-pane fade {% if active_tab == 'badges' %}show active{% endif %}"
+                 id="badges-tab-pane"
+                 role="tabpanel"
+                 aria-labelledby="badges-tab"
+                 tabindex="0">
+                {% if active_tab == 'badges' %}
+                    <div class="py-4">
+                        {% set earned_ids = badges | map(attribute='badge.value') | list %}
+                        <div class="arena-badge-grid">
+                            {% for badge_key, metadata in badge_metadata.items() %}
+                                {% if badge_key in earned_ids %}
+                                    <article class="arena-badge-item">
+                                        <img src="{{ request.url_for('arena_static_img', path='badges/' ~ metadata.image) }}"
+                                             alt="{{ metadata.label }} badge"
+                                             class="arena-badge-image"
+                                             width="96"
+                                             height="96">
+                                        <h2 class="arena-badge-name">{{ metadata.label }}</h2>
+                                        <p class="arena-badge-description">{{ metadata.description }}</p>
+                                    </article>
+                                {% else %}
+                                    <article class="arena-badge-item arena-badge-item--locked">
+                                        <img src="{{ request.url_for('arena_static_img', path='badges/missing_badge.png') }}"
+                                             alt="Locked badge"
+                                             class="arena-badge-image arena-badge-image--locked"
+                                             width="96"
+                                             height="96">
+                                        <h2 class="arena-badge-name">???</h2>
+                                    </article>
+                                {% endif %}
+                            {% endfor %}
                         </div>
                     </div>
                 {% endif %}

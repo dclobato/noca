@@ -21,6 +21,8 @@ from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_users import ArenaUser
 from arena.routes.auth_common import (
+    AUTH_RATE_LIMITER,
+    _auth_rate_limit_settings,
     _issue_login_token,
     _set_login_cookie,
     _token_failure_message,
@@ -31,7 +33,14 @@ from arena.routes.auth_common import (
 from arena.services import arena_auth_service, arena_password_service, user_security_notification_service, user_service
 from arena.services.session_service import post_login_redirect_url
 from arena.services.token_service import ArenaTokenAction
+from shared.services.auth_rate_limit import (
+    build_auth_throttle_identity,
+    check_auth_throttle,
+    record_auth_failure,
+    reset_auth_throttle,
+)
 from shared.services.password_service import PasswordPolicy
+from shared.services.security_events import record_request_security_event
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +201,43 @@ async def arena_password_reset_submit(
     confirm_password: str = Form(""),
 ) -> Response:
     """Send a password reset email or replace the password for a reset token."""
+    throttle_settings = _auth_rate_limit_settings()
+    throttle_identifier = token if token else email
+    throttle_identity = build_auth_throttle_identity(
+        request,
+        module="arena",
+        action="password-reset",
+        identifier=throttle_identifier,
+        settings=throttle_settings,
+    )
+    throttle_check = await check_auth_throttle(
+        request,
+        throttle_identity,
+        settings=throttle_settings,
+        fallback_limiter=AUTH_RATE_LIMITER,
+    )
+    if not throttle_check.allowed:
+        await record_request_security_event(
+            session,
+            request,
+            module="arena",
+            event_type="auth_throttle_lockout",
+            severity="warning",
+            identifier_hash=throttle_identity.identifier_hash,
+            metadata={"action": "password-reset", "reason": throttle_check.reason},
+        )
+        await session.commit()
+        flash("Too many failed attempts. Try again later.", FlashCategory.DANGER)
+        return _html(
+            request.app.state.arena_templates.TemplateResponse(
+                request,
+                "auth/password_reset.html",
+                {"token": token, "password_hint": PasswordPolicy(settings).policy_hint},
+                status_code=429,
+                headers={"Retry-After": str(throttle_check.retry_after_seconds or throttle_settings.lockout_seconds)},
+            )
+        )
+
     if not token:
         await arena_password_service.solicitar_reset_senha(
             email=email.strip(),
@@ -199,6 +245,21 @@ async def arena_password_reset_submit(
             jwt_service=request.app.state.jwt_service,
             email_service=request.app.state.email_service,
             url_base=_base_url(request),
+        )
+        failure = await record_auth_failure(
+            request,
+            throttle_identity,
+            settings=throttle_settings,
+            fallback_limiter=AUTH_RATE_LIMITER,
+        )
+        await record_request_security_event(
+            session,
+            request,
+            module="arena",
+            event_type="password_reset_request",
+            severity="warning" if failure.locked else "info",
+            identifier_hash=throttle_identity.identifier_hash,
+            metadata={"action": "password-reset", "reason": failure.reason},
         )
         await session.commit()
         flash("If an account exists for that email, a reset link has been sent.", FlashCategory.SUCCESS)
@@ -216,9 +277,33 @@ async def arena_password_reset_submit(
         jwt_service=request.app.state.jwt_service,
     )
     if result.status == user_service.UserOperationStatus.SUCCESS:
+        reset_identity = build_auth_throttle_identity(
+            request,
+            module="arena",
+            action="password-reset",
+            identifier=result.user.email_normalizado if result.user is not None else token,
+            settings=throttle_settings,
+        )
+        await reset_auth_throttle(request, reset_identity, fallback_limiter=AUTH_RATE_LIMITER)
         await session.commit()
         flash("Password reset successfully. You can log in with the new password.", FlashCategory.SUCCESS)
         return _redirect_to(request, "arena_login")
 
+    failure = await record_auth_failure(
+        request,
+        throttle_identity,
+        settings=throttle_settings,
+        fallback_limiter=AUTH_RATE_LIMITER,
+    )
+    await record_request_security_event(
+        session,
+        request,
+        module="arena",
+        event_type="suspicious_token_mismatch",
+        severity="warning",
+        identifier_hash=throttle_identity.identifier_hash,
+        metadata={"action": "password-reset", "reason": result.status.name, "lock_reason": failure.reason},
+    )
+    await session.commit()
     flash(_token_failure_message(result.status), FlashCategory.DANGER)
     return _redirect_to(request, "arena_login")

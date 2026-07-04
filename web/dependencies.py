@@ -15,11 +15,50 @@ from web.database import get_db
 from web.models import Contest, UberAdmin, User
 from web.services.actor_service import get_actor_from_token
 from web.services.contest_service import ensure_contest_admin_or_uberadmin, get_contest_by_slug
+from web.services.htmx_redirect_service import build_auth_redirect_exception
 from web.services.session_service import (
+    SESSION_EXPIRED_MESSAGE,
+    _get_cached_auth_validation,
     build_session_auth_redirect_exception,
     get_validated_auth_token,
     mark_auth_refresh_eligible,
 )
+
+_WEB_PUBLIC_EXACT: frozenset[str] = frozenset({"/", "/contests", "/login", "/health", "/favicon.ico"})
+_WEB_PUBLIC_PREFIXES: tuple[str, ...] = ("/assets", "/static")
+
+
+def _is_public_web_path(path: str) -> bool:
+    """Return whether the Web path is reachable without authentication."""
+    if path in _WEB_PUBLIC_EXACT:
+        return True
+    if path.startswith("/c/"):
+        parts = path.strip("/").split("/")
+        return len(parts) == 3 and parts[2] == "login"
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in _WEB_PUBLIC_PREFIXES)
+
+
+async def enforce_web_default_auth(request: Request) -> None:
+    """Require authentication for every non-public Web route by default."""
+    path = request.url.path
+    if _is_public_web_path(path):
+        return
+    result = get_validated_auth_token(request)
+    if result is not None:
+        mark_auth_refresh_eligible(request)
+        return
+
+    validation = _get_cached_auth_validation(request)
+    if validation is not None and validation.status == "expired":
+        from fastapi_flash import FlashCategory, FlashService
+
+        FlashService(request).flash(SESSION_EXPIRED_MESSAGE, FlashCategory.WARNING)
+
+    if path.startswith("/c/"):
+        parts = path.strip("/").split("/")
+        if len(parts) >= 2 and parts[1]:
+            raise build_auth_redirect_exception(request, f"/c/{parts[1]}/login")
+    raise build_auth_redirect_exception(request, "/login")
 
 
 async def get_request_user(

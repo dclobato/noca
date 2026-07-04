@@ -4,9 +4,11 @@
 #
 # This image provides the official .NET SDK for build/publish steps.
 #
-# Pinned: dotnet/sdk:8.0.419 @ sha256:a9330090b730c2abde8f3f43b3d1e24e4b8cba028de7bab1a7fdcd50cb7a3b7e
+# Pinned: dotnet/sdk:10.0.301 @ sha256:ea8bde36c11b6e7eec2656d0e59101d4462f6bd630730f2c8201ed0572b295d5
 
-FROM mcr.microsoft.com/dotnet/sdk:8.0@sha256:a9330090b730c2abde8f3f43b3d1e24e4b8cba028de7bab1a7fdcd50cb7a3b7e
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:ea8bde36c11b6e7eec2656d0e59101d4462f6bd630730f2c8201ed0572b295d5
+
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tar \

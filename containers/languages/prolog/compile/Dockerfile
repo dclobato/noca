@@ -13,6 +13,8 @@
 ARG JUDGE_COMPILE_BASE_REF=noca/judge-compile-base:latest
 FROM ${JUDGE_COMPILE_BASE_REF}
 
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
+
 USER root
 
 RUN apt-get update \

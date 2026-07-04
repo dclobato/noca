@@ -60,6 +60,10 @@ def vendor_libraries(config: dict[str, str], vendor_dir: Path, languages: list[s
             vendor_dir / "bootstrap.min.css",
         ),
         (
+            f"https://cdn.jsdelivr.net/npm/bootstrap@{config['bootstrap']}/dist/css/bootstrap.min.css.map",
+            vendor_dir / "bootstrap.min.css.map",
+        ),
+        (
             f"https://cdn.jsdelivr.net/npm/bootstrap@{config['bootstrap']}/dist/js/bootstrap.bundle.min.js",
             vendor_dir / "bootstrap.bundle.min.js",
         ),

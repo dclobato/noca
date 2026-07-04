@@ -25,6 +25,21 @@ def test_forwarded_allow_ips_rejects_wildcard_mixed_with_others() -> None:
         Settings.normalize_forwarded_allow_ips("*,127.0.0.1")
 
 
+def test_health_rate_limit_trusted_cidrs_accepts_valid_cidrs() -> None:
+    value = Settings.normalize_health_rate_limit_trusted_cidrs(" 127.0.0.0/8 , ::1/128 ")
+    assert value == "127.0.0.0/8,::1/128"
+
+
+def test_health_rate_limit_trusted_cidrs_rejects_invalid_token() -> None:
+    with pytest.raises(ValueError, match="valid CIDRs"):
+        Settings.normalize_health_rate_limit_trusted_cidrs("127.0.0.0/8,not-a-cidr")
+
+
+def test_health_rate_limit_trusted_cidrs_rejects_empty_value() -> None:
+    with pytest.raises(ValueError, match="cannot be empty"):
+        Settings.normalize_health_rate_limit_trusted_cidrs(" , ")
+
+
 # ---------------------------------------------------------------------------
 # EMAIL_MBOX_LOG_DIR validation
 # ---------------------------------------------------------------------------

@@ -144,6 +144,10 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
     async def _problem_list() -> Response:
         return Response("problems")
 
+    @app.get("/problems/{arena_number}", name="arena_problem_detail")
+    async def _problem_detail(arena_number: int) -> Response:
+        return Response(f"problem {arena_number}")
+
     @app.get("/classes", name="arena_classes_index")
     async def _classes_index() -> Response:
         return Response("classes")

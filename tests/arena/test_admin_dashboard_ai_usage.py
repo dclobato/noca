@@ -4,7 +4,7 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Tests for the admin AI Credits Usage page: service and route layers."""
+"""Tests for the admin AI Usage page: service and route layers."""
 
 from __future__ import annotations
 
@@ -163,17 +163,40 @@ async def _insert_batch_job(
     submission_id: str,
     *,
     created_at: datetime,
+    local_status: str = "completed",
 ) -> None:
-    """Insert a completed batch job for turnaround tests."""
+    """Insert a batch job row with a given local_status."""
     await session.execute(
         insert(arena_ai_batch_jobs).values(
             id=str(uuid.uuid4()),
             submission_id=submission_id,
-            local_status="completed",
+            local_status=local_status,
             created_at=created_at,
-            completed_at=created_at,
+            completed_at=created_at if local_status in ("completed", "failed", "expired") else None,
         )
     )
+
+
+async def _insert_refund(
+    session: AsyncSession,
+    user_id: str,
+    *,
+    submission_id: str | None = None,
+) -> str:
+    """Insert a refund credit transaction and return its id."""
+    tx_id = str(uuid.uuid4())
+    await session.execute(
+        insert(arena_ai_credit_transactions).values(
+            id=tx_id,
+            user_id=user_id,
+            amount=1,
+            balance_after=5,
+            transaction_type="refund",
+            submission_id=submission_id,
+            created_at=datetime.now(UTC),
+        )
+    )
+    return tx_id
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +235,57 @@ async def test_service_returns_batch_turnaround_seconds(session: AsyncSession) -
     result = await admin_ai_credits_service.get_batch_turnaround_seconds(session, {sub_id})
 
     assert result == {sub_id: 42}
+
+
+@pytest.mark.asyncio
+async def test_service_get_batch_job_statuses_returns_correct_mapping(session: AsyncSession) -> None:
+    """get_batch_job_statuses maps submission_id to local_status for each batch job."""
+    user = await _make_user(session)
+    sub_ok = await _insert_submission(session, user.id)
+    sub_fail = await _insert_submission(session, user.id)
+    sub_none = await _insert_submission(session, user.id)
+    now = datetime.now(UTC)
+    await _insert_batch_job(session, sub_ok, created_at=now, local_status="completed")
+    await _insert_batch_job(session, sub_fail, created_at=now, local_status="failed")
+    await session.flush()
+
+    result = await admin_ai_credits_service.get_batch_job_statuses(session, {sub_ok, sub_fail, sub_none})
+
+    assert result == {sub_ok: "completed", sub_fail: "failed"}
+
+
+@pytest.mark.asyncio
+async def test_service_get_batch_job_statuses_returns_empty_for_empty_input(
+    session: AsyncSession,
+) -> None:
+    """get_batch_job_statuses returns an empty dict when given an empty set."""
+    result = await admin_ai_credits_service.get_batch_job_statuses(session, set())
+    assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_service_get_refunded_submission_ids_returns_correct_set(session: AsyncSession) -> None:
+    """get_refunded_submission_ids returns only submissions with a refund transaction."""
+    user = await _make_user(session)
+    sub_refunded = await _insert_submission(session, user.id)
+    sub_not_refunded = await _insert_submission(session, user.id)
+    await _insert_consumption(session, user.id, submission_id=sub_refunded)
+    await _insert_consumption(session, user.id, submission_id=sub_not_refunded)
+    await _insert_refund(session, user.id, submission_id=sub_refunded)
+    await session.flush()
+
+    result = await admin_ai_credits_service.get_refunded_submission_ids(session, {sub_refunded, sub_not_refunded})
+
+    assert result == {sub_refunded}
+
+
+@pytest.mark.asyncio
+async def test_service_get_refunded_submission_ids_returns_empty_for_empty_input(
+    session: AsyncSession,
+) -> None:
+    """get_refunded_submission_ids returns an empty set when given an empty set."""
+    result = await admin_ai_credits_service.get_refunded_submission_ids(session, set())
+    assert result == set()
 
 
 @pytest.mark.asyncio
@@ -548,6 +622,10 @@ def _build_app(
     async def _dashboard_submissions() -> Response:
         return Response("submissions")
 
+    @app.get("/admin/dashboard/security-events", name="arena_admin_dashboard_security_events")
+    async def _dashboard_security_events() -> Response:
+        return Response("security events")
+
     app.include_router(router)
 
     async def _get_db_override() -> Any:
@@ -581,20 +659,20 @@ def _build_app(
 
 @pytest.mark.asyncio
 async def test_ai_credits_route_returns_200_for_admin(session: AsyncSession) -> None:
-    """GET /admin/dashboard/ai-credits returns 200 for an authorized admin."""
+    """GET /admin/dashboard/ai-usage returns 200 for an authorized admin."""
     app = _build_app(session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/admin/dashboard/ai-credits")
+        response = await client.get("/admin/dashboard/ai-usage")
     assert response.status_code == 200
-    assert "AI Credits Usage" in response.text
+    assert "AI Usage" in response.text
 
 
 @pytest.mark.asyncio
 async def test_ai_credits_route_returns_403_for_non_admin(session: AsyncSession) -> None:
-    """GET /admin/dashboard/ai-credits returns 403 for an unauthorized user."""
+    """GET /admin/dashboard/ai-usage returns 403 for an unauthorized user."""
     app = _build_app(session, authorized=False)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/admin/dashboard/ai-credits")
+        response = await client.get("/admin/dashboard/ai-usage")
     assert response.status_code == 403
 
 
@@ -604,7 +682,7 @@ async def test_ai_credits_route_accepts_valid_per_page_sizes(session: AsyncSessi
     """All allowed per-page values (10/25/50/100/500) return 200."""
     app = _build_app(session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/admin/dashboard/ai-credits", params={"per_page": str(size)})
+        response = await client.get("/admin/dashboard/ai-usage", params={"per_page": str(size)})
     assert response.status_code == 200
 
 
@@ -615,7 +693,7 @@ async def test_ai_credits_route_invalid_per_page_falls_back_to_default(
     """An invalid per_page value falls back to 25 and returns 200."""
     app = _build_app(session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/admin/dashboard/ai-credits", params={"per_page": "999"})
+        response = await client.get("/admin/dashboard/ai-usage", params={"per_page": "999"})
     assert response.status_code == 200
     assert 'value="25" selected' in response.text
 
@@ -627,7 +705,7 @@ async def test_ai_credits_route_invalid_sort_dir_normalized_to_desc(
     """Invalid sort_dir is silently normalized to 'desc'."""
     app = _build_app(session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/admin/dashboard/ai-credits", params={"sort_dir": "invalid"})
+        response = await client.get("/admin/dashboard/ai-usage", params={"sort_dir": "invalid"})
     assert response.status_code == 200
     assert 'value="desc" selected' in response.text
 
@@ -641,7 +719,7 @@ async def test_ai_credits_route_renders_user_link(session: AsyncSession) -> None
 
     app = _build_app(session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/admin/dashboard/ai-credits")
+        response = await client.get("/admin/dashboard/ai-usage")
 
     assert f"/admin/users/{user.id}" in response.text
     assert "Link Test User" in response.text
@@ -657,7 +735,7 @@ async def test_ai_credits_route_renders_submission_link(session: AsyncSession) -
 
     app = _build_app(session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/admin/dashboard/ai-credits")
+        response = await client.get("/admin/dashboard/ai-usage")
 
     assert f"/submissions/{sub_id}" in response.text
     assert "Submission" in response.text
@@ -674,7 +752,7 @@ async def test_ai_credits_route_renders_cost_with_six_decimals(session: AsyncSes
 
     app = _build_app(session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/admin/dashboard/ai-credits")
+        response = await client.get("/admin/dashboard/ai-usage")
 
     assert "$1.234567" in response.text
 
@@ -696,7 +774,7 @@ async def test_ai_credits_route_renders_batch_turnaround_column(session: AsyncSe
 
     app = _build_app(session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/admin/dashboard/ai-credits")
+        response = await client.get("/admin/dashboard/ai-usage")
 
     assert response.status_code == 200
     assert '<th class="text-end">Turnaround</th>' in response.text
@@ -716,7 +794,7 @@ async def test_ai_credits_route_renders_turnaround_statistics(session: AsyncSess
     app = _build_app(session, turnaround_stats=stats)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/admin/dashboard/ai-credits")
+        response = await client.get("/admin/dashboard/ai-usage")
 
     assert response.status_code == 200
     assert "Average turn around for last 42 reviews:" in response.text
@@ -732,17 +810,17 @@ async def test_ai_credits_route_handles_unavailable_turnaround_statistics(sessio
     app = _build_app(session)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/admin/dashboard/ai-credits")
+        response = await client.get("/admin/dashboard/ai-usage")
 
     assert response.status_code == 200
     assert "Turnaround statistics are not available." in response.text
 
 
 @pytest.mark.asyncio
-async def test_ai_credits_route_renders_pending_when_no_review_cost(
+async def test_ai_credits_route_renders_completed_status_when_ai_review_exists(
     session: AsyncSession,
 ) -> None:
-    """Cost column shows 'Pending' when ai_review_cost is absent."""
+    """Status column shows 'Completed' when an ai_review row exists (even with no cost)."""
     user = await _make_user(session)
     sub_id = await _insert_submission(session, user.id)
     await _insert_ai_review(session, sub_id, cost_micros=None)
@@ -751,9 +829,109 @@ async def test_ai_credits_route_renders_pending_when_no_review_cost(
 
     app = _build_app(session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/admin/dashboard/ai-credits")
+        response = await client.get("/admin/dashboard/ai-usage")
+
+    assert "Completed" in response.text
+
+
+@pytest.mark.asyncio
+async def test_ai_credits_route_renders_pending_status_when_no_review_and_no_batch(
+    session: AsyncSession,
+) -> None:
+    """Status column shows 'Pending' when no ai_review and no batch job row exist."""
+    user = await _make_user(session)
+    sub_id = await _insert_submission(session, user.id)
+    await _insert_consumption(session, user.id, submission_id=sub_id)
+    await session.flush()
+
+    app = _build_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/admin/dashboard/ai-usage")
 
     assert "Pending" in response.text
+
+
+@pytest.mark.asyncio
+async def test_ai_credits_route_renders_failed_status_for_failed_batch(
+    session: AsyncSession,
+) -> None:
+    """Status column shows 'Failed' when the batch job local_status is 'failed'."""
+    user = await _make_user(session)
+    sub_id = await _insert_submission(session, user.id)
+    await _insert_batch_job(session, sub_id, created_at=datetime.now(UTC), local_status="failed")
+    await _insert_consumption(session, user.id, submission_id=sub_id)
+    await session.flush()
+
+    app = _build_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/admin/dashboard/ai-usage")
+
+    assert "Failed" in response.text
+
+
+@pytest.mark.asyncio
+async def test_ai_credits_route_renders_error_tooltip_on_failed_badge(
+    session: AsyncSession,
+) -> None:
+    """Failed badge carries a title attribute with the last_error text."""
+    user = await _make_user(session)
+    sub_id = await _insert_submission(session, user.id)
+    await session.execute(
+        insert(arena_ai_batch_jobs).values(
+            id=str(uuid.uuid4()),
+            submission_id=sub_id,
+            local_status="failed",
+            last_error="Model not supported by Batch API.",
+            created_at=datetime.now(UTC),
+            completed_at=datetime.now(UTC),
+        )
+    )
+    await _insert_consumption(session, user.id, submission_id=sub_id)
+    await session.flush()
+
+    app = _build_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/admin/dashboard/ai-usage")
+
+    assert 'title="Model not supported by Batch API."' in response.text
+
+
+@pytest.mark.asyncio
+async def test_ai_credits_route_renders_expired_status_for_expired_batch(
+    session: AsyncSession,
+) -> None:
+    """Status column shows 'Expired' when the batch job local_status is 'expired'."""
+    user = await _make_user(session)
+    sub_id = await _insert_submission(session, user.id)
+    await _insert_batch_job(session, sub_id, created_at=datetime.now(UTC), local_status="expired")
+    await _insert_consumption(session, user.id, submission_id=sub_id)
+    await session.flush()
+
+    app = _build_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/admin/dashboard/ai-usage")
+
+    assert "Expired" in response.text
+
+
+@pytest.mark.asyncio
+async def test_ai_credits_route_renders_refunded_badge_when_refund_exists(
+    session: AsyncSession,
+) -> None:
+    """Status column shows a 'Refunded' badge alongside the status when a refund transaction exists."""
+    user = await _make_user(session)
+    sub_id = await _insert_submission(session, user.id)
+    await _insert_batch_job(session, sub_id, created_at=datetime.now(UTC), local_status="failed")
+    await _insert_consumption(session, user.id, submission_id=sub_id)
+    await _insert_refund(session, user.id, submission_id=sub_id)
+    await session.flush()
+
+    app = _build_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/admin/dashboard/ai-usage")
+
+    assert "Failed" in response.text
+    assert "Refunded" in response.text
 
 
 @pytest.mark.asyncio
@@ -762,7 +940,7 @@ async def test_ai_credits_route_blank_date_strings_return_200(session: AsyncSess
     app = _build_app(session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get(
-            "/admin/dashboard/ai-credits",
+            "/admin/dashboard/ai-usage",
             params={"date_from": "", "date_to": "", "search": "x"},
         )
     assert response.status_code == 200
@@ -770,11 +948,11 @@ async def test_ai_credits_route_blank_date_strings_return_200(session: AsyncSess
 
 @pytest.mark.asyncio
 async def test_ai_credits_route_nav_blocks_active(session: AsyncSession) -> None:
-    """The AI Credits page activates nav_admin_dashboard and nav_admin_dashboard_ai_credits."""
+    """The AI Usage page activates nav_admin_dashboard and nav_admin_dashboard_ai_usage."""
     app = _build_app(session)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/admin/dashboard/ai-credits")
+        response = await client.get("/admin/dashboard/ai-usage")
 
     assert response.status_code == 200
-    assert "AI Credits Usage" in response.text
+    assert "AI Usage" in response.text
     assert "Service Status" in response.text

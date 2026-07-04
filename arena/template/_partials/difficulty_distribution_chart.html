@@ -1,0 +1,15 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Catalogue-wide problem-difficulty distribution histogram, centred at 50% of
+  the containing card width.
+  Variables: chart_id (str), data_url (str).
+#}
+<div id="{{ chart_id }}"
+     class="arena-help-chart arena-help-chart-half"
+     data-difficulty-distribution
+     data-distribution-url="{{ data_url }}"></div>

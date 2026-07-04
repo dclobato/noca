@@ -40,7 +40,7 @@ _FAVICON_DIR = Path(__file__).parent.parent / "static" / "favicon"
 # Root-level favicon assets referenced by the favicon snippet in the base
 # templates. Browsers and crawlers request these at the site root, so they are
 # served here rather than under ``/static``.
-_FAVICON_ASSETS: dict[str, str] = {
+FAVICON_ASSETS: dict[str, str] = {
     "favicon.ico": "image/x-icon",
     "favicon-16x16.png": "image/png",
     "favicon-32x32.png": "image/png",
@@ -67,7 +67,7 @@ def _serve_favicon_asset(asset: str) -> FileResponse:
     Raises:
         HTTPException: 404 when the requested asset is not allowlisted.
     """
-    media_type = _FAVICON_ASSETS.get(asset)
+    media_type = FAVICON_ASSETS.get(asset)
     if media_type is None:
         raise HTTPException(status_code=404)
     return FileResponse(
@@ -83,7 +83,7 @@ def _register_favicon_routes() -> None:
     Explicit literal paths are used (rather than a catch-all) so these routes
     never shadow real application routes such as ``/dashboard``.
     """
-    for asset in _FAVICON_ASSETS:
+    for asset in FAVICON_ASSETS:
 
         def _handler(asset: str = asset) -> FileResponse:
             return _serve_favicon_asset(asset)

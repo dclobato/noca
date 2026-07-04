@@ -127,8 +127,8 @@ def test_new_language_configs_fortran_and_lua() -> None:
     assert lua.source_filename == "source.lua"
     assert lua.compile_image == "noca/judge-lua:compile"
     assert lua.run_image == "noca/judge-lua:run"
-    assert lua.compile_cmd == ["/usr/bin/luac5.4", "-p", "/sandbox/source.lua"]
-    assert lua.run_cmd == ["/usr/bin/lua5.4", "/sandbox/source.lua"]
+    assert lua.compile_cmd == ["/usr/local/bin/luac", "-p", "/sandbox/source.lua"]
+    assert lua.run_cmd == ["/usr/local/bin/lua", "/sandbox/source.lua"]
     assert lua.artifact_path == "/sandbox/source.lua"
     assert lua.artifact_is_source is True
 

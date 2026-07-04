@@ -27,6 +27,7 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
+from aiassistant.guardrails import build_review_user_text, wrap_untrusted_review_artifact
 from aiassistant.prompts import SYSTEM_PROMPT
 from shared.language_registry import default_language_registry
 
@@ -106,10 +107,10 @@ async def submit_ai_batch_review(
 
     try:
         with tempfile.NamedTemporaryFile(suffix=ext, mode="w", encoding="utf-8", delete=False) as cf:
-            cf.write(source_code)
+            cf.write(wrap_untrusted_review_artifact("submitted_source", source_code))
             code_path = cf.name
         with tempfile.NamedTemporaryFile(suffix=".md", mode="w", encoding="utf-8", delete=False) as sf:
-            sf.write(problem_statement)
+            sf.write(wrap_untrusted_review_artifact("problem_statement", problem_statement))
             stmt_path = sf.name
 
         with open(code_path, "rb") as f:
@@ -125,16 +126,11 @@ async def submit_ai_batch_review(
             if lang.compile_cmd:
                 lang_info_lines.append(f"Compile command: {' '.join(lang.compile_cmd)}")
             lang_info_lines.append(f"Run command: {' '.join(lang.run_cmd)}")
-        lang_context = ("\n\nLanguage context:\n" + "\n".join(lang_info_lines)) if lang_info_lines else ""
-
-        user_text = (
-            "Analyze the submitted program against the statement. "
-            "Give hints only; do not provide the corrected solution." + lang_context
+        user_text = build_review_user_text(
+            lang_context="\n".join(lang_info_lines),
+            extra_task_instructions=extra_task_instructions,
+            image_caption=image_caption,
         )
-        if extra_task_instructions:
-            user_text += f"\n\n{extra_task_instructions}"
-        if image_caption:
-            user_text += f"\n\nImage caption: {image_caption}"
 
         image_content: list[Any] = []
         if image_base64 and image_mime:
@@ -275,12 +271,12 @@ async def submit_windowed_batch(
             ext = lang.default_extension if lang is not None else ".txt"
 
             with tempfile.NamedTemporaryFile(suffix=ext, mode="w", encoding="utf-8", delete=False) as code_tmp:
-                code_tmp.write(item.source_code)
+                code_tmp.write(wrap_untrusted_review_artifact("submitted_source", item.source_code))
                 code_tmp_name = code_tmp.name
             tmp_paths.append(code_tmp_name)
 
             with tempfile.NamedTemporaryFile(suffix=".md", mode="w", encoding="utf-8", delete=False) as stmt_tmp:
-                stmt_tmp.write(item.problem_statement)
+                stmt_tmp.write(wrap_untrusted_review_artifact("problem_statement", item.problem_statement))
                 stmt_tmp_name = stmt_tmp.name
             tmp_paths.append(stmt_tmp_name)
 
@@ -299,16 +295,11 @@ async def submit_windowed_batch(
                 if lang.compile_cmd:
                     lang_info_lines.append(f"Compile command: {' '.join(lang.compile_cmd)}")
                 lang_info_lines.append(f"Run command: {' '.join(lang.run_cmd)}")
-            lang_context = ("\n\nLanguage context:\n" + "\n".join(lang_info_lines)) if lang_info_lines else ""
-
-            user_text = (
-                "Analyze the submitted program against the statement. "
-                "Give hints only; do not provide the corrected solution." + lang_context
+            user_text = build_review_user_text(
+                lang_context="\n".join(lang_info_lines),
+                extra_task_instructions=item.extra_task_instructions,
+                image_caption=item.image_caption,
             )
-            if item.extra_task_instructions:
-                user_text += f"\n\n{item.extra_task_instructions}"
-            if item.image_caption:
-                user_text += f"\n\nImage caption: {item.image_caption}"
 
             image_content: list[Any] = []
             if item.image_base64 and item.image_mime:

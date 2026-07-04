@@ -24,23 +24,29 @@
 ## Health (`web/routes/health.py`)
 
 The health endpoint reports whether Web's required runtime backends are
-available.
+available. Public callers are rate-limited before the backend probes run;
+trusted local health-check CIDRs bypass this limit.
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `GET` | `/health` | Reports PostgreSQL, Valkey, and Web service health. Returns `200` with `status: "ok"` or `503` with `status: "degraded"`. |
+| `GET` | `/health` | Reports PostgreSQL, Valkey, and Web service health. Returns `200` with `status: "ok"`, `503` with `status: "degraded"`, or `429` when public health probes exceed the configured limit. |
 
 ---
 
 ## Authentication (`web/routes/auth.py`)
 
+All non-public Web routes require a valid `noca_access_token` by default. The
+public allowlist is `/`, `/contests`, `/login`, `/c/{slug}/login`, `/health`,
+`/favicon.ico`, `/assets/*`, and `/static/*`. Route-local role checks remain
+the authoritative authorization layer after authentication.
+
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/login` | Renders the login form. Accepts optional `next_url` (redirect after login, default `/uberadmin`) and `msg` query params. |
-| `POST` | `/login` | Authenticates an UberAdmin. Validates `identifier` + `password` form fields, sets `noca_access_token` httponly cookie on success and redirects to `next_url`. Returns 401 with error message on failure. |
+| `POST` | `/login` | Authenticates an UberAdmin. Validates `identifier` + `password` form fields, applies auth throttling keyed by ASGI client IP and hashed identifier, sets `noca_access_token` httponly cookie on success, and redirects to `next_url`. Lockouts return `429` with `Retry-After`. |
 | `GET` | `/logout` | Clears the `noca_access_token` cookie and redirects with a confirmation message. Contest-scoped users are redirected to `/c/{slug}/login`; other cases fall back to `/login`. |
 | `GET` | `/c/{slug}/login` | Renders the contest login form for the given contest slug. Returns 404 if slug is not found or the contest is inactive. |
-| `POST` | `/c/{slug}/login` | Authenticates a contest user for an active contest. Validates `identifier` + `password` form fields, sets `noca_access_token` cookie on success and redirects to `/c/{slug}`. Returns 404 for inactive contests and 401 with error message on credential failure. |
+| `POST` | `/c/{slug}/login` | Authenticates a contest user for an active contest. Validates `identifier` + `password` form fields, applies auth throttling keyed by ASGI client IP and hashed identifier, sets `noca_access_token` cookie on success, and redirects to `/c/{slug}`. Lockouts return `429` with `Retry-After`. |
 
 ---
 
@@ -51,6 +57,7 @@ All routes in this group require a valid UberAdmin JWT (`noca_access_token` cook
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/uberadmin` | Renders the UberAdmin dashboard. Displays three columns — Past, Live, and Upcoming contests — sourced from active contests in the database. Past contest cards include a Make inactive action. Also shows action buttons for creating contests, accessing the problem bank, viewing inactive contests, and managing UberAdmins. |
+| `GET` | `/uberadmin/security-events` | Renders the Web security-event log (auth failures, lockouts, existing-account signups, admin actions). Accepts optional `?event_type=`, `?per_page=` (10/25/50/100/500), and `?page=` filters; shows all retained matching Web rows through pagination. Route lives in `web/routes/uberadmin_security.py`. |
 | `GET` | `/uberadmin/uberadmins` | Lists UberAdmins. Accepts optional `?q=` search over full name and email. |
 | `GET` | `/uberadmin/uberadmins/new` | Renders the Add UberAdmin form (fields: full name, email, username). |
 | `POST` | `/uberadmin/uberadmins/new` | Creates a new UberAdmin. Validates form fields, checks for duplicate username/email, generates a diceware password, persists the record, and re-renders the page with the generated credentials on success or an error message on failure. |

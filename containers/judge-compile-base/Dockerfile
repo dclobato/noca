@@ -15,6 +15,8 @@
 
 FROM debian:bookworm-slim@sha256:f06537653ac770703bc45b4b113475bd402f451e85223f0f2837acbf89ab020a
 
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
+
 RUN groupadd --system judge && useradd --system --gid judge --create-home judge
 
 # Pre-create /sandbox owned by judge so Docker's put_archive writes readable files.

@@ -23,7 +23,8 @@
             </thead>
             <tbody>
                 {% for top_user in top_users %}
-                    <tr>
+                    {% set top_user_profile_url = request.url_for('arena_user_profile_public', user_id=top_user.id) if top_user.public_profile else None %}
+                    <tr {% if top_user_profile_url %}data-href="{{ top_user_profile_url }}"{% endif %}>
                         <td>{{ top_user.rank }}</td>
                         <td class="arena-monospace">{{ top_user.name }}</td>
                         <td class="arena-mono-right">{{ top_user.rating }}</td>

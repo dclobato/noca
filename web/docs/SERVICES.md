@@ -182,6 +182,9 @@ Main entrypoints on `AuthenticationService`:
 
 Notes:
 - successful login writes `Login_History` with optional IP geolocation
+- `/login` and `/c/{slug}/login` use shared auth throttling from
+  `shared.services.auth_rate_limit`; lockouts return HTTP 429 with
+  `Retry-After`
 - login history uses generated BIGINT identifiers to keep append-only audit
   storage compact
 - login-issued tokens include a `session_started_at` marker used to enforce the
@@ -195,6 +198,26 @@ Typical consumers:
 - `web.routes.auth`
 - `web.middleware.auth_token_refresh`
 - dependency helpers that reuse the request-cached token validation result
+
+---
+
+## `dependencies.py`
+
+Purpose:
+- enforce Web's default-deny authentication gate
+- resolve authenticated actors for contest-scoped and admin-scoped routes
+
+Main entrypoints:
+- `enforce_web_default_auth(request) -> None`
+- `get_request_user(request, session) -> User`
+- `get_uberadmin(request, session) -> UberAdmin`
+- contest context and role helpers used by Web route modules
+
+Notes:
+- the global gate allows only `/`, `/contests`, `/login`, `/c/{slug}/login`,
+  `/health`, `/favicon.ico`, `/assets/*`, and `/static/*` without a valid
+  session cookie
+- route-local role checks remain the authoritative authorization layer
 
 ---
 
@@ -911,6 +934,9 @@ Do not reimplement:
 Notes:
 - these helpers are the intended API for ordered mutations
 - model hooks still enforce dense ordinal invariants as a safety net
+- test-case file helpers delegate to `shared.services.testcase_files`, which
+  validates UUID/slug-like problem ids and verifies resolved paths stay under
+  the contest test-case root
 - direct writes like `problem.ordinal = 1` are not a safe substitute for `move_problem(...)`
 - file I/O helpers are synchronous; always call them via `anyio.to_thread.run_sync` in async routes
 - `move_problem`, `move_test_case`, and removal resequencing helpers use collision-safe ordinal updates to avoid PostgreSQL per-row unique-constraint violations

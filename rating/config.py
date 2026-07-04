@@ -118,6 +118,36 @@ class Settings(BaseSettings):
             "independently of the rating chain."
         ),
     )
+    BADGE_INTERVAL: int = Field(
+        default=900,
+        ge=900,
+        le=604800,
+        validation_alias="NOCA_RATING_BADGE_INTERVAL",
+        description=(
+            "Interval in seconds between Arena badge-assignment cycles (15 min – 1 week; "
+            "default 15 min). The badge loop runs independently of the rating chain."
+        ),
+    )
+    BADGE_LOOKBACK_SECONDS: int = Field(
+        default=600,
+        ge=0,
+        le=86400,
+        validation_alias="NOCA_RATING_BADGE_LOOKBACK_SECONDS",
+        description=(
+            "Overlap subtracted from the badge incremental watermark so judgments committed "
+            "slightly late or out of order are re-seen and deduplicated (0 – 24 h; default 10 min)."
+        ),
+    )
+    BADGE_RECONCILE_INTERVAL: int = Field(
+        default=86400,
+        ge=900,
+        le=604800,
+        validation_alias="NOCA_RATING_BADGE_RECONCILE_INTERVAL",
+        description=(
+            "Minimum seconds between full badge reconciliation passes that ignore the "
+            "watermark and re-evaluate all AC history (15 min – 1 week; default 24 h)."
+        ),
+    )
     AFFILIATION_RATING_FACTOR: float = Field(
         default=5.0,
         ge=2.0,

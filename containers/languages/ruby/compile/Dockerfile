@@ -11,9 +11,11 @@
 # artifact_is_source=True: the source .rb file is the artifact injected into
 # the run container; no compiled output is produced.
 #
-# Pinned family: ruby:3.3-slim-bookworm (Debian bookworm slim)
+# Pinned family: ruby:4.0-slim-bookworm (Debian bookworm slim)
 
-FROM ruby:3.3-slim-bookworm
+FROM ruby:4.0-slim-bookworm
+
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
 RUN groupadd --system judge && useradd --system --gid judge --create-home judge
 

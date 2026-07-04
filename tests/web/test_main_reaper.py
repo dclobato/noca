@@ -54,6 +54,7 @@ def _configure_common_monkeypatches(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main_module, "ImageProcessingService", _FakeImageService)
     monkeypatch.setattr(main_module, "ValkeyRuntime", _FakeValkeyRuntime)
     monkeypatch.setattr(main_module.settings, "ENABLE_TASK_REAPER", False)
+    monkeypatch.setattr(main_module.settings, "SECURITY_EVENTS_RETENTION_DAYS", 0)
 
 
 @pytest.mark.asyncio

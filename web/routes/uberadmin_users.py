@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.services.admin_audit import record_admin_action
 from web.dependencies import get_uberadmin
 from web.models.users import UberAdmin
 from web.services.uberadmin_service import (
@@ -129,6 +130,17 @@ async def toggle_uberadmin_route(
         except ValueError as exc:
             flash(str(exc), FlashCategory.WARNING)
             return RedirectResponse(url=redirect_url, status_code=303)
+        if updated is not None:
+            await record_admin_action(
+                session,
+                request,
+                module="web",
+                actor_user_id=current_user.id,
+                action="enable" if updated.is_enabled else "disable",
+                target_type="uberadmin",
+                target_id=uberadmin_id,
+            )
+            await session.commit()
 
     if updated is None:
         flash("UberAdmin not found.", FlashCategory.WARNING)

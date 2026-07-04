@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import Response
 from fastapi_flash import FlashCategory, FlashDep
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings
 from arena.models.arena_users import ArenaUser
@@ -29,9 +30,88 @@ from arena.services.session_service import (
 )
 from arena.services.token_service import ArenaTokenAction
 from arena.services.user_service import UserOperationStatus
+from shared.services.auth_rate_limit import (
+    AuthRateLimitSettings,
+    InMemoryAuthRateLimiter,
+    build_auth_throttle_identity,
+    check_auth_throttle,
+    record_auth_failure,
+)
 from shared.services.password_service import PasswordPolicy, PasswordPolicyError
+from shared.services.security_events import record_request_security_event
 
 _REMEMBER_ME_MAX_AGE = ARENA_REMEMBER_ME_MAX_AGE
+AUTH_RATE_LIMITER = InMemoryAuthRateLimiter()
+
+
+def _auth_rate_limit_settings() -> AuthRateLimitSettings:
+    """Build Arena auth-throttle settings from config."""
+    return AuthRateLimitSettings(
+        enabled=settings.AUTH_RATE_LIMIT_ENABLED,
+        window_seconds=settings.AUTH_RATE_LIMIT_WINDOW_SECONDS,
+        ip_max_failures=settings.AUTH_RATE_LIMIT_IP_MAX_FAILURES,
+        account_max_failures=settings.AUTH_RATE_LIMIT_ACCOUNT_MAX_FAILURES,
+        lockout_seconds=settings.AUTH_RATE_LIMIT_LOCKOUT_SECONDS,
+        secret=settings.JWT_SECRET_KEY,
+    )
+
+
+async def enforce_resend_throttle(
+    request: Request,
+    session: AsyncSession,
+    *,
+    action: str,
+) -> int | None:
+    """Rate-limit an authenticated email-resend action by client IP.
+
+    These routes send an email on every request and are gated only by session
+    state, so they need an IP-scoped abuse cap independent of any account
+    identifier. The identity is built with ``identifier=None`` so only the IP
+    bucket is used.
+
+    Args:
+        request: Incoming request.
+        session: Active async database session (committed when a lockout is
+            recorded).
+        action: Stable throttle action slug for this resend flow.
+
+    Returns:
+        The retry-after seconds when the caller is currently locked out;
+        otherwise records one attempt against the IP bucket and returns
+        ``None``.
+    """
+    throttle_settings = _auth_rate_limit_settings()
+    identity = build_auth_throttle_identity(
+        request,
+        module="arena",
+        action=action,
+        identifier=None,
+        settings=throttle_settings,
+    )
+    check = await check_auth_throttle(
+        request,
+        identity,
+        settings=throttle_settings,
+        fallback_limiter=AUTH_RATE_LIMITER,
+    )
+    if not check.allowed:
+        await record_request_security_event(
+            session,
+            request,
+            module="arena",
+            event_type="auth_throttle_lockout",
+            severity="warning",
+            metadata={"action": action, "reason": check.reason},
+        )
+        await session.commit()
+        return check.retry_after_seconds or throttle_settings.lockout_seconds
+    await record_auth_failure(
+        request,
+        identity,
+        settings=throttle_settings,
+        fallback_limiter=AUTH_RATE_LIMITER,
+    )
+    return None
 
 
 def _login_token_expires_in() -> int:

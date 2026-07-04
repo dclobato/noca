@@ -16,6 +16,8 @@ FROM ${ISOLATE_BASE_REF} AS isolate
 
 FROM python:3.14-slim-bookworm
 
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libcap2 libseccomp2 \
     && rm -rf /var/lib/apt/lists/*

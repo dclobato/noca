@@ -1,0 +1,107 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Security Events{% endblock %}
+{% block nav_admin_dashboard %}active{% endblock %}
+{% block nav_admin_dashboard_security_events %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="security") }}
+                    Security Events
+                </h1>
+            </div>
+            <form method="get"
+                  class="d-flex flex-wrap gap-2 align-items-end mb-3"
+                  id="security-events-filter-form">
+                <input type="hidden" name="page" value="1">
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="module">Module</label>
+                    <select class="form-select form-select-sm" id="module" name="module">
+                        <option value="">All modules</option>
+                        {% for value in available_modules %}
+                            <option value="{{ value }}"
+                                    {% if value == selected_module %}selected{% endif %}>{{ value }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="event_type">Event type</label>
+                    <select class="form-select form-select-sm" id="event_type" name="event_type">
+                        <option value="">All events</option>
+                        {% for value in available_event_types %}
+                            <option value="{{ value }}"
+                                    {% if value == selected_event_type %}selected{% endif %}>{{ value }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="per_page">Per page</label>
+                    <select class="form-select form-select-sm" id="per_page" name="per_page">
+                        {% for n in [10, 25, 50, 100, 500] %}
+                            <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% include "_partials/filter_submit_button.html" %}
+                {% set _filters_active = selected_module or selected_event_type or per_page != 25 %}
+                {% with clear_url=request.url_for("arena_admin_dashboard_security_events"), filters_active=_filters_active %}
+                    {% include "_partials/filter_clear_link.html" %}
+                {% endwith %}
+            </form>
+            <p class="text-muted small mb-2">
+                {{ security_events.total }} security event{{ 's' if security_events.total != 1 else '' }}
+            </p>
+            {% with pagination=security_events, page_param="page", label="Security events pagination", nav_margin="mb-2" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+            <div class="table-responsive">
+                <table class="arena-table">
+                    <thead>
+                        <tr>
+                            <th>Date / Time</th>
+                            <th>Module</th>
+                            <th>Event</th>
+                            <th>Severity</th>
+                            <th>IP</th>
+                            <th>Metadata</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event in security_events.items %}
+                            <tr>
+                                <td class="text-nowrap">{{ arena_format_datetime(event.created_at, current_user) }}</td>
+                                <td>{{ event.module }}</td>
+                                <td>{{ event.event_type }}</td>
+                                <td>{{ event.severity }}</td>
+                                <td>
+                                    {% if event.client_ip %}
+                                        {{ event.client_ip }}
+                                    {% else %}
+                                        <span class="text-muted">&mdash;</span>
+                                    {% endif %}
+                                </td>
+                                <td class="small text-break">{{ event.metadata }}</td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-3">No security events found.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% with pagination=security_events, page_param="page", label="Security events pagination" %}
+                {% include "_partials/pagination.html" %}
+            {% endwith %}
+        </div>
+    </div>
+{% endblock %}

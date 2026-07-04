@@ -94,25 +94,31 @@ def validate_not_private_network(hostname: str) -> None:
 
 
 def get_ip_from_request(request: Request) -> str | None:
-    """Safely extract the client IP address from a request."""
-    max_ip_length = 45
-    max_forwarded_for_length = 200
-    forwarded_for = request.headers.get("X-Forwarded-For", "").strip()
+    """Safely extract the trusted client IP address from a request.
 
-    if forwarded_for and len(forwarded_for) <= max_forwarded_for_length:
-        candidate_ip = forwarded_for.split(",")[0].strip()
-        if candidate_ip and len(candidate_ip) <= max_ip_length:
+    The value is read only from ``request.client.host``, which uvicorn already
+    rewrites from a trusted ``X-Forwarded-For`` when the server is started with
+    ``proxy_headers=True`` and ``forwarded_allow_ips`` set to the reverse proxy
+    (see ``web/main.py`` and ``arena/main.py``). Raw ``X-Forwarded-For`` headers
+    are intentionally *not* parsed here: they are client-controlled and
+    spoofable, so trusting them directly would let a caller forge the source IP
+    used for rate limiting, security-event logging, and login history.
+
+    Args:
+        request: The incoming ASGI request.
+
+    Returns:
+        The validated client IP string, or ``None`` when it is missing or not a
+        valid IP address.
+    """
+    max_ip_length = 45
+    if request.client and request.client.host:
+        host = request.client.host
+        if len(host) <= max_ip_length:
             try:
-                return str(ipaddress.ip_address(candidate_ip))
+                return str(ipaddress.ip_address(host))
             except ValueError:
                 pass
-
-    if request.client and request.client.host:
-        try:
-            if len(request.client.host) <= max_ip_length:
-                return str(ipaddress.ip_address(request.client.host))
-        except ValueError:
-            pass
     return None
 
 

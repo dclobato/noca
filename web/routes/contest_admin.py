@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.services.admin_audit import record_admin_action
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes import contest_admin_export as _contest_admin_export
 from web.routes import contest_admin_metadata as _contest_admin_metadata
@@ -90,6 +91,7 @@ async def counters(
 
 @router.post("/start-now", response_model=None, name="contest_start_now")
 async def start_contest_now(
+    request: Request,
     flash: FlashDep,
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
     password: str = Form(""),
@@ -104,12 +106,23 @@ async def start_contest_now(
             flash(str(exc), FlashCategory.DANGER)
         else:
             ctx.contest.start_time = datetime.now(UTC)
+            await record_admin_action(
+                ctx.session,
+                request,
+                module="web",
+                actor_user_id=ctx.actor.id,
+                action="contest_start_now",
+                target_type="contest",
+                target_id=ctx.contest.id,
+                detail=f"slug={ctx.contest.login_slug}",
+            )
             await ctx.session.commit()
     return RedirectResponse(url=f"/c/{ctx.contest.login_slug}", status_code=303)
 
 
 @router.post("/end-now", response_model=None, name="contest_end_now")
 async def end_contest_now(
+    request: Request,
     flash: FlashDep,
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
     password: str = Form(""),
@@ -119,6 +132,16 @@ async def end_contest_now(
             flash("Password confirmation is incorrect.", FlashCategory.DANGER)
             return RedirectResponse(url=f"/c/{ctx.contest.login_slug}", status_code=303)
         _end_contest_now(ctx.contest, now=datetime.now(UTC))
+        await record_admin_action(
+            ctx.session,
+            request,
+            module="web",
+            actor_user_id=ctx.actor.id,
+            action="contest_end_now",
+            target_type="contest",
+            target_id=ctx.contest.id,
+            detail=f"slug={ctx.contest.login_slug}",
+        )
         await ctx.session.commit()
         flash("Contest duration adjusted. Contest will end shortly.", FlashCategory.SUCCESS)
     return RedirectResponse(url=f"/c/{ctx.contest.login_slug}", status_code=303)

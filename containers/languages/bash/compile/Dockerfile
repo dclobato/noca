@@ -15,6 +15,8 @@
 
 FROM debian:bookworm-slim
 
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
+
 RUN groupadd --system judge && useradd --system --gid judge --create-home judge
 
 # Pre-create /sandbox — compile containers skip pool.py's exec mkdir warmup.

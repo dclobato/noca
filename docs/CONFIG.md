@@ -33,8 +33,8 @@ These variables are read by every runtime module (`web`, `arena`, `autojudge`,
 |----------|---------|-------------|
 | `NOCA_DB_USER` | *(required)* | PostgreSQL username |
 | `NOCA_DB_PASSWORD` | *(required)* | PostgreSQL password |
-| `NOCA_DB_SERVER` | `localhost` | Host and optional port of the PostgreSQL server (e.g. `127.0.0.1` or `postgres:5432`). **On Windows use `127.0.0.1` instead of `localhost`** — asyncpg tries IPv6 first when given a hostname, causing a ~20 s delay before falling back to IPv4. |
-| `NOCA_DB_PORT` | `5432` | PostgreSQL port (1–65535). Overrides any port embedded in `NOCA_DB_SERVER`. |
+| `NOCA_DB_SERVER` | *(required)* | Hostname or IP of the PostgreSQL server (for example, `127.0.0.1` or `postgres`). **On Windows use `127.0.0.1` instead of `localhost`** — asyncpg tries IPv6 first when given a hostname, causing a ~20 s delay before falling back to IPv4. |
+| `NOCA_DB_PORT` | `5432` | PostgreSQL port (1–65535). |
 | `NOCA_DB_NAME` | *(required)* | Name of the PostgreSQL database |
 
 ### Valkey / Redis
@@ -52,6 +52,43 @@ These variables are read by every runtime module (`web`, `arena`, `autojudge`,
 | `NOCA_STARTUP_TIMEOUT_SECONDS` | `60` | Maximum seconds each module waits for PostgreSQL and Valkey to become reachable at startup before aborting. Set to `0` to skip the wait and fail immediately. Applied to **web**, **arena**, **autojudge**, and **aiassistant**; the **rating** module only waits for PostgreSQL (0–300 s). |
 | `NOCA_WORKER_COMMAND_SECRET` | *(empty)* | Shared `HMAC-SHA256` secret for the authenticated worker pause/resume protocol. Read by **arena** (signs/publishes), **autojudge**, and **aiassistant** (verify/apply). When empty the feature is disabled: the Arena dashboard hides pause/resume buttons, direct POSTs are rejected (`rejected_disabled`), and worker command loops do not start. Keep it secret; theft allows pausing queue consumers. |
 
+### Health rate limiting
+
+The Web and Arena `/health` endpoints are public so local containers and load
+balancers can probe them. These settings bound public probe traffic before the
+endpoint checks PostgreSQL and Valkey. Trusted CIDRs bypass the limit for local
+health checks. The limiter keys requests by the ASGI client IP after Uvicorn's
+trusted proxy processing, so configure `NOCA_FORWARDED_ALLOW_IPS` when a
+reverse proxy must pass through the original client IP.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOCA_HEALTH_RATE_LIMIT_ENABLED` | `true` | Enable public `/health` endpoint rate limiting in Web and Arena. |
+| `NOCA_HEALTH_RATE_LIMIT_WINDOW_SECONDS` | `60` | Fixed-window length in seconds for `/health` rate limiting. |
+| `NOCA_HEALTH_RATE_LIMIT_MAX_REQUESTS` | `30` | Maximum public `/health` requests per client IP in each window. |
+| `NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS` | `127.0.0.0/8,::1/128` | Comma-separated CIDRs that bypass `/health` rate limiting. Keep local probe networks here. |
+
+### Security headers and auth throttling
+
+Web and Arena share browser security headers and Valkey-backed authentication
+throttling. Auth throttling keys attempts by module, action, ASGI client IP,
+and a hashed normalized account identifier. It does not trust raw
+`X-Forwarded-For`; configure `NOCA_FORWARDED_ALLOW_IPS` so Uvicorn sets the
+ASGI client correctly behind a trusted reverse proxy.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOCA_SECURITY_HEADERS_ENABLED` | `true` | Enable security headers on Web and Arena responses. |
+| `NOCA_CSP_REPORT_ONLY` | `true` | Send `Content-Security-Policy-Report-Only` instead of enforcing CSP. Set to `false` only after validating current assets. |
+| `NOCA_AUTH_RATE_LIMIT_ENABLED` | `true` | Enable auth throttling on Web login and Arena login, 2FA, password reset, and signup. |
+| `NOCA_AUTH_RATE_LIMIT_WINDOW_SECONDS` | `900` | Failure-count window in seconds. |
+| `NOCA_AUTH_RATE_LIMIT_IP_MAX_FAILURES` | `20` | Maximum failures per ASGI client IP in the window. |
+| `NOCA_AUTH_RATE_LIMIT_ACCOUNT_MAX_FAILURES` | `5` | Maximum failures per hashed account identifier in the window. |
+| `NOCA_AUTH_RATE_LIMIT_LOCKOUT_SECONDS` | `900` | Lockout duration in seconds. Lockout responses include `Retry-After`. |
+| `NOCA_SECURITY_EVENTS_RETENTION_DAYS` | `180` | Shared retention policy: days to retain `security_events` rows before the retention reaper deletes them. Read by both Web and Arena. `0` disables cleanup. |
+| `NOCA_WEB_SECURITY_EVENTS_REAPER_INTERVAL_SECONDS` | `86400` | Polling interval for the Web security-events retention reaper (1 hour to 7 days). Web reaps `module=web` rows. |
+| `NOCA_ARENA_SECURITY_EVENTS_REAPER_INTERVAL_SECONDS` | `86400` | Polling interval for the Arena security-events retention reaper (1 hour to 7 days). Arena reaps `module in (arena, aiassistant)` rows. |
+
 ### Environment and logging
 
 | Variable | Default | Description |
@@ -63,7 +100,7 @@ These variables are read by every runtime module (`web`, `arena`, `autojudge`,
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOCA_COOKIE_SECURE` | `false` | Set the `Secure` attribute on session cookies. Set to `true` in production (requires HTTPS). |
+| `NOCA_COOKIE_SECURE` | `false` | Set the `Secure` attribute on session cookies. Web and Arena refuse to start in production unless this is `true`. Use HTTPS directly or a trusted TLS-terminating reverse proxy. |
 | `NOCA_CRYPTO_ENV_FILE` | `.env.crypto` | Dotenv file loaded by the Arena app and the AI assistant worker before initializing `SecretsManager` (encrypted OTP and user-owned OpenAI API key fields). |
 
 Encrypted-at-rest fields use `SecretsManager` key versions stored in the crypto
@@ -91,9 +128,34 @@ These variables are read by both the web and arena modules.
 
 ### Reverse proxy
 
+> **Set this when a reverse proxy (Caddy, nginx, Traefik, …) terminates TLS in
+> front of Web/Arena.** Uvicorn only honors `X-Forwarded-Proto` / `X-Forwarded-For`
+> from a peer whose IP is in `NOCA_FORWARDED_ALLOW_IPS`. The default
+> `127.0.0.1,::1` only trusts loopback, so **a proxy that connects over a Docker
+> network (any non-loopback IP) is not trusted** and its forwarded headers are
+> discarded. When that happens:
+>
+> - `request.url_for()` builds `http://…` instead of `https://…`. On an HTTPS
+>   page, htmx 2.x rejects the mismatched-scheme request client-side
+>   (`htmx:invalidPath`), so htmx buttons and auto-refreshing partials silently
+>   stop working — while `<script>`/`<link>` subresources still load because HSTS
+>   transparently upgrades them.
+> - `request.client.host` stays the proxy's IP for **every** request, so auth
+>   rate limiting buckets all users together (one lockout affects everyone) and
+>   the `security_events` audit log records the proxy IP instead of the real
+>   client.
+>
+> **Fix:** set `NOCA_FORWARDED_ALLOW_IPS` to the proxy's source network, then
+> restart Web/Arena. For a proxy on the same Docker network with no published app
+> ports, `*` is safe because Uvicorn is unreachable except through the proxy;
+> otherwise pin the subnet (e.g. from
+> `docker network inspect <network> -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'`).
+> Note `NOCA_WEB_URL_BASE` / `NOCA_ARENA_URL_BASE` do **not** help here — they
+> only affect absolute links in emails and reports, not in-page `request.url_for()`.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOCA_FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Comma-separated trusted reverse proxy IPs/CIDRs used to accept `X-Forwarded-*` headers in Uvicorn/FastAPI. Example: `127.0.0.1,10.0.0.0/8`. Use `*` only in trusted private networks where clients cannot reach the app directly. |
+| `NOCA_FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Comma-separated trusted reverse proxy IPs/CIDRs used to accept `X-Forwarded-*` headers in Uvicorn/FastAPI. Example: `127.0.0.1,10.0.0.0/8`. Use `*` only in trusted private networks where clients cannot reach the app directly (e.g. a proxy on the same Docker network while the app publishes no ports). Loopback-only default silently drops forwarded headers from a containerized proxy — see the warning above. |
 
 ### JWT
 
@@ -280,7 +342,10 @@ keys for display.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOCA_RATING_INTERVAL` | `86400` | Seconds between Arena rating recomputation cycles. Valid range: 900 (15 min) – 604800 (1 week). Problem difficulty, user scores, and affiliation ratings are all recomputed each cycle. |
-| `NOCA_RATING_COMPUTE_ON_STARTUP` | `false` | When `true`, the problem, user, and affiliation rating cycles and the problem-statistics cycle run immediately at startup instead of waiting for their first interval to elapse. |
+| `NOCA_RATING_COMPUTE_ON_STARTUP` | `false` | When `true`, the problem, user, and affiliation rating cycles, the problem-statistics cycle, and the badge-assignment cycle run immediately at startup instead of waiting for their first interval to elapse. |
+| `NOCA_RATING_BADGE_INTERVAL` | `900` | Seconds between Arena gamification badge-assignment cycles. Valid range: 900 (15 min) – 604800 (1 week). Runs on its own timer in the rating worker, independent of `NOCA_RATING_INTERVAL`. Each cycle awards badges from newly Accepted submissions. |
+| `NOCA_RATING_BADGE_LOOKBACK_SECONDS` | `600` | Overlap subtracted from the badge incremental watermark so judgments committed slightly late or out of order are re-seen and deduplicated by idempotency. Valid range: 0 – 86400. |
+| `NOCA_RATING_BADGE_RECONCILE_INTERVAL` | `86400` | Minimum seconds between full badge reconciliation passes that ignore the watermark and re-evaluate all Accepted history (keeps CLEAN_CODE dynamic and repairs missed late data). Valid range: 900 – 604800. A full reconcile also runs on the first cycle after startup. |
 | `NOCA_RATING_STATS_INTERVAL` | `86400` | Seconds between Arena per-problem statistics recomputation cycles. Valid range: 900 (15 min) – 604800 (1 week). Runs on its own timer in the rating worker, independent of `NOCA_RATING_INTERVAL`. Produces the snapshots read by the problem statistics page. |
 | `NOCA_RATING_AFFILIATION_FACTOR` | `5.0` | Geometric decay factor `f` used in the affiliation rating formula `S = (1/f) × Σ (1−1/f)^i × s_i`. Larger `f` = slower weight decay = more members contribute meaningfully to the score. Valid range: 2–50. |
 | `NOCA_RATING_WORKER_ID` | *(empty)* | Stable identity shown on the Arena admin dashboard. Defaults to `<fqdn>:<pid>` when empty. |
@@ -321,7 +386,7 @@ in `_ai_review_cost` as integer microdollars.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOCA_AI_POLL_INTERVAL_SECONDS` | `5.0` | Seconds to sleep between poll attempts when the AI review queue is empty (0.5–60 s). Lower values reduce review latency at the cost of more Valkey traffic. |
-| `NOCA_AI_BATCH_POLL_INTERVAL_SECONDS` | `300.0` | Seconds between scans for pending OpenAI batch jobs (60–3600 s). Batch reviews can take up to 24 h, so the default checks every 5 min. |
+| `NOCA_AI_BATCH_POLL_INTERVAL_SECONDS` | `300.0` | Seconds between scans for pending OpenAI batch jobs (60–3600 s). Batch reviews can take up to 24 h, so the default checks every 5 min. Arena also reads this value to compute the displayed batch-window size in the AI review confirmation modal. |
 | `NOCA_AI_BATCH_STALE_HOURS` | `24` | Hours after submission before a non-terminal OpenAI batch job is considered stale (1–168 h). At the top of each batch poll cycle, stale jobs are expired locally: the consumed platform credit is refunded, `submit_to_ai` is cleared so the review can be requested again, the user is notified, and the OpenAI batch is cancelled with its files deleted. |
 | `NOCA_AI_WORKER_ID` | *(empty)* | Stable identity shown on the Arena admin dashboard. Defaults to `<fqdn>:<pid>` when empty. |
 | `NOCA_AI_PRESENCE_INTERVAL_SECONDS` | `30` | Seconds between worker-presence updates in Valkey (1–300 s). |

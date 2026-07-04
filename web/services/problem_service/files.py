@@ -15,6 +15,7 @@ import zipfile
 from pathlib import Path
 
 from shared.problem_statement_markdown import validate_md_content as validate_md_content  # noqa: F401
+from shared.services.testcase_files import get_problem_testcase_dir as _shared_get_problem_testcase_dir
 from shared.tc_zip import normalize_testcase_bytes as normalize_testcase_bytes  # noqa: F401
 from shared.tc_zip import parse_testcases_zip as parse_testcases_zip  # noqa: F401
 from web.models.problem import Problem, ProblemLanguageLimit
@@ -66,7 +67,14 @@ def delete_md_statement(problem_id: str, statement_dir: Path) -> None:
 
 def get_testcase_path(problem_id: str, ordinal: int, ext: str, testcase_dir: Path) -> Path:
     """Return the path for one test-case file."""
-    return testcase_dir / problem_id / f"{ordinal:03d}.{ext}"
+    if ext not in {"in", "out"}:
+        raise ValueError(f"Invalid testcase extension: {ext!r}")
+    base = _shared_get_problem_testcase_dir(problem_id, testcase_dir)
+    path = (base / f"{ordinal:03d}.{ext}").resolve(strict=False)
+    root = testcase_dir.resolve()
+    if not path.is_relative_to(root):
+        raise ValueError(f"Testcase path escapes configured root: {problem_id!r}")
+    return path
 
 
 def save_testcase_files(
@@ -80,7 +88,7 @@ def save_testcase_files(
         tuple[int, int]: ``(input_size_bytes, output_size_bytes)`` of the
         normalized content written to disk.
     """
-    base = testcase_dir / problem_id
+    base = _shared_get_problem_testcase_dir(problem_id, testcase_dir)
     base.mkdir(parents=True, exist_ok=True)
     in_norm = normalize_testcase_bytes(in_bytes)
     out_norm = normalize_testcase_bytes(out_bytes)
@@ -127,12 +135,12 @@ def delete_testcase_files(problem_id: str, ordinal: int, testcase_dir: Path) -> 
 
 def delete_all_testcase_files(problem_id: str, testcase_dir: Path) -> None:
     """Delete all testcase files for one problem."""
-    shutil.rmtree(testcase_dir / problem_id, ignore_errors=True)
+    shutil.rmtree(_shared_get_problem_testcase_dir(problem_id, testcase_dir), ignore_errors=True)
 
 
 def renumber_testcase_files(problem_id: str, old_ordinal: int, new_ordinal: int, testcase_dir: Path) -> None:
     """Rename test case files from old_ordinal to new_ordinal."""
-    base = testcase_dir / problem_id
+    base = _shared_get_problem_testcase_dir(problem_id, testcase_dir)
     for ext in ("in", "out"):
         src = base / f"{old_ordinal:03d}.{ext}"
         dst = base / f"{new_ordinal:03d}.{ext}"
@@ -142,7 +150,7 @@ def renumber_testcase_files(problem_id: str, old_ordinal: int, new_ordinal: int,
 
 def reorder_testcase_files(problem_id: str, ordinal_map: dict[int, int], testcase_dir: Path) -> None:
     """Rename testcase files through temporary paths for an arbitrary reorder."""
-    base = testcase_dir / problem_id
+    base = _shared_get_problem_testcase_dir(problem_id, testcase_dir)
     if not base.exists():
         return
 

@@ -243,6 +243,7 @@ async def test_problem_detail_renders_resizable_workspace(session: AsyncSession)
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, author)},
     ) as client:
         response = await client.get(f"/problems/{problem.arena_number}")
 
@@ -280,6 +281,7 @@ async def test_problem_detail_renders_license_before_sample_download(session: As
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, author)},
     ) as client:
         response = await client.get(f"/problems/{problem.arena_number}")
 
@@ -304,6 +306,7 @@ async def test_problem_detail_omits_empty_license(session: AsyncSession) -> None
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, author)},
     ) as client:
         response = await client.get(f"/problems/{problem.arena_number}")
 

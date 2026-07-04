@@ -20,15 +20,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.config import settings
 from arena.database import get_db
 from arena.routes.auth_common import (
+    AUTH_RATE_LIMITER,
+    _auth_rate_limit_settings,
     _flash_password_age_warning,
     _issue_login_token,
     _login_failure_message,
     _set_login_cookie,
+    enforce_resend_throttle,
 )
 from arena.services import arena_auth_service, user_email_service, user_service
 from arena.services.session_service import post_login_redirect_url
 from shared.age_check import AgeStatus, check_age
+from shared.services.auth_rate_limit import (
+    build_auth_throttle_identity,
+    check_auth_throttle,
+    record_auth_failure,
+    reset_auth_throttle,
+)
 from shared.services.network_utils import NetworkService
+from shared.services.security_events import record_request_security_event
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +109,43 @@ async def arena_login_submit(
     remember_me = remember is not None
     ip_address = NetworkService.get_ip_from_request(request)
     user_agent = request.headers.get("User-Agent")
+    throttle_settings = _auth_rate_limit_settings()
+    throttle_identity = build_auth_throttle_identity(
+        request,
+        module="arena",
+        action="login",
+        identifier=email,
+        settings=throttle_settings,
+    )
+    throttle_check = await check_auth_throttle(
+        request,
+        throttle_identity,
+        settings=throttle_settings,
+        fallback_limiter=AUTH_RATE_LIMITER,
+    )
+    if not throttle_check.allowed:
+        await record_request_security_event(
+            session,
+            request,
+            module="arena",
+            event_type="auth_throttle_lockout",
+            severity="warning",
+            identifier_hash=throttle_identity.identifier_hash,
+            metadata={"action": "login", "reason": throttle_check.reason},
+        )
+        await session.commit()
+        flash("Too many failed attempts. Try again later.", FlashCategory.DANGER)
+        return _html(
+            templates.TemplateResponse(
+                request,
+                "auth/login.html",
+                {"next": next},
+                status_code=429,
+                headers={
+                    "Retry-After": str(throttle_check.retry_after_seconds or settings.AUTH_RATE_LIMIT_LOCKOUT_SECONDS)
+                },
+            )
+        )
 
     result = await arena_auth_service.efetuar_login(
         email=email.strip(),
@@ -110,6 +157,7 @@ async def arena_login_submit(
     )
 
     if result.status == user_service.UserOperationStatus.USER_INACTIVE:
+        await _record_login_failure(request, session, throttle_identity, "login", "inactive")
         if result.user is not None and not result.user.email_confirmado:
             request.session["pending_resend_uid"] = result.user.id
             flash(
@@ -142,6 +190,7 @@ async def arena_login_submit(
         return _redirect_to(request, "arena_login")
 
     if result.status == user_service.UserOperationStatus.PARENTAL_CONSENT_REQUIRED and result.user is not None:
+        await _record_login_failure(request, session, throttle_identity, "login", "parental_consent_required")
         request.session["pending_parental_uid"] = result.user.id
         flash(_login_failure_message(result.status), FlashCategory.WARNING)
         return _html(
@@ -154,6 +203,7 @@ async def arena_login_submit(
         )
 
     if result.status == user_service.UserOperationStatus.AGE_RECONFIRMATION_REQUIRED and result.user is not None:
+        await _record_login_failure(request, session, throttle_identity, "login", "age_reconfirmation_required")
         request.session["pending_age_uid"] = result.user.id
         flash(_login_failure_message(result.status), FlashCategory.WARNING)
         return _html(
@@ -166,14 +216,21 @@ async def arena_login_submit(
         )
 
     if result.status == user_service.UserOperationStatus.UNDERAGE_BLOCKED:
+        await _record_login_failure(request, session, throttle_identity, "login", "underage_blocked")
         flash(_login_failure_message(result.status), FlashCategory.DANGER)
         return _redirect_to(request, "arena_login")
 
     if result.status != user_service.UserOperationStatus.SUCCESS or result.user is None:
+        await _record_login_failure(request, session, throttle_identity, "login", result.status.name)
         flash(_login_failure_message(result.status), FlashCategory.DANGER)
         return _redirect_to(request, "arena_login")
 
     usuario = result.user
+    await reset_auth_throttle(
+        request,
+        throttle_identity,
+        fallback_limiter=AUTH_RATE_LIMITER,
+    )
     await session.commit()
 
     if not usuario.aceitou_termos_privacidade:
@@ -225,6 +282,32 @@ async def arena_login_submit(
     return response
 
 
+async def _record_login_failure(
+    request: Request,
+    session: AsyncSession,
+    throttle_identity: Any,
+    action: str,
+    reason: str,
+) -> None:
+    """Record a failed Arena login attempt and security event."""
+    failure = await record_auth_failure(
+        request,
+        throttle_identity,
+        settings=_auth_rate_limit_settings(),
+        fallback_limiter=AUTH_RATE_LIMITER,
+    )
+    await record_request_security_event(
+        session,
+        request,
+        module="arena",
+        event_type="auth_failure",
+        severity="warning" if failure.locked else "info",
+        identifier_hash=throttle_identity.identifier_hash,
+        metadata={"action": action, "reason": reason, "lock_reason": failure.reason},
+    )
+    await session.commit()
+
+
 @router.post("/resend-activation", name="arena_resend_activation")
 async def arena_resend_activation(
     request: Request,
@@ -232,6 +315,10 @@ async def arena_resend_activation(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Re-send the email confirmation link for an unconfirmed account."""
+    retry_after = await enforce_resend_throttle(request, session, action="resend_activation")
+    if retry_after is not None:
+        flash("Too many requests. Please try again later.", FlashCategory.DANGER)
+        return _redirect_to(request, "arena_login")
     uid: str | None = request.session.pop("pending_resend_uid", None)
     if not uid:
         flash("No pending activation request found. Please log in to try again.", FlashCategory.DANGER)
@@ -266,6 +353,10 @@ async def arena_resend_parental_consent(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Re-send the parental consent link for a pending account."""
+    retry_after = await enforce_resend_throttle(request, session, action="resend_parental_consent")
+    if retry_after is not None:
+        flash("Too many requests. Please try again later.", FlashCategory.DANGER)
+        return _redirect_to(request, "arena_login")
     uid: str | None = request.session.get("pending_parental_uid")
     if not uid:
         flash("No pending consent request found. Please log in to try again.", FlashCategory.DANGER)
@@ -297,6 +388,10 @@ async def arena_update_parental_email(
     email_responsavel_legal: str = Form(""),
 ) -> Response:
     """Store or replace the parent/legal guardian email for a pending account."""
+    retry_after = await enforce_resend_throttle(request, session, action="update_parental_email")
+    if retry_after is not None:
+        flash("Too many requests. Please try again later.", FlashCategory.DANGER)
+        return _redirect_to(request, "arena_login")
     uid: str | None = request.session.get("pending_parental_uid")
     if not uid:
         flash("No pending consent request found. Please log in to try again.", FlashCategory.DANGER)

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_affiliations import ArenaAffiliation
+from arena.models.arena_badges import ArenaUserBadge
 from arena.models.arena_users import ArenaUser
 from arena.routes.user_profile_api import router as profile_api_router
 from arena.services import admin_user_service, backup2fa_service
@@ -41,7 +42,11 @@ from arena.services.user_progress_service import (
     make_progress_summary,
 )
 from shared.db_schema import languages as languages_table
-from shared.enumerations import ARENA_NOTIFICATION_ICONS, Verdict
+from shared.enumerations import (
+    ARENA_BADGE_METADATA,
+    ARENA_NOTIFICATION_ICONS,
+    Verdict,
+)
 from shared.services.arena_notification_service import (
     count_unread_arena_notifications,
     delete_all_arena_notifications,
@@ -189,6 +194,7 @@ async def arena_user_profile(
         "personal-security",
         "solved",
         "attempted",
+        "badges",
         "favorites",
         "notifications",
         "submissions",
@@ -221,6 +227,7 @@ async def arena_user_profile(
     notifications: Pagination[object] | None = None
     submissions: Pagination[SubmissionListRow] | None = None
     credit_transactions = None
+    badges: list[ArenaUserBadge] = []
 
     if active_tab == "personal-security":
         if current_user.usa_2fa:
@@ -263,6 +270,14 @@ async def arena_user_profile(
             solved=_empty_progress,  # type: ignore[arg-type]
             attempted=attempted_page_data,
         )
+
+    elif active_tab == "badges":
+        badge_result = await session.scalars(
+            select(ArenaUserBadge)
+            .where(ArenaUserBadge.user_id == current_user.id)
+            .order_by(ArenaUserBadge.awarded_at.desc(), ArenaUserBadge.id.desc())
+        )
+        badges = [badge for badge in badge_result.all() if badge.badge.value in ARENA_BADGE_METADATA]
 
     elif active_tab == "favorites":
         favorites = await get_favorites_paginated(
@@ -324,6 +339,8 @@ async def arena_user_profile(
                 "active_tab": active_tab,
                 "countries": list_countries(),
                 "active_languages": active_languages,
+                "badges": badges,
+                "badge_metadata": ARENA_BADGE_METADATA,
                 "notifications": notifications,
                 "notifications_unread_count": notifications_unread_count,
                 "notification_icons": ARENA_NOTIFICATION_ICONS,

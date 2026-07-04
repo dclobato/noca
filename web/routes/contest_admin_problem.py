@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.services.admin_audit import record_admin_action
 from shared.tc_zip import parse_single_testcase_zip
 from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
@@ -476,6 +477,16 @@ async def remove_problem(
 
     pid = problem.id
     await remove_problem_and_resequence(ctx.session, ctx.contest, problem)
+    await record_admin_action(
+        ctx.session,
+        request,
+        module="web",
+        actor_user_id=ctx.actor.id,
+        action="delete",
+        target_type="contest_problem",
+        target_id=pid,
+        detail=f"contest={ctx.contest.login_slug}",
+    )
     await ctx.session.commit()
 
     try:

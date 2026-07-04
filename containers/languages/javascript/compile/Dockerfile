@@ -2,9 +2,11 @@
 #
 # Short-lived container — one per submission, destroyed after syntax check.
 #
-# Pinned family: node:22-bookworm-slim (Debian bookworm slim)
+# Pinned family: node:24-bookworm-slim (Debian bookworm slim)
 
-FROM node:22-bookworm-slim
+FROM node:24-bookworm-slim
+
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
 RUN groupadd --system judge && useradd --system --gid judge --create-home judge
 

@@ -22,19 +22,19 @@ The source of truth is:
 | `gcc-c17` | `source.c` | `debian:bookworm-slim` + `gcc` + `libc6-dev` | `debian:bookworm-slim` | C17, GCC from Debian bookworm, glibc / C standard library, math library via `-lm` |
 | `gcc-cpp23` | `source.cpp` | `debian:bookworm-slim` + `g++` + `libc6-dev` | `debian:bookworm-slim` + `libstdc++6` | C++23 with GCC from Debian bookworm / libstdc++ standard library |
 | `python3` | `source.py` | `python:3.14-slim-bookworm` | `python:3.14-slim-bookworm` | Python 3.14 standard library only |
-| `java` | `Main.java` | `eclipse-temurin:21.0.10+7-jdk` (Ubuntu 24.04) | `eclipse-temurin:21.0.10+7-jre` (Ubuntu 24.04) | Java 21 standard library only |
-| `javascript` | `source.js` | `node:22-bookworm-slim` | `node:22-bookworm-slim` | Node.js 22 built-in modules only |
-| `kotlin` | `Main.kt` | `eclipse-temurin:21.0.10+7-jdk` (Ubuntu 24.04) + `kotlin-compiler-2.0.21` (GitHub release) | `eclipse-temurin:21.0.10+7-jre` (Ubuntu 24.04) | Kotlin 2.0.21 / JVM standard library packaged into the produced jar |
+| `java` | `Main.java` | `eclipse-temurin:25.0.3+9-jdk` | `eclipse-temurin:25.0.3+9-jre` | Java 25 standard library only |
+| `javascript` | `source.js` | `node:24-bookworm-slim` | `node:24-bookworm-slim` | Node.js 24 built-in modules only |
+| `kotlin` | `Main.kt` | `eclipse-temurin:25.0.3+9-jdk` + `kotlin-compiler-2.3.0` (GitHub release) | `eclipse-temurin:25.0.3+9-jre` | Kotlin 2.3.0 / JVM standard library packaged into the produced jar |
 | `fpc-pascal` | `source.pas` | `debian:bookworm-slim` + `fp-compiler=3.2.2+dfsg-20` | `debian:bookworm-slim` | Free Pascal 3.2.2 compiler/runtime |
 | `go` | `source.go` | `golang:1.26.2-bookworm` | `debian:bookworm-slim` | Go 1.26 standard library only, single-file builds |
-| `rust` | `source.rs` | `rust:1.94.1-bookworm` | `debian:bookworm-slim` + `libgcc-s1` | Rust 1.94 standard library only, single-file `rustc` builds |
-| `c-sharp` | `source.cs` | `dotnet/sdk:8.0.419` | `dotnet/runtime:8.0.25` | .NET 8 base class library only |
+| `rust` | `source.rs` | `rust:1.96.1-bookworm` | `debian:bookworm-slim` + `libgcc-s1` | Rust 1.96 standard library only, single-file `rustc` builds |
+| `c-sharp` | `source.cs` | `dotnet/sdk:10.0.301` | `dotnet/runtime:10.0.9` | .NET 10 base class library only |
 | `haskell` | `source.hs` | `debian:bookworm-slim` + `ghc=9.0.2-4` | `debian:bookworm-slim` + `libgmp10` + `libffi8` | GHC 9.0.2, Haskell standard library (`base`, `Data.List`, `Data.Map`, etc.) |
-| `lua` | `source.lua` | `debian:bookworm-slim` + `lua5.4=5.4.4-3+deb12u1` | `debian:bookworm-slim` + `lua5.4=5.4.4-3+deb12u1` | Lua 5.4 standard library only |
+| `lua` | `source.lua` | `debian:bookworm-slim` + `lua-5.5.0` (source build) | `debian:bookworm-slim` + `lua-5.5.0` (source build) | Lua 5.5 standard library only |
 | `prolog` | `source.pl` | `debian:bookworm-slim` + `swi-prolog-nox=9.0.4+dfsg-2` | `debian:bookworm-slim` + `swi-prolog-nox=9.0.4+dfsg-2` | SWI-Prolog 9.0.4 standard library; entry point via `:- initialization(main, main).` |
 | `fortran` | `source.f90` | `debian:bookworm-slim` + `gfortran=4:12.2.0-3` | `debian:bookworm-slim` + `libgfortran5` + `libquadmath0` + `libgcc-s1` | Fortran 2018 free-form, gfortran 12.2.0 |
 | `swift` | `source.swift` | `swift:6.3.2` + Static Linux SDK (musl) | `debian:bookworm-slim` | Swift 6.3 standard library only, single-file builds; statically linked binary |
-| `ruby` | `source.rb` | `ruby:3.3-slim-bookworm` | `ruby:3.3-slim-bookworm` | Ruby 3.3 standard library only |
+| `ruby` | `source.rb` | `ruby:4.0-slim-bookworm` | `ruby:4.0-slim-bookworm` | Ruby 4.0 standard library only |
 | `bash` | `source.sh` | `debian:bookworm-slim` | `debian:bookworm-slim` | Bash 5.2 built-ins and standard POSIX utilities included in the base image |
 
 ## Pinned Image Families
@@ -42,17 +42,17 @@ The source of truth is:
 | Image tag | Version family |
 | --- | --- |
 | `debian:bookworm-slim` | Debian 12 (bookworm) |
-| `ruby:3.3-slim-bookworm` | Ruby 3.3 on Debian bookworm slim |
+| `ruby:4.0-slim-bookworm` | Ruby 4.0 on Debian bookworm slim |
 | `python:3.14-slim-bookworm` | Python 3.14 on Debian bookworm slim |
-| `node:22-bookworm-slim` | Node.js 22 on Debian bookworm slim |
+| `node:24-bookworm-slim` | Node.js 24 on Debian bookworm slim |
 | `golang:1.26.2-bookworm` | Go 1.26 on Debian bookworm |
-| `rust:1.94.1-bookworm` | Rust 1.94 on Debian bookworm |
-| `eclipse-temurin:21-jdk` | Temurin JDK 21 |
-| `eclipse-temurin:21-jre` | Temurin JRE 21 |
-| `mcr.microsoft.com/dotnet/sdk:8.0` | .NET SDK 8 |
-| `mcr.microsoft.com/dotnet/runtime:8.0` | .NET Runtime 8 |
+| `rust:1.96.1-bookworm` | Rust 1.96 on Debian bookworm |
+| `eclipse-temurin:25-jdk` | Temurin JDK 25 |
+| `eclipse-temurin:25-jre` | Temurin JRE 25 |
+| `mcr.microsoft.com/dotnet/sdk:10.0` | .NET SDK 10 |
+| `mcr.microsoft.com/dotnet/runtime:10.0` | .NET Runtime 10 |
 | `ghc=9.0.2-4` (Debian bookworm) | GHC 9.0.2 |
-| `lua5.4=5.4.4-3+deb12u1` (Debian bookworm) | Lua 5.4.4 |
+| `lua-5.5.0` (source build from lua.org) | Lua 5.5.0 |
 | `swi-prolog-nox=9.0.4+dfsg-2` (Debian bookworm) | SWI-Prolog 9.0.4 |
 | `gfortran=4:12.2.0-3` (Debian bookworm) | gfortran 12.2.0 |
 | `swift:6.3.2` | Swift 6.3.2 official Linux toolchain |
@@ -118,12 +118,12 @@ uniform, and simplifies the worker's runtime bind logic.
 
 ### Java (`java`)
 
-- Compile command uses `javac` from Temurin JDK 21.0.10+7 and packages a runnable jar.
+- Compile command uses `javac` from Temurin JDK 25.0.3+9 and packages a runnable jar.
 - Run command:
   - `/opt/java/openjdk/bin/java -Xss64m -Xmx256m -jar /sandbox/solution.jar`
-- Base image: `eclipse-temurin:21-jdk` / `eclipse-temurin:21-jre`
+- Base image: `eclipse-temurin:25-jdk` / `eclipse-temurin:25-jre`
 - Available:
-  - Java 21 standard library
+  - Java 25 standard library
 - Not available:
   - Maven
   - Gradle
@@ -135,9 +135,9 @@ uniform, and simplifies the worker's runtime bind logic.
   - `node --check /sandbox/source.js`
 - Run command:
   - `/usr/local/bin/node /sandbox/source.js`
-- Base image: `node:22-bookworm-slim`
+- Base image: `node:24-bookworm-slim`
 - Available:
-  - Node.js 22 built-in modules such as `fs`, `path`, `crypto`, `util`, `stream`
+  - Node.js 24 built-in modules such as `fs`, `path`, `crypto`, `util`, `stream`
 - Not available:
   - `npm install`
   - third-party npm packages
@@ -148,12 +148,13 @@ uniform, and simplifies the worker's runtime bind logic.
   - `kotlinc /sandbox/Main.kt -include-runtime -d /sandbox/solution.jar`
 - Run command:
   - `/opt/java/openjdk/bin/java -Xss64m -Xmx256m -jar /sandbox/solution.jar`
-- Pinned: `kotlin-compiler-2.0.21` installed from the official GitHub release tarball.
+- Pinned: `kotlin-compiler-2.3.0` installed from the official GitHub release tarball.
   The distro package (`kotlin=1.3.31`) is not used because it is dangerously outdated.
+  2.3.0 is required for JDK 25 host-runtime compatibility.
 - Available:
-  - Kotlin 2.0.21 compiler (`kotlinc`)
+  - Kotlin 2.3.0 compiler (`kotlinc`)
   - Kotlin standard library bundled into the output jar by `-include-runtime`
-  - Java 21 runtime
+  - Java 25 runtime
 - Not available:
   - Gradle
   - Maven
@@ -196,10 +197,10 @@ uniform, and simplifies the worker's runtime bind logic.
 - Run command:
   - `/sandbox/solution`
 - Base images:
-  - compile: `rust:1.94.1-bookworm`
+  - compile: `rust:1.96.1-bookworm`
   - run: `debian:bookworm-slim`
 - Available:
-  - Rust 1.94 compiler and standard library at compile time
+  - Rust 1.96 compiler and standard library at compile time
   - Rust 2024 edition
 - Not available:
   - Cargo projects
@@ -208,22 +209,28 @@ uniform, and simplifies the worker's runtime bind logic.
 
 ### C# (`c-sharp`)
 
-- The judge generates a temporary SDK-style .NET project around the submitted `source.cs`.
-- Target framework:
-  - `net8.0`
+- The judge publishes the submitted `source.cs` directly as a .NET 10 file-based app
+  (no generated `.csproj`); the target framework, output type, and assembly name
+  (`solution`) are all derived from the source file plus `-p:` overrides on the
+  `dotnet publish` command line.
+- Any file-based app directive (`#:package`, `#:sdk`, `#:project`, `#:property`) at
+  the top of the source is rejected before compilation: those directives could pull
+  NuGet packages, switch SDKs (e.g. ASP.NET Core), or reference paths outside the
+  sandbox, none of which fit the single-file, no-dependencies contract.
 - Build flow:
-  - `dotnet publish` in Release mode
+  - `dotnet publish` in Release mode with `-p:PublishAot=false` (file-based apps
+    default to Native AOT publishing, which this judge does not use)
   - package sources are cleared with a generated `NuGet.Config`
 - Run command:
   - `/bin/sh -c 'rm -rf /sandbox/csharp-run && mkdir -p /sandbox/csharp-run && tar -xf /sandbox/solution.tar -C /sandbox/csharp-run && export DOTNET_EnableWriteXorExecute=0 && exec /usr/bin/dotnet /sandbox/csharp-run/solution.dll'`
-- Base images: `dotnet/sdk:8.0` / `dotnet/runtime:8.0`
+- Base images: `dotnet/sdk:10.0` / `dotnet/runtime:10.0`
 - Available:
-  - .NET 8 SDK at compile time
-  - .NET 8 runtime at run time
+  - .NET 10 SDK at compile time
+  - .NET 10 runtime at run time
   - .NET base class library
-  - implicit usings enabled
 - Not available:
   - external NuGet package restore
+  - file-based app directives (`#:package`, `#:sdk`, `#:project`, `#:property`)
   - custom project files from contestants
 
 ### Haskell (`haskell`)
@@ -244,12 +251,17 @@ uniform, and simplifies the worker's runtime bind logic.
 ### Lua (`lua`)
 
 - Compile step is a parse-only syntax check:
-  - `/usr/bin/luac5.4 -p /sandbox/source.lua`
+  - `/usr/local/bin/luac -p /sandbox/source.lua`
 - Run command:
-  - `/usr/bin/lua5.4 /sandbox/source.lua`
+  - `/usr/local/bin/lua /sandbox/source.lua`
 - Base image: `debian:bookworm-slim`
+- Pinned: `lua-5.5.0` built from the official lua.org source tarball with
+  `make linux` (Debian bookworm's `lua5.4` apt package tops out at 5.4.4). The
+  build only needs `libc`/`libm`, both already present in the base image; the
+  build toolchain itself is confined to a throwaway multi-stage builder and
+  does not ship in either the compile or run image.
 - Available:
-  - Lua 5.4 standard library (`io`, `math`, `string`, `table`, `os`, etc.)
+  - Lua 5.5 standard library (`io`, `math`, `string`, `table`, `os`, etc.)
 - Not available:
   - LuaRocks or third-party modules
 
@@ -305,7 +317,7 @@ uniform, and simplifies the worker's runtime bind logic.
 - Prefer standard-library-only solutions.
 - For JavaScript, rely only on Node built-ins.
 - For Go and Rust, submit a single source file and rely only on the standard library.
-- For C#, rely only on assemblies that ship with .NET 8.
+- For C#, rely only on assemblies that ship with .NET 10.
 - For Java and Kotlin, rely only on the JDK/JRE standard libraries bundled with the image.
 - For Prolog, end your source file with `:- initialization(main, main).` where `main(_)` is your entry predicate.
 - For Fortran, use free-form source layout (`.f90`) and target the Fortran 2018 standard.

@@ -372,6 +372,7 @@ consumer.
 ## Documentation
 
 - **[AIREVIEW_FLOW.md](docs/AIREVIEW_FLOW.md)**: End-to-end AI review flow (online fast-track and batch paths)
+- **[AIASSISTANT.md](docs/AIASSISTANT.md)**: AI assistant worker module, runtime loops, and security guardrails
 - **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**: Concise system architecture overview
 - **[ARCHITECTURE_RUNTIME.md](docs/ARCHITECTURE_RUNTIME.md)**: Detailed runtime architecture reference
 - **[ANIMEITOR-REVELEITOR.md](docs/ANIMEITOR-REVELEITOR.md)**: How to use the compatibility export with `animeitor` and `reveleitor`

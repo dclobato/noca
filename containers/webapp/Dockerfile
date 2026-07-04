@@ -12,6 +12,8 @@ FROM --platform=${ASSETS_PLATFORM} ${ASSETS_BASE_REF} AS assets
 
 FROM ${APP_BASE_REF}
 
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
+
 RUN mkdir -p /data/problem_statements /data/problem_test_cases
 
 RUN --mount=type=cache,target=/tmp/uv-cache \

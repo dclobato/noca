@@ -44,9 +44,9 @@
                                     {% else %}
                                         <span class="badge bg-secondary font-monospace">—</span>
                                     {% endif %}
-                                    {% if group.has_unfeedback_non_ac %}
+                                    {% if group.needs_feedback %}
                                         <span class="badge bg-warning text-dark ms-2 d-inline-flex align-items-center gap-1"
-                                              title="Has non-AC submissions without feedback">
+                                              title="Student has not solved this problem yet">
                                             {{ render_icon(icon="rate_review") }}
                                             Needs feedback
                                         </span>

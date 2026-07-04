@@ -140,6 +140,35 @@ Notes:
 - `RATING_AFFILIATION_FACTOR_KEY = "arena:rating:affiliation_factor"` — Valkey key
   the rating worker writes the active affiliation decay factor to for `/help/rating`.
 - rate functions do not commit; the caller owns the transaction.
+- `rate_all_problems()` ends each cycle by calling
+  `arena_difficulty_histogram.persist_difficulty_histogram()` to snapshot the
+  catalogue-wide difficulty distribution; see below.
+
+---
+
+## `arena_difficulty_histogram.py`
+
+Purpose:
+- bucket the internal difficulties (`[1, 100]`) computed by one
+  `arena_rating.rate_all_problems()` cycle into a 20-bin histogram over the
+  `[0, 10]` display scale and persist the snapshot, so the Arena `/help/rating`
+  page can show a current catalogue-wide distribution chart without an
+  aggregate query at request time
+
+Canonical location:
+- `shared/services/arena_difficulty_histogram.py`
+
+Main entrypoints:
+- `build_difficulty_histogram(difficulties: list[int]) -> dict` — pure bucketing,
+  20 bins of width 0.5 over the display scale
+- `persist_difficulty_histogram(session, difficulties, computed_at)` — builds the
+  payload and upserts it into the singleton `arena_rating_cycle_state` row
+  (`id = "singleton"`); does not commit, called once per cycle from
+  `rate_all_problems()`
+
+Notes:
+- the Arena read side is `arena/routes/help.py`
+  (`arena_help_difficulty_distribution`, `GET /help/rating/difficulty-distribution`)
 
 ---
 
@@ -173,6 +202,17 @@ Notes:
 - does not commit; the caller owns the transaction
 - the Arena read side is `arena/services/problem_stats_service.py`, which only reads
   the latest snapshot
+
+Secondary entrypoint (per-user statistics):
+- `compute_all_user_statistics(session) -> int` — rebuilds every row in
+  `arena_user_statistics` (one JSON snapshot per user with at least one judged
+  submission) and returns the number of users written. Powers the verdict and
+  language doughnut charts on the Arena public profile page. No rating
+  exclusion applies: the user's own submissions all count toward their own
+  statistics. Driven by `rating.loops.run_user_stats_loop` on the same
+  `STATS_INTERVAL` timer.
+- the Arena read side is `arena/services/user_stats_service.py`, which only
+  reads the latest snapshot
 
 ---
 
@@ -225,7 +265,87 @@ Main entrypoint:
 
 Reused by:
 - `arena/services/live_feed_service.py`, `arena/services/submission_list_service.py`,
-  and `shared/services/arena_stats.py`
+  `shared/services/arena_stats.py`, and `shared/services/arena_badges.py`
+
+---
+
+## `arena_badges.py`
+
+Purpose:
+- award Arena gamification badges (`ArenaBadge`) into the append-only `arena_user_badges`
+  ledger from Accepted submissions
+- the periodic loop that drives this lives in the `rating/` worker module
+  (`rating.loops.run_badge_assignment_loop`), on its own `BADGE_INTERVAL` timer
+
+Canonical location:
+- `shared/services/arena_badges.py` — public API and the per-submission evaluator
+- `shared/services/arena_badge_data.py` — sibling: state/cursor access, the Accepted and
+  non-AC batch queries, per-(user, problem) history, and the badge-insert helper
+- `shared/services/arena_badge_rules.py` — sibling: aggregate/dynamic rules (streaks,
+  CLEAN_CODE, FULL_CLEAR, distinct-problem-count tiers)
+- `shared/services/arena_badge_rules_catalogue.py` — sibling: catalogue aggregate rules
+  (distinct-language tiers, FIRST_SOLVER, ROCK_CRACKER)
+- `shared/services/arena_badge_rules_sets.py` — sibling: problem-set scoped rules
+  (FIRST_TO_HAND_IN, ALMOST_LATE)
+- `shared/services/arena_badge_rules_sequences.py` — sibling: ordered sequence and burst
+  rules (THIS_IS_THE_WAY, LOCO_CODER)
+
+Main entrypoints:
+- `compute_badge_awards(session, *, full_reconcile=None, reconcile_interval_seconds=86400,
+  lookback_seconds=600, now=None) -> int` — evaluates the relevant Accepted submissions and
+  returns the number of badge rows newly inserted. When `full_reconcile` is `None` the mode is
+  derived from the persisted `arena_badge_cycle_state.last_reconciled_at` so a process restart
+  does not force a reconciliation. Does not commit; the caller owns the transaction.
+- `award_badge(session, user_id, badge) -> bool` — inserts one badge with
+  `ON CONFLICT (user_id, badge) DO NOTHING`; returns whether a new row was written.
+
+Model:
+- two passes share one implementation: an **incremental** pass each cycle processes active AC
+  judgments and active non-AC DONE judgments with `finished_at >= watermark − lookback`
+  (best-effort, bounded by the singleton `arena_badge_cycle_state` watermark), and a periodic
+  **full reconciliation** pass (`full_reconcile=True`) re-evaluates all relevant history.
+  Correctness rests on the reconcile pass; every operation is idempotent (unique
+  `(user_id, badge)`, advance-only/award-only logic, order-independent streak recompute), so
+  reprocessing an event is harmless. The watermark advances from the maximum `finished_at` seen
+  in either the AC or non-AC batch.
+- badge eligibility uses **only** the active-judgment selection
+  (`active_arena_judgment_subquery`); it does **not** apply
+  `counts_toward_problem_rating` — admins and problem authors are eligible.
+- event ordering is canonical `(submission.created_at, submission.id)`; per-submission badges use
+  the AC's `created_at` in the submitter's timezone (via `user_timezone.py`), while the watermark
+  cursor is the judgment `finished_at`.
+- CLEAN_CODE is award-only and recomputed per problem: a user qualifies whose best AC sits in the
+  top 5% by wall time **or** by memory. STRIKE badges use the user's **historical maximum**
+  consecutive solve-day run (recomputed into `arena_users.current_streak` / `longest_streak` /
+  `last_ac_date`). The distinct-problem-count tiers (PROBLEMS_10 / PROBLEMS_25 / PROBLEMS_100 /
+  PROBLEMS_500) are award-only: each user in the batch is awarded every threshold their distinct
+  solved-problem count (from `arena_problem_solvers`) has crossed.
+- FIRST_SOLVER uses `arena_problem_solvers` to find each affected problem's earliest solver.
+  FIRST_TO_HAND_IN and ALMOST_LATE consider only AC submissions explicitly tied to a problem set
+  through `arena_submissions.problem_set_id`, with ALMOST_LATE requiring a non-null elapsed
+  deadline. ROCK_CRACKER reads solve rates from `arena_problem_ratings`, THIS_IS_THE_WAY scans a
+  user's ordered DONE verdict history for a 15-problem distinct AC run, and LOCO_CODER scans
+  non-AC DONE verdict bursts independently of the AC batch.
+
+---
+
+## `user_timezone.py`
+
+Purpose:
+- resolve an IANA timezone name from an Arena user's `country_code` / `subdivision_code` so both
+  the Arena HTTP layer and the rating worker share one mapping without the worker importing from
+  the `arena` package
+
+Canonical location:
+- `shared/services/user_timezone.py`
+
+Main entrypoint:
+- `timezone_name_for_country(country_code, subdivision_code) -> str` — exact subdivision match,
+  then a curated country default, then the first `pytz` country timezone; falls back to `"UTC"`
+
+Reused by:
+- `arena/services/user_timezone_service.py` (which adds user-object and datetime helpers) and
+  `shared/services/arena_badges.py`
 
 ---
 
@@ -873,6 +993,27 @@ Notes:
 
 ---
 
+## `health_rate_limit.py`
+
+Purpose:
+- shared public `/health` endpoint rate limiting for Web and Arena
+- Valkey-backed fixed-window counters with a process-local fallback when
+  Valkey is unavailable
+- trusted CIDR bypass for local container and load-balancer health checks
+
+Canonical location:
+- `shared/services/health_rate_limit.py`
+
+Main entrypoints:
+- `HealthRateLimitSettings` — compact settings object consumed by route
+  dependencies
+- `InMemoryHealthRateLimiter` — process-local fallback fixed-window limiter
+- `enforce_health_rate_limit(request, *, module, settings, fallback_limiter) -> None`
+  — raises `HTTPException(429)` with `Retry-After` when a public caller exceeds
+  the configured `/health` limit
+
+---
+
 ## `scoreboard_cache.py`
 
 Purpose:
@@ -886,6 +1027,155 @@ Notes:
 
 ---
 
+## `security_headers.py`
+
+Purpose:
+- apply the shared browser security-header baseline to Web and Arena HTTP
+  responses
+
+Canonical location:
+- `shared/services/security_headers.py`
+
+Key types and functions:
+- `SecurityHeaderSettings` — runtime flags for header enablement, CSP
+  report-only mode, and HSTS
+- `SecurityHeadersMiddleware` — ASGI middleware registered by Web and Arena
+- `apply_security_headers(headers, settings=...)` — testable header mutation
+  helper
+
+Notes:
+- the middleware sets `X-Content-Type-Options`, `Referrer-Policy`,
+  `X-Frame-Options`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`,
+  `Cross-Origin-Resource-Policy`, and CSP
+- CSP starts in report-only mode when `NOCA_CSP_REPORT_ONLY=true`
+- HSTS is enabled only when secure cookies are enabled or the app runs in
+  production
+
+---
+
+## `auth_rate_limit.py`
+
+Purpose:
+- provide Valkey-backed authentication throttling shared by Web and Arena
+
+Canonical location:
+- `shared/services/auth_rate_limit.py`
+
+Key types and functions:
+- `AuthRateLimitSettings` — shared throttle settings
+- `InMemoryAuthRateLimiter` — process-local fallback when Valkey is not
+  available (defined in `auth_rate_limit_fallback.py`, re-exported here)
+- `build_auth_throttle_identity(...)` — builds IP and account throttle keys
+- `check_auth_throttle(...)`, `record_auth_failure(...)`, and
+  `reset_auth_throttle(...)` — lifecycle helpers for auth flows
+
+Notes:
+- keys include module, auth action, ASGI client IP, and an HMAC hash of the
+  normalized account identifier
+- helpers intentionally use `request.client.host`; they don't trust raw
+  `X-Forwarded-For`
+- **fail-open**: every Valkey call is wrapped so that a `ValkeyError`/`OSError`
+  is logged and falls back to the in-memory limiter — a Valkey outage never
+  500s a login page
+- Web applies this to `/login` and `/c/{slug}/login`; Arena applies it to
+  login, 2FA, password reset, and signup, plus IP-scoped abuse caps on the
+  email-resend actions (`resend_activation`, `resend_parental_consent`,
+  `update_parental_email`) via `arena.routes.auth_common.enforce_resend_throttle`
+
+---
+
+## `security_events.py`
+
+Purpose:
+- persist cross-module security events for admin review and audit history
+
+Canonical location:
+- `shared/services/security_events.py`
+
+Key types and functions:
+- `record_security_event(...)` — insert a security event from a session or
+  connection
+- `record_request_security_event(...)` — insert an event with request IP and
+  user-agent metadata
+- `list_recent_security_events(session, limit=50, module=None, event_type=None)`
+  — return recent events for callers that need a bounded list
+- `list_security_events_paginated(session, page=..., per_page=..., module=None,
+  modules=None, event_type=None)` — return all retained matching events through
+  page-based browsing
+- `list_security_event_filter_values(session, module=None, modules=None)` —
+  distinct modules and event types present, for building filter dropdowns
+- `delete_security_events_older_than(session, retention_days=..., modules=None)`
+  — retention cleanup; `modules` restricts deletion to the caller's owned
+  module set so an independently deployed Web-only or Arena-only site prunes
+  exactly its own rows
+
+Notes:
+- events are stored in the `security_events` table
+- callers record auth lockouts, repeated auth failures, existing-account signup
+  attempts, AI response redactions, suspicious token/session mismatches, and
+  admin actions (via `admin_audit.py`)
+- viewers are scoped to the owning runtime's modules (same split as the
+  reaper): Arena `/admin/dashboard/security-events` shows
+  `module in (arena, aiassistant)`; Web `/uberadmin/security-events` shows
+  `module=web` only, with an event-type filter
+
+---
+
+## `security_events_reaper.py`
+
+Purpose:
+- periodic retention cleanup of the shared `security_events` table, run
+  independently by each HTTP runtime so a Web-only or Arena-only deployment
+  still prunes its own events
+
+Canonical location:
+- `shared/services/security_events_reaper.py`
+
+Key types and functions:
+- `run_security_events_reaper(session_factory, *, poll_interval_seconds,
+  retention_days, modules, stop_event, logger)` — self-contained loop (no
+  imports from `web`/`arena`): runs one cleanup cycle immediately, then repeats
+  every `poll_interval_seconds` until `stop_event` is set
+
+Notes:
+- started from each app's lifespan when `SECURITY_EVENTS_RETENTION_DAYS > 0`:
+  Web passes `modules=["web"]`, Arena passes `modules=["arena", "aiassistant"]`
+  (the AI worker only ever runs alongside Arena, so Arena owns its rows)
+- delegates row deletion to
+  `security_events.delete_security_events_older_than(...)`
+- each cycle opens a fresh session and commits; a failure is logged and the
+  loop continues
+
+---
+
+## `admin_audit.py`
+
+Purpose:
+- record privileged admin actions as `security_events` rows so the audit trail
+  reuses the existing actor/module/IP/user-agent columns and viewers instead of
+  a dedicated table
+
+Canonical location:
+- `shared/services/admin_audit.py`
+
+Key types and functions:
+- `record_admin_action(session, request, *, module, actor_user_id, action,
+  target_type, target_id, detail=None)` — write one `event_type="admin_action"`
+  row with a structured `{"action", "target_type", "target_id", "detail"}`
+  metadata payload
+
+Notes:
+- the audit row is written on the caller's session so, wherever the mutation
+  commits in the same transaction, they commit atomically
+- currently wired to destructive/privilege actions: Arena user role change,
+  activate/deactivate, disable-2FA, and problem/affiliation/category deletes;
+  Web uberadmin enable/disable, contest problem/user deletes, and contest
+  start-now/end-now state changes
+- escape hatch: promote to a typed table later if query needs outgrow the JSON
+  shape
+
+---
+
 ## `testcase_files.py`
 
 Purpose:
@@ -896,6 +1186,8 @@ Canonical location:
 
 Key functions / constants:
 - `CONTEST_TC_SUBDIR = "contest"`, `ARENA_TC_SUBDIR = "arena"` — domain subdirectories under the shared `NOCA_PROBLEM_TESTCASE_DIR` root
+- `get_problem_testcase_dir(problem_id, testcase_dir)` — validate a problem id
+  and resolve its guarded storage directory
 - `get_testcase_path(problem_id, ordinal, ext, testcase_dir)` — resolve `<testcase_dir>/<problem_id>/NNN.in|out`
 - `save_testcase_files(...) -> (in_size, out_size)` — normalize to LF and write a pair, returning on-disk byte sizes
 - `read_testcase_preview`, `read_testcase_full`, `read_testcase_sizes`
@@ -903,6 +1195,8 @@ Key functions / constants:
 
 Notes:
 - callers pass the domain-specific root (`settings.PROBLEM_TESTCASE_DIR`, already resolved to `<root>/contest` for Web and `<root>/arena` for Arena); the helper is domain-agnostic
+- problem ids must be UUID/slug-like path segments; resolved paths must remain
+  under the configured test-case root before read, write, rename, or delete
 - the single-source-of-truth inline-edit threshold `MAX_INLINE_TESTCASE_BYTES` (10 KB) and the single-case ZIP helpers (`parse_single_testcase_zip`, `build_single_testcase_zip`, `SingleTestCase`) live in `shared/tc_zip.py`
 
 ---

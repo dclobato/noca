@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from shared.services.token_revocation import ValkeyRevocationStore
+from web.config import settings
 
 # ---------------------------------------------------------------------------
 # Fake sync Valkey client for unit tests (no real Valkey required)
@@ -189,7 +190,7 @@ def test_jwtservice_revoke_populates_store() -> None:
 
 def test_integration_revoke_and_is_revoked(sync_valkey_client: Any) -> None:
     """Round-trip: revoke a JTI and verify is_revoked returns True."""
-    store = ValkeyRevocationStore(valkey_url="redis://127.0.0.1:6379/15")
+    store = ValkeyRevocationStore(valkey_url=settings.valkey_url)
     try:
         revoked = store.revoke("integ-jti-1", ttl_seconds=60)
         assert revoked is True
@@ -200,7 +201,7 @@ def test_integration_revoke_and_is_revoked(sync_valkey_client: Any) -> None:
 
 def test_integration_unknown_jti_not_revoked(sync_valkey_client: Any) -> None:
     """is_revoked returns False for a JTI that was never revoked."""
-    store = ValkeyRevocationStore(valkey_url="redis://127.0.0.1:6379/15")
+    store = ValkeyRevocationStore(valkey_url=settings.valkey_url)
     try:
         assert store.is_revoked("integ-jti-never-set") is False
     finally:
@@ -209,7 +210,7 @@ def test_integration_unknown_jti_not_revoked(sync_valkey_client: Any) -> None:
 
 def test_integration_duplicate_revoke_returns_false(sync_valkey_client: Any) -> None:
     """Revoking the same JTI twice returns False on the second call."""
-    store = ValkeyRevocationStore(valkey_url="redis://127.0.0.1:6379/15")
+    store = ValkeyRevocationStore(valkey_url=settings.valkey_url)
     try:
         assert store.revoke("integ-jti-dup", ttl_seconds=60) is True
         assert store.revoke("integ-jti-dup", ttl_seconds=60) is False
@@ -219,7 +220,7 @@ def test_integration_duplicate_revoke_returns_false(sync_valkey_client: Any) -> 
 
 def test_integration_ttl_is_bounded(sync_valkey_client: Any) -> None:
     """The key TTL set by revoke() is between 1 and the requested value."""
-    store = ValkeyRevocationStore(valkey_url="redis://127.0.0.1:6379/15")
+    store = ValkeyRevocationStore(valkey_url=settings.valkey_url)
     try:
         store.revoke("integ-jti-ttl", ttl_seconds=120)
         raw_ttl = sync_valkey_client.ttl("auth:revoked:integ-jti-ttl")
@@ -230,7 +231,7 @@ def test_integration_ttl_is_bounded(sync_valkey_client: Any) -> None:
 
 def test_integration_key_format_uses_correct_prefix(sync_valkey_client: Any) -> None:
     """Revoked tokens are stored under the auth:revoked: prefix."""
-    store = ValkeyRevocationStore(valkey_url="redis://127.0.0.1:6379/15")
+    store = ValkeyRevocationStore(valkey_url=settings.valkey_url)
     try:
         store.revoke("integ-jti-prefix", ttl_seconds=60)
         # Verify the key was written with the expected name
@@ -246,7 +247,7 @@ def test_integration_jwtservice_end_to_end(sync_valkey_client: Any) -> None:
 
     from web.services.authentication_service import AuthAction
 
-    store = ValkeyRevocationStore(valkey_url="redis://127.0.0.1:6379/15")
+    store = ValkeyRevocationStore(valkey_url=settings.valkey_url)
     try:
         jwt_service = JWTService(
             config=load_token_config_from_dict({"SECRET_KEY": "integ-test-secret-end-to-end-longer"}),

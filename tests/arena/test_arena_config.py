@@ -40,6 +40,24 @@ def test_arena_live_feed_limit_is_capped(monkeypatch: pytest.MonkeyPatch) -> Non
         Settings(_env_file=None)  # type: ignore[call-arg]
 
 
+def test_health_rate_limit_trusted_cidrs_accepts_valid_cidrs() -> None:
+    """Health rate-limit trusted networks are normalized."""
+    value = Settings.normalize_health_rate_limit_trusted_cidrs(" 127.0.0.0/8 , ::1/128 ")
+    assert value == "127.0.0.0/8,::1/128"
+
+
+def test_health_rate_limit_trusted_cidrs_rejects_invalid_token() -> None:
+    """Invalid health rate-limit trusted networks are rejected."""
+    with pytest.raises(ValueError, match="valid CIDRs"):
+        Settings.normalize_health_rate_limit_trusted_cidrs("127.0.0.0/8,not-a-cidr")
+
+
+def test_health_rate_limit_trusted_cidrs_rejects_empty_value() -> None:
+    """At least one trusted health CIDR must be configured."""
+    with pytest.raises(ValueError, match="cannot be empty"):
+        Settings.normalize_health_rate_limit_trusted_cidrs(" , ")
+
+
 @pytest.mark.parametrize("value", [None, "", "   ", "\t"])
 def test_mbox_log_dir_empty_or_blank_is_disabled(value: str | None) -> None:
     """Empty or whitespace-only values disable the mbox audit log."""

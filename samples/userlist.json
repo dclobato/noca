@@ -1,0 +1,68 @@
+[
+  {
+    "username": "team01",
+    "fullname": "Team 01",
+    "password": "papagaio",
+    "role": "team"
+  },
+  {
+    "username": "team02",
+    "fullname": "Team 02",
+    "password": "papagaio",
+    "role": "team"
+  },
+  {
+    "username": "team03",
+    "fullname": "Team 03",
+    "password": "papagaio",
+    "role": "team"
+  },
+  {
+    "username": "team04",
+    "fullname": "Team 04",
+    "password": "papagaio",
+    "role": "team"
+  },
+  {
+    "username": "judge01",
+    "fullname": "Judge 01",
+    "password": "papagaio",
+    "role": "judge"
+  },
+  {
+    "username": "judge02",
+    "fullname": "Judge 02",
+    "password": "papagaio",
+    "role": "judge"
+  },
+  {
+    "username": "judge03",
+    "fullname": "Judge 03",
+    "password": "papagaio",
+    "role": "judge"
+  },
+  {
+    "username": "staff01",
+    "fullname": "Staff 01",
+    "password": "papagaio",
+    "role": "staff"
+  },
+  {
+    "username": "staff02",
+    "fullname": "Staff 02",
+    "password": "papagaio",
+    "role": "staff"
+  },
+  {
+    "username": "score",
+    "fullname": "Scoreboard",
+    "password": "papagaio",
+    "role": "user"
+  },
+  {
+    "username": "admin01",
+    "fullname": "Admin 01",
+    "password": "papagaio",
+    "role": "admin"
+  }
+]

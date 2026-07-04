@@ -10,23 +10,44 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
+from shared.services.health_rate_limit import (
+    HealthRateLimitSettings,
+    InMemoryHealthRateLimiter,
+    enforce_health_rate_limit,
+)
 from web.config import settings
 from web.models.contest import Contest
 
 router = APIRouter(tags=["health"])
 logger = logging.getLogger(__name__)
+_fallback_health_limiter = InMemoryHealthRateLimiter()
 
 
 def _task_is_running(task: asyncio.Task[Any] | None) -> bool:
     return task is not None and not task.done()
 
 
-@router.get("/health")
+async def enforce_web_health_rate_limit(request: Request) -> None:
+    """Apply rate limiting to the public Web health endpoint."""
+    await enforce_health_rate_limit(
+        request,
+        module="web",
+        settings=HealthRateLimitSettings(
+            enabled=settings.HEALTH_RATE_LIMIT_ENABLED,
+            window_seconds=settings.HEALTH_RATE_LIMIT_WINDOW_SECONDS,
+            max_requests=settings.HEALTH_RATE_LIMIT_MAX_REQUESTS,
+            trusted_cidrs=settings.HEALTH_RATE_LIMIT_TRUSTED_CIDRS,
+        ),
+        fallback_limiter=_fallback_health_limiter,
+    )
+
+
+@router.get("/health", dependencies=[Depends(enforce_web_health_rate_limit)])
 async def health(request: Request) -> JSONResponse:
     """Return Web runtime health without propagating backend probe failures."""
     session_factory = getattr(request.app.state, "db_session", None)

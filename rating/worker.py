@@ -29,9 +29,11 @@ from rating.config import settings
 from rating.database import create_engine, create_session_factory
 from rating.loops import (
     run_affiliation_rating_loop,
+    run_badge_assignment_loop,
     run_problem_rating_loop,
     run_problem_stats_loop,
     run_user_rating_loop,
+    run_user_stats_loop,
 )
 from shared.app_logging import configure_logging, log_settings
 from shared.enumerations import Environment
@@ -221,6 +223,22 @@ async def run_rating_worker() -> None:
                 interval_seconds=settings.STATS_INTERVAL,
                 stop_event=stop_event,
                 logger=logger,
+                run_immediately=settings.COMPUTE_RATINGS_ON_STARTUP,
+            ),
+            run_user_stats_loop(
+                session_factory=session_factory,
+                interval_seconds=settings.STATS_INTERVAL,
+                stop_event=stop_event,
+                logger=logger,
+                run_immediately=settings.COMPUTE_RATINGS_ON_STARTUP,
+            ),
+            run_badge_assignment_loop(
+                session_factory=session_factory,
+                interval_seconds=settings.BADGE_INTERVAL,
+                stop_event=stop_event,
+                logger=logger,
+                lookback_seconds=settings.BADGE_LOOKBACK_SECONDS,
+                reconcile_interval_seconds=settings.BADGE_RECONCILE_INTERVAL,
                 run_immediately=settings.COMPUTE_RATINGS_ON_STARTUP,
             ),
             worker_presence_loop(

@@ -31,6 +31,8 @@ from aiassistant.db.queries import (
     store_ai_review_result,
     store_ai_review_stale_notification,
 )
+from aiassistant.guardrails import sanitize_ai_review_response
+from shared.services.security_events import record_security_event
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
@@ -177,6 +179,7 @@ async def _store_output_line(
         )
         return
 
+    sanitized = sanitize_ai_review_response(output_text)
     input_tokens, output_tokens, cost_micros = _compute_cost(body)
 
     async with engine.begin() as conn:
@@ -187,11 +190,24 @@ async def _store_output_line(
         await store_ai_review_result(
             conn,
             submission_id=submission_id,
-            response_text=output_text,
+            response_text=sanitized.text,
             response_at=datetime.now(UTC),
             cost_micros=cost_micros,
             used_platform_key=True,
         )
+        if sanitized.redacted:
+            await record_security_event(
+                conn,
+                module="aiassistant",
+                event_type="ai_response_redacted",
+                severity="warning",
+                actor_user_id=sub.user_id,
+                metadata={
+                    "submission_id": submission_id,
+                    "path": "batch",
+                    "reason": sanitized.reason,
+                },
+            )
         await store_ai_review_completed_notification(conn, sub)
 
     cost = None if cost_micros is None else cost_micros / 1_000_000
@@ -251,7 +267,7 @@ async def handle_failed_batch(
 
 
 async def _fail_submission(engine: AsyncEngine, submission_id: str) -> None:
-    """Clear ``submit_to_ai`` and send a platform-key failure notification.
+    """Clear ``submit_to_ai``, refund the platform credit, and notify the user.
 
     No-op when the submission no longer exists.
 
@@ -263,6 +279,7 @@ async def _fail_submission(engine: AsyncEngine, submission_id: str) -> None:
         sub = await get_submission_for_review(conn, submission_id)
         if sub is not None:
             await clear_submit_to_ai_flag(conn, submission_id)
+            await refund_ai_credit_for_submission(conn, sub.user_id, submission_id)
             await store_ai_review_failed_notification(conn, sub, is_user_key=False)
 
 

@@ -45,6 +45,8 @@ RUN curl -fsSL "https://github.com/ioi/isolate/archive/refs/tags/${JUDGE_ISOLATE
 
 FROM debian:bookworm-slim
 
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
+
 COPY --from=isolate-builder /tmp/isolate-src/isolate /usr/local/bin/isolate
 
 RUN chmod 755 /usr/local/bin/isolate

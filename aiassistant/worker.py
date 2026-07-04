@@ -51,6 +51,7 @@ from aiassistant.reviewer import ReviewResult, call_ai_review
 from shared.app_logging import configure_logging, log_settings
 from shared.db_schema.custom_types import init_encrypted_string
 from shared.enumerations import ARENA_AI_BATCH_JOB_TERMINAL_STATUSES, Environment
+from shared.services.security_events import record_security_event
 from shared.services.startup_wait import wait_for_db, wait_for_valkey
 from shared.services.valkey_service import (
     LivePauseFlag,
@@ -284,6 +285,19 @@ async def _process_job_online(
             cost_micros=cost_micros,
             used_platform_key=False,
         )
+        if result.redacted:
+            await record_security_event(
+                conn,
+                module="aiassistant",
+                event_type="ai_response_redacted",
+                severity="warning",
+                actor_user_id=submission.user_id,
+                metadata={
+                    "submission_id": submission_id,
+                    "path": "online",
+                    "reason": result.redaction_reason,
+                },
+            )
         await store_ai_review_completed_notification(conn, submission)
 
     await complete_arena_ai_review_job(valkey_runtime, submission_id)

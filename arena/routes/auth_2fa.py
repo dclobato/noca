@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
 from arena.routes.auth_common import (
+    AUTH_RATE_LIMITER,
+    _auth_rate_limit_settings,
     _flash_password_age_warning,
     _issue_login_token,
     _set_login_cookie,
@@ -25,7 +27,14 @@ from arena.routes.auth_common import (
 )
 from arena.services import arena_auth_service, user_2fa_service, user_security_notification_service, user_service
 from arena.services.session_service import post_login_redirect_url
+from shared.services.auth_rate_limit import (
+    build_auth_throttle_identity,
+    check_auth_throttle,
+    record_auth_failure,
+    reset_auth_throttle,
+)
 from shared.services.network_utils import NetworkService
+from shared.services.security_events import record_request_security_event
 
 logger = logging.getLogger(__name__)
 
@@ -66,18 +75,85 @@ async def arena_2fa_submit(
 
     result = await arena_auth_service.get_pending_2fa_token_data(token, session, jwt_service)
     if result.status != user_service.UserOperationStatus.SUCCESS or result.user is None:
+        await record_request_security_event(
+            session,
+            request,
+            module="arena",
+            event_type="suspicious_token_mismatch",
+            severity="warning",
+            metadata={"action": "2fa", "reason": result.status.name},
+        )
+        await session.commit()
         flash(_token_failure_message(result.status), FlashCategory.DANGER)
         return _redirect_to(request, "arena_login")
 
     usuario = result.user
     extra_data: dict[str, Any] = result.extra_data or {}
+    throttle_settings = _auth_rate_limit_settings()
+    throttle_identity = build_auth_throttle_identity(
+        request,
+        module="arena",
+        action="2fa",
+        identifier=usuario.email_normalizado,
+        settings=throttle_settings,
+    )
+    throttle_check = await check_auth_throttle(
+        request,
+        throttle_identity,
+        settings=throttle_settings,
+        fallback_limiter=AUTH_RATE_LIMITER,
+    )
+    if not throttle_check.allowed:
+        await record_request_security_event(
+            session,
+            request,
+            module="arena",
+            event_type="auth_throttle_lockout",
+            severity="warning",
+            actor_user_id=usuario.id,
+            identifier_hash=throttle_identity.identifier_hash,
+            metadata={"action": "2fa", "reason": throttle_check.reason},
+        )
+        await session.commit()
+        flash("Too many failed attempts. Try again later.", FlashCategory.DANGER)
+        return _html(
+            request.app.state.arena_templates.TemplateResponse(
+                request,
+                "auth/two_factor.html",
+                {},
+                status_code=429,
+                headers={"Retry-After": str(throttle_check.retry_after_seconds or throttle_settings.lockout_seconds)},
+            )
+        )
 
     validation = await user_2fa_service.validar_codigo_2fa(usuario, full_code.strip(), session)
     if not validation.success:
+        failure = await record_auth_failure(
+            request,
+            throttle_identity,
+            settings=throttle_settings,
+            fallback_limiter=AUTH_RATE_LIMITER,
+        )
+        await record_request_security_event(
+            session,
+            request,
+            module="arena",
+            event_type="auth_failure",
+            severity="warning" if failure.locked else "info",
+            actor_user_id=usuario.id,
+            identifier_hash=throttle_identity.identifier_hash,
+            metadata={"action": "2fa", "reason": failure.reason},
+        )
+        await session.commit()
         flash("Invalid or expired code. Please try again.", FlashCategory.DANGER)
         return _redirect_to(request, "arena_2fa")
 
     del request.session["pending_2fa_token"]
+    await reset_auth_throttle(
+        request,
+        throttle_identity,
+        fallback_limiter=AUTH_RATE_LIMITER,
+    )
 
     remember_me: bool = bool(extra_data.get("remember_me", False))
     next_url: str | None = extra_data.get("next")

@@ -110,20 +110,37 @@
                     <h3 class="arena-help-subheading">Step 4 — Bimodal contrast</h3>
                     <p>
                         To avoid clustering every problem in the middle of the scale, the raw estimate is
-                        pushed toward the easy/hard extremes with a logistic <em>contrast</em> curve. It is
-                        centred on the population median raw $m$ (so the easy/hard split stays balanced),
-                        and its slope — the gain $g$ — grows with the number of attempts $a$, so problems
-                        with little data stay near the centre and only well-attempted problems are driven to
-                        the extremes. With $g_{\max} = {{ contrast_gain_max | int }}$, scale
-                        $N = {{ contrast_gain_scale | int }}$, and $\operatorname{logit}(x) = \ln \frac{x}{1 - x}$:
+                        pushed toward the easy/hard extremes with a logistic <em>contrast</em> curve. Two of
+                        its parameters are gated by the number of attempts $a$, so a problem with little data
+                        stays near the centre and only well-attempted problems are driven to the extremes:
+                        the slope (the gain $g$) and the pivot it is measured against (the effective pivot
+                        $m_{\text{eff}}$).
+                    </p>
+                    <p>
+                        The gain rises from 1 toward $g_{\max} = {{ contrast_gain_max | int }}$ with scale
+                        $N = {{ contrast_gain_scale | int }}$:
                     </p>
                     <div class="arena-help-formula">$$g(a) = 1 + (g_{\max} - 1)\bigl(1 - e^{-a/N}\bigr)$$</div>
+                    <p>
+                        The effective pivot ramps from the neutral centre $m_0$ (so an unknown problem maps to
+                        the middle of the scale) toward the population median raw $m$ (so the easy/hard split
+                        stays balanced once there is data), with scale $N_p = {{ pivot_blend_scale | int }}$:
+                    </p>
+                    <div class="arena-help-formula">$$\tau(a) = 1 - e^{-a/N_p}$$</div>
+                    <div class="arena-help-formula">$$m_{\text{eff}}(a) = m_0 + \tau(a)\,(m - m_0)$$</div>
+                    <p>
+                        With $\operatorname{logit}(x) = \ln \frac{x}{1 - x}$, the raw estimate is then
+                        contrasted against the effective pivot:
+                    </p>
                     <div class="arena-help-formula">
-                        $$c = \frac{1}{1 + e^{-g\,(\operatorname{logit} r \,-\, \operatorname{logit} m)}}$$
+                        $$c = \frac{1}{1 + e^{-g\,(\operatorname{logit} r \,-\, \operatorname{logit} m_{\text{eff}})}}$$
                     </div>
                     <p class="arena-help-note">
                         A gain of 1 leaves the distribution unchanged; a gain above 1 hollows out the centre.
-                        A problem whose raw equals the pivot $m$ maps to the middle of the scale.
+                        A problem whose raw equals its effective pivot $m_{\text{eff}}$ maps to the middle of
+                        the scale — and because the effective pivot sits at the neutral centre when attempts
+                        are few, low-data problems land near 5.0 rather than inheriting an easy or hard rating
+                        from a skewed population.
                     </p>
                     <div id="contrast-curve-chart"
                          class="arena-help-chart"
@@ -147,6 +164,14 @@
                     </div>
                     <div class="arena-help-formula">$$d = d_{\text{int}} / 10$$</div>
                     <p class="arena-help-note">Stored as integer $d_{\text{int}} \in [1, 100]$; displayed as $d \in [0.1, 10.0]$.</p>
+                    <h3 class="arena-help-subheading">Current difficulty distribution</h3>
+                    <p class="arena-help-note">
+                        A snapshot of how every catalogue problem's difficulty is currently distributed,
+                        recomputed at the end of each difficulty cycle.
+                    </p>
+                    {% with chart_id="difficulty-distribution-chart", data_url=request.url_for("arena_help_difficulty_distribution") %}
+                        {% include "_partials/difficulty_distribution_chart.html" %}
+                    {% endwith %}
                 </div>
                 {# ── User score ── #}
                 <div class="tab-pane fade"
@@ -247,5 +272,7 @@
             defer></script>
     <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-contrast-curve.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-difficulty-distribution.js') }}?v={{ app_version }}"
             defer></script>
 {% endblock %}

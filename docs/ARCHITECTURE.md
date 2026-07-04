@@ -155,6 +155,50 @@ requests). The Arena route writes them; the autojudge and aiassistant workers
 read pause state through
 `shared/services/worker_pause_state.py`.
 
+Arena gamification adds the `arena_user_badges` table to the shared schema: an
+append-only ledger of which badge each Arena user has earned (`ArenaBadge` enum)
+and when (`awarded_at`), with a unique `(user_id, badge)` constraint so a badge is
+awarded to a user at most once. The award logic that inserts rows is owned by the
+rating worker's badge-assignment loop (`shared.services.arena_badges`); the Arena
+ORM exposes the ledger through `ArenaUser.badges`. Streak badges are backed by the
+`arena_users.current_streak` / `longest_streak` / `last_ac_date` columns the loop
+recomputes, and the loop tracks its incremental watermark plus last full
+reconciliation in the singleton `arena_badge_cycle_state` table. Badge families
+cover per-submission recovery, solve streaks, distinct solved-problem counts,
+distinct-language counts per problem, first-solver and problem-set hand-in
+positions, latest on-time problem-set solves after deadlines, non-AC bursts,
+unbroken distinct-AC runs, and dynamic low-solve-rate problem solves.
+
+The rating worker's problem-difficulty cycle (`rate_all_problems()`) ends by
+snapshotting a 20-bin histogram of the catalogue's current difficulty
+distribution into the singleton `arena_rating_cycle_state` table, read by the
+Arena `/help/rating` page to render a current-distribution chart without an
+aggregate query at request time.
+
+Cross-module security auditing shares a single `security_events` table (owned by
+`shared.services.security_events`) rather than per-domain audit tables. Both the
+Web and Arena HTTP processes append to it: authentication failures, throttle
+lockouts, existing-account signup attempts, and — through
+`shared.services.admin_audit` (`event_type="admin_action"`) — destructive and
+privilege admin actions, all committed in the same transaction as the mutation
+they describe. Arena admins view the log at `/admin/dashboard/security-events`;
+uberadmins view and filter it at `/uberadmin/security-events`. Retention is a
+shared `security_events_reaper` loop that each HTTP runtime runs over its own
+module ownership set — Web prunes `module=web`, Arena prunes `module in
+(arena, aiassistant)` — so an independently deployed Web-only or Arena-only site
+still cleans up exactly its own rows older than
+`NOCA_SECURITY_EVENTS_RETENTION_DAYS`. Failed
+logins deliberately land here (not in `login_history`/`arena_login_history`,
+which stay success-only device history) because the log must record attempts
+against non-existent accounts that cannot satisfy a login-history user FK.
+
+CSRF protection relies on `SameSite=Lax` session cookies rather than
+per-request CSRF tokens; this is a documented accepted risk given the
+server-rendered, same-site POST forms. Session and auth cookies are marked
+`Secure` whenever `NOCA_COOKIE_SECURE` is set (mandatory in production), and the
+trusted client IP for throttling/auditing is taken from the proxy-corrected
+`request.client.host` — raw `X-Forwarded-For` is never trusted.
+
 ## 5. Module summaries
 
 ### `web/`
@@ -185,6 +229,20 @@ time to make it visible to the teacher, and post-deadline rating snapshots freez
 student's AC totals), and Arena-specific user identity separate from contest users and
 uberadmins.
 
+Arena access is **default-deny**: a single global FastAPI dependency
+(`arena.dependencies.access_control.enforce_arena_authentication`, registered on
+the app in `arena/main.py`) requires a valid logged-in session for every route
+except a small public allowlist — `/dashboard`, the `/problems` list (the problem
+*detail* page and sub-resources stay protected), `/legal/*`, `/help/*`, the
+entire `/auth/*` namespace (login, signup, and the other pre-login flows), `/`,
+`/health`, and the root favicon assets. The gate reads only
+`request.state.validated_token` (populated by `ArenaAuthMiddleware`, no database
+I/O) and raises `HTTPException(401)`, which the Arena exception handler turns into
+a login redirect (HTML), an `HX-Redirect` (HTMX), or a plain 401 (API). Per-route
+`get_current_arena_user` / `require_arena_*` dependencies still apply full
+database gating and role checks on top of the gate. New routes are therefore
+protected automatically unless their path is added to the allowlist.
+
 ### `rating/`
 
 The rating module is a standalone single-replica worker. It owns Arena problem,
@@ -192,7 +250,16 @@ user, and affiliation rating recomputation cycles and publishes scheduler metada
 to Valkey so all Arena replicas can show consistent footer and help-page timing.
 It also runs an independent per-problem statistics loop (`run_problem_stats_loop`,
 on its own `NOCA_RATING_STATS_INTERVAL` timer) that precomputes the JSON snapshots
-read by the Arena problem statistics page (`shared.services.arena_stats`).
+read by the Arena problem statistics page (`shared.services.arena_stats`), and a
+parallel per-user statistics loop (`run_user_stats_loop`, sharing the same
+`NOCA_RATING_STATS_INTERVAL` timer) that precomputes the verdict and language
+distribution snapshots stored in `arena_user_statistics` and read by the Arena
+public profile page. A third independent loop (`run_badge_assignment_loop`, on its
+own `NOCA_RATING_BADGE_INTERVAL`
+timer) awards Arena gamification badges from Accepted submissions
+(`shared.services.arena_badges`): each cycle runs a cheap incremental pass bounded by a
+watermark, and periodically a full reconciliation pass re-evaluates all Accepted history
+so dynamic badges (CLEAN_CODE) and late data stay correct.
 
 ### `aiassistant/`
 

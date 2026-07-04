@@ -1,0 +1,25 @@
+{#  NOCA -- Next Online Contest Administrator
+    Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. #}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Noca Arena —
+            {% block title_suffix %}Error{% endblock %}
+        </title>
+        <link rel="icon" type="image/x-icon" href="/favicon.ico">
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='bootstrap.min.css') }}">
+        <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('arena_static_css', path='arena.css') }}?v={{ app_version }}"
+              rel="stylesheet">
+    </head>
+    <body class="d-flex flex-column align-items-center justify-content-center min-vh-100 p-4">
+        {% block content %}{% endblock %}
+    </body>
+</html>

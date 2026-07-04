@@ -1,0 +1,106 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% block title_suffix %}— Security Events{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+            <div>
+                <h1 class="h3 mb-1">Security Events</h1>
+                <p class="text-muted mb-0">Recent Web authentication and admin-action events.</p>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <a href="{{ request.url_for("uberadmin_dashboard") }}"
+                   class="btn btn-outline-secondary btn-sm">Back to dashboard</a>
+            </div>
+        </div>
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <form method="get"
+                      action="{{ request.url_for("uberadmin_security_events") }}"
+                      class="row g-2 align-items-end mb-4">
+                    <input type="hidden" name="page" value="1">
+                    <div class="col-12 col-md-4">
+                        <label for="event_type" class="form-label">Event type</label>
+                        <select class="form-select" id="event_type" name="event_type">
+                            <option value="">All events</option>
+                            {% for value in available_event_types %}
+                                <option value="{{ value }}"
+                                        {% if value == selected_event_type %}selected{% endif %}>{{ value }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-auto">
+                        <label class="form-label" for="per_page">Per page</label>
+                        <select class="form-select" id="per_page" name="per_page">
+                            {% for n in [10, 25, 50, 100, 500] %}
+                                <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-auto">
+                        <button type="submit" class="btn btn-outline-primary">Filter</button>
+                    </div>
+                    {% if filters_active %}
+                        <div class="col-12 col-md-auto">
+                            <a href="{{ request.url_for("uberadmin_security_events") }}"
+                               class="btn btn-link btn-sm">Clear filters</a>
+                        </div>
+                    {% endif %}
+                </form>
+                {% if security_events.total %}
+                    <p class="text-muted small mb-2">
+                        {{ security_events.total }} matching security event{{ 's' if security_events.total != 1 else '' }}.
+                    </p>
+                    {% with pagination=security_events, page_param="page", label="Security events pagination", nav_margin="mb-2" %}
+                        {% include "_partials/pagination.html" %}
+                    {% endwith %}
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Date / Time (UTC)</th>
+                                    <th scope="col">Module</th>
+                                    <th scope="col">Event</th>
+                                    <th scope="col">Severity</th>
+                                    <th scope="col">IP</th>
+                                    <th scope="col">Metadata</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for event in security_events.items %}
+                                    <tr>
+                                        <td class="text-nowrap">{{ event.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+                                        <td>{{ event.module }}</td>
+                                        <td>
+                                            <code>{{ event.event_type }}</code>
+                                        </td>
+                                        <td>{{ event.severity }}</td>
+                                        <td>
+                                            {% if event.client_ip %}
+                                                {{ event.client_ip }}
+                                            {% else %}
+                                                <span class="text-muted">—</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="small text-break">{{ event.metadata }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% with pagination=security_events, page_param="page", label="Security events pagination" %}
+                        {% include "_partials/pagination.html" %}
+                    {% endwith %}
+                {% else %}
+                    <p class="text-muted small mb-0">No security events found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

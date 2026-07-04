@@ -29,12 +29,12 @@
                     </a>
                 </div>
                 <div class="col-12 col-md-6">
-                    <a href="{{ request.url_for("arena_admin_dashboard_ai_credits") }}"
+                    <a href="{{ request.url_for("arena_admin_dashboard_ai_usage") }}"
                        class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
                         <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="credit_card") }}</span>
                         <div>
-                            <div class="fw-semibold">AI Credits Usage</div>
-                            <div class="text-muted small">All AI credit consumption transactions</div>
+                            <div class="fw-semibold">AI Usage</div>
+                            <div class="text-muted small">AI review requests, status and costs</div>
                         </div>
                         <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
                     </a>
@@ -57,6 +57,17 @@
                         <div>
                             <div class="fw-semibold">Submissions</div>
                             <div class="text-muted small">Browse all Arena submissions with filters</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_admin_dashboard_security_events") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="security") }}</span>
+                        <div>
+                            <div class="fw-semibold">Security Events</div>
+                            <div class="text-muted small">Auth throttles, redactions and token mismatches</div>
                         </div>
                         <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
                     </a>

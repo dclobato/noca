@@ -224,7 +224,7 @@ async def test_dashboard_routes_require_arena_admin(session) -> None:
                 data={"worker_class": "autojudge", "worker_id": "judge-online"},
             ),
             await client.get("/admin/dashboard/service-status"),
-            await client.get("/admin/dashboard/ai-credits"),
+            await client.get("/admin/dashboard/ai-usage"),
         ]
 
     assert [response.status_code for response in responses] == [403, 403, 403, 403, 403, 403]

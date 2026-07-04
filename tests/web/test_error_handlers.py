@@ -28,6 +28,10 @@ from web.error_handlers import (
 class _FakeTemplates:
     def __init__(self) -> None:
         self.context: dict[str, Any] = {}
+        self.env = self
+
+    def get_template(self, name: str) -> _FakeTemplate:
+        return _FakeTemplate(name, self)
 
     def TemplateResponse(
         self,
@@ -42,6 +46,16 @@ class _FakeTemplates:
             f"{name}: {context['heading']} {context.get('primary_label', '')}",
             status_code=status_code,
         )
+
+
+class _FakeTemplate:
+    def __init__(self, name: str, store: _FakeTemplates) -> None:
+        self.name = name
+        self._store = store
+
+    def render(self, context: dict[str, Any]) -> str:
+        self._store.context = context
+        return f"{self.name}: {context.get('heading', '')} {context.get('primary_label', '')}"
 
 
 def _request(*, accept: str, templates: _FakeTemplates | None = None) -> Request:

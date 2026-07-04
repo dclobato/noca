@@ -22,6 +22,7 @@ from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_problem_sets import ArenaProblemSet
 from arena.models.arena_users import ArenaUser
 from arena.services import (
+    arena_batch_feedback_service,
     arena_class_detail_service,
     arena_problem_set_management_service,
     arena_problem_set_service,
@@ -282,6 +283,12 @@ async def class_problem_set_manage(
         problem_set = await session.get(ArenaProblemSet, set_id)
         if problem_set is None or problem_set.class_id != class_id:
             raise HTTPException(status_code=404, detail="Problem set not found")
+        non_ac_counts = await arena_batch_feedback_service.get_non_ac_counts_for_set(
+            session,
+            actor_id=user_or_redirect.id,
+            actor_role=user_or_redirect.role,
+            set_id=set_id,
+        )
     except ArenaProblemSetNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Problem set not found") from exc
     except ArenaProblemSetPermissionError as exc:
@@ -300,6 +307,7 @@ async def class_problem_set_manage(
                 "class_detail": class_detail,
                 "problem_set": problem_set,
                 "problem_rows": problem_rows,
+                "non_ac_counts": non_ac_counts,
                 "is_accepting": is_accepting,
                 "back_url": _problem_set_list_url(
                     request,

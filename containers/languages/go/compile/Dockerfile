@@ -6,6 +6,8 @@
 
 FROM golang:1.26.2-bookworm
 
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
+
 ENV CGO_ENABLED=0
 
 RUN groupadd --system judge && useradd --system --gid judge --create-home judge

@@ -14,11 +14,14 @@ drive these functions live in ``rating.loops``.
      solve-rate + avg-tries model produces a raw estimate, then a logistic-gain
      "contrast" transform repels it away from the centre toward the easy/hard
      extremes (a deliberately bimodal distribution). The contrast pivots on the
-     population median raw (so the split stays balanced) and its slope is gated
-     by attempt count, so low-data problems stay near the centre and only
-     well-attempted problems are pushed to the extremes. Pulls toward medium
-     difficulty when data is scarce; diverges toward 1 or 100 as evidence
-     accumulates.
+     population median raw (so the split stays balanced). Both the contrast slope
+     *and* each problem's effective pivot are gated by that problem's own attempt
+     count: the slope ramps from identity toward its maximum, and the pivot ramps
+     from the neutral centre toward the population median. Low-data problems
+     therefore stay near the centre — neither pushed to the extremes nor measured
+     against a skewed population — and only well-attempted problems are pushed to
+     the easy/hard ends. Pulls toward medium difficulty when data is scarce;
+     diverges toward 1 or 100 as evidence accumulates.
 
   2. User score (0–∞) — Exponential-growth points per solved problem.
      Problems at display-difficulty 10.0 pay ~28× more than problems at
@@ -51,6 +54,7 @@ from shared.db_schema.arena import arena_submissions as _arena_submissions
 from shared.db_schema.arena import arena_user_rating_history as _arena_user_rating_history
 from shared.db_schema.arena import arena_users as _arena_users
 from shared.enumerations import ArenaRole
+from shared.services.arena_difficulty_histogram import persist_difficulty_histogram
 from shared.services.arena_query_helpers import counts_toward_problem_rating
 
 # ---------------------------------------------------------------------------
@@ -75,6 +79,13 @@ CONFIDENCE_SCALE: int = 10  # saturation scale for rating confidence: C(n) = rou
 CONTRAST_GAIN_MAX: float = 4.0  # maximum logit-space slope for well-attempted problems
 CONTRAST_GAIN_SCALE: float = 25.0  # attempts at which the gain reaches ~63 % of its span
 PIVOT_MIN_ATTEMPTS: int = 10  # min attempts for a problem to inform the population pivot
+
+# Per-problem pivot blending: a low-data problem is measured against a pivot ramped from the
+# neutral centre toward the population median by its own attempt count, mirroring how the
+# contrast gain is gated. This stops a problem with little evidence from inheriting an
+# easy/hard rating purely because the well-attempted population is skewed. Larger scale =
+# more attempts needed before the population pivot is fully trusted.
+PIVOT_BLEND_SCALE: float = 8.0  # attempts at which pivot trust reaches ~63 % of the population median
 
 # Raw difficulty of a perfectly average problem (solve_rate = 0.5, avg_tries = PRIOR_TRIES).
 # Used as the contrast pivot when no problem has enough data yet, so an unknown problem maps
@@ -140,6 +151,29 @@ def _contrast_gain(attempted_users: int) -> float:
         float: Gain factor in [1.0, CONTRAST_GAIN_MAX].
     """
     return 1.0 + (CONTRAST_GAIN_MAX - 1.0) * (1.0 - exp(-attempted_users / CONTRAST_GAIN_SCALE))
+
+
+def _effective_pivot(population_pivot: float, attempted_users: int) -> float:
+    """Return the per-problem contrast pivot, ramped by the problem's own attempt count.
+
+    Blends ``_NEUTRAL_PIVOT`` (at zero attempts, so an unknown problem maps to the
+    scale centre) toward ``population_pivot`` as the problem accumulates attempts.
+    This mirrors how ``_contrast_gain`` gates the contrast slope, so a low-evidence
+    problem is not pushed toward the easy/hard extremes merely because the
+    well-attempted population happens to be skewed.
+
+    At zero attempts the result is exactly ``_NEUTRAL_PIVOT``; it approaches
+    ``population_pivot`` as attempts grow.
+
+    Args:
+        population_pivot: Population median raw difficulty — the fully-trusted pivot.
+        attempted_users: Unique users who submitted at least once.
+
+    Returns:
+        float: Pivot between ``_NEUTRAL_PIVOT`` and ``population_pivot``.
+    """
+    trust = 1.0 - exp(-attempted_users / PIVOT_BLEND_SCALE)
+    return _NEUTRAL_PIVOT + trust * (population_pivot - _NEUTRAL_PIVOT)
 
 
 def _apply_contrast(raw: float, pivot: float, attempted_users: int) -> int:
@@ -452,9 +486,11 @@ async def rate_problem(*, session: AsyncSession, problem_id: str, pivot: float |
     Args:
         session: Active async database session.
         problem_id: UUID of the Arena problem to rate.
-        pivot: Contrast pivot (the population median raw). Defaults to
-            ``_NEUTRAL_PIVOT`` when the problem is rated in isolation, so an
-            unknown problem maps to the scale centre.
+        pivot: Population median raw used as the fully-trusted contrast pivot.
+            Defaults to ``_NEUTRAL_PIVOT`` when the problem is rated in isolation.
+            The pivot actually applied is ramped from ``_NEUTRAL_PIVOT`` toward
+            this value by the problem's attempt count (see ``_effective_pivot``),
+            so a low-evidence problem still maps near the scale centre.
     """
     attempted, solved, tries = await _ensure_and_load_stats(session, problem_id)
     raw = _raw_difficulty(
@@ -462,7 +498,8 @@ async def rate_problem(*, session: AsyncSession, problem_id: str, pivot: float |
         solved_users=solved,
         total_tries_before_solve=tries,
     )
-    difficulty = _apply_contrast(raw, _NEUTRAL_PIVOT if pivot is None else pivot, attempted)
+    population_pivot = _NEUTRAL_PIVOT if pivot is None else pivot
+    difficulty = _apply_contrast(raw, _effective_pivot(population_pivot, attempted), attempted)
     await _persist_problem_rating(session, problem_id, difficulty, datetime.now(UTC))
 
 
@@ -473,8 +510,10 @@ async def rate_all_problems(session: AsyncSession) -> int:
     rating row are created with default stats and rated too): the first pass
     computes each problem's raw difficulty and derives the contrast pivot from the
     median raw of sufficiently-attempted problems; the second applies the gated
-    contrast and persists. Centring the contrast on the population median keeps
-    the easy/hard split balanced.
+    contrast and persists, with each problem's pivot ramped from the neutral
+    centre toward the population median by its own attempt count. Centring the
+    contrast on the population median keeps the easy/hard split balanced, while the
+    per-problem pivot ramp keeps low-evidence problems near the scale centre.
 
     Args:
         session: Active async database session.
@@ -500,12 +539,17 @@ async def rate_all_problems(session: AsyncSession) -> int:
     pivot = statistics.median(confident) if confident else _NEUTRAL_PIVOT
 
     now = datetime.now(UTC)
+    difficulties: list[int] = []
     for pid in problem_ids:
-        # Problems with no attempts always use the neutral pivot so they map to the
-        # scale centre (display 5.0) rather than being shifted by population skew.
-        effective_pivot = _NEUTRAL_PIVOT if attempts[pid] == 0 else pivot
-        difficulty = _apply_contrast(raws[pid], effective_pivot, attempts[pid])
+        # Each problem's pivot ramps from the neutral centre toward the population
+        # median by its own attempt count, so low-data problems map near the scale
+        # centre (display 5.0) instead of inheriting a rating from population skew.
+        # At zero attempts this returns exactly _NEUTRAL_PIVOT.
+        difficulty = _apply_contrast(raws[pid], _effective_pivot(pivot, attempts[pid]), attempts[pid])
         await _persist_problem_rating(session, pid, difficulty, now)
+        difficulties.append(difficulty)
+
+    await persist_difficulty_histogram(session, difficulties, now)
 
     cutoff = datetime.now(UTC) - timedelta(days=730)
     await session.execute(

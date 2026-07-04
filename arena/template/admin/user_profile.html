@@ -365,6 +365,24 @@
                                             </div>
                                         </div>
                                     </dd>
+                                    <dt>Public profile</dt>
+                                    <dd>
+                                        <div class="row align-items-center">
+                                            <div class="col-5">
+                                                <span>{{ 'Enabled' if target_user.public_profile else 'Disabled' }}</span>
+                                            </div>
+                                            <div class="col-7">
+                                                <button type="button"
+                                                        class="btn {{ 'btn-outline-warning' if target_user.public_profile else 'btn-outline-success' }} arena-icon-button btn-sm w-100"
+                                                        {% if not target_user.ranking_visible and not target_user.public_profile %}disabled{% endif %}
+                                                        data-bs-toggle="modal"
+                                                        data-bs-target="#confirmTogglePublicProfileModal">
+                                                    {{ render_icon(icon="public_off" if target_user.public_profile else "public") }}
+                                                    <span>{{ 'Disable public profile' if target_user.public_profile else 'Enable public profile' }}</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </dd>
                                     {% if target_user.role != ArenaRole.ARENA_ADMIN %}
                                         <dt>Problem-edit permission</dt>
                                         <dd>
@@ -750,6 +768,54 @@
                         <button type="submit"
                                 class="btn btn-sm {{ 'btn-warning' if target_user.ranking_visible else 'btn-success' }}">
                             {{ 'Hide from ranking' if target_user.ranking_visible else 'Show in ranking' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade"
+         id="confirmTogglePublicProfileModal"
+         tabindex="-1"
+         aria-labelledby="confirmTogglePublicProfileLabel"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmTogglePublicProfileLabel">
+                        {{ 'Disable public profile' if target_user.public_profile else 'Enable public profile' }}
+                    </h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <form method="post"
+                      action="{{ request.url_for('arena_admin_user_toggle_public_profile', user_id=target_user.id) }}">
+                    {{ back_fields() }}
+                    <div class="modal-body">
+                        <p>
+                            {% if target_user.public_profile %}
+                                Disable the public profile page for <strong>{{ target_user.nome }}</strong>? The profile will no longer be accessible to other users.
+                            {% else %}
+                                Enable the public profile page for <strong>{{ target_user.nome }}</strong>? Other users will be able to view their profile.
+                            {% endif %}
+                        </p>
+                        <label class="form-label" for="confirm-pw-public-profile">Your password</label>
+                        <input type="password"
+                               class="form-control"
+                               id="confirm-pw-public-profile"
+                               name="confirm_password"
+                               autocomplete="current-password"
+                               required>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit"
+                                class="btn btn-sm {{ 'btn-warning' if target_user.public_profile else 'btn-success' }}">
+                            {{ 'Disable public profile' if target_user.public_profile else 'Enable public profile' }}
                         </button>
                     </div>
                 </form>

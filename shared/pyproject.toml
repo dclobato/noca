@@ -29,6 +29,7 @@ dependencies = [
     "fastapi==0.136.3",
     "markdown_sanitize @ git+https://github.com/dclobato/markdown_sanitize.git@v2.0.0",
     "pillow==12.2.0",
+    "pytz==2026.2",
     "python-dotenv==1.2.2",
     "pydantic-settings==2.14.1",
     "relative-datetime==0.1.4",

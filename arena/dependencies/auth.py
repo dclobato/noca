@@ -27,7 +27,7 @@ round-trip.
 
 import logging
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -39,6 +39,7 @@ from arena.services import arena_auth_service
 from arena.services.session_service import mark_auth_refresh_eligible
 from shared.age_check import AgeStatus, check_age
 from shared.services.arena_notification_service import count_unread_arena_notifications
+from shared.services.security_events import record_request_security_event
 from shared.services.user_presence import mark_user_online
 
 logger = logging.getLogger(__name__)
@@ -142,8 +143,45 @@ async def get_current_arena_user(
         jwt_service = request.app.state.jwt_service
         await arena_auth_service.efetuar_logout(raw_token, jwt_service)
 
+    await record_request_security_event(
+        session,
+        request,
+        module="arena",
+        event_type="suspicious_token_mismatch",
+        severity="warning",
+        actor_user_id=user.id,
+        metadata={"reason": "token_identity_or_access_mismatch"},
+    )
+    await session.commit()
+
     _write_flash(request, _FORCE_LOGOUT_MESSAGE, _FORCE_LOGOUT_CATEGORY)
     raise ForceLogoutException(request)
+
+
+async def require_arena_user(
+    current_user: ArenaUser | None = Depends(get_current_arena_user),
+) -> ArenaUser:
+    """Require any authenticated Arena user, regardless of role.
+
+    The global ``enforce_arena_authentication`` gate already rejects
+    unauthenticated requests to protected routes, so within those routes
+    ``get_current_arena_user`` always resolves a user. This dependency exposes
+    that guarantee as a non-optional ``ArenaUser`` type and re-asserts it with an
+    explicit 401 (defense in depth), letting handlers drop now-unreachable
+    guest-rendering branches.
+
+    Args:
+        current_user: The optional Arena user resolved from the session cookie.
+
+    Returns:
+        The authenticated ``ArenaUser``.
+
+    Raises:
+        HTTPException: ``401`` when no authenticated user is present.
+    """
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return current_user
 
 
 async def _refresh_presence(request: Request, user: ArenaUser) -> None:

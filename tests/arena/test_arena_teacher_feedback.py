@@ -8,16 +8,18 @@
 
 Covers:
   arena.services.arena_teacher_feedback_service.upsert_teacher_feedback
+  arena.services.arena_teacher_feedback_service.delete_teacher_feedback
   arena.services.arena_problem_set_report_service feedback indicators
-  POST /submissions/{submission_id}/teacher-feedback  (arena_submission_teacher_feedback)
-  GET  /submissions/{submission_id}                   (teacher-feedback rendering)
+  POST /submissions/{submission_id}/teacher-feedback         (arena_submission_teacher_feedback)
+  POST /submissions/{submission_id}/teacher-feedback/remove  (arena_submission_teacher_feedback_remove)
+  GET  /submissions/{submission_id}                          (teacher-feedback rendering)
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -48,6 +50,7 @@ from arena.routes.submissions import router as arena_submissions_router
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.arena_problem_set_report_service import get_student_problem_submissions_for_set
 from arena.services.arena_teacher_feedback_service import (
+    delete_teacher_feedback,
     get_teacher_feedback_text,
     upsert_teacher_feedback,
 )
@@ -342,20 +345,22 @@ async def _make_submission(
     *,
     verdict: str | None = Verdict.WA.value,
     problem_set_id: str | None = None,
+    created_at: datetime | None = None,
 ) -> str:
     sub_id = str(uuid.uuid4())
-    await session.execute(
-        insert(arena_submissions).values(
-            id=sub_id,
-            user_id=student.id,
-            problem_id=problem.id,
-            language_id=lang.id,
-            source_code="print('x')",
-            source_hash="a" * 64,
-            source_size_bytes=10,
-            problem_set_id=problem_set_id,
-        )
-    )
+    values: dict[str, object] = {
+        "id": sub_id,
+        "user_id": student.id,
+        "problem_id": problem.id,
+        "language_id": lang.id,
+        "source_code": "print('x')",
+        "source_hash": "a" * 64,
+        "source_size_bytes": 10,
+        "problem_set_id": problem_set_id,
+    }
+    if created_at is not None:
+        values["created_at"] = created_at
+    await session.execute(insert(arena_submissions).values(**values))
     await session.execute(
         insert(arena_submission_judgments).values(
             id=str(uuid.uuid4()),
@@ -425,6 +430,29 @@ async def test_upsert_inserts_then_edits(session: AsyncSession) -> None:
     assert len(rows) == 1
 
 
+@pytest.mark.asyncio
+async def test_delete_removes_row_and_is_idempotent(session: AsyncSession) -> None:
+    """delete_teacher_feedback removes the row once, then reports nothing left to remove."""
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    problem = await _make_problem(session, teacher)
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+    sub_id = await _make_submission(session, student, problem, lang, problem_set_id=pset.id)
+    await upsert_teacher_feedback(session, submission_id=sub_id, teacher_id=teacher.id, feedback_text="Note")
+    await session.commit()
+
+    deleted = await delete_teacher_feedback(session, submission_id=sub_id)
+    await session.commit()
+    assert deleted is True
+    assert await get_teacher_feedback_text(session, sub_id) is None
+
+    deleted_again = await delete_teacher_feedback(session, submission_id=sub_id)
+    await session.commit()
+    assert deleted_again is False
+
+
 # ---------------------------------------------------------------------------
 # Service: report indicators
 # ---------------------------------------------------------------------------
@@ -432,7 +460,7 @@ async def test_upsert_inserts_then_edits(session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_report_feedback_indicators(session: AsyncSession) -> None:
-    """Report groups expose has_feedback per entry and has_unfeedback_non_ac per group."""
+    """Report groups expose has_feedback per entry; needs_feedback stays True until an AC lands."""
     teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
     student = await _make_user(session, prefix="student")
     lang = await _make_language(session)
@@ -440,8 +468,11 @@ async def test_report_feedback_indicators(session: AsyncSession) -> None:
     arena_class = await _make_class(session, teacher)
     pset = await _make_set(session, arena_class)
 
-    sub_without = await _make_submission(session, student, problem, lang, problem_set_id=pset.id)
-    sub_with = await _make_submission(session, student, problem, lang, problem_set_id=pset.id)
+    now = datetime.now(UTC)
+    sub_without = await _make_submission(session, student, problem, lang, problem_set_id=pset.id, created_at=now)
+    sub_with = await _make_submission(
+        session, student, problem, lang, problem_set_id=pset.id, created_at=now + timedelta(minutes=1)
+    )
     await upsert_teacher_feedback(session, submission_id=sub_with, teacher_id=teacher.id, feedback_text="Nice try")
     await session.commit()
 
@@ -454,11 +485,13 @@ async def test_report_feedback_indicators(session: AsyncSession) -> None:
     )
     assert len(groups) == 1
     group = groups[0]
-    # One submission has feedback, the other does not → group still needs feedback.
     by_id = {entry.submission_id: entry for entry in group.submissions}
     assert by_id[sub_with].has_feedback is True
     assert by_id[sub_without].has_feedback is False
-    assert group.has_unfeedback_non_ac is True
+    # Neither submission is AC, so the group still needs feedback even though
+    # the newest submission already has some — teacher feedback no longer
+    # clears the flag on its own.
+    assert group.needs_feedback is True
 
 
 @pytest.mark.asyncio
@@ -479,12 +512,16 @@ async def test_report_ac_does_not_require_feedback(session: AsyncSession) -> Non
         set_id=pset.id,
         user_id=student.id,
     )
-    assert groups[0].has_unfeedback_non_ac is False
+    assert groups[0].needs_feedback is False
 
 
 @pytest.mark.asyncio
-async def test_report_non_ac_with_ac_does_not_require_feedback(session: AsyncSession) -> None:
-    """Non-AC submissions without feedback do not flag the group when an AC also exists."""
+async def test_report_ac_after_non_ac_clears_needs_feedback(session: AsyncSession) -> None:
+    """An older non-AC submission followed by a newer AC no longer flags the group.
+
+    Regression test for the reported bug: a student who has solved a problem
+    must not show "Needs feedback" just because an earlier attempt was non-AC.
+    """
     teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
     student = await _make_user(session, prefix="student")
     lang = await _make_language(session)
@@ -502,7 +539,70 @@ async def test_report_non_ac_with_ac_does_not_require_feedback(session: AsyncSes
         set_id=pset.id,
         user_id=student.id,
     )
-    assert groups[0].has_unfeedback_non_ac is False
+    assert groups[0].needs_feedback is False
+
+
+@pytest.mark.asyncio
+async def test_report_non_ac_after_ac_clears_needs_feedback(session: AsyncSession) -> None:
+    """An AC submission followed by a newer non-AC resubmission still does not flag the group.
+
+    Once a student has an AC for a problem, resubmitting later does not need
+    feedback again, regardless of ordering.
+    """
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    problem = await _make_problem(session, teacher)
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+    await _make_submission(session, student, problem, lang, verdict=Verdict.AC.value, problem_set_id=pset.id)
+    await _make_submission(session, student, problem, lang, problem_set_id=pset.id)
+    await session.commit()
+
+    groups = await get_student_problem_submissions_for_set(
+        session,
+        actor_id=teacher.id,
+        actor_role=teacher.role,
+        set_id=pset.id,
+        user_id=student.id,
+    )
+    assert groups[0].needs_feedback is False
+
+
+@pytest.mark.asyncio
+async def test_report_needs_feedback_without_any_ac(session: AsyncSession) -> None:
+    """Group keeps needing feedback across multiple non-AC submissions until an AC lands.
+
+    Existing teacher feedback on an earlier attempt does not clear the flag —
+    the only thing that clears it is an Accepted submission.
+    """
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    problem = await _make_problem(session, teacher)
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+
+    now = datetime.now(UTC)
+    sub_old_with_feedback = await _make_submission(
+        session, student, problem, lang, problem_set_id=pset.id, created_at=now
+    )
+    await _make_submission(
+        session, student, problem, lang, problem_set_id=pset.id, created_at=now + timedelta(minutes=1)
+    )
+    await upsert_teacher_feedback(
+        session, submission_id=sub_old_with_feedback, teacher_id=teacher.id, feedback_text="Old note"
+    )
+    await session.commit()
+
+    groups = await get_student_problem_submissions_for_set(
+        session,
+        actor_id=teacher.id,
+        actor_role=teacher.role,
+        set_id=pset.id,
+        user_id=student.id,
+    )
+    assert groups[0].needs_feedback is True
 
 
 # ---------------------------------------------------------------------------
@@ -738,6 +838,113 @@ async def test_post_empty_feedback_redirects_without_write(session: AsyncSession
 
 
 # ---------------------------------------------------------------------------
+# POST /submissions/{submission_id}/teacher-feedback/remove
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_post_remove_deletes_feedback(session: AsyncSession) -> None:
+    """The set's teacher removes existing feedback; the row is deleted."""
+    app = _build_app(session)
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    problem = await _make_problem(session, teacher)
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+    sub_id = await _make_submission(session, student, problem, lang, problem_set_id=pset.id)
+    await upsert_teacher_feedback(session, submission_id=sub_id, teacher_id=teacher.id, feedback_text="Note")
+    await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login(client, app, teacher)
+        resp = await client.post(
+            f"/submissions/{sub_id}/teacher-feedback/remove",
+            data={"back_class_id": arena_class.id, "back_set_id": pset.id, "back_user_id": student.id},
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 303
+    assert f"back_set_id={pset.id}" in resp.headers["location"]
+    assert await get_teacher_feedback_text(session, sub_id) is None
+
+
+@pytest.mark.asyncio
+async def test_post_remove_admin_allowed(session: AsyncSession) -> None:
+    """An ARENA_ADMIN may remove feedback on any set-tied submission."""
+    app = _build_app(session)
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    admin = await _make_user(session, role=ArenaRole.ARENA_ADMIN, prefix="admin")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    problem = await _make_problem(session, teacher)
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+    sub_id = await _make_submission(session, student, problem, lang, problem_set_id=pset.id)
+    await upsert_teacher_feedback(session, submission_id=sub_id, teacher_id=teacher.id, feedback_text="Note")
+    await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login(client, app, admin)
+        resp = await client.post(f"/submissions/{sub_id}/teacher-feedback/remove", follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert await get_teacher_feedback_text(session, sub_id) is None
+
+
+@pytest.mark.asyncio
+async def test_post_remove_other_teacher_forbidden(session: AsyncSession) -> None:
+    """A teacher who does not own the set's class gets 404 and the feedback survives."""
+    app = _build_app(session)
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    other = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="other")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    problem = await _make_problem(session, teacher)
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+    sub_id = await _make_submission(session, student, problem, lang, problem_set_id=pset.id)
+    await upsert_teacher_feedback(session, submission_id=sub_id, teacher_id=teacher.id, feedback_text="Note")
+    await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login(client, app, other)
+        resp = await client.post(f"/submissions/{sub_id}/teacher-feedback/remove", follow_redirects=False)
+
+    assert resp.status_code == 404
+    assert await get_teacher_feedback_text(session, sub_id) == "Note"
+
+
+@pytest.mark.asyncio
+async def test_post_remove_survives_rejudge_to_ac(session: AsyncSession) -> None:
+    """Stale feedback left behind by a later rejudge to AC can still be removed."""
+    app = _build_app(session)
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    problem = await _make_problem(session, teacher)
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+    sub_id = await _make_submission(session, student, problem, lang, problem_set_id=pset.id)
+    await upsert_teacher_feedback(session, submission_id=sub_id, teacher_id=teacher.id, feedback_text="Note")
+    await session.commit()
+
+    await session.execute(
+        arena_submission_judgments.update()
+        .where(arena_submission_judgments.c.submission_id == sub_id)
+        .values(final_verdict=Verdict.AC.value, autojudge_verdict=Verdict.AC.value)
+    )
+    await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login(client, app, teacher)
+        resp = await client.post(f"/submissions/{sub_id}/teacher-feedback/remove", follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert await get_teacher_feedback_text(session, sub_id) is None
+
+
+# ---------------------------------------------------------------------------
 # GET /submissions/{submission_id} — feedback rendering
 # ---------------------------------------------------------------------------
 
@@ -790,6 +997,33 @@ async def test_get_teacher_sees_edit_button(session: AsyncSession) -> None:
     assert resp.status_code == 200
     assert "teacher-feedback-modal" in resp.text
     assert "Add feedback" in resp.text
+    assert "teacher-feedback-remove-modal" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_get_teacher_sees_remove_button_when_feedback_exists(session: AsyncSession) -> None:
+    """The managing teacher sees a Remove feedback trigger once feedback has been given."""
+    app = _build_app(session)
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    problem = await _make_problem(session, teacher)
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+    sub_id = await _make_submission(session, student, problem, lang, problem_set_id=pset.id)
+    await upsert_teacher_feedback(session, submission_id=sub_id, teacher_id=teacher.id, feedback_text="Note")
+    await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login(client, app, teacher)
+        resp = await client.get(
+            f"/submissions/{sub_id}?back_class_id={arena_class.id}&back_set_id={pset.id}&back_user_id={student.id}",
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 200
+    assert "teacher-feedback-remove-modal" in resp.text
+    assert "Remove feedback" in resp.text
 
 
 @pytest.mark.asyncio

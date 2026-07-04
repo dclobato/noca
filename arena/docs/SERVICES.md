@@ -394,7 +394,8 @@ Count of all Arena users with `role == ARENA_ADMIN` (active or not). Used by the
 | `toggle_active(usuario, session)` | Deactivate: `desativar_conta + invalidate_sessions`; activate: `ativar_conta` |
 | `toggle_force_password_change(usuario, session)` | Set: `marcar_para_trocar_senha`; clear: clears `precisa_trocar_senha` + `dta_marcacao_troca_senha` |
 | `toggle_can_edit(usuario, session)` | Flips `usuario.can_edit`, the admin-granted permission to add/edit Arena problems |
-| `toggle_ranking_visible(usuario, session)` | Flips `usuario.ranking_visible`; when False, the user is hidden from all public ranking lists and excluded from affiliation rating computation |
+| `toggle_ranking_visible(usuario, session)` | Flips `usuario.ranking_visible`; when False, the user is hidden from all public ranking lists and excluded from affiliation rating computation. Auto-clears `public_profile` when hiding the user and returns `True` to signal the side-effect to the caller |
+| `toggle_public_profile(usuario, session) → str \| None` | Flips `usuario.public_profile` opt-in; blocks enabling when `ranking_visible` is False and returns the human-readable reason (returns `None` on success) |
 | `admin_remove_photo(usuario, session)` | Calls `usuario.clear_foto_fields()` |
 | `admin_disable_2fa(usuario, session)` | Calls `desativar_2fa + invalidate_sessions` |
 | `admin_change_name(usuario, new_name, session)` | Sets `usuario.nome`; raises `ValueError` if empty |
@@ -502,6 +503,9 @@ take a `testcase_dir` (the Arena root, `settings.PROBLEM_TESTCASE_DIR`).
 - ordinals are 1-based and contiguous per problem; deletes and moves renumber both rows and files in lockstep
 - inline create/edit is gated: a normalized side larger than `MAX_INLINE_TESTCASE_BYTES` (10 KB) raises `ValueError`; large cases use the offline single-case ZIP download/replace path (no cap)
 - ZIP replace deletes all existing rows and files and rebuilds the set from parsed archive pairs (no cap)
+- file helpers delegate to `shared.services.testcase_files`, which validates
+  UUID/slug-like problem ids and verifies resolved paths stay under the Arena
+  test-case root
 
 **Public API:**
 
@@ -555,6 +559,11 @@ platforms.
 
 Uses the following services:
 
+- **`shared.services.auth_rate_limit`** — Valkey-backed throttling for login,
+  2FA, password reset, and signup
+- **`shared.services.security_events`** — Persistent records for lockouts,
+  repeated failures, duplicate signup submissions, and suspicious token/session
+  mismatches
 - **`user_2fa_service.validar_codigo_2fa()`** — Validate TOTP or backup code during 2FA login (via `POST /auth/2fa`)
 - **`user_service.aceitar_termos_privacidade()`** — Record ToS/PP acceptance during the login gate (via `POST /auth/accept-terms`)
 
@@ -628,7 +637,8 @@ Uses the following services:
 - **`admin_user_service.toggle_active()`** — Block/unblock via `POST /admin/users/{id}/toggle-active`
 - **`admin_user_service.toggle_force_password_change()`** — Force-reset via `POST /admin/users/{id}/force-password-change`
 - **`admin_user_service.toggle_can_edit()`** — Problem-edit permission grant/revoke via `POST /admin/users/{id}/toggle-can-edit`
-- **`admin_user_service.toggle_ranking_visible()`** — Public-ranking visibility toggle via `POST /admin/users/{id}/toggle-ranking-visible`
+- **`admin_user_service.toggle_ranking_visible()`** — Public-ranking visibility toggle via `POST /admin/users/{id}/toggle-ranking-visible` (auto-clears `public_profile` when hiding the user)
+- **`admin_user_service.toggle_public_profile()`** — Public-profile opt-in toggle via `POST /admin/users/{id}/toggle-public-profile` (refuses to enable when ranking visibility is off)
 - **`admin_user_service.admin_remove_photo()`** — Photo removal via `POST /admin/users/{id}/remove-photo`
 - **`admin_user_service.admin_disable_2fa()`** — 2FA disable via `POST /admin/users/{id}/disable-2fa`
 - **`admin_user_service.admin_change_name()`** — Name change via `POST /admin/users/{id}/change-name`
@@ -794,6 +804,7 @@ shape. All helpers leave transaction ownership to the caller and never commit.
 | Function | Description |
 |----------|-------------|
 | `upsert_teacher_feedback(session, submission_id, teacher_id, feedback_text, feedback_at=None)` | Inserts or replaces the feedback row via dialect-aware `INSERT ... ON CONFLICT (submission_id) DO UPDATE` (PostgreSQL/SQLite). Editing overwrites the text and refreshes `teacher_id`/`feedback_at`. Returns the written `feedback_at` (used by the route to build a per-update notification `source_ref`). |
+| `delete_teacher_feedback(session, *, submission_id)` | Deletes the feedback row for a submission, if any. Returns `True` when a row existed and was deleted, `False` otherwise (idempotent). |
 | `get_teacher_feedback_text(session, submission_id)` | Returns the feedback text for a submission, or `None` when absent. |
 
 Authorization is enforced at the route layer (`arena/routes/submissions.py`,
@@ -938,7 +949,7 @@ Reusable read queries for Arena leaderboard surfaces.
 
 | Symbol | Description |
 |--------|-------------|
-| `TopRatedUser` | Frozen DTO with `id`, `rank`, `name`, `rating`, `confidence`, and `solved_problems` for presentation-safe user rankings. |
+| `TopRatedUser` | Frozen DTO with `id`, `rank`, `name`, `rating`, `confidence`, `solved_problems`, and `public_profile` for presentation-safe user rankings. `public_profile` is True when the user opted in; the eligibility filter already requires `ranking_visible=True`, so the public profile link is safe whenever this is True. |
 | `_eligible_users_where()` | Shared eligibility predicate list: `ativo=True`, `email_confirmado=True`, and `ranking_visible=True`. Used by both `build_ranked_users_cte()` and `get_top_rated_users()` so all ranking surfaces honour the visibility flag. |
 | `get_top_rated_users(session, *, limit)` | Returns active, email-confirmed, ranking-visible `ARENA_USER` accounts ordered by `user_rating` descending, confidence descending, creation date ascending, and id ascending. Equal ratings share the same competition rank. Values of `limit < 1` return an empty list. |
 
@@ -1163,6 +1174,18 @@ this service performs no aggregation — it only reads the latest snapshot for t
 |--------|-------------|
 | `get_problem_statistics(session, problem_id)` | Return the latest statistics payload (verdicts, languages, per-language time/memory stats, wall-time histogram) augmented with `computed_at` (ISO-8601), or `None` when statistics have not been computed yet. |
 
+### `user_stats_service.py`
+
+Read-only access to precomputed per-user statistics. The snapshots are computed periodically by
+the rating worker (`shared.services.arena_stats`) and stored in `arena_user_statistics`; this
+service performs no aggregation — it only reads the latest snapshot for the public profile page.
+
+**Functions:**
+
+| Symbol | Description |
+|--------|-------------|
+| `get_user_statistics(session, user_id)` | Return the latest statistics payload (total submissions, verdicts, languages) augmented with `computed_at` (ISO-8601), or `None` when statistics have not been computed yet. |
+
 ### `arena_favorite_service.py`
 
 Manages the `arena_problem_favorites` many-to-many table. Only enabled problems appear in
@@ -1249,7 +1272,7 @@ dialog). Worker-side producers currently emit:
 Public-facing ranking queries for the Arena Ranking section.
 
 **Dataclasses:**
-- `RankedUser` — flat presentation DTO with `id`, `rank`, `name`, `email_mascarado`, `affiliation_name`, `country_code`, `country_name`, `subdivision_name`, `rating`
+- `RankedUser` — flat presentation DTO with `id`, `rank`, `name`, `email_mascarado`, `affiliation_name`, `country_code`, `country_name`, `subdivision_name`, `rating`, `public_profile` (True when the user has opted in to a public profile page; the CTE only emits users with `ranking_visible=True`, so a public profile link is safe whenever this is True).
 - `RankedAffiliation` — flat presentation DTO with `id`, `rank`, `name`, `has_logo`, `country_code`, `country_name`, `subdivision_name`, `rating`
 
 | Function | Description |
@@ -1393,8 +1416,25 @@ Teacher-facing reporting over set-tied submissions (`problem_set_id`).
 | `list_users_best_verdicts(session, *, actor_id, actor_role, set_id)` | Teacher/admin only. Each submitting user's best verdict per set problem. |
 | `list_problems_without_submissions_for_user(session, *, actor_id, actor_role, set_id, user_id)` | Teacher/admin or the user. Set problems with no set-tied submission by the user. |
 | `list_problems_without_ac_for_user(session, *, actor_id, actor_role, set_id, user_id)` | Teacher/admin or the user. Set problems with no set-tied AC submission by the user. |
-| `get_student_problem_submissions_for_set(session, *, actor_id, actor_role, set_id, user_id)` | Teacher/admin only. All submissions by one student for the problems in a set, grouped by problem (tuple of `StudentProblemGroup`), submissions ordered newest-first. Each `StudentSubmissionEntry` carries `has_feedback` (teacher feedback present); each `StudentProblemGroup` carries `has_unfeedback_non_ac` (any non-AC submission still lacking feedback). |
+| `get_student_problem_submissions_for_set(session, *, actor_id, actor_role, set_id, user_id)` | Teacher/admin only. All submissions by one student for the problems in a set, grouped by problem (tuple of `StudentProblemGroup`), submissions ordered newest-first. Each `StudentSubmissionEntry` carries `has_feedback` (teacher feedback present); each `StudentProblemGroup` carries `needs_feedback` (`True` when the student has no Accepted submission for that problem yet, via the shared `_needs_feedback` predicate — existing teacher feedback on a non-AC attempt does not clear it). |
 | `can_teacher_view_submission(session, *, teacher_id, set_id)` | Returns True if the teacher manages the class that owns the given problem set. Used by the submission detail route to authorize ARENA_JUDGE access. |
+
+### `arena_batch_feedback_service.py`
+
+Teacher-facing batch feedback over one problem in a problem set — the per-problem
+counterpart to `arena_problem_set_report_service.py` (which aggregates per student across
+all problems). Every active class member's most-recent submission on the given problem is
+bucketed by verdict; non-AC entries are feedback-ready regardless of whether feedback
+already exists, so the manage-problems badge count and the batch page's card count always
+agree.
+
+**Dataclasses:** `VerdictCount`, `BatchFeedbackStudentEntry`, `BatchFeedbackData`.
+
+| Function | Description |
+|----------|-------------|
+| `get_non_ac_counts_for_set(session, *, actor_id, actor_role, set_id)` | Teacher/admin only. Returns `{problem_id: count}` of active class members with no Accepted set-tied submission on that problem yet (via the shared `_needs_feedback` predicate over that student's full verdict history, not just the most-recent submission). Problems with zero qualifying students are omitted. |
+| `get_batch_feedback_data(session, *, actor_id, actor_role, set_id, problem_id)` | Teacher/admin only. Returns `BatchFeedbackData`: problem statement/title/number, the 8-bucket verdict summary (fixed order AC, WA, PE, TLE, MLE, OLE, CE, RE), one `BatchFeedbackStudentEntry` per non-AC most-recent submission (with source code, compile log, first failing testcase context when available, optional AI review context, highlight language, and any existing feedback text), and the deduped set of highlight languages needed by the page's script tags. Raises `ArenaProblemSetNotFoundError` when the problem is not in the set. |
+| `validate_batch_submission_ids(session, *, set_id, problem_id, submission_ids)` | Re-derives, for a candidate list of submission ids, which are still the active member's most-recent non-AC submission for the problem; returns `{submission_id: (user_id, existing_feedback_text)}` for the still-valid subset, silently dropping stale/tampered ids. Used by the POST route to close the rejudge/supersede TOCTOU window. |
 
 ### `arena_problem_set_snapshot_service.py`
 

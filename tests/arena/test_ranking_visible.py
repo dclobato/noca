@@ -377,3 +377,275 @@ async def test_user_opt_out_omitting_field_preserves_hidden_value(session: Async
     assert response.status_code == 200
     await session.refresh(user)
     assert user.ranking_visible is False  # still hidden
+
+
+# ---------------------------------------------------------------------------
+# public_profile default + persistence via profile API
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_public_profile_default_is_false(session: AsyncSession) -> None:
+    """A freshly created ArenaUser should have public_profile=False."""
+    user = await _make_user(session, email="public_default@test.example")
+    assert user.public_profile is False
+
+
+@pytest.mark.asyncio
+async def test_user_can_enable_public_profile_via_profile_api(session: AsyncSession) -> None:
+    """POST /user/profile/personal-data with public_profile=True persists the change."""
+    app = _build_app(session)
+    user = await _make_user(session, email="public_enable@test.example")
+    token = _login_token(app, user)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.post(
+            "/user/profile/personal-data",
+            json={
+                "name": user.nome,
+                "date_of_birth": "2000-01-01",
+                "public_profile": True,
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["public_profile"] is True
+    await session.refresh(user)
+    assert user.public_profile is True
+
+
+@pytest.mark.asyncio
+async def test_user_public_profile_is_coerced_when_ranking_hidden(session: AsyncSession) -> None:
+    """Sending public_profile=True with ranking_visible=False must coerce public_profile=False."""
+    app = _build_app(session)
+    user = await _make_user(session, email="public_coerce@test.example", ranking_visible=False)
+    token = _login_token(app, user)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.post(
+            "/user/profile/personal-data",
+            json={
+                "name": user.nome,
+                "date_of_birth": "2000-01-01",
+                "ranking_visible": False,
+                "public_profile": True,
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ranking_visible"] is False
+    assert body["public_profile"] is False
+    await session.refresh(user)
+    assert user.ranking_visible is False
+    assert user.public_profile is False
+
+
+@pytest.mark.asyncio
+async def test_user_hiding_ranking_auto_clears_public_profile(session: AsyncSession) -> None:
+    """Hiding the ranking while public_profile=True must clear public_profile."""
+    app = _build_app(session)
+    user = await _make_user(
+        session,
+        email="public_hide@test.example",
+        ranking_visible=True,
+    )
+    user.public_profile = True
+    await session.commit()
+    token = _login_token(app, user)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.post(
+            "/user/profile/personal-data",
+            json={
+                "name": user.nome,
+                "date_of_birth": "2000-01-01",
+                "ranking_visible": False,
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ranking_visible"] is False
+    assert body["public_profile"] is False
+    await session.refresh(user)
+    assert user.ranking_visible is False
+    assert user.public_profile is False
+
+
+# ---------------------------------------------------------------------------
+# Admin toggle of public_profile
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_admin_toggle_public_profile_enables_when_ranking_visible(session: AsyncSession) -> None:
+    """Admin can enable public_profile when ranking_visible is True."""
+    app = _build_app(session)
+    admin = await _make_user(session, email="admin_pp@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _make_user(session, email="target_pp@test.example")
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.post(
+            f"/admin/users/{target.id}/toggle-public-profile",
+            data={"confirm_password": _TEST_PASSWORD},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    await session.refresh(target)
+    assert target.public_profile is True
+
+
+@pytest.mark.asyncio
+async def test_admin_toggle_public_profile_blocked_when_ranking_hidden(session: AsyncSession) -> None:
+    """Admin cannot enable public_profile when ranking_visible is False."""
+    app = _build_app(session)
+    admin = await _make_user(session, email="admin_pp_blocked@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _make_user(
+        session,
+        email="target_pp_blocked@test.example",
+        ranking_visible=False,
+    )
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.post(
+            f"/admin/users/{target.id}/toggle-public-profile",
+            data={"confirm_password": _TEST_PASSWORD},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    await session.refresh(target)
+    assert target.public_profile is False  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_admin_toggle_public_profile_disables_when_enabled(session: AsyncSession) -> None:
+    """Admin can disable public_profile without requiring ranking_visible."""
+    app = _build_app(session)
+    admin = await _make_user(session, email="admin_pp_disable@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _make_user(session, email="target_pp_disable@test.example")
+    target.public_profile = True
+    await session.commit()
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.post(
+            f"/admin/users/{target.id}/toggle-public-profile",
+            data={"confirm_password": _TEST_PASSWORD},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    await session.refresh(target)
+    assert target.public_profile is False
+
+
+@pytest.mark.asyncio
+async def test_admin_toggle_ranking_visible_clears_public_profile(session: AsyncSession) -> None:
+    """Hiding a user via admin must auto-clear public_profile."""
+    app = _build_app(session)
+    admin = await _make_user(session, email="admin_clear@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _make_user(session, email="target_clear@test.example")
+    target.public_profile = True
+    await session.commit()
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.post(
+            f"/admin/users/{target.id}/toggle-ranking-visible",
+            data={"confirm_password": _TEST_PASSWORD},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    await session.refresh(target)
+    assert target.ranking_visible is False
+    assert target.public_profile is False
+
+
+@pytest.mark.asyncio
+async def test_admin_toggle_ranking_visible_showing_keeps_public_profile(session: AsyncSession) -> None:
+    """Showing a user via admin must NOT clear public_profile (it can only have been enabled while visible)."""
+    app = _build_app(session)
+    admin = await _make_user(session, email="admin_show@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _make_user(
+        session,
+        email="target_show@test.example",
+        ranking_visible=False,
+    )
+    target.public_profile = False
+    await session.commit()
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.post(
+            f"/admin/users/{target.id}/toggle-ranking-visible",
+            data={"confirm_password": _TEST_PASSWORD},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    await session.refresh(target)
+    assert target.ranking_visible is True
+    assert target.public_profile is False  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_admin_toggle_public_profile_wrong_password_rejected(session: AsyncSession) -> None:
+    """Wrong admin password must not change public_profile."""
+    app = _build_app(session)
+    admin = await _make_user(session, email="admin_pw@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _make_user(session, email="target_pw@test.example")
+    token = _login_token(app, admin)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.post(
+            f"/admin/users/{target.id}/toggle-public-profile",
+            data={"confirm_password": "WrongPassword!"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    await session.refresh(target)
+    assert target.public_profile is False  # unchanged

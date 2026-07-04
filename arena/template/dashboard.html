@@ -16,3 +16,7 @@
         <div class="col-12 col-lg-6">{% include "_partials/dashboard/top_users_card.html" %}</div>
     </div>
 {% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('arena_static_js', path='arena-row-href.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}

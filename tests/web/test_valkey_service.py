@@ -75,8 +75,8 @@ async def test_create_valkey_pool_connects_to_real_valkey() -> None:
     client = aivalkey.Valkey.from_pool(pool)
 
     try:
-        assert pool.connection_kwargs["host"] == "127.0.0.1"
-        assert pool.connection_kwargs["port"] == 6379
+        assert pool.connection_kwargs["host"] == settings.VALKEY_SERVER
+        assert pool.connection_kwargs["port"] == settings.VALKEY_PORT
         assert pool.connection_kwargs["db"] == 15
         try:
             assert await client.ping() is True

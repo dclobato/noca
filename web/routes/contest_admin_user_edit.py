@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.services.admin_audit import record_admin_action
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_user_helpers import _credentials_payload, _html, _render_download_json
 from web.services.assorted_utils import slugfy
@@ -132,6 +133,7 @@ async def edit_user_submit(
 
 @router.post("/{user_id}/remove")
 async def remove_user_route(
+    request: Request,
     user_id: str,
     flash: FlashDep,
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
@@ -141,5 +143,16 @@ async def remove_user_route(
         raise HTTPException(status_code=404)
 
     await remove_user(ctx.session, ctx.contest, user_obj)
+    await record_admin_action(
+        ctx.session,
+        request,
+        module="web",
+        actor_user_id=ctx.actor.id,
+        action="delete",
+        target_type="contest_user",
+        target_id=user_id,
+        detail=f"contest={ctx.contest.login_slug}",
+    )
+    await ctx.session.commit()
     flash("User removed from contest.", FlashCategory.SUCCESS)
     return RedirectResponse(url=f"/c/{ctx.contest.login_slug}/admin/users", status_code=303)

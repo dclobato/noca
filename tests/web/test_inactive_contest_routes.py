@@ -21,6 +21,7 @@ from web.routes.auth import router as auth_router
 from web.routes.generaluser_dashboard import router as contest_dashboard_router
 from web.routes.root import router as root_router
 from web.routes.uberadmin_dashboard import router as uberadmin_dashboard_router
+from web.routes.uberadmin_security import router as uberadmin_security_router
 from web.services.authentication_service import AuthAction, AuthenticationService
 
 TEST_JWT_SECRET = "test-secret-key-for-tests-only-32bytes"
@@ -86,6 +87,7 @@ def _build_app(session: AsyncSession) -> tuple[FastAPI, AuthenticationService]:
     app.include_router(auth_router)
     app.include_router(root_router)
     app.include_router(uberadmin_dashboard_router)
+    app.include_router(uberadmin_security_router)
     app.include_router(contest_dashboard_router)
     return app, app.state.auth_service
 

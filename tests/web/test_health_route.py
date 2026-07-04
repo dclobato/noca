@@ -11,10 +11,11 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from web.models.contest import Contest
-from web.routes.health import health
+from web.routes.health import enforce_web_health_rate_limit, health
 
 
 class _FakeValkeyRuntime:
@@ -32,8 +33,10 @@ class _FakeTask:
 
 
 class _FakeRequest:
-    def __init__(self, app: object) -> None:
+    def __init__(self, app: object, *, client_ip: str = "203.0.113.30") -> None:
         self.app = app
+        self.headers: dict[str, str] = {}
+        self.client = SimpleNamespace(host=client_ip)
 
 
 class _UnavailableSessionFactory:
@@ -182,3 +185,33 @@ async def test_health_returns_degraded_response_when_valkey_is_unavailable(
     assert response.status_code == 503
     assert payload["status"] == "degraded"
     assert payload["services"]["valkey_runtime"]["available"] is False
+
+
+@pytest.mark.asyncio
+async def test_web_health_rate_limit_dependency_rejects_over_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("web.routes.health.settings.HEALTH_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr("web.routes.health.settings.HEALTH_RATE_LIMIT_WINDOW_SECONDS", 60)
+    monkeypatch.setattr("web.routes.health.settings.HEALTH_RATE_LIMIT_MAX_REQUESTS", 1)
+    monkeypatch.setattr("web.routes.health.settings.HEALTH_RATE_LIMIT_TRUSTED_CIDRS", "127.0.0.0/8")
+    monkeypatch.setattr("web.routes.health._fallback_health_limiter._buckets", {})
+    request = _FakeRequest(app=SimpleNamespace(state=SimpleNamespace(valkey_runtime=None)))
+
+    await enforce_web_health_rate_limit(request)  # type: ignore[arg-type]
+
+    with pytest.raises(HTTPException) as exc_info:
+        await enforce_web_health_rate_limit(request)  # type: ignore[arg-type]
+
+    assert exc_info.value.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_web_health_rate_limit_dependency_trusts_local_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("web.routes.health.settings.HEALTH_RATE_LIMIT_ENABLED", True)
+    monkeypatch.setattr("web.routes.health.settings.HEALTH_RATE_LIMIT_WINDOW_SECONDS", 60)
+    monkeypatch.setattr("web.routes.health.settings.HEALTH_RATE_LIMIT_MAX_REQUESTS", 1)
+    monkeypatch.setattr("web.routes.health.settings.HEALTH_RATE_LIMIT_TRUSTED_CIDRS", "127.0.0.0/8")
+    monkeypatch.setattr("web.routes.health._fallback_health_limiter._buckets", {})
+    request = _FakeRequest(app=SimpleNamespace(state=SimpleNamespace(valkey_runtime=None)), client_ip="127.0.0.1")
+
+    await enforce_web_health_rate_limit(request)  # type: ignore[arg-type]
+    await enforce_web_health_rate_limit(request)  # type: ignore[arg-type]

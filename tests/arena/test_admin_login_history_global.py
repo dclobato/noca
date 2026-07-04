@@ -309,7 +309,7 @@ def _build_app(session: Any, *, authorized: bool = True) -> FastAPI:
         ("/admin/affiliations", "arena_admin_affiliation_list"),
         ("/admin/dashboard", "arena_admin_dashboard"),
         ("/admin/dashboard/service-status", "arena_admin_dashboard_service_status"),
-        ("/admin/dashboard/ai-credits", "arena_admin_dashboard_ai_credits"),
+        ("/admin/dashboard/ai-usage", "arena_admin_dashboard_ai_usage"),
     ]:
         app.add_api_route(path, lambda: Response("stub"), name=name)  # type: ignore[arg-type]
 

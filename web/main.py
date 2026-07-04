@@ -12,7 +12,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi_flash import setup_flash
@@ -34,11 +34,15 @@ from shared.services.email_service import EmailConfig, EmailService
 from shared.services.geolocation import GeolocationIP
 from shared.services.imageprocessing_service import ImageProcessingConfig, ImageProcessingService
 from shared.services.network_utils import NetworkService
+from shared.services.security_events_reaper import run_security_events_reaper
+from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
 from shared.services.startup_wait import wait_for_db, wait_for_valkey
 from shared.services.token_revocation import ValkeyRevocationStore
+from shared.static_files import ShortCacheStaticFiles
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
 from web.config import settings
 from web.database import create_engine, create_session_factory
+from web.dependencies import enforce_web_default_auth
 from web.error_handlers import register_error_handlers
 from web.middleware.auth_token_refresh import AuthTokenRefreshMiddleware
 from web.routes.assets import router as assets_router
@@ -77,6 +81,7 @@ from web.routes.health import router as health_router
 from web.routes.profile import router as profile_router
 from web.routes.root import router as root_router
 from web.routes.uberadmin_dashboard import router as uberadmin_dashboard_router
+from web.routes.uberadmin_security import router as uberadmin_security_router
 from web.routes.uberadmin_users import router as uberadmin_users_router
 from web.services.assorted_utils import contest_minutes, contest_verdict_badge_class, format_site_identity
 from web.services.authentication_service import AuthAction, AuthenticationService
@@ -140,6 +145,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     app.state.clarification_reaper_task = None
     app.state.task_reaper_stop = asyncio.Event()
     app.state.task_reaper_task = None
+    app.state.security_events_reaper_stop = asyncio.Event()
+    app.state.security_events_reaper_task = None
 
     revocation_store = ValkeyRevocationStore(valkey_url=settings.valkey_url, logger=logger)
     app.state.revocation_store = revocation_store
@@ -279,6 +286,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     else:
         logger.warning("- Task reaper disabled")
 
+    if settings.SECURITY_EVENTS_RETENTION_DAYS > 0:
+        poll_interval_seconds = settings.SECURITY_EVENTS_REAPER_INTERVAL_SECONDS
+        app.state.security_events_reaper_task = asyncio.create_task(
+            run_security_events_reaper(
+                app.state.db_session,
+                poll_interval_seconds=poll_interval_seconds,
+                retention_days=settings.SECURITY_EVENTS_RETENTION_DAYS,
+                modules=["web"],
+                stop_event=app.state.security_events_reaper_stop,
+                logger=logger,
+            ),
+            name="security-events-reaper",
+        )
+        logger.info(
+            "- Security-events reaper enabled (interval=%ss, retention=%sd)",
+            poll_interval_seconds,
+            settings.SECURITY_EVENTS_RETENTION_DAYS,
+        )
+    else:
+        logger.warning("- Security-events reaper disabled (retention=0)")
+
     # logger.debug("| Registered routes |".center(80, "-"))
     # for route in app.routes:
     #     if hasattr(route, "methods") and hasattr(route, "path"):
@@ -304,6 +332,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         await task_reaper_task
         logger.info("Task reaper stopped")
 
+    security_events_reaper_task = app.state.security_events_reaper_task
+    if security_events_reaper_task is not None:
+        app.state.security_events_reaper_stop.set()
+        await security_events_reaper_task
+        logger.info("Security-events reaper stopped")
+
     app.state.revocation_store.close()
     logger.info("ValkeyRevocationStore closed")
 
@@ -317,16 +351,42 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("*" * 80)
 
 
-app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+    dependencies=[Depends(enforce_web_default_auth)],
+)
 register_error_handlers(app)
 
-app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET_KEY)
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    settings=SecurityHeaderSettings(
+        enabled=settings.SECURITY_HEADERS_ENABLED,
+        csp_report_only=settings.CSP_REPORT_ONLY,
+        hsts_enabled=settings.COOKIE_SECURE or settings.ENVIRONMENT == Environment.PRODUCTION,
+    ),
+)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.JWT_SECRET_KEY,
+    https_only=settings.COOKIE_SECURE,
+)
 app.add_middleware(AuthTokenRefreshMiddleware)
 
-app.mount("/static/js", StaticFiles(directory=_WEB_DIR / "static" / "js"), name="static_js")
-app.mount("/static/shared-js", StaticFiles(directory=_SHARED_DIR / "static" / "js"), name="static_shared_js")
-app.mount("/static/css", StaticFiles(directory=_WEB_DIR / "static" / "css"), name="static_css")
-app.mount("/static/shared-css", StaticFiles(directory=_SHARED_DIR / "static" / "css"), name="static_shared_css")
+app.mount("/static/js", ShortCacheStaticFiles(directory=_WEB_DIR / "static" / "js"), name="static_js")
+app.mount(
+    "/static/shared-js",
+    ShortCacheStaticFiles(directory=_SHARED_DIR / "static" / "js"),
+    name="static_shared_js",
+)
+app.mount("/static/css", ShortCacheStaticFiles(directory=_WEB_DIR / "static" / "css"), name="static_css")
+app.mount(
+    "/static/shared-css",
+    ShortCacheStaticFiles(directory=_SHARED_DIR / "static" / "css"),
+    name="static_shared_css",
+)
 app.mount("/static/img", StaticFiles(directory=_WEB_DIR / "static" / "img"), name="static_img")
 app.mount("/static/vendor", StaticFiles(directory=_SHARED_DIR / "static" / "vendor"), name="static_vendor")
 app.mount("/static/webfonts", StaticFiles(directory=_SHARED_DIR / "static" / "webfonts"), name="static_webfonts")
@@ -341,6 +401,7 @@ app.include_router(health_router)
 # ###################################################################
 # Dashboard routes
 app.include_router(uberadmin_dashboard_router)
+app.include_router(uberadmin_security_router)
 app.include_router(uberadmin_users_router)
 app.include_router(generaluser_dashboard_router)
 

@@ -4,11 +4,13 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Public problem browsing routes for the Arena platform.
+"""Problem browsing routes for the Arena platform.
 
-All routes are publicly accessible (no login required).  The optional
-``current_user`` dependency follows the same pattern used in
-``arena/routes/root.py`` and ``arena/routes/help.py``.
+Only ``GET /problems`` (the list) is public; it keeps the optional
+``current_user`` dependency, following the same pattern used in
+``arena/routes/root.py`` and ``arena/routes/help.py``.  Every other route here
+(problem detail and its sub-resources, submit, favorite, request-removal)
+requires a logged-in user via ``require_arena_user``.
 
 Routes:
   GET  /problems                                        arena_problem_list
@@ -38,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings
 from arena.database import get_db
-from arena.dependencies.auth import get_current_arena_user
+from arena.dependencies.auth import get_current_arena_user, require_arena_user
 from arena.models.arena_users import ArenaUser
 from arena.services import (
     arena_favorite_service,
@@ -51,7 +53,6 @@ from arena.services.arena_problem_set_service import (
     problem_accepting_set_for_user,
 )
 from arena.services.pagination_service import parse_page
-from arena.services.session_service import build_login_redirect_response
 from arena.services.submission_service import (
     ArenaSubmissionRateLimitError,
     ArenaSubmissionServiceError,
@@ -210,7 +211,8 @@ async def arena_problem_list(
     """Render the public problem list page.
 
     Shows all enabled Arena problems in a sortable, searchable, paginated table
-    (25 per page).  No login is required.
+    (25 per page).  This is the one Arena content page that remains public; it
+    renders for both logged-in users and guests.
 
     Args:
         request: The current HTTP request.
@@ -272,10 +274,10 @@ async def arena_problem_detail(
     back_sort_by: str = _DEFAULT_SORT,
     back_category_slugs: list[str] = Query(default=[]),
     continue_submission: str | None = Query(default=None, alias="continue"),
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
-    """Render the public problem detail page.
+    """Render the problem detail page.
 
     Shows the problem statement, sample test cases, resource limits, and a
     submission stub panel.  Displays the current user's solve/attempt status
@@ -295,7 +297,7 @@ async def arena_problem_detail(
         continue_submission: Optional submission UUID whose source code should
             pre-fill the editor.  Silently ignored if the submission does not
             belong to the current user or targets a different problem.
-        current_user: Authenticated ``ArenaUser`` or ``None`` for guests.
+        current_user: The authenticated Arena user (login required).
         session: Async database session.
     """
     result = await problem_browse_service.get_enabled_problem_by_number(session, arena_number)
@@ -337,23 +339,22 @@ async def arena_problem_detail(
     relative_solved: str | None = None
     is_favorite: bool = False
     accepting_set: AcceptingSetInfo | None = None
-    if current_user is not None:
-        solved_at, tried_at, is_favorite = await problem_browse_service.get_user_problem_status(
-            session, user_id=current_user.id, problem_id=problem.id
-        )
-        if solved_at is not None:
-            relative_solved = _relative_time(solved_at)
-        accepting_set = await problem_accepting_set_for_user(
-            session,
-            problem_id=problem.id,
-            user_id=current_user.id,
-            now=datetime.now(UTC),
-        )
+    solved_at, tried_at, is_favorite = await problem_browse_service.get_user_problem_status(
+        session, user_id=current_user.id, problem_id=problem.id
+    )
+    if solved_at is not None:
+        relative_solved = _relative_time(solved_at)
+    accepting_set = await problem_accepting_set_for_user(
+        session,
+        problem_id=problem.id,
+        user_id=current_user.id,
+        now=datetime.now(UTC),
+    )
 
     # Resolve the optional ?continue=<submission_id> prefill
     prefill_source_code: str | None = None
     prefill_language_id: str | None = None
-    if continue_submission and current_user is not None:
+    if continue_submission:
         sub_row = (
             await session.execute(
                 select(
@@ -437,12 +438,12 @@ async def arena_problem_detail(
 )
 async def arena_problem_rating_history_public(
     arena_number: int,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Return the rating history for a public problem.
+    """Return the rating history for a problem.
 
-    No authentication required.  Only enabled problems are reachable.
+    Requires a logged-in user.  Only enabled problems are reachable.
 
     Args:
         arena_number: Public arena number of the problem.
@@ -473,10 +474,10 @@ async def arena_problem_rating_history_public(
 async def arena_problem_statistics(
     request: Request,
     arena_number: int,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
-    """Render the public per-problem statistics page.
+    """Render the per-problem statistics page.
 
     The charts and tables are populated client-side from the precomputed
     statistics JSON endpoint and the existing rating-history endpoint.
@@ -484,7 +485,7 @@ async def arena_problem_statistics(
     Args:
         request: The current HTTP request.
         arena_number: Public arena number of the problem.
-        current_user: Authenticated ``ArenaUser`` or ``None`` for guests.
+        current_user: The authenticated Arena user (login required).
         session: Async database session.
 
     Returns:
@@ -521,12 +522,12 @@ async def arena_problem_statistics(
 )
 async def arena_problem_statistics_data(
     arena_number: int,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Return the precomputed statistics payload for a public problem.
+    """Return the precomputed statistics payload for a problem.
 
-    No authentication required.  Only enabled problems are reachable.  Returns
+    Requires a logged-in user.  Only enabled problems are reachable.  Returns
     ``{}`` when statistics have not been computed yet so the client can render
     an empty state.
 
@@ -558,10 +559,10 @@ async def arena_problem_sample_testcases_zip(
     arena_number: int,
     session: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Download a ZIP archive of the public sample test cases for a problem.
+    """Download a ZIP archive of the sample test cases for a problem.
 
     Layout A format: ``in/001.in`` + ``out/001.out`` (ordinal-based naming,
-    zero-padded to three digits).  No authentication required.
+    zero-padded to three digits).  Requires a logged-in user.
 
     Args:
         arena_number: Public arena number of the problem.
@@ -601,7 +602,7 @@ async def arena_problem_submit(
     language_id: str = Form(default=""),
     source_code: str = Form(default=""),
     problem_set_id: str = Form(default=""),
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Accept a code submission for an Arena problem.
@@ -609,8 +610,6 @@ async def arena_problem_submit(
     Creates an ``arena_submissions`` row and an ``arena_submission_judgments``
     row in QUEUED state, commits the transaction, then enqueues the job for the
     autojudge worker.  Redirects to the user's submissions tab on success.
-
-    Only authenticated Arena users may submit.  Guests are redirected to login.
 
     ``language_id`` and ``source_code`` default to empty string so browsers can
     submit an empty textarea without a 422 — the service validates both fields
@@ -622,19 +621,13 @@ async def arena_problem_submit(
         flash: Flash message dependency.
         language_id: Selected language ID (from the submission form).
         source_code: Raw source code submitted by the user.
-        current_user: Authenticated Arena user, or ``None`` for guests.
+        current_user: The authenticated Arena user (login required).
         session: Active database session.
 
     Returns:
         Response: 303 redirect to submissions tab on success, or back to the
             problem detail page with a flash error on failure.
     """
-    if current_user is None:
-        return build_login_redirect_response(
-            request,
-            next_url=request.url_for("arena_problem_detail", arena_number=arena_number).path,
-        )
-
     result = await problem_browse_service.get_enabled_problem_by_number(session, arena_number)
     if result is None:
         raise HTTPException(status_code=404, detail="Problem not found")
@@ -684,26 +677,23 @@ async def arena_problem_submit(
 async def arena_problem_toggle_favorite(
     request: Request,
     arena_number: int,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Toggle the favorite status of a problem for the current user.
 
-    Returns JSON ``{"is_favorite": true/false}``.  Guests receive a 401 JSON
-    response.  Unknown or disabled problems receive a 404.
+    Returns JSON ``{"is_favorite": true/false}``.  Unknown or disabled problems
+    receive a 404.
 
     Args:
         request: Current HTTP request.
         arena_number: Public arena number of the problem.
-        current_user: Authenticated Arena user, or ``None`` for guests.
+        current_user: The authenticated Arena user (login required).
         session: Active database session.
 
     Returns:
         JSONResponse: ``{"is_favorite": <bool>}`` on success.
     """
-    if current_user is None:
-        return JSONResponse({"detail": "Authentication required"}, status_code=401)
-
     result = await problem_browse_service.get_enabled_problem_by_number(session, arena_number)
     if result is None:
         raise HTTPException(status_code=404, detail="Problem not found")
@@ -723,7 +713,7 @@ async def arena_problem_request_removal(
     request: Request,
     arena_number: int,
     flash: FlashDep,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Handle a problem removal request submitted by the problem's owner.
@@ -737,18 +727,12 @@ async def arena_problem_request_removal(
         request: Current HTTP request.
         arena_number: Public arena number of the problem.
         flash: Flash message dependency.
-        current_user: Authenticated Arena user, or ``None`` for guests.
+        current_user: The authenticated Arena user (login required).
         session: Active database session.
 
     Returns:
         Response: 303 redirect to the problem detail page.
     """
-    if current_user is None:
-        return build_login_redirect_response(
-            request,
-            next_url=request.url_for("arena_problem_detail", arena_number=arena_number).path,
-        )
-
     result = await problem_browse_service.get_enabled_problem_by_number(session, arena_number)
     if result is None:
         raise HTTPException(status_code=404, detail="Problem not found")

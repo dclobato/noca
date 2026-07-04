@@ -9,12 +9,14 @@
 # Long-lived pool container. Contestant code is executed through isolate,
 # while Docker remains the outer safety boundary.
 #
-# Pinned: eclipse-temurin:21.0.10+7-jre (Ubuntu 24.04) @ sha256:9d4453b48613404e1fa6e5e7eabc687ea57edfb8a1ad413956c5168f84b66af9
+# Pinned: eclipse-temurin:25.0.3+9-jre @ sha256:7ea65de6187ad8fbcc0ad155950c38664a7371148bb3ccf1ec1e1b286b44ad08
 
 ARG ISOLATE_BASE_REF=noca/isolate-base:latest
 FROM ${ISOLATE_BASE_REF} AS isolate
 
-FROM eclipse-temurin:21-jre@sha256:9d4453b48613404e1fa6e5e7eabc687ea57edfb8a1ad413956c5168f84b66af9
+FROM eclipse-temurin:25-jre@sha256:7ea65de6187ad8fbcc0ad155950c38664a7371148bb3ccf1ec1e1b286b44ad08
+
+LABEL org.opencontainers.image.source="https://github.com/dclobato/noca"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libcap2 libseccomp2 \

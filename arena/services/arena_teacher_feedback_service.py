@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -88,6 +88,26 @@ async def upsert_teacher_feedback(
 
     await session.execute(stmt)
     return written_at
+
+
+async def delete_teacher_feedback(session: AsyncSession, *, submission_id: str) -> bool:
+    """Delete the teacher feedback for one submission, if any.
+
+    Does not commit; the caller owns the transaction.
+
+    Args:
+        session: Active async database session.
+        submission_id: UUID of the ``arena_submissions`` row.
+
+    Returns:
+        bool: True when a feedback row existed and was deleted.
+    """
+    result = await session.execute(
+        delete(arena_submission_teacher_feedback).where(
+            arena_submission_teacher_feedback.c.submission_id == submission_id
+        )
+    )
+    return bool(result.rowcount)  # type: ignore[attr-defined]
 
 
 async def get_teacher_feedback_text(session: AsyncSession, submission_id: str) -> str | None:

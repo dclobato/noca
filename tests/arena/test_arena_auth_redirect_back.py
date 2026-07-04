@@ -20,7 +20,6 @@ from arena.database import get_db
 from arena.dependencies.admin import require_arena_admin
 from arena.dependencies.auth import get_current_arena_user
 from arena.error_handlers import arena_http_exception_handler
-from arena.routes.problems import arena_problem_submit
 from arena.routes.submissions import arena_submission_detail, arena_submission_request_ai_review
 from arena.routes.user_security import arena_2fa_confirm, arena_2fa_setup
 from arena.routes.users import arena_user_profile, arena_user_profile_notification_delete
@@ -269,7 +268,6 @@ async def test_json_admin_dependency_403_stays_json() -> None:
             "/submissions/sub-1/request-ai-review",
             "/submissions/sub-1",
         ),
-        ("problem_submit", "POST", "/problems/42/submit", "/problems/42"),
     ],
 )
 async def test_manual_protected_page_redirects_include_next(
@@ -296,10 +294,8 @@ async def test_manual_protected_page_redirects_include_next(
         response = await arena_2fa_confirm(request, flash, current_user=None, session=None)
     elif handler_name == "submission_detail":
         response = await arena_submission_detail("sub-1", request, current_user=None, session=None)
-    elif handler_name == "submission_ai_review":
-        response = await arena_submission_request_ai_review("sub-1", request, flash, None, None)
     else:
-        response = await arena_problem_submit(request, 42, flash, current_user=None, session=None)
+        response = await arena_submission_request_ai_review("sub-1", request, flash, None, None)
 
     assert response.status_code == 303
     location = urlparse(response.headers["location"])

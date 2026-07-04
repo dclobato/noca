@@ -389,8 +389,14 @@ def _login_user(client: AsyncClient, app: FastAPI, user: ArenaUser) -> None:
 
 
 @pytest.mark.asyncio
-async def test_submit_redirects_unauthenticated(session: AsyncSession) -> None:
-    """Guest POST to the submit endpoint redirects to the login page."""
+async def test_submit_rejects_unauthenticated(session: AsyncSession) -> None:
+    """Guest POST to the submit endpoint is rejected with 401.
+
+    ``require_arena_user`` raises 401 for guests; turning that into a login
+    redirect is the centralized job of the access-control gate and Arena
+    exception handler (covered by ``test_access_control_lockdown``), neither of
+    which is wired into this minimal route-test app.
+    """
     mock_valkey = MagicMock()
     app = _build_app(session, valkey_runtime=mock_valkey)
     author = await _make_arena_user(session, email_prefix="author")
@@ -404,8 +410,7 @@ async def test_submit_redirects_unauthenticated(session: AsyncSession) -> None:
             follow_redirects=False,
         )
 
-    assert resp.status_code == 303
-    assert "/auth/login" in resp.headers["location"]
+    assert resp.status_code == 401
 
 
 @pytest.mark.asyncio

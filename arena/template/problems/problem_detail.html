@@ -207,15 +207,13 @@
                     <div class="card shadow-sm mb-3">
                         <div class="card-header fw-semibold small">Sample {{ loop.index }}</div>
                         <div class="card-body">
-                            <div class="row g-2">
-                                <div class="col-md-6">
-                                    <p class="text-muted small fw-semibold mb-1">Input</p>
-                                    <pre class="bg-light p-2 rounded small mb-0 overflow-auto">{{ (tc.input_content or '') | e }}</pre>
-                                </div>
-                                <div class="col-md-6">
-                                    <p class="text-muted small fw-semibold mb-1">Output</p>
-                                    <pre class="bg-light p-2 rounded small mb-0 overflow-auto">{{ (tc.output_content or '') | e }}</pre>
-                                </div>
+                            <div class="mb-3">
+                                <p class="text-muted small fw-semibold mb-1">Input</p>
+                                <pre class="bg-light p-2 rounded small mb-0 overflow-auto">{{ (tc.input_content or '') | e }}</pre>
+                            </div>
+                            <div>
+                                <p class="text-muted small fw-semibold mb-1">Output</p>
+                                <pre class="bg-light p-2 rounded small mb-0 overflow-auto">{{ (tc.output_content or '') | e }}</pre>
                             </div>
                             {% if tc.explanation %}
                                 <div class="text-muted small mt-2">

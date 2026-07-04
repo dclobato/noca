@@ -42,6 +42,7 @@ from arena.routes.admin_problem_form_views import (
 from arena.services import admin_problem_service, admin_problem_tc_service
 from arena.services.pagination_service import parse_page
 from shared.enumerations import ArenaRole
+from shared.services.admin_audit import record_admin_action
 from shared.services.imageprocessing_service import ImageProcessingError
 from shared.services.valkey_service.queue_ops import enqueue_arena_submission_job
 
@@ -612,6 +613,16 @@ async def admin_problem_delete(
         return RedirectResponse(url=edit_url, status_code=303)
 
     arena_number = await admin_problem_service.delete_problem(session, problem)
+    await record_admin_action(
+        session,
+        request,
+        module="arena",
+        actor_user_id=current_user.id,
+        action="delete",
+        target_type="arena_problem",
+        target_id=problem_id,
+        detail=f"arena_number={arena_number}",
+    )
     await session.commit()
     flash(f"Problem #{arena_number} deleted.", FlashCategory.SUCCESS)
     return RedirectResponse(

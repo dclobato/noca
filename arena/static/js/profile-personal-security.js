@@ -32,6 +32,7 @@
   const nameError = document.getElementById("profile-name-error");
   const dateOfBirthInput = document.getElementById("profile-date-of-birth-input");
   const rankingVisibleInput = document.getElementById("profile-ranking-visible-input");
+  const publicProfileInput = document.getElementById("profile-public-profile-input");
   const dateOfBirthError = document.getElementById("profile-date-of-birth-error");
   const languageSelect = document.getElementById("profile-language-select");
   const preferedLanguageSelect = document.getElementById("profile-prefered-language-select");
@@ -143,7 +144,18 @@
 
   nameInput.addEventListener("input", markDirty);
   dateOfBirthInput.addEventListener("change", markDirty);
-  rankingVisibleInput?.addEventListener("change", markDirty);
+  rankingVisibleInput?.addEventListener("change", () => {
+    markDirty();
+    if (publicProfileInput) {
+      if (!rankingVisibleInput.checked) {
+        publicProfileInput.checked = false;
+        publicProfileInput.disabled = true;
+      } else {
+        publicProfileInput.disabled = false;
+      }
+    }
+  });
+  publicProfileInput?.addEventListener("change", markDirty);
   languageSelect.addEventListener("change", markDirty);
   preferedLanguageSelect.addEventListener("change", markDirty);
   subdivisionSelect.addEventListener("change", markDirty);
@@ -380,6 +392,7 @@
           language_id: languageSelect ? (languageSelect.value || null) : null,
           prefered_language: preferedLanguageSelect ? preferedLanguageSelect.value : "en-US",
           ranking_visible: rankingVisibleInput ? rankingVisibleInput.checked : true,
+          public_profile: publicProfileInput ? publicProfileInput.checked : false,
         });
 
         markClean();
@@ -405,6 +418,12 @@
         // Sync ranking visibility checkbox from persisted server value
         if (rankingVisibleInput && data.ranking_visible !== undefined) {
           rankingVisibleInput.checked = !!data.ranking_visible;
+        }
+
+        // Sync public profile checkbox from persisted server value
+        if (publicProfileInput && data.public_profile !== undefined) {
+          publicProfileInput.checked = !!data.public_profile;
+          publicProfileInput.disabled = !rankingVisibleInput?.checked;
         }
 
         // Update affiliation modal data attributes to reflect saved state

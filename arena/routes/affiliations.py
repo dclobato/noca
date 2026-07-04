@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
-from arena.dependencies.auth import get_current_arena_user
+from arena.dependencies.auth import require_arena_user
 from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_users import ArenaUser
 from arena.services.user_timezone_service import format_user_datetime
@@ -45,7 +45,7 @@ async def arena_affiliation_logo(
 ) -> Response:
     """Return the stored affiliation logo image.
 
-    No authentication required.  Returns 404 when the affiliation does not
+    Requires a logged-in user.  Returns 404 when the affiliation does not
     exist or has no logo stored.
 
     Args:
@@ -77,7 +77,7 @@ async def arena_affiliation_logo_thumbnail(
 ) -> Response:
     """Return the stored affiliation logo thumbnail image.
 
-    No authentication required.  If the thumbnail is not yet generated
+    Requires a logged-in user.  If the thumbnail is not yet generated
     (pre-existing logos), redirects to the full-size logo route as a
     graceful fallback.  Returns 404 when the affiliation does not exist
     or has no logo stored at all.
@@ -110,12 +110,12 @@ async def arena_affiliation_logo_thumbnail(
 @router.get("/affiliations/{affiliation_id}/rating-history", name="arena_affiliation_rating_history")
 async def arena_affiliation_rating_history(
     affiliation_id: str,
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Return the affiliation's rating history for the last 24 months.
 
-    No authentication required.  Returns 404 when the affiliation does not
+    Requires a logged-in user.  Returns 404 when the affiliation does not
     exist.  Returns an empty history list when no rating records are found.
 
     Args:
