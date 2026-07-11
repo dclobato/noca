@@ -55,6 +55,7 @@ from shared.queue_schema import ArenaAIReviewJob
 from shared.services.arena_notification_service import create_arena_notification
 from shared.services.testcase_files import read_testcase_full
 from shared.services.valkey_service.queue_ops import enqueue_arena_ai_review_job
+from shared.signal_names import describe_signal
 
 router = APIRouter(tags=["arena-submissions"])
 
@@ -106,6 +107,9 @@ class TestResultData:
         is_sample: True when the failing test case is a sample (public) case.
         test_case_ordinal: 1-based ordinal of the failing test case.
         stderr_excerpt: Truncated standard error output, or None if empty.
+        exit_signal_description: Human-readable fatal signal description
+            (e.g. "SIGSEGV — segmentation fault"), or None when the process
+            was not signal-killed.
     """
 
     verdict: str
@@ -114,6 +118,7 @@ class TestResultData:
     is_sample: bool
     test_case_ordinal: int
     stderr_excerpt: str | None
+    exit_signal_description: str | None
 
 
 def _html(response: Any) -> HTMLResponse:
@@ -213,6 +218,7 @@ async def arena_submission_detail(
                 arena_problem_sets.c.name.label("problem_set_name"),
                 arena_classes.c.id.label("class_id"),
                 arena_classes.c.name.label("class_name"),
+                arena_users.c.nome.label("submission_owner_name"),
             )
             .select_from(
                 arena_submissions.join(
@@ -222,6 +228,10 @@ async def arena_submission_detail(
                 .join(
                     languages_table,
                     arena_submissions.c.language_id == languages_table.c.id,
+                )
+                .join(
+                    arena_users,
+                    arena_submissions.c.user_id == arena_users.c.id,
                 )
                 .outerjoin(
                     arena_problem_sets,
@@ -417,6 +427,7 @@ async def arena_submission_detail(
                     arena_test_cases.c.is_sample,
                     arena_test_cases.c.ordinal,
                     arena_submission_test_results.c.stderr_excerpt,
+                    arena_submission_test_results.c.exit_signal,
                 )
                 .select_from(
                     arena_submission_test_results.join(
@@ -439,6 +450,7 @@ async def arena_submission_detail(
                 is_sample=tr_row[2],
                 test_case_ordinal=tr_row[3],
                 stderr_excerpt=tr_row[4],
+                exit_signal_description=describe_signal(tr_row[5]) if tr_row[5] is not None else None,
             )
 
     templates = request.app.state.arena_templates
@@ -450,6 +462,8 @@ async def arena_submission_detail(
                 "current_user": current_user,
                 # Submission
                 "submission_id": submission_row[0],
+                "submission_owner_id": submission_row[1],
+                "submission_owner_name": submission_row[18],
                 "source_code": submission_row[3],
                 "submitted_at": submission_row[4],
                 # Problem
@@ -475,6 +489,7 @@ async def arena_submission_detail(
                 "highlight_language": highlight_language,
                 # AI review
                 "is_owner": is_owner,
+                "is_admin": is_admin,
                 "submission_submit_to_ai": submission_submit_to_ai,
                 "batch_local_status": batch_local_status,
                 "ai_review": ai_review,

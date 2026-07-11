@@ -8,11 +8,13 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -21,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import insert
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -40,7 +42,7 @@ from shared.db_schema.arena.arena_submissions import (
     arena_submission_judgments,
     arena_submissions,
 )
-from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_LABELS, ArenaRole
+from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_LABELS, ArenaRole, JudgmentStatus
 from web.models.language import Language
 
 # ---------------------------------------------------------------------------
@@ -207,6 +209,30 @@ async def test_list_submissions_verdict_filter(session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_submissions_status_filter_failed(session: AsyncSession) -> None:
+    """status_filter='FAILED' returns only submissions with failed active judgments."""
+    user = await _make_user(session)
+    lang = await _make_language(session)
+    prob = await _make_problem(session, user.id)
+    sub_failed = await _insert_submission(session, user.id, prob.id, lang.id)
+    await _insert_failed_judgment(session, sub_failed)
+    sub_done = await _insert_submission(session, user.id, prob.id, lang.id)
+    await _insert_judgment(session, sub_done, final_verdict="AC", status=JudgmentStatus.DONE.value)
+    await session.flush()
+
+    result = await admin_submission_service.list_submissions_paginated(
+        session,
+        page=1,
+        per_page=25,
+        status_filter=JudgmentStatus.FAILED.value,
+    )
+
+    assert result.total == 1
+    assert result.items[0].submission_id == sub_failed
+    assert result.items[0].status == JudgmentStatus.FAILED.value
+
+
+@pytest.mark.asyncio
 async def test_list_submissions_ai_filter_yes(session: AsyncSession) -> None:
     """ai_filter='yes' returns only submissions flagged with submit_to_ai=True."""
     user = await _make_user(session)
@@ -326,13 +352,20 @@ async def test_list_submissions_combined_filters(session: AsyncSession) -> None:
     await _insert_submission(session, user.id, prob.id, lang_b.id, submit_to_ai=True)
     await _insert_submission(session, user.id, prob.id, lang_a.id, submit_to_ai=False)
     await _insert_judgment(session, sub_match, final_verdict="WA")
+    await _insert_failed_judgment(session, sub_match)
     await session.flush()
 
     result = await admin_submission_service.list_submissions_paginated(
-        session, page=1, per_page=25, ai_filter="yes", language_filter="combo-alpha", verdict_filter="WA"
+        session,
+        page=1,
+        per_page=25,
+        ai_filter="yes",
+        language_filter="combo-alpha",
+        status_filter=JudgmentStatus.FAILED.value,
     )
     assert result.total == 1
     assert result.items[0].submission_id == sub_match
+    assert result.items[0].status == JudgmentStatus.FAILED.value
 
 
 @pytest.mark.asyncio
@@ -383,6 +416,88 @@ async def test_list_submissions_has_ai_review_flag(session: AsyncSession) -> Non
     rows_by_id = {row.submission_id: row for row in result.items}
     assert rows_by_id[sub_with].has_ai_review is True
     assert rows_by_id[sub_without].has_ai_review is False
+
+
+async def _insert_failed_judgment(session: AsyncSession, submission_id: str) -> str:
+    """Insert a terminal FAILED judgment (with error/worker fields) and return its id."""
+    judgment_id = str(uuid.uuid4())
+    await session.execute(
+        insert(arena_submission_judgments).values(
+            id=judgment_id,
+            submission_id=submission_id,
+            status="FAILED",
+            final_verdict=None,
+            autojudge_verdict=None,
+            error_message="Internal judge error: isolate --init failed",
+            worker_id="worker-1",
+            started_at=datetime.now(UTC),
+            finished_at=datetime.now(UTC),
+            created_at=datetime.now(UTC),
+        )
+    )
+    return judgment_id
+
+
+# ---------------------------------------------------------------------------
+# reenqueue_failed_submission service tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reenqueue_failed_resets_judgment_and_returns_job(session: AsyncSession) -> None:
+    """A FAILED judgment is reset to QUEUED with cleared fields and a job is returned."""
+    user = await _make_user(session)
+    lang = await _make_language(session)
+    prob = await _make_problem(session, user.id)
+    sub_id = await _insert_submission(session, user.id, prob.id, lang.id)
+    judgment_id = await _insert_failed_judgment(session, sub_id)
+    await session.flush()
+
+    job = await admin_submission_service.reenqueue_failed_submission(session, submission_id=sub_id)
+
+    assert job is not None
+    assert job.judgment_id == judgment_id
+    assert job.submission_id == sub_id
+    assert job.user_id == user.id
+    assert job.problem_id == prob.id
+    assert job.language_id == lang.id
+    assert job.requeue_count == 0
+
+    row = (
+        await session.execute(
+            select(
+                arena_submission_judgments.c.status,
+                arena_submission_judgments.c.error_message,
+                arena_submission_judgments.c.worker_id,
+                arena_submission_judgments.c.finished_at,
+            ).where(arena_submission_judgments.c.id == judgment_id)
+        )
+    ).one()
+    assert row.status == "QUEUED"
+    assert row.error_message is None
+    assert row.worker_id is None
+    assert row.finished_at is None
+
+
+@pytest.mark.asyncio
+async def test_reenqueue_non_failed_returns_none(session: AsyncSession) -> None:
+    """A submission whose latest judgment is not FAILED cannot be re-enqueued."""
+    user = await _make_user(session)
+    lang = await _make_language(session)
+    prob = await _make_problem(session, user.id)
+    sub_id = await _insert_submission(session, user.id, prob.id, lang.id)
+    await _insert_judgment(session, sub_id, final_verdict="AC", status="DONE")
+    await session.flush()
+
+    job = await admin_submission_service.reenqueue_failed_submission(session, submission_id=sub_id)
+    assert job is None
+
+
+@pytest.mark.asyncio
+async def test_reenqueue_missing_submission_returns_none(session: AsyncSession) -> None:
+    """An unknown submission id yields None."""
+    job = await admin_submission_service.reenqueue_failed_submission(session, submission_id=str(uuid.uuid4()))
+    assert job is None
 
 
 # ---------------------------------------------------------------------------
@@ -525,6 +640,7 @@ async def test_submissions_route_combined_filters_return_200(session: AsyncSessi
     params = {
         "search": "Alice",
         "verdict_filter": "AC",
+        "status_filter": "FAILED",
         "ai_filter": "yes",
         "language_filter": "python3",
         "problem_filter": "10",
@@ -533,3 +649,107 @@ async def test_submissions_route_combined_filters_return_200(session: AsyncSessi
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/admin/dashboard/submissions", params=params)
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_submissions_route_status_filter_is_selected(session: AsyncSession) -> None:
+    """The submissions route renders the selected actionable status filter."""
+    app = _build_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            "/admin/dashboard/submissions",
+            params={"status_filter": JudgmentStatus.FAILED.value},
+        )
+
+    assert response.status_code == 200
+    assert 'id="status_filter"' in response.text
+    assert re.search(r'<option value="FAILED"\s+selected>\s+FAILED\s+</option>', response.text)
+    assert 'value="SUPERSEDED"' not in response.text
+
+
+@pytest.mark.asyncio
+async def test_submissions_route_invalid_status_filter_is_ignored(session: AsyncSession) -> None:
+    """An invalid status_filter does not restrict the submissions list."""
+    user = await _make_user(session)
+    lang = await _make_language(session)
+    prob = await _make_problem(session, user.id)
+    await _insert_submission(session, user.id, prob.id, lang.id)
+    await _insert_submission(session, user.id, prob.id, lang.id)
+    await session.flush()
+
+    app = _build_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            "/admin/dashboard/submissions",
+            params={"status_filter": "NOT_A_STATUS"},
+        )
+
+    assert response.status_code == 200
+    assert "2 submissions" in response.text
+
+
+@pytest.mark.asyncio
+async def test_reenqueue_route_enqueues_failed_submission(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST reenqueue on a FAILED submission redirects and enqueues exactly one job."""
+    user = await _make_user(session)
+    lang = await _make_language(session)
+    prob = await _make_problem(session, user.id)
+    sub_id = await _insert_submission(session, user.id, prob.id, lang.id)
+    await _insert_failed_judgment(session, sub_id)
+    await session.flush()
+
+    enqueue_mock = AsyncMock()
+    monkeypatch.setattr(
+        "arena.routes.admin_dashboard_history.enqueue_arena_submission_job",
+        enqueue_mock,
+    )
+
+    app = _build_app(session)
+    app.state.valkey_runtime = object()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            f"/admin/dashboard/submissions/{sub_id}/reenqueue",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    enqueue_mock.assert_awaited_once()
+    job = enqueue_mock.await_args.args[1]
+    assert job.submission_id == sub_id
+
+    status = await session.scalar(
+        select(arena_submission_judgments.c.status).where(arena_submission_judgments.c.submission_id == sub_id)
+    )
+    assert status == "QUEUED"
+
+
+@pytest.mark.asyncio
+async def test_reenqueue_route_non_failed_does_not_enqueue(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST reenqueue on a non-failed submission redirects without enqueueing."""
+    user = await _make_user(session)
+    lang = await _make_language(session)
+    prob = await _make_problem(session, user.id)
+    sub_id = await _insert_submission(session, user.id, prob.id, lang.id)
+    await _insert_judgment(session, sub_id, final_verdict="AC", status="DONE")
+    await session.flush()
+
+    enqueue_mock = AsyncMock()
+    monkeypatch.setattr(
+        "arena.routes.admin_dashboard_history.enqueue_arena_submission_job",
+        enqueue_mock,
+    )
+
+    app = _build_app(session)
+    app.state.valkey_runtime = object()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            f"/admin/dashboard/submissions/{sub_id}/reenqueue",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    enqueue_mock.assert_not_awaited()

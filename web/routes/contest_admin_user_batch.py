@@ -10,6 +10,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 
+from shared.services.security_events import record_request_security_event
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_user_helpers import _build_contest_login_url, _html, _render_download_json
 from web.services.assorted_utils import slugfy
@@ -217,6 +218,22 @@ async def send_batch_credentials_email(
     summary = f"Email delivery: {sent} sent, {failed} failed, {skipped} skipped."
     if failure_messages:
         summary = f"{summary} Failures: {'; '.join(failure_messages[:5])}"
+    await record_request_security_event(
+        ctx.session,
+        request,
+        module="web",
+        event_type="credential_email_batch_completed",
+        severity="warning" if failed else "info",
+        actor_user_id=ctx.actor.id,
+        metadata={
+            "scope": "contest_user_batch",
+            "contest_slug": ctx.contest.login_slug,
+            "sent": sent,
+            "failed": failed,
+            "skipped": skipped,
+        },
+    )
+    await ctx.session.commit()
 
     payload["downloadable_users"] = downloadable_users
     payload_str = json.dumps(payload, ensure_ascii=True, indent=2)

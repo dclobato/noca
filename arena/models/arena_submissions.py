@@ -271,6 +271,7 @@ class ArenaSubmissionTestResult(ArenaBase):
         wall_time_ms: Wall-clock execution time in milliseconds.
         memory_kb: Peak memory usage in kilobytes.
         exit_code: Process exit code.
+        exit_signal: Fatal signal number when the process was signal-killed.
         stdout_excerpt: Truncated standard output.
         stderr_excerpt: Truncated standard error.
         created_at: Record creation timestamp.
@@ -287,6 +288,7 @@ class ArenaSubmissionTestResult(ArenaBase):
     wall_time_ms: Mapped[int | None]
     memory_kb: Mapped[int | None]
     exit_code: Mapped[int | None]
+    exit_signal: Mapped[int | None]
     stdout_excerpt: Mapped[str | None]
     stderr_excerpt: Mapped[str | None]
     created_at: Mapped[datetime]

@@ -20,6 +20,41 @@ def test_email_validation_service_rejects_invalid_email() -> None:
         EmailValidationService.normalize("invalid-email")
 
 
+def test_canonicalize_strips_plus_tag() -> None:
+    assert EmailValidationService.canonicalize("Daniel+test@Lobato.org") == "daniel@lobato.org"
+
+
+def test_canonicalize_strips_local_part_dots() -> None:
+    assert EmailValidationService.canonicalize("joe.smith@gmail.com") == "joesmith@gmail.com"
+    assert EmailValidationService.canonicalize("j.o.e.s.m.i.t.h@gmail.com") == "joesmith@gmail.com"
+
+
+def test_canonicalize_strips_plus_tag_and_dots_together() -> None:
+    assert EmailValidationService.canonicalize("d.a.niel+promo@lobato.org") == "daniel@lobato.org"
+
+
+def test_canonicalize_aliases_collapse_to_same_root() -> None:
+    root = EmailValidationService.canonicalize("user@example.com")
+    assert EmailValidationService.canonicalize("u.s.e.r@example.com") == root
+    assert EmailValidationService.canonicalize("user+1@example.com") == root
+    assert EmailValidationService.canonicalize("u.ser+2@example.com") == root
+
+
+def test_canonicalize_is_idempotent() -> None:
+    once = EmailValidationService.canonicalize("d.a.niel+x@lobato.org")
+    assert EmailValidationService.canonicalize(once) == once
+
+
+def test_canonicalize_empty_local_falls_back_to_local_part() -> None:
+    # "+tag@x" has an empty canonical local; fall back to the normalised local.
+    assert EmailValidationService.canonicalize("+tag@example.com") == "+tag@example.com"
+
+
+def test_canonicalize_rejects_invalid_email() -> None:
+    with pytest.raises(ValueError):
+        EmailValidationService.canonicalize("invalid-email")
+
+
 def test_email_config_requires_smtp_fields_when_enabled() -> None:
     with pytest.raises(ValueError, match="Missing required SMTP settings"):
         EmailConfig(

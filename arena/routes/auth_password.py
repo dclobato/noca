@@ -301,6 +301,8 @@ async def arena_password_reset_submit(
         module="arena",
         event_type="suspicious_token_mismatch",
         severity="warning",
+        actor_user_id=result.user.id if result.user is not None else None,
+        actor_label=result.user.email_normalizado if result.user is not None else None,
         identifier_hash=throttle_identity.identifier_hash,
         metadata={"action": "password-reset", "reason": result.status.name, "lock_reason": failure.reason},
     )

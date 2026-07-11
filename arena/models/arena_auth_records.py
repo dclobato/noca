@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.orm import Mapped, relationship
 
 from arena.database import ArenaBase
+from arena.models.mixins import LocationMixin
 from shared.db_schema.arena import arena_backup_2fa as arena_backup_2fa_table
 from shared.db_schema.arena import arena_login_history as arena_login_history_table
 
@@ -65,7 +66,7 @@ class ArenaBackup2FA(ArenaBase):
         return not self.utilizado and check_password_hash(self.hash_codigo, code)
 
 
-class ArenaLoginHistory(ArenaBase):
+class ArenaLoginHistory(LocationMixin, ArenaBase):
     """Immutable record of a single Arena login event.
 
     Attributes:
@@ -73,7 +74,12 @@ class ArenaLoginHistory(ArenaBase):
         arena_user_id: FK to arena_users.
         dta_login: Timestamp of the login event.
         ip_address: Client IP address.
-        location: Geographic location derived from the IP.
+        country_code: ISO 3166-1 alpha-2 country code resolved from the IP.
+        subdivision_code: ISO 3166-2 subdivision code resolved from the IP.
+        district: District/county name resolved from the IP.
+        city: City name resolved from the IP.
+        is_eu: Whether the IP country is part of the EU.
+        as_number: Autonomous System number resolved from the IP.
         user_agent: HTTP User-Agent header value.
         mode: Authentication method ('password', '2fa', 'backup_code').
         arena_user: Back-reference to the owning ArenaUser.
@@ -85,7 +91,12 @@ class ArenaLoginHistory(ArenaBase):
     arena_user_id: Mapped[str]
     dta_login: Mapped[datetime]
     ip_address: Mapped[str | None]
-    location: Mapped[str | None]
+    country_code: Mapped[str | None]
+    subdivision_code: Mapped[str | None]
+    district: Mapped[str | None]
+    city: Mapped[str | None]
+    is_eu: Mapped[bool | None]
+    as_number: Mapped[str | None]
     user_agent: Mapped[str | None]
     mode: Mapped[str | None]
 
@@ -94,3 +105,13 @@ class ArenaLoginHistory(ArenaBase):
         back_populates="login_history",
         foreign_keys=[arena_login_history_table.c.arena_user_id],
     )
+
+    @property
+    def detailed_location(self) -> str | None:
+        """Return a flag-less display string composed from the structured fields.
+
+        Format: ``"<country>, <subdivision>, <city>, <district>"`` with any
+        missing parts skipped. Returns None when no location fields are set.
+        """
+        parts = [part for part in (self.country_name, self.subdivision_name, self.city, self.district) if part]
+        return ", ".join(parts) or None

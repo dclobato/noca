@@ -29,6 +29,7 @@ import docker
 import docker.errors
 import docker.types
 
+from autojudge.box_registry import registry as box_registry
 from autojudge.config import settings
 from autojudge.languages import LanguageConfig
 from autojudge.metrics import CONTAINER_CREATE_TOTAL, POOL_ACQUIRE_DURATION_SECONDS, POOL_ACQUIRE_TOTAL
@@ -289,20 +290,28 @@ class ContainerPool:
             },
         )
 
-        result = container.exec_run(
-            ["sh", "-c", "mkdir -p /sandbox && chmod 1777 /sandbox"],
-            user="root",
-        )
-        if result.exit_code != 0:
-            output = (result.output or b"").decode(errors="replace")
-            raise RuntimeError(
-                f"Failed to create /sandbox in container {container.id[:12]}: exit {result.exit_code} — {output!r}"
+        # Reserve a unique isolate box-id for this container's whole lifetime so
+        # concurrent containers never collide on the shared host cgroup box-N.
+        # Released in _sync_kill_and_remove (normal path) or on any failure below.
+        box_id = box_registry.allocate(container.id)
+        try:
+            result = container.exec_run(
+                ["sh", "-c", "mkdir -p /sandbox && chmod 1777 /sandbox"],
+                user="root",
             )
+            if result.exit_code != 0:
+                output = (result.output or b"").decode(errors="replace")
+                raise RuntimeError(
+                    f"Failed to create /sandbox in container {container.id[:12]}: exit {result.exit_code} — {output!r}"
+                )
 
-        self._validate_isolate_runtime(container)
+            self._validate_isolate_runtime(container, box_id)
+        except Exception:
+            box_registry.release(container.id)
+            raise
         return cast(str, container.id)
 
-    def _validate_isolate_runtime(self, container: docker.models.containers.Container) -> None:
+    def _validate_isolate_runtime(self, container: docker.models.containers.Container, box_id: int) -> None:
         """Fail container creation early when isolate or its cgroup prerequisites are missing."""
         binary = settings.ISOLATE_BINARY_PATH
         version_probe = container.exec_run(
@@ -316,9 +325,10 @@ class ContainerPool:
                 f"exit {version_probe.exit_code} — {output!r}"
             )
 
-        init_cmd = [binary, "--box-id=0", "--cg", "--silent", "--init"]
+        box_flag = f"--box-id={box_id}"
+        init_cmd = [binary, box_flag, "--cg", "--silent", "--init"]
         init_result = container.exec_run(init_cmd, user="root")
-        cleanup_result = container.exec_run([binary, "--box-id=0", "--cg", "--silent", "--cleanup"], user="root")
+        cleanup_result = container.exec_run([binary, box_flag, "--cg", "--silent", "--cleanup"], user="root")
 
         if init_result.exit_code != 0:
             output = (init_result.output or b"").decode(errors="replace")
@@ -340,6 +350,9 @@ class ContainerPool:
 
     def _sync_kill_and_remove(self, container_id: str) -> None:
         """Synchronous kill+remove — runs in ThreadPoolExecutor."""
+        # Free the container's isolate box-id for reuse. Idempotent and safe even
+        # if the container lookup below fails or it was never registered.
+        box_registry.release(container_id)
         try:
             container = self._client.containers.get(container_id)
         except docker.errors.NotFound:

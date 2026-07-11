@@ -567,6 +567,17 @@ async def admin_user_toggle_email_confirmed(
         target.email_normalizado,
     )
     await admin_user_service.admin_toggle_email_confirmed(target, session)
+    await record_admin_action(
+        session,
+        request,
+        module="arena",
+        actor_user_id=admin.id,
+        action="toggle_email_confirmed",
+        target_type="arena_user",
+        target_id=target.id,
+        detail=f"email_confirmado={target.email_confirmado}",
+        severity="warning",
+    )
     await session.commit()
     flash("Email confirmed." if target.email_confirmado else "Email confirmation cleared.", FlashCategory.SUCCESS)
     return _choose_redirect(request, user_id, nav)

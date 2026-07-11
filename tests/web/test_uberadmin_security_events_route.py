@@ -12,12 +12,61 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.db_schema import security_events
 from shared.services.security_events import record_security_event
 from tests.web.test_inactive_contest_routes import _build_app, _login_uberadmin
+
+
+@pytest.mark.asyncio
+async def test_uberadmin_login_records_auth_success(
+    session: AsyncSession,
+    uberadmin,
+) -> None:
+    await session.commit()
+    app, _auth_service = _build_app(session)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.post(
+            "/login",
+            data={"identifier": uberadmin.username, "password": "TestPass1!", "next_url": "/uberadmin"},
+            follow_redirects=False,
+        )
+
+    result = await session.execute(
+        select(security_events.c.id).where(
+            security_events.c.module == "web",
+            security_events.c.event_type == "auth_success",
+            security_events.c.actor_user_id == uberadmin.id,
+        )
+    )
+    assert response.status_code == 303
+    assert result.scalar_one_or_none() is not None
+
+
+@pytest.mark.asyncio
+async def test_uberadmin_logout_records_auth_logout(
+    session: AsyncSession,
+    uberadmin,
+) -> None:
+    app, auth_service = _build_app(session)
+    token = await _login_uberadmin(auth_service, session, uberadmin.username)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("noca_access_token", token)
+        response = await client.get("/logout", follow_redirects=False)
+
+    result = await session.execute(
+        select(security_events.c.id).where(
+            security_events.c.module == "web",
+            security_events.c.event_type == "auth_logout",
+            security_events.c.actor_user_id == uberadmin.id,
+        )
+    )
+    assert response.status_code == 303
+    assert result.scalar_one_or_none() is not None
 
 
 @pytest.mark.asyncio

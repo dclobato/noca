@@ -178,7 +178,12 @@ login_history = Table(
     ),
     Column("dta_login", DateTime(timezone=True), nullable=False, default=_utcnow),
     Column("ip_address", String(45), nullable=True),
-    Column("location", String(128), nullable=True),
+    Column("country_code", String(2), nullable=True, comment="ISO 3166-1 alpha-2 country code from IP"),
+    Column("subdivision_code", String(16), nullable=True, comment="ISO 3166-2 subdivision code from IP"),
+    Column("district", String(128), nullable=True, comment="District/county name from IP"),
+    Column("city", String(128), nullable=True, comment="City name from IP"),
+    Column("is_eu", Boolean, nullable=True, comment="Whether the IP country is in the EU"),
+    Column("as_number", String(16), nullable=True, comment="Autonomous System number from IP"),
     Column("user_agent", Text, nullable=True),
     CheckConstraint(
         "(user_id IS NOT NULL AND uberadmin_id IS NULL) OR (user_id IS NULL AND uberadmin_id IS NOT NULL)",

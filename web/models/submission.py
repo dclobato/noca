@@ -129,6 +129,7 @@ class SubmissionTestResult(Base):
     wall_time_ms: Mapped[int | None]
     memory_kb: Mapped[int | None]
     exit_code: Mapped[int | None]
+    exit_signal: Mapped[int | None]
     stdout_excerpt: Mapped[str | None]
     stderr_excerpt: Mapped[str | None]
     created_at: Mapped[datetime]

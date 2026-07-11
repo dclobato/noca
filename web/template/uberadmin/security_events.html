@@ -67,6 +67,7 @@
                                     <th scope="col">Date / Time (UTC)</th>
                                     <th scope="col">Module</th>
                                     <th scope="col">Event</th>
+                                    <th scope="col">User</th>
                                     <th scope="col">Severity</th>
                                     <th scope="col">IP</th>
                                     <th scope="col">Metadata</th>
@@ -79,6 +80,15 @@
                                         <td>{{ event.module }}</td>
                                         <td>
                                             <code>{{ event.event_type }}</code>
+                                        </td>
+                                        <td class="small text-break">
+                                            {% if event.actor_label %}
+                                                {{ event.actor_label }}
+                                            {% elif event.actor_user_id %}
+                                                <span class="text-muted font-monospace">{{ event.actor_user_id[:8] }}</span>
+                                            {% else %}
+                                                <span class="text-muted">—</span>
+                                            {% endif %}
                                         </td>
                                         <td>{{ event.severity }}</td>
                                         <td>

@@ -15,10 +15,12 @@ from typing import Any, cast
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings
 from arena.database import get_db
+from arena.models.arena_users import ArenaUser
 from arena.routes.auth_common import (
     AUTH_RATE_LIMITER,
     _auth_rate_limit_settings,
@@ -74,6 +76,34 @@ def _user_needs_parental_consent(usuario: Any) -> bool:
     return check_age(usuario.dta_nascimento) == AgeStatus.NEEDS_PARENTAL_CONSENT and (
         not usuario.consentimento_responsavel
     )
+
+
+async def _record_email_delivery_event(
+    session: AsyncSession,
+    request: Request,
+    *,
+    user_id: str | None,
+    purpose: str,
+    source: str,
+    sent: bool,
+) -> None:
+    """Record a security event for an auth-related email delivery attempt."""
+    await record_request_security_event(
+        session,
+        request,
+        module="arena",
+        event_type=f"{purpose}_email_{'sent' if sent else 'failed'}",
+        severity="info" if sent else "warning",
+        actor_user_id=user_id,
+        metadata={"purpose": purpose, "source": source},
+    )
+
+
+def _arena_actor_label(user: Any | None) -> str | None:
+    """Return the login identifier (email) used to identify an Arena actor."""
+    if user is None:
+        return None
+    return getattr(user, "email_normalizado", None)
 
 
 def _pending_parental_context(usuario: Any) -> dict[str, Any]:
@@ -157,7 +187,7 @@ async def arena_login_submit(
     )
 
     if result.status == user_service.UserOperationStatus.USER_INACTIVE:
-        await _record_login_failure(request, session, throttle_identity, "login", "inactive")
+        await _record_login_failure(request, session, throttle_identity, "login", "inactive", user=result.user)
         if result.user is not None and not result.user.email_confirmado:
             request.session["pending_resend_uid"] = result.user.id
             flash(
@@ -190,7 +220,14 @@ async def arena_login_submit(
         return _redirect_to(request, "arena_login")
 
     if result.status == user_service.UserOperationStatus.PARENTAL_CONSENT_REQUIRED and result.user is not None:
-        await _record_login_failure(request, session, throttle_identity, "login", "parental_consent_required")
+        await _record_login_failure(
+            request,
+            session,
+            throttle_identity,
+            "login",
+            "parental_consent_required",
+            user=result.user,
+        )
         request.session["pending_parental_uid"] = result.user.id
         flash(_login_failure_message(result.status), FlashCategory.WARNING)
         return _html(
@@ -203,7 +240,14 @@ async def arena_login_submit(
         )
 
     if result.status == user_service.UserOperationStatus.AGE_RECONFIRMATION_REQUIRED and result.user is not None:
-        await _record_login_failure(request, session, throttle_identity, "login", "age_reconfirmation_required")
+        await _record_login_failure(
+            request,
+            session,
+            throttle_identity,
+            "login",
+            "age_reconfirmation_required",
+            user=result.user,
+        )
         request.session["pending_age_uid"] = result.user.id
         flash(_login_failure_message(result.status), FlashCategory.WARNING)
         return _html(
@@ -216,12 +260,12 @@ async def arena_login_submit(
         )
 
     if result.status == user_service.UserOperationStatus.UNDERAGE_BLOCKED:
-        await _record_login_failure(request, session, throttle_identity, "login", "underage_blocked")
+        await _record_login_failure(request, session, throttle_identity, "login", "underage_blocked", user=result.user)
         flash(_login_failure_message(result.status), FlashCategory.DANGER)
         return _redirect_to(request, "arena_login")
 
     if result.status != user_service.UserOperationStatus.SUCCESS or result.user is None:
-        await _record_login_failure(request, session, throttle_identity, "login", result.status.name)
+        await _record_login_failure(request, session, throttle_identity, "login", result.status.name, user=result.user)
         flash(_login_failure_message(result.status), FlashCategory.DANGER)
         return _redirect_to(request, "arena_login")
 
@@ -277,6 +321,16 @@ async def arena_login_submit(
     )
 
     logger.info("Successful login for user %s from %s", usuario.id, ip_address)
+    await record_request_security_event(
+        session,
+        request,
+        module="arena",
+        event_type="auth_success",
+        actor_user_id=usuario.id,
+        actor_label=_arena_actor_label(usuario),
+        metadata={"action": "login", "method": "password", "remember_me": remember_me},
+    )
+    await session.commit()
     response = RedirectResponse(url=post_login_redirect_url(usuario, next, request), status_code=303)
     _set_login_cookie(response, token=token, remember_me=remember_me)
     return response
@@ -288,6 +342,7 @@ async def _record_login_failure(
     throttle_identity: Any,
     action: str,
     reason: str,
+    user: Any | None = None,
 ) -> None:
     """Record a failed Arena login attempt and security event."""
     failure = await record_auth_failure(
@@ -302,6 +357,8 @@ async def _record_login_failure(
         module="arena",
         event_type="auth_failure",
         severity="warning" if failure.locked else "info",
+        actor_user_id=getattr(user, "id", None),
+        actor_label=_arena_actor_label(user),
         identifier_hash=throttle_identity.identifier_hash,
         metadata={"action": action, "reason": reason, "lock_reason": failure.reason},
     )
@@ -324,13 +381,38 @@ async def arena_resend_activation(
         flash("No pending activation request found. Please log in to try again.", FlashCategory.DANGER)
         return _redirect_to(request, "arena_login")
 
-    result = await user_email_service.revalidar_email(
-        user_id=uid,
-        session=session,
-        jwt_service=request.app.state.jwt_service,
-        email_service=request.app.state.email_service,
-        url_base=_base_url(request),
-    )
+    try:
+        result = await user_email_service.revalidar_email(
+            user_id=uid,
+            session=session,
+            jwt_service=request.app.state.jwt_service,
+            email_service=request.app.state.email_service,
+            url_base=_base_url(request),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Activation email resend failed for user %s: %s", uid, exc)
+        await _record_email_delivery_event(
+            session,
+            request,
+            user_id=uid,
+            purpose="account_activation",
+            source="resend",
+            sent=False,
+        )
+        await session.commit()
+        flash("We could not send the confirmation email right now. Please try again later.", FlashCategory.DANGER)
+        return _redirect_to(request, "arena_login")
+    if result.user is not None and (
+        result.email_sent or result.status == user_service.UserOperationStatus.SEND_EMAIL_ERROR
+    ):
+        await _record_email_delivery_event(
+            session,
+            request,
+            user_id=result.user.id,
+            purpose="account_activation",
+            source="resend",
+            sent=result.email_sent,
+        )
     await session.commit()
 
     if result.status == user_service.UserOperationStatus.SUCCESS:
@@ -362,13 +444,38 @@ async def arena_resend_parental_consent(
         flash("No pending consent request found. Please log in to try again.", FlashCategory.DANGER)
         return _redirect_to(request, "arena_login")
 
-    result = await user_email_service.revalidar_consentimento_responsavel(
-        user_id=uid,
-        session=session,
-        jwt_service=request.app.state.jwt_service,
-        email_service=request.app.state.email_service,
-        url_base=_base_url(request),
-    )
+    try:
+        result = await user_email_service.revalidar_consentimento_responsavel(
+            user_id=uid,
+            session=session,
+            jwt_service=request.app.state.jwt_service,
+            email_service=request.app.state.email_service,
+            url_base=_base_url(request),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Parental-consent email resend failed for user %s: %s", uid, exc)
+        await _record_email_delivery_event(
+            session,
+            request,
+            user_id=uid,
+            purpose="parental_consent",
+            source="resend",
+            sent=False,
+        )
+        await session.commit()
+        flash("We could not send the consent email right now. Please try again later.", FlashCategory.DANGER)
+        return _redirect_to(request, "arena_login")
+    if result.user is not None and (
+        result.email_sent or result.status == user_service.UserOperationStatus.SEND_EMAIL_ERROR
+    ):
+        await _record_email_delivery_event(
+            session,
+            request,
+            user_id=result.user.id,
+            purpose="parental_consent",
+            source="resend",
+            sent=result.email_sent,
+        )
     await session.commit()
 
     if result.status == user_service.UserOperationStatus.SUCCESS and result.email_sent:
@@ -397,14 +504,39 @@ async def arena_update_parental_email(
         flash("No pending consent request found. Please log in to try again.", FlashCategory.DANGER)
         return _redirect_to(request, "arena_login")
 
-    result = await user_email_service.atualizar_email_responsavel(
-        user_id=uid,
-        email_responsavel_legal=email_responsavel_legal.strip(),
-        session=session,
-        jwt_service=request.app.state.jwt_service,
-        email_service=request.app.state.email_service,
-        url_base=_base_url(request),
-    )
+    try:
+        result = await user_email_service.atualizar_email_responsavel(
+            user_id=uid,
+            email_responsavel_legal=email_responsavel_legal.strip(),
+            session=session,
+            jwt_service=request.app.state.jwt_service,
+            email_service=request.app.state.email_service,
+            url_base=_base_url(request),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Parental-consent email update failed for user %s: %s", uid, exc)
+        await _record_email_delivery_event(
+            session,
+            request,
+            user_id=uid,
+            purpose="parental_consent",
+            source="update_parental_email",
+            sent=False,
+        )
+        await session.commit()
+        flash("We could not send the consent email right now. Please try again later.", FlashCategory.DANGER)
+        return _redirect_to(request, "arena_login")
+    if result.user is not None and (
+        result.email_sent or result.status == user_service.UserOperationStatus.SEND_EMAIL_ERROR
+    ):
+        await _record_email_delivery_event(
+            session,
+            request,
+            user_id=result.user.id,
+            purpose="parental_consent",
+            source="update_parental_email",
+            sent=result.email_sent,
+        )
     await session.commit()
 
     if result.status == user_service.UserOperationStatus.SUCCESS:
@@ -454,14 +586,40 @@ async def arena_update_date_of_birth(
 async def arena_logout(
     request: Request,
     flash: FlashDep,
+    session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Log the current user out of the Arena."""
     jwt_service = request.app.state.jwt_service
     token: str | None = request.cookies.get("arena_access_token")
+    actor_user_id: str | None = None
+    actor_label: str | None = None
 
     if token:
+        try:
+            claims = jwt_service.validar(token)
+            if claims.valid and claims.sub is not None:
+                actor_user_id = claims.sub
+        except Exception:
+            actor_user_id = None
+        if actor_user_id is not None:
+            # The Arena token subject is the opaque user id; resolve the login
+            # (email) so the security-event actor is human-readable, not hex.
+            actor_label = (
+                await session.execute(select(ArenaUser.email_normalizado).where(ArenaUser.id == actor_user_id))
+            ).scalar_one_or_none()
         await arena_auth_service.efetuar_logout(token, jwt_service)
         logger.info("User logged out — token revoked")
+
+    await record_request_security_event(
+        session,
+        request,
+        module="arena",
+        event_type="auth_logout",
+        actor_user_id=actor_user_id,
+        actor_label=actor_label,
+        metadata={"token_present": bool(token), "token_valid": actor_user_id is not None},
+    )
+    await session.commit()
 
     flash("You have been successfully logged out.", FlashCategory.SUCCESS)
     response = _redirect_to(request, "arena_dashboard")

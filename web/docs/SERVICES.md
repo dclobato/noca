@@ -181,7 +181,10 @@ Main entrypoints on `AuthenticationService`:
 - `jwt_service`
 
 Notes:
-- successful login writes `Login_History` with optional IP geolocation
+- successful login writes `Login_History`, resolving the client IP via
+  `GeolocationIP.get_details_by_ip` into structured columns (`country_code`,
+  `subdivision_code`, `district`, `city`, `is_eu`, `as_number`); the web module has
+  no login-history viewer, so these are captured for parity/audit only
 - `/login` and `/c/{slug}/login` use shared auth throttling from
   `shared.services.auth_rate_limit`; lockouts return HTTP 429 with
   `Retry-After`

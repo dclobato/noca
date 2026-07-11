@@ -17,7 +17,6 @@ from sqlalchemy.sql.selectable import CTE
 
 from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_users import ArenaUser
-from shared.enumerations import ArenaRole
 from shared.services.arena_rating import CONFIDENCE_SCALE
 
 
@@ -129,16 +128,15 @@ def _rating_confidence(solved_problems: int) -> int:
     return round(100 * (1 - exp(-solved_problems / CONFIDENCE_SCALE)))
 
 
-async def get_top_rated_users(session: AsyncSession, *, limit: int, only_users: bool = True) -> list[TopRatedUser]:
+async def get_top_rated_users(session: AsyncSession, *, limit: int) -> list[TopRatedUser]:
     """Return the top Arena participants ordered by rating.
 
     Args:
         session: Active async database session.
         limit: Maximum number of users to return. Values below 1 return an empty list.
-        only_users: If True, include only ARENA_USERS
 
     Returns:
-        Ranked Arena participants, excluding inactive, unconfirmed, and staff accounts.
+        Ranked Arena participants, excluding inactive, unconfirmed, and hidden accounts.
         Equal ratings share the same rank; confidence and creation date only
         order users inside a tied rating group.
     """
@@ -146,8 +144,6 @@ async def get_top_rated_users(session: AsyncSession, *, limit: int, only_users: 
         return []
 
     conditions: list[ColumnElement[bool]] = _eligible_users_where()
-    if only_users:
-        conditions = [*conditions, ArenaUser.role == ArenaRole.ARENA_USER]
 
     rows = (
         await session.execute(

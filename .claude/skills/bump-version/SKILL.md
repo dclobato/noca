@@ -6,7 +6,8 @@ argument-hint: [version]
 # Context
 We are going to bump version and create a conventional commit with changelog. 
 
-# Task
+# Tasks
+- mypy, lint and format code
 - Run all tests and check if they are green.  If some test fail, alert user and ask what he wants to do: fix test based on code, or fix code based on test. Apply the fixe choosed by the user
 - If we have any residual red test, stop this skill and ask user to fix the problems.
 - Check current project version on pryproject.toml

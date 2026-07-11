@@ -247,14 +247,14 @@ async def registrar_usuario(
             or an error status.
     """
     try:
-        normalizado = EmailValidationService.normalize(email)
+        canonical = EmailValidationService.canonicalize(email)
     except ValueError:
         return UserServiceResult(
             status=UserOperationStatus.INVALID_EMAIL,
             error_message=f"Invalid email address: {email!r}",
         )
     try:
-        existing = await session.execute(select(ArenaUser).where(ArenaUser.email_normalizado == normalizado))
+        existing = await session.execute(select(ArenaUser).where(ArenaUser.email_canonical == canonical))
         if existing.scalar_one_or_none() is not None:
             return UserServiceResult(
                 status=UserOperationStatus.USER_ALREADY_REGISTERED,

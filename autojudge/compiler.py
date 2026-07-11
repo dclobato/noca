@@ -32,6 +32,7 @@ import docker.errors
 from autojudge.container_io import _get_file_bytes, _put_bytes
 from autojudge.languages import SANDBOX_DIR, LanguageConfig
 from autojudge.metrics import COMPILE_DURATION_SECONDS, COMPILE_TOTAL
+from autojudge.runtime_utils import decode_for_text_column
 from autojudge.types import CompileResult, SubmissionSource
 
 logger = logging.getLogger(__name__)
@@ -163,7 +164,7 @@ def _sync_compile(
             exit_code = 0
             raw_output = b""
 
-        compile_log = raw_output.decode(errors="replace")[:8192]
+        compile_log = decode_for_text_column(raw_output)[:8192]
 
         if exit_code != 0:
             return CompileResult(

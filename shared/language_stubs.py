@@ -234,6 +234,7 @@ _DEFAULT_STUBS: dict[str, str] = {
         "end program main\n"
     ),
     "swift": ("while let line = readLine(strippingNewline: true) {\n    print(line)\n}\n"),
+    "perl": ("use strict;\nuse warnings;\n\nwhile (my $line = <STDIN>) {\n    print $line;\n}\n"),
 }
 
 

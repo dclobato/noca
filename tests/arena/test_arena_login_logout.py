@@ -36,6 +36,7 @@ from arena.routes.auth_2fa import router as arena_auth_2fa_router
 from arena.routes.auth_password import router as arena_auth_password_router
 from arena.routes.auth_signup import router as arena_auth_signup_router
 from arena.services.token_service import ArenaTokenAction
+from shared.db_schema import security_events
 from shared.enumerations import ArenaRole
 from shared.services.email_service import EmailConfig, EmailService
 from shared.services.imageprocessing_service import ImageProcessingConfig, ImageProcessingService
@@ -256,6 +257,16 @@ async def _login_history_modes(session: AsyncSession, user_id: str) -> list[str 
     return list(result.scalars())
 
 
+async def _security_event_types_for_user(session: AsyncSession, user_id: str) -> list[str]:
+    """Return recorded Arena security-event types for a user in insertion order."""
+    result = await session.execute(
+        select(security_events.c.event_type)
+        .where(security_events.c.module == "arena", security_events.c.actor_user_id == user_id)
+        .order_by(security_events.c.created_at, security_events.c.id)
+    )
+    return list(result.scalars())
+
+
 # ---------------------------------------------------------------------------
 # Login page
 # ---------------------------------------------------------------------------
@@ -295,7 +306,7 @@ async def test_login_page_renders_next_hidden_field(session: AsyncSession) -> No
 async def test_login_success_sets_cookie_and_redirects_to_dashboard(session: AsyncSession) -> None:
     """Valid credentials issue a session cookie and redirect to the dashboard."""
     app = _build_arena_app(session)
-    await _create_active_user(session)
+    user = await _create_active_user(session)
     await session.commit()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
@@ -308,6 +319,7 @@ async def test_login_success_sets_cookie_and_redirects_to_dashboard(session: Asy
     assert response.status_code == 303
     assert "/dashboard" in response.headers["location"]
     assert "arena_access_token" in response.cookies
+    assert "auth_success" in await _security_event_types_for_user(session, user.id)
 
 
 @pytest.mark.asyncio
@@ -654,6 +666,7 @@ async def test_logout_with_valid_token_clears_cookie(session: AsyncSession) -> N
     assert response.status_code == 303
     assert "/dashboard" in response.headers["location"]
     assert "arena_access_token" in response.headers.get("set-cookie", "")
+    assert "auth_logout" in await _security_event_types_for_user(session, user.id)
 
 
 @pytest.mark.asyncio

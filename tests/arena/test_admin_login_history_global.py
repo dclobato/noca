@@ -76,7 +76,9 @@ async def _insert_login(
     user_id: str,
     *,
     dta_login: datetime | None = None,
-    location: str | None = "São Paulo, BR",
+    country_code: str | None = "BR",
+    subdivision_code: str | None = "BR-SP",
+    city: str | None = "São Paulo",
     ip_address: str | None = "1.2.3.4",
     mode: str | None = "password",
 ) -> None:
@@ -86,7 +88,9 @@ async def _insert_login(
             arena_user_id=user_id,
             dta_login=dta_login or datetime.now(UTC),
             ip_address=ip_address,
-            location=location,
+            country_code=country_code,
+            subdivision_code=subdivision_code,
+            city=city,
             user_agent="Mozilla/5.0",
             mode=mode,
         )
@@ -150,11 +154,11 @@ async def test_global_history_search_by_email(session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_global_history_search_by_location(session: AsyncSession) -> None:
-    """Search matches against the login location field."""
+    """Search matches against the structured city field."""
     user_sp = await _make_user(session, nome="São Paulo User")
     user_rj = await _make_user(session, nome="Rio User")
-    await _insert_login(session, user_sp.id, location="São Paulo, BR")
-    await _insert_login(session, user_rj.id, location="Rio de Janeiro, BR")
+    await _insert_login(session, user_sp.id, city="São Paulo", subdivision_code="BR-SP")
+    await _insert_login(session, user_rj.id, city="Rio de Janeiro", subdivision_code="BR-RJ")
     await session.flush()
 
     result = await admin_login_history_service.list_global_login_history_paginated(
@@ -371,6 +375,22 @@ async def test_login_history_route_returns_200_for_admin(session: AsyncSession) 
         response = await client.get("/admin/dashboard/login-history")
     assert response.status_code == 200
     assert "Login History" in response.text
+
+
+@pytest.mark.asyncio
+async def test_login_history_route_renders_flag_and_detailed_location(session: AsyncSession) -> None:
+    """A seeded row renders the country flag and structured location display."""
+    user = await _make_user(session, nome="Flag User")
+    await _insert_login(session, user.id, country_code="BR", subdivision_code="BR-SP", city="São Paulo")
+    await session.flush()
+
+    app = _build_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/admin/dashboard/login-history")
+    assert response.status_code == 200
+    assert "img/flags/br.svg" in response.text
+    assert "Brazil" in response.text
+    assert "São Paulo" in response.text
 
 
 @pytest.mark.asyncio

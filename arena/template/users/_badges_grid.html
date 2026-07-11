@@ -1,0 +1,34 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<div class="py-4">
+    {% set earned_ids = badges | map(attribute='badge.value') | list %}
+    <div class="arena-badge-grid">
+        {% for badge_key, metadata in badge_metadata.items() %}
+            {% if badge_key in earned_ids %}
+                <article class="arena-badge-item">
+                    <img src="{{ request.url_for('arena_static_img', path='badges/' ~ metadata.image) }}"
+                         alt="{{ metadata.label }} badge"
+                         class="arena-badge-image"
+                         width="96"
+                         height="96">
+                    <h2 class="arena-badge-name">{{ metadata.label }}</h2>
+                    <p class="arena-badge-description">{{ metadata.description }}</p>
+                </article>
+            {% else %}
+                <article class="arena-badge-item arena-badge-item--locked">
+                    <img src="{{ request.url_for('arena_static_img', path='badges/missing_badge.png') }}"
+                         alt="Locked badge"
+                         class="arena-badge-image arena-badge-image--locked"
+                         width="96"
+                         height="96">
+                    <h2 class="arena-badge-name">???</h2>
+                </article>
+            {% endif %}
+        {% endfor %}
+    </div>
+</div>

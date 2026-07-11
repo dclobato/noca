@@ -24,6 +24,7 @@ from typing import cast
 
 from docker.models.containers import Container
 
+from autojudge.box_registry import registry as box_registry
 from autojudge.config import settings
 from autojudge.languages import SANDBOX_DIR, STDERR_PATH, STDOUT_PATH, LanguageConfig
 from autojudge.types import IsolateError, IsolateMeta, ProblemLimits
@@ -31,9 +32,16 @@ from autojudge.types import IsolateError, IsolateMeta, ProblemLimits
 logger = logging.getLogger(__name__)
 
 ISOLATE_META_PATH = f"{SANDBOX_DIR}/isolate-meta.txt"
-ISOLATE_BOX_ID = 0
-ISOLATE_CGROUP_PATH = f"/sys/fs/cgroup/box-{ISOLATE_BOX_ID}"
-ISOLATE_PIDS_PEAK_PATH = f"{ISOLATE_CGROUP_PATH}/pids.peak"
+
+
+def _box_id_for(container: Container) -> int:
+    """Return the isolate box-id assigned to this container at creation time."""
+    return box_registry.get(container.id)
+
+
+def _isolate_pids_peak_path(box_id: int) -> str:
+    """Return the kernel pids.peak path for the given isolate box's cgroup."""
+    return f"/sys/fs/cgroup/box-{box_id}/pids.peak"
 
 
 def _sync_isolate_init(container: Container) -> None:
@@ -46,7 +54,7 @@ def _sync_isolate_init(container: Container) -> None:
     Raises:
         IsolateError: If isolate --init returns a non-zero exit code.
     """
-    result = container.exec_run(_isolate_base_cmd() + ["--init"], user="root")
+    result = container.exec_run(_isolate_base_cmd(_box_id_for(container)) + ["--init"], user="root")
     if result.exit_code != 0:
         output = (result.output or b"").decode(errors="replace")
         raise IsolateError(f"isolate --init failed: {output}")
@@ -59,7 +67,7 @@ def _sync_isolate_cleanup(container: Container) -> None:
     Args:
         container: Live pool container.
     """
-    container.exec_run(_isolate_base_cmd() + ["--cleanup"], user="root")
+    container.exec_run(_isolate_base_cmd(_box_id_for(container)) + ["--cleanup"], user="root")
 
 
 def _sync_reset_run_artifacts(container: Container) -> None:
@@ -101,7 +109,7 @@ def _sync_run_isolate(
     Returns:
         The exit code returned by the isolate process.
     """
-    cmd = _isolate_base_cmd() + [
+    cmd = _isolate_base_cmd(_box_id_for(container)) + [
         f"--meta={ISOLATE_META_PATH}",
         f"--stdin={SANDBOX_DIR}/input",
         f"--stdout={STDOUT_PATH}",
@@ -136,8 +144,9 @@ def _read_isolate_cgroup_peak_pids(container: Container) -> int | None:
     Returns:
         Peak PID count, or None if the file is missing or unparseable.
     """
+    pids_peak_path = _isolate_pids_peak_path(_box_id_for(container))
     result = container.exec_run(
-        ["sh", "-c", f"cat {shlex.quote(ISOLATE_PIDS_PEAK_PATH)}"],
+        ["sh", "-c", f"cat {shlex.quote(pids_peak_path)}"],
         user="root",
     )
     if result.exit_code != 0:
@@ -151,7 +160,7 @@ def _read_isolate_cgroup_peak_pids(container: Container) -> int | None:
         return int(raw_value)
     except ValueError:
         logger.warning("Invalid isolate pids.peak value")
-        logger.warning(json.dumps({"path": ISOLATE_PIDS_PEAK_PATH, "value": raw_value}, indent=2))
+        logger.warning(json.dumps({"path": pids_peak_path, "value": raw_value}, indent=2))
         return None
 
 
@@ -162,11 +171,11 @@ def _resolve_peak_pids(meta_peak_pids: int | None, cgroup_peak_pids: int | None)
     return cgroup_peak_pids
 
 
-def _isolate_base_cmd() -> list[str]:
-    """Return the base isolate command with box ID and cgroup flags."""
+def _isolate_base_cmd(box_id: int) -> list[str]:
+    """Return the base isolate command with the container's box ID and cgroup flags."""
     return [
         settings.ISOLATE_BINARY_PATH,
-        f"--box-id={ISOLATE_BOX_ID}",
+        f"--box-id={box_id}",
         "--cg",
         "--silent",
     ]

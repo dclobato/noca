@@ -3,6 +3,7 @@ import logging
 from jwtservice import JWTService, load_token_config_from_dict
 
 from shared.enumerations import RoleEnum
+from shared.services.geolocation import GeolocationDetails
 from web.services.authentication_service import AuthAction, AuthenticationService
 from web.services.contest_user_service import parse_single_user_role
 
@@ -10,7 +11,7 @@ TEST_JWT_SECRET = "test-secret-key-for-tests-only-32bytes"
 
 
 class _NoopGeo:
-    def get_location_by_ip(self, ip_address: str | None) -> str | None:
+    def get_details_by_ip(self, ip_address: str | None) -> GeolocationDetails | None:
         return None
 
 

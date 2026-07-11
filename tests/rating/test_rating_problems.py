@@ -186,6 +186,39 @@ async def test_rate_all_problems_persists_difficulty_histogram(session: AsyncSes
     assert sum(row.data["counts"]) == count
 
 
+@pytest.mark.asyncio
+async def test_rate_all_problems_counts_staff_but_excludes_owner(session: AsyncSession) -> None:
+    """Problem difficulty inputs should count all roles except the problem owner."""
+    owner = await _make_user(session)
+    admin = await _make_admin(session)
+    judge = await _make_judge(session)
+    problem = await _make_problem(session, owner)
+    language = await _make_language(session)
+    solved_at = datetime.now(UTC)
+
+    await _make_submission(session, admin.id, problem.id, language.id, created_at=solved_at - timedelta(seconds=3))
+    await _record_solve(session, admin.id, problem.id, solved_at=solved_at)
+    await _make_submission(session, judge.id, problem.id, language.id, created_at=solved_at - timedelta(seconds=2))
+    await _record_solve(session, judge.id, problem.id, solved_at=solved_at)
+    await _make_submission(session, owner.id, problem.id, language.id, created_at=solved_at - timedelta(seconds=1))
+    await _record_solve(session, owner.id, problem.id, solved_at=solved_at)
+
+    await rate_all_problems(session)
+
+    row = (
+        await session.execute(
+            select(
+                arena_problem_ratings.c.attempted_users,
+                arena_problem_ratings.c.solved_users,
+                arena_problem_ratings.c.total_tries_before_solve,
+            ).where(arena_problem_ratings.c.problem_id == problem.id)
+        )
+    ).one()
+    assert row.attempted_users == 2
+    assert row.solved_users == 2
+    assert row.total_tries_before_solve == 2
+
+
 # ---------------------------------------------------------------------------
 # Difficulty histogram bucketing
 # ---------------------------------------------------------------------------
@@ -303,13 +336,13 @@ def test_low_attempt_problem_stays_near_centre_despite_skewed_pivot() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ARENA_ADMIN / problem-author exclusion from problem stats (ARENA_JUDGE counts)
+# Problem-owner exclusion from problem stats
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_rate_all_problems_excludes_admin_and_author_but_counts_judge(session: AsyncSession) -> None:
-    """rate_all_problems counts judges/regular users but excludes admins and the author."""
+async def test_rate_all_problems_counts_all_roles_but_excludes_owner(session: AsyncSession) -> None:
+    """rate_all_problems counts every role but excludes the problem owner."""
     author = await _make_user(session)
     problem = await _make_problem(session, author)
     lang = await _make_language(session)
@@ -327,7 +360,7 @@ async def test_rate_all_problems_excludes_admin_and_author_but_counts_judge(sess
         await _make_submission(session, judge.id, problem.id, lang.id, created_at=t0 + timedelta(seconds=i))
     await _record_solve(session, judge.id, problem.id, solved_at=t0 + timedelta(seconds=5))
 
-    # An admin submits many times and solves (excluded).
+    # An admin submits many times and solves (counts).
     admin = await _make_admin(session)
     for i in range(5):
         await _make_submission(session, admin.id, problem.id, lang.id, created_at=t0 + timedelta(seconds=i))
@@ -350,22 +383,19 @@ async def test_rate_all_problems_excludes_admin_and_author_but_counts_judge(sess
         )
     ).one()
 
-    assert row.attempted_users == 2  # user + judge (admin and author excluded)
-    assert row.solved_users == 2  # user + judge
-    # user: 2 tries before solve; judge: 5 submissions all <= solve_time → 5 tries.
-    assert row.total_tries_before_solve == 7
+    assert row.attempted_users == 3  # user + judge + admin (author excluded)
+    assert row.solved_users == 3  # user + judge + admin
+    # user: 2 tries before solve; judge/admin: 5 submissions each all <= solve_time.
+    assert row.total_tries_before_solve == 12
 
 
 @pytest.mark.asyncio
-async def test_rate_all_problems_admin_and_author_only_yield_zero_stats(session: AsyncSession) -> None:
-    """A problem touched only by ADMIN or the author must compute with zero-evidence stats."""
+async def test_rate_all_problems_author_only_yields_zero_stats(session: AsyncSession) -> None:
+    """A problem touched only by its owner must compute with zero-evidence stats."""
     author = await _make_user(session)
     problem = await _make_problem(session, author)
     lang = await _make_language(session)
 
-    admin = await _make_admin(session)
-    for _i in range(3):
-        await _make_submission(session, admin.id, problem.id, lang.id)
     for _i in range(2):
         await _make_submission(session, author.id, problem.id, lang.id)
 

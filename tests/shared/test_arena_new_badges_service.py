@@ -21,6 +21,7 @@ from shared.db_schema.arena import (
     arena_problem_set_problems,
     arena_problem_sets,
     arena_problem_solvers,
+    arena_problems,
     arena_submission_judgments,
     arena_submissions,
     arena_user_badges,
@@ -47,6 +48,21 @@ async def _new_user(session: AsyncSession, *, role: ArenaRole = ArenaRole.ARENA_
         )
     )
     return user_id
+
+
+async def _new_problem(session: AsyncSession, owner_id: str) -> str:
+    """Insert a minimal Arena problem owned by ``owner_id`` and return its id."""
+    problem_id = str(uuid.uuid4())
+    await session.execute(
+        arena_problems.insert().values(
+            id=problem_id,
+            arena_number=int(uuid.uuid4().int % 1_000_000_000) + 1,
+            title=f"Badge Problem {uuid.uuid4().hex[:8]}",
+            owner_id=owner_id,
+            problem_statement="<p>Echo.</p>",
+        )
+    )
+    return problem_id
 
 
 async def _submit(
@@ -151,10 +167,11 @@ async def test_language_badges_award_thresholds_for_same_problem(session: AsyncS
 
 
 async def test_first_solver_awards_only_earliest_solver(session: AsyncSession) -> None:
-    """Only the globally earliest solver of an affected problem earns FIRST_SOLVER."""
+    """Only the globally earliest non-owner solver of an affected problem earns FIRST_SOLVER."""
+    owner = await _new_user(session)
     first = await _new_user(session)
     second = await _new_user(session)
-    problem = str(uuid.uuid4())
+    problem = await _new_problem(session, owner)
     await _submit(session, first, problem, Verdict.AC, _WEEKDAY_NOON)
     await _submit(session, second, problem, Verdict.AC, _WEEKDAY_NOON + timedelta(minutes=1))
 
@@ -164,21 +181,22 @@ async def test_first_solver_awards_only_earliest_solver(session: AsyncSession) -
     assert ArenaBadge.FIRST_SOLVER not in await _badges(session, second)
 
 
-async def test_first_solver_skips_admin_and_judge_solvers(session: AsyncSession) -> None:
-    """ARENA_ADMIN/ARENA_JUDGE solvers are ineligible; the earliest ARENA_USER solver wins."""
+async def test_first_solver_gated_by_ownership_not_role(session: AsyncSession) -> None:
+    """The owner is excluded even if earliest; the first non-owner solver wins regardless of role."""
+    owner = await _new_user(session)
     admin = await _new_user(session, role=ArenaRole.ARENA_ADMIN)
-    judge = await _new_user(session, role=ArenaRole.ARENA_JUDGE)
     student = await _new_user(session)
-    problem = str(uuid.uuid4())
-    await _submit(session, admin, problem, Verdict.AC, _WEEKDAY_NOON)
-    await _submit(session, judge, problem, Verdict.AC, _WEEKDAY_NOON + timedelta(minutes=1))
+    problem = await _new_problem(session, owner)
+    # The owner solves first (excluded), then a non-owner admin, then a student.
+    await _submit(session, owner, problem, Verdict.AC, _WEEKDAY_NOON)
+    await _submit(session, admin, problem, Verdict.AC, _WEEKDAY_NOON + timedelta(minutes=1))
     await _submit(session, student, problem, Verdict.AC, _WEEKDAY_NOON + timedelta(minutes=2))
 
     await compute_badge_awards(session, full_reconcile=True)
 
-    assert ArenaBadge.FIRST_SOLVER not in await _badges(session, admin)
-    assert ArenaBadge.FIRST_SOLVER not in await _badges(session, judge)
-    assert ArenaBadge.FIRST_SOLVER in await _badges(session, student)
+    assert ArenaBadge.FIRST_SOLVER not in await _badges(session, owner)
+    assert ArenaBadge.FIRST_SOLVER in await _badges(session, admin)
+    assert ArenaBadge.FIRST_SOLVER not in await _badges(session, student)
 
 
 async def test_rock_cracker_awards_solvers_below_solve_rate_threshold(session: AsyncSession) -> None:

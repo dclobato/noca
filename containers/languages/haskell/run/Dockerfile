@@ -32,7 +32,7 @@ RUN mkdir -p /usr/local/etc /var/local/lib/isolate /run/isolate/locks /sandbox \
         'cg_root = /sys/fs/cgroup' \
         'first_uid = 60000' \
         'first_gid = 60000' \
-        'num_boxes = 1' \
+        'num_boxes = 1000' \
         > /usr/local/etc/isolate \
     && chmod 755 /usr/local/bin/isolate /usr/local/etc/isolate \
     && chmod 1777 /sandbox

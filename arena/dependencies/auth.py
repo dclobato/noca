@@ -150,6 +150,7 @@ async def get_current_arena_user(
         event_type="suspicious_token_mismatch",
         severity="warning",
         actor_user_id=user.id,
+        actor_label=user.email_normalizado,
         metadata={"reason": "token_identity_or_access_mismatch"},
     )
     await session.commit()

@@ -128,6 +128,7 @@ async def _run_repeated_test_case(
     stdout_excerpt = b""
     stderr_excerpt = b""
     exit_code: int | None = None
+    exit_signal: int | None = None
 
     for _ in range(max(1, limits.repetitions)):
         if remaining_budget_ms < 1:
@@ -138,6 +139,7 @@ async def _run_repeated_test_case(
                 peak_output_bytes=peak_output_bytes,
                 peak_pids=peak_pids,
                 exit_code=exit_code,
+                exit_signal=exit_signal,
                 stdout_excerpt=stdout_excerpt,
                 stderr_excerpt=stderr_excerpt,
             )
@@ -160,6 +162,7 @@ async def _run_repeated_test_case(
             executor=executor,
         )
         exit_code = run_result.exit_code
+        exit_signal = run_result.exit_signal
         stdout_excerpt = run_result.stdout_excerpt or stdout_excerpt
         stderr_excerpt = run_result.stderr_excerpt or stderr_excerpt
 
@@ -188,6 +191,7 @@ async def _run_repeated_test_case(
                 peak_output_bytes=peak_output_bytes,
                 peak_pids=peak_pids,
                 exit_code=exit_code,
+                exit_signal=exit_signal,
                 stdout_excerpt=stdout_excerpt,
                 stderr_excerpt=stderr_excerpt,
             )
@@ -199,6 +203,7 @@ async def _run_repeated_test_case(
         peak_output_bytes=peak_output_bytes,
         peak_pids=peak_pids,
         exit_code=exit_code,
+        exit_signal=exit_signal,
         stdout_excerpt=stdout_excerpt,
         stderr_excerpt=stderr_excerpt,
     )
@@ -366,6 +371,7 @@ async def process_submission_job(
                 wall_time_ms=repeated_result.total_wall_time_ms,
                 memory_kb=repeated_result.peak_memory_kb,
                 exit_code=repeated_result.exit_code,
+                exit_signal=repeated_result.exit_signal,
                 stdout_excerpt=repeated_result.stdout_excerpt,
                 stderr_excerpt=repeated_result.stderr_excerpt,
             )
@@ -377,6 +383,7 @@ async def process_submission_job(
                     output_bytes=repeated_result.peak_output_bytes,
                     peak_pids=repeated_result.peak_pids,
                     exit_code=repeated_result.exit_code,
+                    exit_signal=repeated_result.exit_signal,
                     stdout_excerpt=repeated_result.stdout_excerpt,
                     stderr_excerpt=repeated_result.stderr_excerpt,
                 )

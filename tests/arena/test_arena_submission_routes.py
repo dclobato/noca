@@ -208,6 +208,10 @@ def _build_app(session: AsyncSession, *, valkey_runtime: object | None = None) -
     async def _admin_users() -> Response:
         return Response("admin_users")
 
+    @app.get("/admin/users/{user_id}", name="arena_admin_user_profile")
+    async def _admin_user_profile(user_id: str) -> Response:
+        return Response(f"admin_user {user_id}")
+
     @app.get("/admin/dashboard", name="arena_admin_dashboard")
     async def _admin_dashboard_stub() -> Response:
         return Response("dashboard")
@@ -266,10 +270,11 @@ async def _make_arena_user(
     role: ArenaRole = ArenaRole.ARENA_USER,
     email_prefix: str = "user",
     ai_backend_credits: int = 0,
+    nome: str = "Test Submitter",
 ) -> ArenaUser:
     """Create and commit an active Arena user."""
     user = ArenaUser(
-        nome="Test Submitter",
+        nome=nome,
         email_normalizado=f"{email_prefix}_{uuid.uuid4().hex[:6]}@test.example",
         password_hash="pbkdf2:sha256:1000000$x$y",
         role=role,
@@ -666,6 +671,38 @@ async def test_submission_detail_shows_help_button(session: AsyncSession) -> Non
     assert 'type="button"' in resp.text
     assert 'data-bs-target="#ai-review-confirm-modal"' in resp.text
     assert "Confirm AI review" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_submission_detail_shows_owner_name_without_admin_link(
+    session: AsyncSession,
+) -> None:
+    """Owner views the submitting user's name without an admin-profile link."""
+    app = _build_app(session)
+
+    author = await _make_arena_user(session, email_prefix="author-owner-name")
+    problem = await _make_problem_with_tc(session, author)
+    lang = await _make_language(session)
+    user = await _make_arena_user(
+        session,
+        email_prefix="owner-name",
+        nome="Owner Detail Person",
+    )
+    sub_id, _ = await _make_submission_with_judgment(
+        session,
+        user,
+        problem,
+        lang,
+        verdict=Verdict.WA.value,
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login_user(client, app, user)
+        resp = await client.get(f"/submissions/{sub_id}", follow_redirects=False)
+
+    assert resp.status_code == 200
+    assert "Owner Detail Person" in resp.text
+    assert f"/admin/users/{user.id}" not in resp.text
 
 
 @pytest.mark.asyncio

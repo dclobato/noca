@@ -189,6 +189,10 @@ class _JudgmentMixin(_DatabaseBase):
             error_message: Internal error description for admins.
             contest_start_time: Used for audit timestamp_seconds computation.
         """
+        # A prior statement (e.g. a poison-pill INSERT) may have left the
+        # transaction aborted; roll back so the state read and UPDATE below run
+        # in a clean one and the judgment can reach a terminal state.
+        await self._conn.rollback()
         now = _utcnow()
         state = await self._get_judgment_state(judgment_id)
         await self._conn.execute(

@@ -27,7 +27,6 @@ from shared.db_schema.arena import arena_problem_set_problems as _arena_problem_
 from shared.db_schema.arena import arena_problem_tried as _arena_problem_tried
 from shared.db_schema.arena import arena_problems as _arena_problem
 from shared.db_schema.arena import arena_test_cases as _arena_test_case
-from shared.db_schema.arena import arena_users as _arena_user
 from shared.enumerations import JudgmentStatus
 from shared.queue_schema import ArenaSubmissionJob
 from shared.services.arena_query_helpers import is_excluded_from_problem_rating
@@ -248,9 +247,8 @@ async def _is_first_attempt(session: AsyncSession, user_id: str, problem_id: str
 async def _counts_as_rating_attempt(session: AsyncSession, user_id: str, problem_id: str) -> bool:
     """Return whether this user's attempt should count toward the rating row.
 
-    Mirrors the rating recompute rule: ARENA_ADMIN submissions and the problem
-    author's own submissions are excluded; ARENA_JUDGE and regular ARENA_USER
-    attempts count.
+    Mirrors the rating recompute rule: the problem owner's own submissions are
+    excluded, and user roles do not affect whether attempts count.
 
     Args:
         session: Active async database session.
@@ -260,9 +258,8 @@ async def _counts_as_rating_attempt(session: AsyncSession, user_id: str, problem
     Returns:
         bool: True when the attempt should increment ``attempted_users``.
     """
-    role = await session.scalar(select(_arena_user.c.role).where(_arena_user.c.id == user_id))
     owner_id = await session.scalar(select(_arena_problem.c.owner_id).where(_arena_problem.c.id == problem_id))
-    return not is_excluded_from_problem_rating(role, user_id, owner_id)
+    return not is_excluded_from_problem_rating(user_id, owner_id)
 
 
 async def _ensure_rating_row(session: AsyncSession, problem_id: str) -> None:

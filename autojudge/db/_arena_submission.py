@@ -15,6 +15,7 @@ from typing import cast
 from sqlalchemy import delete, func, select, update
 
 from autojudge.db._base import _DatabaseBase, _utcnow
+from autojudge.runtime_utils import decode_for_text_column
 from autojudge.types import (
     ArenaQueuedTestCase,
     ProblemLimits,
@@ -28,7 +29,6 @@ from shared.db_schema.arena import arena_submission_judgments as _arena_submissi
 from shared.db_schema.arena import arena_submission_test_results as _arena_submission_test_result
 from shared.db_schema.arena import arena_submissions as _arena_submission
 from shared.db_schema.arena import arena_test_cases as _arena_test_case
-from shared.db_schema.arena import arena_users as _arena_user
 from shared.enumerations import ArenaNotificationKind, JudgmentStatus, Verdict
 from shared.services.arena_notification_service import create_arena_notification
 from shared.services.arena_query_helpers import is_excluded_from_problem_rating
@@ -207,6 +207,10 @@ class _ArenaSubmissionMixin(_DatabaseBase):
 
     async def set_arena_judgment_failed(self, judgment_id: str, error_message: str) -> None:
         """Mark an Arena judgment as FAILED due to an internal judge error."""
+        # A prior statement (e.g. a poison-pill INSERT) may have left the
+        # transaction aborted; roll back so this UPDATE runs in a clean one and
+        # the judgment can actually reach a terminal state instead of looping.
+        await self._conn.rollback()
         await self._conn.execute(
             update(_arena_submission_judgment)
             .where(_arena_submission_judgment.c.id == judgment_id)
@@ -227,6 +231,7 @@ class _ArenaSubmissionMixin(_DatabaseBase):
         wall_time_ms: int | None,
         memory_kb: int | None,
         exit_code: int | None,
+        exit_signal: int | None,
         stdout_excerpt: bytes,
         stderr_excerpt: bytes,
     ) -> None:
@@ -240,8 +245,9 @@ class _ArenaSubmissionMixin(_DatabaseBase):
                 wall_time_ms=wall_time_ms,
                 memory_kb=memory_kb,
                 exit_code=exit_code,
-                stdout_excerpt=stdout_excerpt.decode(errors="replace"),
-                stderr_excerpt=stderr_excerpt.decode(errors="replace"),
+                exit_signal=exit_signal,
+                stdout_excerpt=decode_for_text_column(stdout_excerpt),
+                stderr_excerpt=decode_for_text_column(stderr_excerpt),
                 created_at=_utcnow(),
             )
         )
@@ -317,12 +323,11 @@ class _ArenaSubmissionMixin(_DatabaseBase):
                 solved_at=solved_at,
             )
         )
-        role = await self._conn.scalar(select(_arena_user.c.role).where(_arena_user.c.id == submission.user_id))
         owner_id = await self._conn.scalar(
             select(_arena_problem.c.owner_id).where(_arena_problem.c.id == submission.problem_id)
         )
-        # Admins and the problem owner never inflate the aggregate solve stats.
-        if is_excluded_from_problem_rating(role, submission.user_id, owner_id):
+        # The problem owner never inflates the aggregate solve stats.
+        if is_excluded_from_problem_rating(submission.user_id, owner_id):
             return
         await self._conn.execute(
             update(_arena_problem_rating)

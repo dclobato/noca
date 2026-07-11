@@ -25,6 +25,8 @@
 #                                  # set image repository prefix (default: noca)
 #   ./containers/build.sh --naming flat
 #                                  # flatten image names as <repo>-<component>
+#   ./containers/build.sh --alt-repo docker.io/acme/noca --alt-naming flat
+#                                  # also tag/push publishable images to a second registry
 #   ./containers/build.sh --platforms linux/arm64
 #                                  # build single-platform image with buildx and load locally
 #   ./containers/build.sh --platforms linux/amd64,linux/arm64 --push
@@ -46,6 +48,8 @@ PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 PLATFORMS_SET=0
 IMAGE_PREFIX="${NOCA_IMAGE_PREFIX:-noca}"
 IMAGE_NAMING="${NOCA_IMAGE_NAMING:-path}"
+ALT_IMAGE_PREFIX="${NOCA_ALT_IMAGE_PREFIX:-}"
+ALT_IMAGE_NAMING="${NOCA_ALT_IMAGE_NAMING:-path}"
 VERSION=""
 JUDGE_ISOLATE_TAG="${JUDGE_ISOLATE_TAG:-v2.6}"
 # Name of the dedicated docker-container builder the push path falls back to when
@@ -97,6 +101,30 @@ while [[ $# -gt 0 ]]; do
             IMAGE_NAMING="${1#*=}"
             shift
             ;;
+        --alt-repo)
+            if [[ $# -lt 2 ]]; then
+                echo "--alt-repo requires a value (e.g. docker.io/acme/noca)"
+                exit 1
+            fi
+            ALT_IMAGE_PREFIX="$2"
+            shift 2
+            ;;
+        --alt-repo=*)
+            ALT_IMAGE_PREFIX="${1#*=}"
+            shift
+            ;;
+        --alt-naming)
+            if [[ $# -lt 2 ]]; then
+                echo "--alt-naming requires a value (path or flat)"
+                exit 1
+            fi
+            ALT_IMAGE_NAMING="$2"
+            shift 2
+            ;;
+        --alt-naming=*)
+            ALT_IMAGE_NAMING="${1#*=}"
+            shift
+            ;;
         --push)
             PUSH=1
             shift
@@ -116,10 +144,10 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --all-languages)
-            TARGETS+=(bash gcc-c17 gcc-cpp23 python3 java javascript kotlin fpc-pascal go ruby rust c-sharp haskell lua prolog fortran swift)
+            TARGETS+=(bash gcc-c17 gcc-cpp23 python3 java javascript kotlin fpc-pascal go ruby rust c-sharp haskell lua prolog fortran swift perl)
             shift
             ;;
-        webapp|arena|autojudge|rating|aiassistant|bash|gcc-c17|gcc-cpp23|python3|java|javascript|kotlin|fpc-pascal|go|ruby|rust|c-sharp|haskell|lua|prolog|fortran|swift)
+        webapp|arena|autojudge|rating|aiassistant|bash|gcc-c17|gcc-cpp23|python3|java|javascript|kotlin|fpc-pascal|go|ruby|rust|c-sharp|haskell|lua|prolog|fortran|swift|perl)
             TARGETS+=("$1")
             shift
             ;;
@@ -134,6 +162,14 @@ case "$IMAGE_NAMING" in
     path|flat) ;;
     *)
         echo "--naming must be either 'path' or 'flat'"
+        exit 1
+        ;;
+esac
+
+case "$ALT_IMAGE_NAMING" in
+    path|flat) ;;
+    *)
+        echo "--alt-naming must be either 'path' or 'flat'"
         exit 1
         ;;
 esac
@@ -173,9 +209,18 @@ if [[ "$USE_BUILDX" -eq 1 && "$IS_MULTI_PLATFORM" -eq 1 && "$PUSH" -ne 1 ]]; the
     exit 1
 fi
 
+if [[ -n "$ALT_IMAGE_PREFIX" && "$PUSH" -ne 1 ]]; then
+    echo "--alt-repo is only supported with --push."
+    exit 1
+fi
+
 echo "Building container images for: ${TARGETS[*]}"
 echo "Image prefix: $IMAGE_PREFIX"
 echo "Image naming: $IMAGE_NAMING"
+if [[ -n "$ALT_IMAGE_PREFIX" ]]; then
+    echo "Alternate image prefix: $ALT_IMAGE_PREFIX"
+    echo "Alternate image naming: $ALT_IMAGE_NAMING"
+fi
 if [[ -n "$VERSION" ]]; then
     echo "Version tag:  $VERSION"
 fi
@@ -317,6 +362,7 @@ ensure_container_builder() {
 
 build_with_bake() {
     local name_separator="/"
+    local alt_name_separator="/"
     local bake_no_cache="false"
     local -a bake_targets=()
     local repo_root
@@ -327,6 +373,9 @@ build_with_bake() {
 
     if [[ "$IMAGE_NAMING" == "flat" ]]; then
         name_separator="-"
+    fi
+    if [[ "$ALT_IMAGE_NAMING" == "flat" ]]; then
+        alt_name_separator="-"
     fi
     if [[ -n "$NO_CACHE" ]]; then
         bake_no_cache="true"
@@ -366,9 +415,11 @@ build_with_bake() {
         cd "$repo_root"
         env \
             REPO="$IMAGE_PREFIX" \
+            ALT_REPO="$ALT_IMAGE_PREFIX" \
             VERSION="$VERSION" \
             PLATFORMS="$PLATFORMS" \
             NAME_SEPARATOR="$name_separator" \
+            ALT_NAME_SEPARATOR="$alt_name_separator" \
             BAKE_NO_CACHE="$bake_no_cache" \
             JUDGE_ISOLATE_TAG="$JUDGE_ISOLATE_TAG" \
             docker buildx bake "${BAKE_BUILDER_ARGS[@]}" \

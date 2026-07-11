@@ -7,7 +7,7 @@
 import logging
 import time
 from enum import StrEnum
-from typing import cast
+from typing import Any, cast
 
 from jwtservice import JWTService
 from jwtservice.core import TokenVerificationResult
@@ -182,10 +182,20 @@ class AuthenticationService:
         if (user_id is None) == (uberadmin_id is None):
             raise ValueError("Exactly one of user_id or uberadmin_id must be provided.")
 
-        args = {"user_id": user_id, "uberadmin_id": uberadmin_id, "ip_address": ip_address, "user_agent": user_agent}
-        location = self._geo.get_location_by_ip(ip_address) if ip_address else None
-        if location:
-            args["location"] = location
+        args: dict[str, Any] = {
+            "user_id": user_id,
+            "uberadmin_id": uberadmin_id,
+            "ip_address": ip_address,
+            "user_agent": user_agent,
+        }
+        details = self._geo.get_details_by_ip(ip_address) if ip_address else None
+        if details is not None:
+            args["country_code"] = details.country_code
+            args["subdivision_code"] = details.subdivision_code
+            args["district"] = details.district
+            args["city"] = details.city
+            args["is_eu"] = details.is_eu
+            args["as_number"] = details.as_number
 
         session.add(Login_History(**args))
 

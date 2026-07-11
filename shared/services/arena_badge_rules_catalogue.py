@@ -15,9 +15,9 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.db_schema.arena import arena_problem_ratings, arena_problem_solvers, arena_users
+from shared.db_schema.arena import arena_problem_ratings, arena_problem_solvers, arena_problems
 from shared.db_schema.arena import arena_submissions as _submissions
-from shared.enumerations import ArenaBadge, ArenaRole
+from shared.enumerations import ArenaBadge
 from shared.services.arena_badge_data import AcEvent, ac_join, award_badge
 from shared.services.arena_query_helpers import active_arena_judgment_subquery
 
@@ -62,10 +62,12 @@ async def award_languages(session: AsyncSession, events: list[AcEvent]) -> int:
 
 
 async def award_first_solver(session: AsyncSession, events: list[AcEvent]) -> int:
-    """Award FIRST_SOLVER to each affected problem's earliest ARENA_USER solver.
+    """Award FIRST_SOLVER to each affected problem's earliest non-owner solver.
 
-    ARENA_ADMIN and ARENA_JUDGE accounts are excluded: they can submit AC solutions
-    (e.g. while authoring or testing a problem) without being eligible for the badge.
+    Eligibility is gated by problem ownership, not role: any user (regardless of
+    role) who is the first to solve a problem they do not own earns the badge.
+    The problem owner is excluded because their own AC solutions (e.g. while
+    authoring or testing) are not eligible.
     """
     problem_ids = {e.problem_id for e in events}
     if not problem_ids:
@@ -78,10 +80,12 @@ async def award_first_solver(session: AsyncSession, events: list[AcEvent]) -> in
                 arena_problem_solvers.c.user_id,
                 arena_problem_solvers.c.solved_at,
             )
-            .select_from(arena_problem_solvers.join(arena_users, arena_users.c.id == arena_problem_solvers.c.user_id))
+            .select_from(
+                arena_problem_solvers.join(arena_problems, arena_problems.c.id == arena_problem_solvers.c.problem_id)
+            )
             .where(
                 arena_problem_solvers.c.problem_id.in_(problem_ids),
-                arena_users.c.role == ArenaRole.ARENA_USER,
+                arena_problem_solvers.c.user_id != arena_problems.c.owner_id,
             )
             .order_by(
                 arena_problem_solvers.c.problem_id,

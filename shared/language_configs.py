@@ -31,6 +31,7 @@ LUA_PATH = "/usr/local/bin/lua"
 LUAC_PATH = "/usr/local/bin/luac"
 SWIPL_PATH = "/usr/bin/swipl"
 RUBY_PATH = "/usr/local/bin/ruby"
+PERL_PATH = "/usr/local/bin/perl"
 BASH_PATH = "/bin/bash"
 
 
@@ -562,6 +563,31 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=10.0,
             profiling_repetitions_default=3,
             version="GNU bash, version 5.2.15(1)-release",
+        ),
+        LanguageConfig(
+            id="perl",
+            name="Perl",
+            icon="devicon-perl-plain",
+            highlightjs_language="perl",
+            ace_mode="perl",
+            compile_image="noca/judge-perl:compile",
+            run_image="noca/judge-perl:run",
+            compile_cmd=[
+                PERL_PATH,
+                "-c",
+                f"{SANDBOX_DIR}/source.pl",
+            ],
+            run_cmd=[
+                PERL_PATH,
+                f"{SANDBOX_DIR}/source.pl",
+            ],
+            source_filename="source.pl",
+            default_extension=".pl",
+            artifact_path=f"{SANDBOX_DIR}/source.pl",
+            artifact_is_source=True,
+            compile_timeout_s=10.0,
+            profiling_repetitions_default=3,
+            version="This is perl 5, version 42, subversion 2 (v5.42.2)",
         ),
     ]
 

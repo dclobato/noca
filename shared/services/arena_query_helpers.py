@@ -12,32 +12,29 @@ keeping the "active judgment" definition in one place so callers cannot drift.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.sql.selectable import Subquery
 
 from shared.db_schema.arena import arena_submission_judgments
-from shared.enumerations import ArenaRole, JudgmentStatus
+from shared.enumerations import JudgmentStatus
 
 _SUPERSEDED = JudgmentStatus.SUPERSEDED.value
 
 
 def counts_toward_problem_rating(
-    role_col: ColumnElement[Any],
     user_id_col: ColumnElement[Any],
     owner_id: Any,
 ) -> ColumnElement[bool]:
     """SQL predicate selecting submissions/solves that count toward a problem.
 
-    A submitter contributes to a problem's rating inputs, public solver count, and
-    statistics snapshot **unless** they are an ``ARENA_ADMIN`` or the problem's own
-    author. This is the single source of truth for that rule; use it in ``WHERE``
-    clauses joined against ``arena_users`` (for the role) and ``arena_problems``
-    (for the author).
+    A submitter contributes to a problem's rating inputs, public solver count,
+    and statistics snapshot unless they own the problem. User roles do not
+    change this rule. This is the single source of truth for that policy; use it
+    in ``WHERE`` clauses joined against ``arena_problems`` for the owner.
 
     Args:
-        role_col: ``arena_users.role`` column of the submitting user.
         user_id_col: Column holding the submitter's user id (e.g. a submission or
             solver ``user_id``).
         owner_id: The problem's ``owner_id`` (a literal value or column).
@@ -45,25 +42,24 @@ def counts_toward_problem_rating(
     Returns:
         ColumnElement[bool]: True for rows that should be counted.
     """
-    return and_(role_col != ArenaRole.ARENA_ADMIN, user_id_col != owner_id)
+    return cast(ColumnElement[bool], user_id_col != owner_id)
 
 
-def is_excluded_from_problem_rating(role: ArenaRole | str | None, user_id: str, owner_id: str | None) -> bool:
+def is_excluded_from_problem_rating(user_id: str, owner_id: str | None) -> bool:
     """Return whether a user must NOT count toward a problem's rating stats.
 
     Scalar counterpart of :func:`counts_toward_problem_rating` for Python call
-    sites that already hold the role and author values. A user is excluded when
-    they are an ``ARENA_ADMIN`` or the problem's owner.
+    sites that already hold the owner value. A user is excluded only when they
+    own the problem.
 
     Args:
-        role: The submitting user's Arena role.
         user_id: The submitting user's id.
         owner_id: The problem owner's id.
 
     Returns:
         bool: True when the user must be excluded from rating counters.
     """
-    return role == ArenaRole.ARENA_ADMIN or user_id == owner_id
+    return user_id == owner_id
 
 
 def active_arena_judgment_subquery() -> Subquery:

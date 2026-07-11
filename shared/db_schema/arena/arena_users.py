@@ -47,6 +47,14 @@ arena_users = Table(
         comment="Normalised email address; used as the primary login identifier",
     ),
     Column(
+        "email_canonical",
+        String(180),
+        nullable=True,
+        index=True,
+        comment="Canonical/root email (plus-tags and local-part dots stripped) "
+        "used to detect mailbox-alias duplicate sign-ups; not unique.",
+    ),
+    Column(
         "email_responsavel_legal",
         String(255),
         nullable=True,
@@ -447,7 +455,12 @@ arena_login_history = Table(
         comment="Timestamp of the login event",
     ),
     Column("ip_address", String(45), nullable=True, comment="Client IP address (IPv4 or IPv6)"),
-    Column("location", String(128), nullable=True, comment="Geographic location derived from IP"),
+    Column("country_code", String(2), nullable=True, comment="ISO 3166-1 alpha-2 country code from IP"),
+    Column("subdivision_code", String(16), nullable=True, comment="ISO 3166-2 subdivision code from IP"),
+    Column("district", String(128), nullable=True, comment="District/county name from IP"),
+    Column("city", String(128), nullable=True, comment="City name from IP"),
+    Column("is_eu", Boolean, nullable=True, comment="Whether the IP country is in the EU"),
+    Column("as_number", String(16), nullable=True, comment="Autonomous System number from IP"),
     Column("user_agent", Text, nullable=True, comment="HTTP User-Agent header"),
     Column(
         "mode",

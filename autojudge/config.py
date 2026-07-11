@@ -347,6 +347,18 @@ class Settings(NocaSettings):
         description="Absolute path to the isolate binary inside run containers.",
     )
 
+    ISOLATE_MAX_BOXES: int = Field(
+        default=1000,
+        ge=1,
+        le=1000,
+        description=(
+            "Number of distinct isolate box-ids available for per-container "
+            "allocation (0 .. ISOLATE_MAX_BOXES - 1). Must not exceed isolate's "
+            "configured num_boxes (default 1000). Each live run container holds one "
+            "box-id for its lifetime, so this bounds concurrent containers per worker."
+        ),
+    )
+
     ISOLATE_WALL_TIME_MULTIPLIER: float = Field(
         default=3.0,
         ge=1.0,

@@ -98,6 +98,7 @@ async def test_normal_verdict_exit_publishes_arena_verdict(monkeypatch: pytest.M
                 peak_output_bytes=2,
                 peak_pids=1,
                 exit_code=0,
+                exit_signal=None,
                 stdout_excerpt=b"1\n",
                 stderr_excerpt=b"",
             )

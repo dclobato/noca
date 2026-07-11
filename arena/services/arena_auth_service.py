@@ -30,7 +30,7 @@ from arena.services.token_service import ArenaTokenAction, JWTService
 from arena.services.user_service import UserOperationStatus, UserServiceResult
 from shared.age_check import AgeStatus, check_age
 from shared.services.email_validation import EmailValidationService
-from shared.services.geolocation import GeolocationIP
+from shared.services.geolocation import GeolocationDetails, GeolocationIP
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +65,10 @@ async def efetuar_login(
         ip_address: Client IP address for login history (optional).
         user_agent: HTTP User-Agent header for login history (optional).
         mode: Authentication mode label stored in login history.
-        geo_service: Optional geolocation service to resolve the client IP to
-            a human-readable location string.  When ``None`` or when the API
-            key is not configured, the location field is left empty.
+        geo_service: Optional geolocation service to resolve the client IP into
+            the structured login-history geolocation columns (country, subdivision,
+            district, city, EU flag, AS number).  When ``None`` or when the API key
+            is not configured, those columns are left null.
 
     Returns:
         UserServiceResult: ``SUCCESS`` with the authenticated user, or an
@@ -320,10 +321,10 @@ async def registrar_login_concluido(
     """
     try:
         usuario.ultimo_login = _utcnow()
-        location: str | None = None
+        details: GeolocationDetails | None = None
         if ip_address and geo_service:
-            location = geo_service.get_location_by_ip(ip_address)
-        await _registrar_login(usuario, ip_address, location, user_agent, mode, session)
+            details = geo_service.get_details_by_ip(ip_address)
+        await _registrar_login(usuario, ip_address, details, user_agent, mode, session)
         return UserServiceResult(status=UserOperationStatus.SUCCESS, user=usuario)
     except SQLAlchemyError as exc:
         logger.error("Database error recording completed login for %s: %s", usuario.email_normalizado, exc)
@@ -333,7 +334,7 @@ async def registrar_login_concluido(
 async def _registrar_login(
     usuario: ArenaUser,
     ip_address: str | None,
-    location: str | None,
+    details: GeolocationDetails | None,
     user_agent: str | None,
     mode: str,
     session: AsyncSession,
@@ -343,7 +344,12 @@ async def _registrar_login(
             arena_user_id=usuario.id,
             dta_login=_utcnow(),
             ip_address=ip_address,
-            location=location,
+            country_code=details.country_code if details else None,
+            subdivision_code=details.subdivision_code if details else None,
+            district=details.district if details else None,
+            city=details.city if details else None,
+            is_eu=details.is_eu if details else None,
+            as_number=details.as_number if details else None,
             user_agent=user_agent,
             mode=mode,
         )

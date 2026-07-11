@@ -225,7 +225,10 @@ Async functions for authentication and intermediate flow tokens.
 `efetuar_login` returns `UserServiceResult` with the authenticated `ArenaUser`.
 For 2FA-enabled users, login history is recorded only after successful TOTP or backup-code validation.
 The optional `geo_service` parameter is a `GeolocationIP` instance from `app.state.geo_service`;
-when present, the client IP is resolved to a location string stored in `ArenaLoginHistory`.
+when present, `get_details_by_ip` resolves the client IP into structured geolocation columns
+(`country_code`, `subdivision_code`, `district`, `city`, `is_eu`, `as_number`) stored in
+`ArenaLoginHistory`. Display names are derived on the model via `LocationMixin`
+(`country_name` / `subdivision_name`) and `detailed_location`.
 JWT issuance for the full session (LOGIN action) is performed by the route.
 The route now always issues 1-hour LOGIN JWTs. When `remember_me` is enabled it also stores
 `remember_me=true` plus the original `session_started_at` marker so middleware can rotate the cookie
@@ -344,7 +347,9 @@ timezone before calling the service.
 
 Cross-user paginated login history for the global admin dashboard page. Uses an
 explicit SQL JOIN on `arena_users` so the optional `search` condition can filter
-by `nome`, `email_normalizado`, or `location` in the same WHERE clause.
+by `nome`, `email_normalizado`, or the structured geolocation columns (`city`,
+`district`, `subdivision_code`, `country_code`) in the same WHERE clause. Full
+country *names* are not searchable since only the ISO code is stored.
 Two-step loading: a Core ID query (with JOIN for filtering) followed by an ORM
 `selectinload(ArenaLoginHistory.arena_user)` query so relationship access works
 in templates.
@@ -358,9 +363,21 @@ admin dashboard.
 
 **`AdminSubmissionListRow`** — frozen dataclass with fields: `submission_id`, `user_id`, `user_name`, `problem_number`, `problem_title`, `language_id`, `language_name`, `submitted_at`, `verdict` (None when pending), `status`, `submit_to_ai`, `has_ai_review`.
 
-**`list_submissions_paginated(session, *, page, per_page, search, verdict_filter, ai_filter, language_filter, problem_filter, sort_dir="desc", date_from_utc=None, date_to_utc=None) → Pagination[AdminSubmissionListRow]`**
+**`list_submissions_paginated(session, *, page, per_page, search, verdict_filter, status_filter, ai_filter, language_filter, problem_filter, sort_dir="desc", date_from_utc=None, date_to_utc=None) → Pagination[AdminSubmissionListRow]`**
 
-Delegates to `build_arena_submission_query(include_user=True, ...)`. The `ai_filter` parameter filters the `submit_to_ai` boolean flag on the submission itself (not completed review presence). `problem_filter` is an exact match on `cast(arena_number, String)` — "10" matches only problem 10. `sort_dir` (`"asc"`/`"desc"`) orders by `created_at` (with a stable secondary key on `id`); `date_from_utc`/`date_to_utc` bound `created_at` (inclusive lower, exclusive upper). User columns appear at indices 14 (nome) and 15 (user id).
+Delegates to `build_arena_submission_query(include_user=True, ...)`.
+`status_filter` matches the active judgment status, which lets the dashboard
+find internal `FAILED` judge/backend errors that don't have a verdict. The
+`ai_filter` parameter filters the `submit_to_ai` boolean flag on the submission
+itself (not completed review presence). `problem_filter` is an exact match on
+`cast(arena_number, String)` — "10" matches only problem 10. `sort_dir`
+(`"asc"`/`"desc"`) orders by `created_at` (with a stable secondary key on
+`id`); `date_from_utc`/`date_to_utc` bound `created_at` (inclusive lower,
+exclusive upper). User columns appear at indices 14 (nome) and 15 (user id).
+
+**`reenqueue_failed_submission(session, *, submission_id) → ArenaSubmissionJob | None`**
+
+Resets the submission's most recent judgment from the terminal `FAILED` state back to `QUEUED` — clearing `autojudge_verdict`, `final_verdict`, `compile_log`, `error_message`, `worker_id`, `started_at`, `finished_at`, `max_wall_time_ms`, `max_memory_kb` — and returns a fresh `ArenaSubmissionJob` (requeue_count 0) to enqueue. Resets the existing judgment in place (no supersede) because `FAILED` produced no verdict or test results, so no orphan judgment is left. Returns `None`, leaving the session unchanged, when the submission is missing or its latest judgment is not `FAILED`. The caller owns the transaction: commit first, then call `enqueue_arena_submission_job`.
 
 ---
 
@@ -951,7 +968,7 @@ Reusable read queries for Arena leaderboard surfaces.
 |--------|-------------|
 | `TopRatedUser` | Frozen DTO with `id`, `rank`, `name`, `rating`, `confidence`, `solved_problems`, and `public_profile` for presentation-safe user rankings. `public_profile` is True when the user opted in; the eligibility filter already requires `ranking_visible=True`, so the public profile link is safe whenever this is True. |
 | `_eligible_users_where()` | Shared eligibility predicate list: `ativo=True`, `email_confirmado=True`, and `ranking_visible=True`. Used by both `build_ranked_users_cte()` and `get_top_rated_users()` so all ranking surfaces honour the visibility flag. |
-| `get_top_rated_users(session, *, limit)` | Returns active, email-confirmed, ranking-visible `ARENA_USER` accounts ordered by `user_rating` descending, confidence descending, creation date ascending, and id ascending. Equal ratings share the same competition rank. Values of `limit < 1` return an empty list. |
+| `get_top_rated_users(session, *, limit)` | Returns active, email-confirmed, ranking-visible Arena accounts of any role ordered by `user_rating` descending, confidence descending, creation date ascending, and id ascending. Equal ratings share the same competition rank. Values of `limit < 1` return an empty list. |
 
 Used by the public dashboard Top Users card; reuse for any compact top-k Arena user ranking.
 
@@ -1093,7 +1110,7 @@ problem), which keeps the easy/hard split balanced and maps unknown problems to 
 |--------|-------------|
 | `rate_problem(*, session, problem_id, pivot=None)` | Ensure an `arena_problem_ratings` row exists, compute the raw difficulty, apply the bimodal contrast (using `pivot`, default `_NEUTRAL_PIVOT`), UPDATE `rating` + `dta_rating_update`. Does not commit. |
 | `rate_all_problems(session)` | Two passes over all `arena_problems` `id`s: compute each raw difficulty + derive the population median pivot, then apply the gated contrast and persist. Returns count. Does not commit. |
-| `rate_user(*, session, user_id)` | JOIN `arena_problem_solvers` + `arena_problem_ratings`, sum exponential points, UPDATE `user_rating`, `solved_problems`, `dta_rating_update`. Score 0 for unsolved users. Does not commit. |
+| `rate_user(*, session, user_id)` | JOIN `arena_problem_solvers` + `arena_problem_ratings`, excluding solves for problems owned by that user, sum exponential points, UPDATE `user_rating`, `solved_problems`, `dta_rating_update`. Score 0 for users with no counted solves. Does not commit. |
 | `rate_all_users(session)` | SELECT all `id`s from `arena_users`, call `rate_user` for each. Returns count. Does not commit. |
 | `rate_affiliation(*, session, affiliation_id, f)` | SELECT non-null `user_rating` values for members of the affiliation where `ranking_visible=True`, apply geometric weighting formula, UPDATE `arena_affiliations.rating` + `dta_rating_update`. Users who have opted out of the ranking are excluded from this computation. Does not commit. |
 | `rate_all_affiliations(session, f)` | SELECT all `id`s from `arena_affiliations`, call `rate_affiliation` for each. Returns count. Does not commit. |
@@ -1148,19 +1165,20 @@ detail pages at `/problems` and `/problems/{arena_number}`.
 | `categories` | `list[ArenaCategory]` | Categories linked to this problem |
 | `author_name` | `str \| None` | Free-text author or owner fullname, according to `author_is_owner` |
 | `is_favorite` | `bool` | `True` when the viewing user has favorited this problem; always `False` for guests |
-| `ac_rate` | `float \| None` | Fraction from role-filtered rating stats; staff attempts/solves are excluded |
+| `ac_rate` | `float \| None` | Fraction from rating stats that count every non-owner, regardless of role |
 | `is_solved` | `bool` | Personal solved status for the viewing user, including staff users |
-| `solved` | `int \| None` | Count of distinct `ARENA_USER` solvers for the aggregate problem list column |
+| `solved` | `int \| None` | Count of distinct non-owner solvers for the aggregate problem list column |
 
 **Functions:**
 
 | Symbol | Description |
 |--------|-------------|
-| `list_enabled_problems_paginated(session, *, page, per_page=25, search, category_slugs, sort_by, user_id=None)` | Paginated enabled-problem list. Search uses the resolved author: free text for external authors or the owner fullname for owner-authored problems. Category filtering uses AND semantics. Solver aggregates exclude administrators and owners. |
+| `list_enabled_problems_paginated(session, *, page, per_page=25, search, category_slugs, sort_by, user_id=None)` | Paginated enabled-problem list. Search uses the resolved author: free text for external authors or the owner fullname for owner-authored problems. Category filtering uses AND semantics. Solver aggregates exclude only problem owners. |
 | `get_enabled_problem_by_number(session, arena_number)` | Fetch a single enabled problem by its public `arena_number`. Returns `(ArenaProblem, AuthorInfo)` or `None` if not found or disabled. Also outer-joins `arena_affiliations` to populate `AuthorInfo.affiliation_name` and `affiliation_flag`. Eagerly loads `rating`, `categories`, and `test_cases`. |
 | `get_all_categories(session)` | Return all categories alphabetically by name, for the filter dropdown. |
 | `get_user_problem_status(session, *, user_id, problem_id)` | Return `(solved_at, tried_at, is_favorite)` from the solver, tried, and favorites tables. Datetime values may be `None`; `is_favorite` is `True` only when a favorites row exists. |
 | `get_problem_rating_history(session, problem_id)` | Return rating history for the last 730 days as `[{"ts": ISO8601, "rating": int}, ...]`, chronological. Used by the public ECharts sparkline endpoint. |
+| `get_latest_problems(session, *, limit=10)` | Return the `limit` most recently created or edited enabled problems as `LatestProblemItem` (`arena_number`, `title`, `updated_at`), ordered by `updated_at` descending. Backs the dashboard "Latest Problems" card. |
 
 ### `problem_stats_service.py`
 

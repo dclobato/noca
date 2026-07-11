@@ -450,11 +450,11 @@ async def test_arena_judgment_done_records_first_solver_stats(engine, session: A
         )
 
 
-async def test_arena_judgment_done_records_admin_solve_without_rating_counters(
+async def test_arena_judgment_done_counts_non_owner_admin_solve(
     engine,
     session: AsyncSession,
 ) -> None:
-    """An admin first AC is personal progress, not aggregate rating evidence."""
+    """A non-owner admin AC counts toward aggregate rating evidence; roles are ignored."""
     lang = _make_language(session, lang_id=f"arena-lang-{uuid.uuid4().hex[:6]}")
     author = _make_arena_user(session)
     admin = _make_arena_user(session, role=ArenaRole.ARENA_ADMIN)
@@ -467,7 +467,8 @@ async def test_arena_judgment_done_records_admin_solve_without_rating_counters(
     )
     session.add(problem)
     await session.flush()
-    session.add(ArenaRatingProblem(problem_id=problem.id, attempted_users=0, total_submissions=1))
+    # The admin's counted attempt already incremented attempted_users in the submit flow.
+    session.add(ArenaRatingProblem(problem_id=problem.id, attempted_users=1, total_submissions=1))
     _add_arena_tc(session, problem.id, 1)
     accepted_submission = ArenaSubmission(
         user_id=admin.id,
@@ -499,8 +500,8 @@ async def test_arena_judgment_done_records_admin_solve_without_rating_counters(
         assert solver is not None
         rating = await vs.get(ArenaRatingProblem, problem.id)
         assert rating is not None
-        assert rating.solved_users == 0
-        assert rating.total_tries_before_solve == 0
+        assert rating.solved_users == 1
+        assert rating.total_tries_before_solve == 1
 
 
 async def test_arena_judgment_done_excludes_author_self_solve_from_counters(
@@ -773,6 +774,7 @@ async def test_insert_test_result(
             wall_time_ms=42,
             memory_kb=1024,
             exit_code=0,
+            exit_signal=None,
             stdout_excerpt=b"hello\n",
             stderr_excerpt=b"",
         )

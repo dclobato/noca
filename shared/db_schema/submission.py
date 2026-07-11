@@ -158,6 +158,12 @@ submission_test_results = Table(
     Column("wall_time_ms", Integer, nullable=True),
     Column("memory_kb", Integer, nullable=True),
     Column("exit_code", Integer, nullable=True),
+    Column(
+        "exit_signal",
+        Integer,
+        nullable=True,
+        comment="Fatal signal number reported by isolate (exitsig), when the process was signal-killed.",
+    ),
     Column("stdout_excerpt", Text, nullable=True),
     Column("stderr_excerpt", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), default=_utcnow, nullable=False),

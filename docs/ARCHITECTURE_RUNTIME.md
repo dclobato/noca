@@ -162,7 +162,8 @@ The autojudge module is a separate async worker process that owns:
 
 **Runtime helpers (`runtime_utils.py`):**
 - Shared runtime predicates reused by multiple job pipelines
-- `is_recoverable_isolate_runtime_error` for transient isolate/cgroup retry decisions
+- `is_recoverable_isolate_runtime_error` for transient isolate/cgroup retry decisions; it also
+  matches the "suspicious sandbox signal kill" errors raised by the runner
 
 **Compilation (`compiler.py`):**
 - `compile_submission`: runs the language compile command inside a short-lived Docker container
@@ -170,6 +171,12 @@ The autojudge module is a separate async worker process that owns:
 
 **Execution pipeline (`runner.py`):**
 - `run_test_case`: injects artifact + input, runs `isolate`, parses meta, returns `RunResult`
+- `RunResult` carries `exit_signal` (isolate `exitsig`) so signal deaths are persisted per test case
+  and surfaced in the UI as e.g. "SIGSEGV — segmentation fault" instead of a bare RE
+- Suspicious signal kills (status `SG`, near-zero wall time, sub-MB memory, no stdout, no stderr)
+  are treated as judge-environment failures, not contestant crashes: the runner raises a recoverable
+  `IsolateError`, the job pipeline recycles the container and retries the test case once, and a second
+  occurrence marks the judgment FAILED instead of assigning the contestant a false RE verdict
 
 **Isolate sandbox (`sandbox.py`):**
 - Isolate box lifecycle: `_sync_isolate_init`, `_sync_isolate_cleanup`, `_sync_reset_run_artifacts`, `_sync_run_isolate`

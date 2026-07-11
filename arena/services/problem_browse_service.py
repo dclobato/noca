@@ -78,8 +78,8 @@ class PublicProblemListItem:
         ac_rate: Fraction of users who solved the problem (0.0–1.0), or ``None``
             if no rating data is available yet.
         is_solved: Whether the viewing user has a first-AC record for this problem.
-        solved: Number of distinct ``ARENA_USER`` solvers for this problem, or
-            ``None`` if no participant solver data is available.
+        solved: Number of distinct non-owner solvers for this problem, or
+            ``None`` if no counted solver data is available.
     """
 
     problem: ArenaProblem
@@ -151,15 +151,13 @@ async def list_enabled_problems_paginated(
     effective_sort = sort_by if sort_by in _VALID_SORT_KEYS else "number_asc"
     params = PaginationParams(page=max(1, page), per_page=max(1, per_page))
 
-    solver_users = _users_table.alias("solver_users")
     solver_counts = (
         select(
             _solvers_table.c.problem_id.label("problem_id"),
             func.count(_solvers_table.c.user_id).label("solver_count"),
         )
-        .join(solver_users, solver_users.c.id == _solvers_table.c.user_id)
         .join(_problems_table, _problems_table.c.id == _solvers_table.c.problem_id)
-        .where(counts_toward_problem_rating(solver_users.c.role, _solvers_table.c.user_id, _problems_table.c.owner_id))
+        .where(counts_toward_problem_rating(_solvers_table.c.user_id, _problems_table.c.owner_id))
         .group_by(_solvers_table.c.problem_id)
         .subquery()
     )
@@ -268,52 +266,52 @@ async def list_enabled_problems_paginated(
 
 
 @dataclass(frozen=True)
-class RandomProblemItem:
-    """Random problem for dashboard display.
+class LatestProblemItem:
+    """Latest (most recently created or edited) problem for dashboard display.
 
     Attributes:
         arena_number: Public problem number (e.g. 1042).
         title: Problem title.
-        rating: Display-scale problem difficulty (0.1–10.0), or ``None`` if not yet computed.
+        updated_at: Timestamp of the problem's last edit (equals its creation
+            time until it is first edited).
     """
 
     arena_number: int
     title: str
-    rating: float | None
+    updated_at: datetime
 
 
-async def get_random_problems(
+async def get_latest_problems(
     session: AsyncSession,
     *,
-    limit: int = 7,
-) -> list[RandomProblemItem]:
-    """Return ``limit`` randomly chosen enabled problems.
+    limit: int = 10,
+) -> list[LatestProblemItem]:
+    """Return the ``limit`` most recently created or edited enabled problems.
 
-    The query orders by ``RANDOM()`` (PostgreSQL) and left-outer-joins the
-    rating table so problems without a rating are still included.
+    Problems are ordered by ``updated_at`` descending.  Because ``updated_at``
+    is initialized equal to ``created_at`` on insert and bumped on every edit,
+    this ordering surfaces both newly created and recently edited problems.
 
     Args:
         session: Active async database session.
-        limit: Maximum number of problems to return (default 7).
+        limit: Maximum number of problems to return (default 10).
 
     Returns:
-        List of ``RandomProblemItem`` ordered randomly.  May contain fewer
-        than ``limit`` if the total pool of enabled problems is smaller.
+        List of ``LatestProblemItem`` ordered newest-edit first.  May contain
+        fewer than ``limit`` if the total pool of enabled problems is smaller.
     """
     stmt = (
         select(ArenaProblem)
-        .outerjoin(ArenaRatingProblem, ArenaProblem.id == ArenaRatingProblem.problem_id)
-        .options(selectinload(ArenaProblem.rating))
         .where(ArenaProblem.enabled == True)  # noqa: E712
-        .order_by(func.random())
+        .order_by(ArenaProblem.updated_at.desc())
         .limit(limit)
     )
     rows = list((await session.execute(stmt)).unique())
     return [
-        RandomProblemItem(
+        LatestProblemItem(
             arena_number=problem.arena_number,
             title=problem.title,
-            rating=problem.rating.display_rating if problem.rating else None,
+            updated_at=problem.updated_at,
         )
         for problem, *_ in rows
     ]

@@ -111,7 +111,10 @@ async def list_global_login_history_paginated(
         conditions.append(
             arena_users.c.nome.ilike(term)
             | arena_users.c.email_normalizado.ilike(term)
-            | arena_login_history.c.location.ilike(term)
+            | arena_login_history.c.city.ilike(term)
+            | arena_login_history.c.district.ilike(term)
+            | arena_login_history.c.subdivision_code.ilike(term)
+            | arena_login_history.c.country_code.ilike(term)
         )
 
     joined = arena_login_history.join(

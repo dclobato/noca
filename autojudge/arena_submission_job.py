@@ -163,6 +163,7 @@ async def process_arena_submission_job(
                     output_bytes=repeated_result.peak_output_bytes,
                     peak_pids=repeated_result.peak_pids,
                     exit_code=repeated_result.exit_code,
+                    exit_signal=repeated_result.exit_signal,
                     stdout_excerpt=repeated_result.stdout_excerpt,
                     stderr_excerpt=repeated_result.stderr_excerpt,
                 )
@@ -175,6 +176,7 @@ async def process_arena_submission_job(
                     wall_time_ms=repeated_result.total_wall_time_ms,
                     memory_kb=repeated_result.peak_memory_kb,
                     exit_code=repeated_result.exit_code,
+                    exit_signal=repeated_result.exit_signal,
                     stdout_excerpt=repeated_result.stdout_excerpt,
                     stderr_excerpt=repeated_result.stderr_excerpt,
                 )

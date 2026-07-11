@@ -1,5 +1,88 @@
 # Changelog
 
+## [13.2.1] - 2026-07-10
+
+### Features
+
+- **login-history**: Record structured IP geolocation
+- **arena**: Block mailbox-alias duplicate sign-ups
+
+### Bug Fixes
+
+- **security-events**: Record actor login on remaining auth events
+
+## [13.2.0] - 2026-07-09
+
+### Features
+
+- **judge**: Add Perl language support with registry defaults, syntax-check
+  compilation, runtime commands, editor highlighting, starter code, judge
+  compile/run images, build targets, language reference docs, and smoke-test
+  sample coverage
+
+### Documentation
+
+- **skills**: Document that the bump-version workflow runs mypy, lint, and
+  formatting before proceeding with the release commit
+
+## [13.1.6] - 2026-07-09
+
+### Features
+
+- **admin-submissions**: Add a status filter to the dashboard submissions list
+- **security-events**: Record and display the actor login for authentication
+  events
+- **autojudge**: Persist exit signals and retry suspicious sandbox kills
+
+### Bug Fixes
+
+- **geolocation**: Deduplicate repeated location field names
+
+## [13.1.5] - 2026-07-08
+
+### Bug Fixes
+
+- **autojudge**: Raise the isolate `num_boxes` limit to 1000 in run images
+
+### CI
+
+- **containers**: Publish images to both registries in a single build
+
+## [13.1.4] - 2026-07-08
+
+### Features
+
+- **arena**: Enrich the admin user profile with earned badges, notifications and
+  submissions
+- **arena**: Show the submission owner on the submission detail page
+- **security**: Audit authentication and email lifecycle events
+
+### Bug Fixes
+
+- **autojudge**: Strip NUL bytes from captured output before writing to the
+  database
+- **autojudge**: Allocate a unique isolate box-id per container
+
+## [13.1.3] - 2026-07-07
+
+### Features
+
+- **arena**: Gate Arena rating, statistics, public solver counts and the
+  first-solver badge by problem ownership instead of role — every user's
+  submissions count for problems they do not own, regardless of role, and only
+  the problem owner is excluded; drop the vestigial role argument, the now-dead
+  `arena_users` joins, and the unused `only_users` flag
+- **arena**: Replace the dashboard "Random Problems" card with a "Latest
+  Problems" card listing the 10 most recently created or edited enabled problems
+  (ordered by `updated_at`, showing relative edit time), rename the "Top Users"
+  card to "Leaderboard" with the top 10 users, and let both cards grow to their
+  content
+
+### Documentation
+
+- **arena**: Add the badge catalog documenting each Arena badge awarded by the
+  rating worker, including image filename and achievement description
+
 ## [13.1.2] - 2026-07-03
 
 ### Bug Fixes

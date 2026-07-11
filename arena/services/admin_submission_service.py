@@ -14,8 +14,11 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arena.models.arena_submissions import ArenaSubmission, ArenaSubmissionJudgment
 from arena.services.pagination_service import Pagination, clamp_page
 from arena.services.submission_list_service import build_arena_submission_query
+from shared.enumerations import JudgmentStatus
+from shared.queue_schema import ArenaSubmissionJob
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,7 @@ async def list_submissions_paginated(
     per_page: int,
     search: str = "",
     verdict_filter: str | None = None,
+    status_filter: str | None = None,
     ai_filter: str | None = None,
     language_filter: str | None = None,
     problem_filter: str | None = None,
@@ -80,6 +84,7 @@ async def list_submissions_paginated(
         per_page: Number of records per page.
         search: ilike match against ``arena_users.nome`` or ``email_normalizado``.
         verdict_filter: Exact ``final_verdict`` value (e.g. ``"WA"``).
+        status_filter: Exact active ``JudgmentStatus`` value (e.g. ``"FAILED"``).
         ai_filter: ``"yes"`` → ``submit_to_ai=True``; ``"no"`` → ``False``; else all.
         language_filter: Exact ``language_id`` match.
         problem_filter: Exact match on cast(arena_number). ``"10"`` matches only
@@ -94,6 +99,7 @@ async def list_submissions_paginated(
     base = build_arena_submission_query(
         user_search=search or None,
         verdict_filter=verdict_filter or None,
+        status_filter=status_filter or None,
         ai_filter=ai_filter or None,
         language_filter=language_filter or None,
         problem_filter=problem_filter or None,
@@ -127,3 +133,60 @@ async def list_submissions_paginated(
         for row in rows
     ]
     return Pagination(items=items, page=effective_page, per_page=per_page, total=total)
+
+
+async def reenqueue_failed_submission(session: AsyncSession, *, submission_id: str) -> ArenaSubmissionJob | None:
+    """Reset a FAILED submission's latest judgment to QUEUED and build its job.
+
+    Only submissions whose most recent judgment is in the terminal ``FAILED``
+    state can be re-enqueued — that state is an internal judge error that
+    produced no verdict, so resetting the existing judgment row in place (rather
+    than superseding it) is safe and leaves no orphan judgments.
+
+    The caller owns the transaction: commit the returned reset, then enqueue the
+    job. Returns ``None`` (leaving the session unchanged) when the submission is
+    missing or its latest judgment is not ``FAILED``.
+
+    Args:
+        session: Active async database session.
+        submission_id: UUID of the arena submission to re-enqueue.
+
+    Returns:
+        The ready-to-enqueue ``ArenaSubmissionJob``, or ``None`` when the
+        submission cannot be re-enqueued.
+    """
+    submission = await session.get(ArenaSubmission, submission_id)
+    if submission is None:
+        return None
+
+    judgment = (
+        await session.execute(
+            select(ArenaSubmissionJudgment)
+            .where(ArenaSubmissionJudgment.submission_id == submission_id)
+            .order_by(ArenaSubmissionJudgment.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if judgment is None or judgment.status != JudgmentStatus.FAILED.value:
+        return None
+
+    judgment.status = JudgmentStatus.QUEUED.value
+    judgment.autojudge_verdict = None
+    judgment.final_verdict = None
+    judgment.compile_log = None
+    judgment.error_message = None
+    judgment.worker_id = None
+    judgment.started_at = None
+    judgment.finished_at = None
+    judgment.max_wall_time_ms = None
+    judgment.max_memory_kb = None
+    await session.flush()
+
+    return ArenaSubmissionJob(
+        judgment_id=judgment.id,
+        submission_id=submission.id,
+        user_id=submission.user_id,
+        problem_id=submission.problem_id,
+        language_id=submission.language_id,
+        requeue_count=0,
+    )

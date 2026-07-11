@@ -168,6 +168,7 @@ The script supports the following targets:
 - `prolog`
 - `fortran`
 - `swift`
+- `perl`
 
 If no targets are provided, the script builds all app images plus all judge language images.
 
@@ -177,6 +178,8 @@ The script also accepts the following flags:
 |---|---|
 | `--repo <prefix>` | Image repository prefix (default: `noca` / `$NOCA_IMAGE_PREFIX`) |
 | `--naming <path\|flat>` | Tag naming style (default: `path`) |
+| `--alt-repo <prefix>` | Alternate image repository prefix for push builds |
+| `--alt-naming <path\|flat>` | Alternate tag naming style for push builds (default: `path`) |
 | `--platforms <list>` | Target platform(s) for buildx, e.g. `linux/amd64,linux/arm64` |
 | `--push` | Push images to the registry (requires buildx) |
 | `--no-cache` | Force a full rebuild with no layer cache |
@@ -204,6 +207,9 @@ When using the script with `--push`, or when running the GitHub Actions release 
 internal bases are not published. The final images still form a fully self-contained versioned
 release because the Bake graph resolves the internal targets in-memory.
 
+Push builds can publish the same built image to two registry layouts in one Bake
+run by combining `--repo`/`--naming` with `--alt-repo`/`--alt-naming`.
+
 ```bash
 ./containers/build.sh --version v2.9.0
 ```
@@ -211,10 +217,12 @@ release because the Bake graph resolves the internal targets in-memory.
 The version flag composes naturally with all other flags:
 
 ```bash
-# Script-based versioned multi-platform build and push to GHCR
+# Script-based versioned multi-platform build and push to Docker Hub and GHCR
 ./containers/build.sh \
-  --repo ghcr.io/myorg/noca \
-  --naming path \
+  --repo docker.io/myuser/noca \
+  --naming flat \
+  --alt-repo ghcr.io/myorg/noca \
+  --alt-naming path \
   --platforms linux/amd64,linux/arm64 \
   --push \
   --version v2.9.0
@@ -232,7 +240,7 @@ REPO=ghcr.io/myorg/noca VERSION=v2.9.0 \
 - Docker Buildx available (`docker buildx version`)
 - A dedicated `docker-container` buildx builder for multi-platform `--push` builds
   (see [Builder Driver](#builder-driver) below)
-- Logged in to the target registry when using push
+- Logged in to each target registry when using push
 - QEMU/binfmt registered on the host when building non-native platforms with Docker
   Engine or a remote builder outside Docker Desktop
 
@@ -324,6 +332,10 @@ Choose:
 - `path` for registries that support nested repository paths, such as GHCR: `ghcr.io/myorg/noca/webapp`
 - `flat` for registries like Docker Hub: `docker.io/myuser/noca-webapp`
 
+For push builds, `--alt-repo` and `--alt-naming` add a second tag set to each
+publishable image in the same Buildx Bake run. The CI release workflows use
+Docker Hub as the primary flat tag set and GHCR as the alternate path tag set.
+
 ## isolate Version
 
 `isolate` is compiled **once** in the `noca/isolate-base` internal base image and then copied
@@ -412,11 +424,13 @@ Script-based multi-platform build and push:
   --push
 ```
 
-Docker Hub build and push:
+Docker Hub and GHCR build and push:
 ```bash
 ./containers/build.sh \
   --repo docker.io/myuser/noca \
   --naming flat \
+  --alt-repo ghcr.io/myorg/noca \
+  --alt-naming path \
   --platforms=linux/amd64,linux/arm64 \
   --push
 ```
@@ -459,14 +473,23 @@ requested final images. Internal base images stay inside the BuildKit graph.
 
 ### 4. CI multi-platform release
 
-The tag-driven GitHub Actions release workflow uses:
+The GitHub Actions release workflows log in to Docker Hub and GHCR, then run
+`build.sh` once with both tag layouts:
 
 ```bash
-docker buildx bake --file containers/docker-bake.hcl --push release
+./containers/build.sh \
+  --repo docker.io/dclobato/noca \
+  --naming flat \
+  --alt-repo ghcr.io/dclobato/noca \
+  --alt-naming path \
+  --platforms=linux/amd64,linux/arm64 \
+  --push \
+  --version "$VERSION"
 ```
 
 That release path keeps `app-base`, `assets-base`, `isolate-base`, and `judge-compile-base` internal to the
-BuildKit graph and publishes only the final runtime and judge images.
+BuildKit graph, builds each target once, and publishes only the final runtime
+and judge images to both registries.
 
 ## Verify
 

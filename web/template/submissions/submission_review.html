@@ -191,6 +191,7 @@
                                             <th>Verdict</th>
                                             <th>Wall time ms</th>
                                             <th>Memory KB</th>
+                                            <th>Exit</th>
                                             <th>Downloads</th>
                                         </tr>
                                     </thead>
@@ -201,6 +202,16 @@
                                                 <td>{{ verdict_badge(result.verdict.value) }}</td>
                                                 <td>{{ result.wall_time_ms if result.wall_time_ms is not none else '-' }}</td>
                                                 <td>{{ result.memory_kb if result.memory_kb is not none else '-' }}</td>
+                                                <td>
+                                                    {% if result.exit_signal is not none %}
+                                                        <span class="badge bg-danger-subtle text-danger-emphasis"
+                                                              title="{{ describe_signal(result.exit_signal) }}">{{ signal_name(result.exit_signal) }}</span>
+                                                    {% elif result.exit_code is not none %}
+                                                        {{ result.exit_code }}
+                                                    {% else %}
+                                                        -
+                                                    {% endif %}
+                                                </td>
                                                 <td>
                                                     {% if result.test_case %}
                                                         <div class="d-flex gap-1">
@@ -223,7 +234,7 @@
                                             </tr>
                                         {% else %}
                                             <tr>
-                                                <td colspan="5" class="text-center text-muted py-4">No test case results available.</td>
+                                                <td colspan="6" class="text-center text-muted py-4">No test case results available.</td>
                                             </tr>
                                         {% endfor %}
                                     </tbody>

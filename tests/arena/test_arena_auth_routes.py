@@ -34,6 +34,7 @@ from arena.routes.legal import router as arena_legal_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.routes.root import router as arena_root_router
 from arena.services.token_service import ArenaTokenAction
+from shared.db_schema import security_events
 from shared.services.email_service import EmailConfig, EmailService
 from shared.services.imageprocessing_service import ImageProcessingConfig, ImageProcessingService
 
@@ -153,6 +154,17 @@ async def _user_by_email(session: AsyncSession, email: str) -> ArenaUser | None:
     return result.scalar_one_or_none()
 
 
+async def _security_event_types_for_user(session: AsyncSession, user_id: str) -> set[str]:
+    """Return recorded security-event types for an Arena user."""
+    result = await session.execute(
+        select(security_events.c.event_type).where(
+            security_events.c.module == "arena",
+            security_events.c.actor_user_id == user_id,
+        )
+    )
+    return set(result.scalars())
+
+
 def _png_upload_bytes() -> bytes:
     """Build a tiny valid PNG image for upload tests."""
     buffer = BytesIO()
@@ -221,6 +233,10 @@ async def test_signup_creates_user_and_sends_activation_email(session: AsyncSess
     assert user.aceitou_termos_privacidade is True
     assert user.dta_aceitacao_termos_privacidade is not None
     assert "auth/activate?token=" in _sent_email_text(app)
+    assert await _security_event_types_for_user(session, user.id) == {
+        "account_activation_email_sent",
+        "account_signup_created",
+    }
 
 
 @pytest.mark.asyncio
@@ -323,6 +339,11 @@ async def test_signup_minor_sends_activation_and_parental_consent_emails(
     assert len(sent) == 2
     assert "auth/activate?token=" in sent[0]["text_body"]
     assert "auth/parental-consent?token=" in sent[1]["text_body"]
+    assert await _security_event_types_for_user(session, user.id) == {
+        "account_activation_email_sent",
+        "account_signup_created",
+        "parental_consent_email_sent",
+    }
 
 
 @pytest.mark.asyncio
@@ -444,6 +465,9 @@ async def test_activation_confirms_email_and_activates_account(session: AsyncSes
     assert user is not None
     assert user.email_confirmado is True
     assert user.ativo is True
+    event_types = await _security_event_types_for_user(session, user.id)
+    assert "email_confirmed" in event_types
+    assert "account_activated" in event_types
 
 
 @pytest.mark.asyncio
@@ -486,6 +510,10 @@ async def test_minor_account_activates_only_after_email_and_parental_consent(
     assert user.email_confirmado is True
     assert user.consentimento_responsavel is True
     assert user.ativo is True
+    event_types = await _security_event_types_for_user(session, user.id)
+    assert "email_confirmed" in event_types
+    assert "parental_consent_confirmed" in event_types
+    assert "account_activated" in event_types
 
 
 @pytest.mark.asyncio

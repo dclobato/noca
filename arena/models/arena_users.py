@@ -96,6 +96,7 @@ class ArenaUser(LocationMixin, ArenaBase):
     nome: Mapped[str]
     dta_nascimento: Mapped[date | None]
     email_normalizado: Mapped[str]
+    email_canonical: Mapped[str | None]
     email_responsavel_legal: Mapped[str | None]
     consentimento_responsavel: Mapped[bool]
     dta_consentimento_responsavel: Mapped[datetime | None]
@@ -216,6 +217,7 @@ class ArenaUser(LocationMixin, ArenaBase):
 
         try:
             self.email_normalizado = EmailValidationService.normalize(value)
+            self.email_canonical = EmailValidationService.canonicalize(value)
         except ValueError as exc:
             raise ValueError(f"Invalid email address: {value}") from exc
 

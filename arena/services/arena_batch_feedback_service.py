@@ -49,6 +49,7 @@ from shared.db_schema.arena import (
 from shared.enumerations import VERDICT_LABELS, ArenaRole, JudgmentStatus, Verdict
 from shared.language_registry import highlightjs_language_for_language_id
 from shared.services.testcase_files import read_testcase_full
+from shared.signal_names import describe_signal
 
 _SUPERSEDED = JudgmentStatus.SUPERSEDED.value
 
@@ -85,6 +86,7 @@ class BatchFeedbackTestResult:
     is_sample: bool
     test_case_ordinal: int
     stderr_excerpt: str | None
+    exit_signal_description: str | None
 
 
 @dataclass(frozen=True)
@@ -260,6 +262,7 @@ async def _load_test_result(
                 arena_test_cases.c.is_sample,
                 arena_test_cases.c.ordinal,
                 arena_submission_test_results.c.stderr_excerpt,
+                arena_submission_test_results.c.exit_signal,
             )
             .select_from(
                 arena_submission_test_results.join(
@@ -285,6 +288,7 @@ async def _load_test_result(
         is_sample=row.is_sample,
         test_case_ordinal=row.ordinal,
         stderr_excerpt=row.stderr_excerpt,
+        exit_signal_description=describe_signal(row.exit_signal) if row.exit_signal is not None else None,
     )
 
 

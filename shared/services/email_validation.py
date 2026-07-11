@@ -47,6 +47,32 @@ class EmailValidationService:
         return str(validated.normalized).lower()
 
     @staticmethod
+    def canonicalize(email: str) -> str:
+        """Return the canonical/root form used for alias-collision detection.
+
+        Strips ``+tag`` subaddressing and removes all dots from the local part
+        (for every domain), on top of :meth:`normalize`'s lowercasing and
+        validation, so that mailbox aliases that reach the same inbox collapse
+        to a single value (e.g. ``daniel+test@x`` and ``d.a.niel@x`` both map to
+        ``daniel@x``).
+
+        Args:
+            email: Raw email address to canonicalize.
+
+        Returns:
+            str: Canonical/root email address.
+
+        Raises:
+            ValueError: If email is invalid.
+        """
+        normalized = EmailValidationService.normalize(email)
+        local, _, domain = normalized.partition("@")
+        canonical_local = local.split("+", 1)[0].replace(".", "")
+        if not canonical_local:  # e.g. "+tag@x" / ".@x" -- fall back to local
+            canonical_local = local
+        return f"{canonical_local}@{domain}"
+
+    @staticmethod
     def montar_destinatario(nome: str | None, email: str) -> str:
         """Build an RFC 5322 display-name + address string."""
         return build_rfc5322_address(nome, email)

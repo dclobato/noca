@@ -83,6 +83,7 @@ def build_arena_submission_query(
     problem_search: str | None = None,
     user_search: str | None = None,
     verdict_filter: str | None = None,
+    status_filter: str | None = None,
     ai_filter: str | None = None,
     language_filter: str | None = None,
     problem_filter: str | None = None,
@@ -109,6 +110,7 @@ def build_arena_submission_query(
         user_search: ilike match against arena_users.nome or email_normalizado.
             Only evaluated when ``include_user=True``.
         verdict_filter: Exact ``final_verdict`` match (e.g. ``"AC"``).
+        status_filter: Exact active ``JudgmentStatus`` match (e.g. ``"FAILED"``).
         ai_filter: ``"yes"`` → ``submit_to_ai=True``; ``"no"`` → ``False``; else no filter.
             Filters the ``submit_to_ai`` column on the submission itself, not review presence.
         language_filter: Exact ``language_id`` match.
@@ -197,6 +199,9 @@ def build_arena_submission_query(
 
     if verdict_filter:
         stmt = stmt.where(arena_submission_judgments.c.final_verdict == verdict_filter)
+
+    if status_filter:
+        stmt = stmt.where(arena_submission_judgments.c.status == status_filter)
 
     if ai_filter == "yes":
         stmt = stmt.where(arena_submissions.c.submit_to_ai.is_(True))

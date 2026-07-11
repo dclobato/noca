@@ -60,6 +60,14 @@
                         <dd>
                             {{ arena_format_datetime(submitted_at, current_user, "%Y-%m-%d %H:%M:%S %Z") }}
                         </dd>
+                        <dt>User</dt>
+                        <dd>
+                            {% if is_admin %}
+                                <a href="{{ request.url_for('arena_admin_user_profile', user_id=submission_owner_id) }}">{{ submission_owner_name }}</a>
+                            {% else %}
+                                {{ submission_owner_name }}
+                            {% endif %}
+                        </dd>
                         {% if problem_set_id %}
                             <dt>Problem set</dt>
                             <dd>

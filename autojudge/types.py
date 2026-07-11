@@ -59,6 +59,7 @@ class RunResult:
     output_bytes: int | None = None
     peak_pids: int | None = None
     exit_code: int | None = None
+    exit_signal: int | None = None
 
     stdout_excerpt: bytes = field(default_factory=bytes)
     stderr_excerpt: bytes = field(default_factory=bytes)
@@ -121,6 +122,7 @@ class RepetitionCaseResult:
     peak_output_bytes: int | None
     peak_pids: int | None
     exit_code: int | None
+    exit_signal: int | None
     stdout_excerpt: bytes
     stderr_excerpt: bytes
 

@@ -10,7 +10,7 @@
  * Populates the login-detail modal fields from data attributes on the
  * triggering button.  Each "Details" button carries:
  *   data-login-date, data-login-ip, data-login-location,
- *   data-login-ua, data-login-mode
+ *   data-login-asn, data-login-ua, data-login-mode
  */
 document.addEventListener("DOMContentLoaded", () => {
   const modal = document.getElementById("login-detail-modal");
@@ -28,6 +28,7 @@ document.addEventListener("DOMContentLoaded", () => {
     set("login-detail-date",     btn.dataset.loginDate);
     set("login-detail-ip",       btn.dataset.loginIp);
     set("login-detail-location", btn.dataset.loginLocation);
+    set("login-detail-asn",      btn.dataset.loginAsn);
     set("login-detail-ua",       btn.dataset.loginUa);
     set("login-detail-mode",     btn.dataset.loginMode);
   });

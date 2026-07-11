@@ -21,6 +21,7 @@ security_events = Table(
     Column("event_type", String(96), nullable=False),
     Column("severity", String(24), nullable=False),
     Column("actor_user_id", String(36), nullable=True),
+    Column("actor_label", String(320), nullable=True),
     Column("identifier_hash", String(64), nullable=True),
     Column("client_ip", String(64), nullable=True),
     Column("user_agent", Text, nullable=True),

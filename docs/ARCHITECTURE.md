@@ -176,7 +176,11 @@ Arena `/help/rating` page to render a current-distribution chart without an
 aggregate query at request time.
 
 Cross-module security auditing shares a single `security_events` table (owned by
-`shared.services.security_events`) rather than per-domain audit tables. Both the
+`shared.services.security_events`) rather than per-domain audit tables. Each row
+snapshots both the opaque `actor_user_id` and a human-readable `actor_label` (the
+actor's login, e.g. email/username) captured at event time, so the admin viewers
+can name who originated an `auth_*` / `parental_*` event without a lookup that could
+break on account rename or deletion. Both the
 Web and Arena HTTP processes append to it: authentication failures, throttle
 lockouts, existing-account signup attempts, and — through
 `shared.services.admin_audit` (`event_type="admin_action"`) — destructive and

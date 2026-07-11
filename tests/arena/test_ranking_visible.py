@@ -202,6 +202,29 @@ async def test_hidden_user_excluded_from_global_ranking(session: AsyncSession) -
 
 
 @pytest.mark.asyncio
+async def test_staff_users_included_in_global_ranking(session: AsyncSession) -> None:
+    """get_ranked_users_paginated() must include visible admin and judge users."""
+    admin = await _make_user(
+        session,
+        email="admin-rank@test.example",
+        role=ArenaRole.ARENA_ADMIN,
+        user_rating=300,
+    )
+    judge = await _make_user(
+        session,
+        email="judge-rank@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+        user_rating=200,
+    )
+
+    page = await get_ranked_users_paginated(session)
+    ids = [u.id for u in page.items]
+
+    assert admin.id in ids
+    assert judge.id in ids
+
+
+@pytest.mark.asyncio
 async def test_visible_users_still_ranked_when_another_is_hidden(session: AsyncSession) -> None:
     """Visible users should still appear in the ranking even when others are hidden."""
     u1 = await _make_user(session, email="u1@test.example", user_rating=100)

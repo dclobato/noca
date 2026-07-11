@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
 from shared.enumerations import RoleEnum
-from shared.services.geolocation import GeolocationIP
+from shared.services.geolocation import GeolocationDetails, GeolocationIP
 from web.routes.auth import router as auth_router
 from web.routes.generaluser_dashboard import router as contest_dashboard_router
 from web.routes.root import router as root_router
@@ -28,7 +28,7 @@ TEST_JWT_SECRET = "test-secret-key-for-tests-only-32bytes"
 
 
 class _NoopGeo:
-    def get_location_by_ip(self, ip_address: str | None) -> str | None:
+    def get_details_by_ip(self, ip_address: str | None) -> GeolocationDetails | None:
         return None
 
 

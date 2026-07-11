@@ -45,7 +45,7 @@ from autojudge.sandbox import (
     _sync_reset_run_artifacts,
     _sync_run_isolate,
 )
-from autojudge.types import CompileResult, IsolateError, ProblemLimits, RunResult, SubmissionSource
+from autojudge.types import CompileResult, IsolateError, IsolateMeta, ProblemLimits, RunResult, SubmissionSource
 from autojudge.verdict import compare_output
 from shared.enumerations import Verdict
 
@@ -65,6 +65,43 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+# Thresholds for classifying a signal kill as suspicious sandbox breakage rather
+# than a genuine crash of the contestant program. A real program (even one that
+# crashes immediately) loads its runtime first, so it accumulates a few MB of
+# cgroup memory and usually produces output or stderr. The infrastructure kills
+# observed in production die in single-digit milliseconds with well under 1 MB.
+_SUSPICIOUS_SG_MAX_WALL_MS = 50
+_SUSPICIOUS_SG_MAX_MEMORY_KB = 1024
+
+
+def _is_suspicious_signal_kill(meta: IsolateMeta, *, stdout_size: int | None, stderr_excerpt: bytes) -> bool:
+    """
+    Return whether a signal-killed run looks like sandbox breakage, not a user crash.
+
+    A genuine contestant crash leaves traces: runtime memory (a few MB), some
+    stdout, stderr text, or measurable execution time. A process killed by the
+    judge environment at exec time shows none of them. Callers treat a True
+    result as a recoverable judge error (container recycle + one retry) instead
+    of assigning the contestant an RE verdict.
+
+    Args:
+        meta: Parsed isolate meta for the run.
+        stdout_size: Size of the stdout file in bytes, or None when unreadable.
+        stderr_excerpt: Captured stderr bytes (already truncated).
+
+    Returns:
+        True when the kill signature matches infrastructure breakage.
+    """
+    return (
+        meta.status == "SG"
+        and not stderr_excerpt
+        and not stdout_size
+        and meta.wall_time_ms is not None
+        and meta.wall_time_ms <= _SUSPICIOUS_SG_MAX_WALL_MS
+        and meta.memory_kb is not None
+        and meta.memory_kb <= _SUSPICIOUS_SG_MAX_MEMORY_KB
+    )
 
 
 async def run_test_case(
@@ -188,6 +225,7 @@ async def run_test_case(
         return RunResult(
             verdict=Verdict.OLE,
             exit_code=meta.exit_code,
+            exit_signal=meta.exit_signal,
             wall_time_ms=meta.wall_time_ms,
             memory_kb=meta.memory_kb,
             output_bytes=stdout_size,
@@ -202,6 +240,7 @@ async def run_test_case(
         return RunResult(
             verdict=Verdict.TLE,
             exit_code=meta.exit_code,
+            exit_signal=meta.exit_signal,
             wall_time_ms=meta.wall_time_ms,
             memory_kb=meta.memory_kb,
             output_bytes=stdout_size,
@@ -212,6 +251,7 @@ async def run_test_case(
         return RunResult(
             verdict=Verdict.MLE,
             exit_code=meta.exit_code,
+            exit_signal=meta.exit_signal,
             wall_time_ms=meta.wall_time_ms,
             memory_kb=meta.memory_kb,
             output_bytes=stdout_size,
@@ -227,6 +267,7 @@ async def run_test_case(
         return RunResult(
             verdict=Verdict.MLE,
             exit_code=meta.exit_code,
+            exit_signal=meta.exit_signal,
             wall_time_ms=meta.wall_time_ms,
             memory_kb=meta.memory_kb,
             output_bytes=stdout_size,
@@ -237,9 +278,16 @@ async def run_test_case(
         stderr_excerpt = await loop.run_in_executor(
             executor, _get_file_bytes_safe, container, STDERR_PATH, settings.STDERR_EXCERPT_BYTES
         )
+        if _is_suspicious_signal_kill(meta, stdout_size=stdout_size, stderr_excerpt=stderr_excerpt):
+            raise IsolateError(
+                "suspicious sandbox signal kill: process died in "
+                f"{meta.wall_time_ms}ms with {meta.memory_kb}KB, no output and no stderr "
+                f"(exitsig={meta.exit_signal}) — treating as judge-environment failure, not a contestant crash"
+            )
         return RunResult(
             verdict=Verdict.RE,
             exit_code=meta.exit_code,
+            exit_signal=meta.exit_signal,
             wall_time_ms=meta.wall_time_ms,
             memory_kb=meta.memory_kb,
             output_bytes=stdout_size,
@@ -253,6 +301,7 @@ async def run_test_case(
     return RunResult(
         verdict=verdict,
         exit_code=meta.exit_code,
+        exit_signal=meta.exit_signal,
         wall_time_ms=meta.wall_time_ms,
         memory_kb=meta.memory_kb,
         output_bytes=len(stdout),

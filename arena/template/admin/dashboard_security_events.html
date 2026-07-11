@@ -70,6 +70,7 @@
                             <th>Date / Time</th>
                             <th>Module</th>
                             <th>Event</th>
+                            <th>User</th>
                             <th>Severity</th>
                             <th>IP</th>
                             <th>Metadata</th>
@@ -81,6 +82,15 @@
                                 <td class="text-nowrap">{{ arena_format_datetime(event.created_at, current_user) }}</td>
                                 <td>{{ event.module }}</td>
                                 <td>{{ event.event_type }}</td>
+                                <td class="small text-break">
+                                    {% if event.actor_label %}
+                                        {{ event.actor_label }}
+                                    {% elif event.actor_user_id %}
+                                        <span class="text-muted font-monospace">{{ event.actor_user_id[:8] }}</span>
+                                    {% else %}
+                                        <span class="text-muted">&mdash;</span>
+                                    {% endif %}
+                                </td>
                                 <td>{{ event.severity }}</td>
                                 <td>
                                     {% if event.client_ip %}
@@ -93,7 +103,7 @@
                             </tr>
                         {% else %}
                             <tr>
-                                <td colspan="6" class="text-center text-muted py-3">No security events found.</td>
+                                <td colspan="7" class="text-center text-muted py-3">No security events found.</td>
                             </tr>
                         {% endfor %}
                     </tbody>

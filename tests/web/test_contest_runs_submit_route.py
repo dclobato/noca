@@ -18,7 +18,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from shared.db_schema import contest_languages as contest_languages_table
 from shared.enumerations import RoleEnum
-from shared.services.geolocation import GeolocationIP
+from shared.services.geolocation import GeolocationDetails, GeolocationIP
 from web.dependencies import ContestContext, get_contest_context
 from web.models.contest import Contest
 from web.models.language import Language
@@ -31,7 +31,7 @@ TEST_JWT_SECRET = "test-secret-key-for-runs-submit-route"
 
 
 class _NoopGeo:
-    def get_location_by_ip(self, ip_address: str | None) -> str | None:
+    def get_details_by_ip(self, ip_address: str | None) -> GeolocationDetails | None:
         return None
 
 

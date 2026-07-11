@@ -452,6 +452,7 @@ For the full startup behavior matrix covering image sync, pull policy, and lazy 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOCA_JUDGE_ISOLATE_BINARY_PATH` | `/usr/local/bin/isolate` | Absolute path to the isolate binary inside run containers. Pool creation fails fast if this binary or its cgroup support is unavailable. |
+| `NOCA_JUDGE_ISOLATE_MAX_BOXES` | `1000` | Number of distinct isolate box-ids the worker allocates from (`0 .. value-1`). Each live run container holds one unique box-id for its lifetime so concurrent containers never collide on the shared host cgroup `box-N` (the cause of intermittent `Cannot remove control group /sys/fs/cgroup/box-0` init/cleanup failures). Must not exceed isolate's configured `num_boxes` (default 1000); assumes a single autojudge worker process per host. |
 | `NOCA_JUDGE_ISOLATE_WALL_TIME_MULTIPLIER` | `3` | Multiplier applied to each problem's CPU time limit to compute the authoritative inner isolate `--wall-time` budget (1.0–10.0). |
 | `NOCA_JUDGE_OUTER_TIMEOUT_MULTIPLIER` | `2` | Multiplier applied to the computed inner isolate wall-time budget to derive the outer `asyncio.wait_for()` safety timeout (1.0–10.0). |
 | `NOCA_JUDGE_COMPILE_TIMEOUT_S` | `180` | Global ceiling for the compile phase in seconds (minimum 5 s). Per-language values configured in the database take precedence when set. |

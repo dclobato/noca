@@ -78,20 +78,20 @@ async def _record_solver(
 
 
 @pytest.mark.asyncio
-async def test_public_problem_list_excludes_admin_and_author_from_aggregate_stats(
+async def test_public_problem_list_excludes_owner_from_aggregate_stats(
     session: AsyncSession,
 ) -> None:
-    """Aggregate solver count excludes admins and the author but counts judges.
+    """Aggregate solver count excludes only the problem owner; all roles count.
 
-    A counted user's solve is reflected in the aggregate, while an excluded user's
-    own solved marker still surfaces as a personal label.
+    A counted user's solve is reflected in the aggregate, while the excluded
+    owner's own solved marker still surfaces as a personal label.
     """
     author = await _make_user(session, role=ArenaRole.ARENA_USER)
     judge = await _make_user(session, role=ArenaRole.ARENA_JUDGE)
     admin = await _make_user(session, role=ArenaRole.ARENA_ADMIN)
     problem = await _make_problem(session, author)
 
-    # Counted: a judge solve. Excluded: the admin's and the author's own solves.
+    # Counted: judge and admin solves. Excluded: the owner's own solve.
     await _record_solver(session, problem=problem, user=judge)
     await _record_solver(session, problem=problem, user=admin)
     await _record_solver(session, problem=problem, user=author)
@@ -105,18 +105,18 @@ async def test_public_problem_list_excludes_admin_and_author_from_aggregate_stat
     )
     await session.flush()
 
-    # The admin views the list: their solve is excluded from the aggregate but the
-    # personal solved marker remains.
+    # The author (owner) views the list: their own solve is excluded from the
+    # aggregate but the personal solved marker remains.
     pagination = await list_enabled_problems_paginated(
         session,
         page=1,
-        user_id=admin.id,
+        user_id=author.id,
     )
 
     assert pagination.total == 1
     item = pagination.items[0]
     assert item.problem.id == problem.id
-    assert item.solved == 1  # only the judge counts; admin and author excluded
+    assert item.solved == 2  # judge and admin count; only the owner is excluded
     assert item.ac_rate == 0.0
     assert item.is_solved is True
 
@@ -153,7 +153,7 @@ async def test_public_problem_list_resolves_owner_and_free_text_authors(
 async def test_public_problem_list_sorts_by_user_solvers_descending(
     session: AsyncSession,
 ) -> None:
-    """Solver sorting counts judges/regular users but ignores admin and author solves."""
+    """Solver sorting counts every role and only excludes the problem owner."""
     author = await _make_user(session, role=ArenaRole.ARENA_USER)
     users = [await _make_user(session, role=ArenaRole.ARENA_USER) for _ in range(3)]
     admin = await _make_user(session, role=ArenaRole.ARENA_ADMIN)
@@ -173,8 +173,10 @@ async def test_public_problem_list_sorts_by_user_solvers_descending(
         sort_by="solvers_desc",
     )
 
+    # two_solvers (2) ranks first; one_solver and staff_only tie at 1 and break
+    # by arena_number ascending. The admin solve on staff_only now counts.
     assert [item.problem.arena_number for item in pagination.items] == [102, 101, 103]
-    assert [item.solved for item in pagination.items] == [2, 1, None]
+    assert [item.solved for item in pagination.items] == [2, 1, 1]
 
 
 @pytest.mark.asyncio

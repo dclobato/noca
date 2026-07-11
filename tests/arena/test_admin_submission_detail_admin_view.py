@@ -277,6 +277,8 @@ async def test_admin_can_view_another_users_submission(session: AsyncSession) ->
         response = await client.get(f"/submissions/{sub_id}")
 
     assert response.status_code == 200
+    assert "Owner User" in response.text
+    assert f"/admin/users/{owner.id}" in response.text
 
 
 @pytest.mark.asyncio

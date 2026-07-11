@@ -31,6 +31,7 @@ class SecurityEventRow:
     event_type: str
     severity: str
     actor_user_id: str | None
+    actor_label: str | None
     identifier_hash: str | None
     client_ip: str | None
     user_agent: str | None
@@ -44,6 +45,7 @@ async def record_security_event(
     event_type: str,
     severity: str = "info",
     actor_user_id: str | None = None,
+    actor_label: str | None = None,
     identifier_hash: str | None = None,
     client_ip: str | None = None,
     user_agent: str | None = None,
@@ -57,6 +59,8 @@ async def record_security_event(
         event_type: Stable event kind.
         severity: Event severity label.
         actor_user_id: Authenticated user id when known.
+        actor_label: Human-readable login of the actor (email/username),
+            snapshotted at event time so it survives account rename or deletion.
         identifier_hash: Hashed unauthenticated account identifier when known.
         client_ip: ASGI client IP address.
         user_agent: Request user-agent string.
@@ -68,6 +72,7 @@ async def record_security_event(
             event_type=event_type,
             severity=severity,
             actor_user_id=actor_user_id,
+            actor_label=actor_label,
             identifier_hash=identifier_hash,
             client_ip=client_ip,
             user_agent=user_agent,
@@ -84,6 +89,7 @@ async def record_request_security_event(
     event_type: str,
     severity: str = "info",
     actor_user_id: str | None = None,
+    actor_label: str | None = None,
     identifier_hash: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> None:
@@ -95,6 +101,7 @@ async def record_request_security_event(
         event_type=event_type,
         severity=severity,
         actor_user_id=actor_user_id,
+        actor_label=actor_label,
         identifier_hash=identifier_hash,
         client_ip=client_ip,
         user_agent=request.headers.get("User-Agent"),
@@ -206,6 +213,7 @@ def _security_event_row_from_mapping(row: RowMapping) -> SecurityEventRow:
         event_type=row["event_type"],
         severity=row["severity"],
         actor_user_id=row["actor_user_id"],
+        actor_label=row["actor_label"],
         identifier_hash=row["identifier_hash"],
         client_ip=row["client_ip"],
         user_agent=row["user_agent"],

@@ -113,23 +113,20 @@ async def test_affiliation_with_all_members_hidden_rates_zero(session: AsyncSess
 
 
 @pytest.mark.asyncio
-async def test_affiliation_excludes_judge_and_admin_members(session: AsyncSession) -> None:
-    """rate_affiliation() must not count ARENA_JUDGE or ARENA_ADMIN members."""
+async def test_affiliation_counts_visible_judge_and_admin_members(session: AsyncSession) -> None:
+    """rate_affiliation() must count visible ARENA_JUDGE and ARENA_ADMIN members."""
     aff = await _make_affiliation(session)
 
-    # Regular user with a known rating
     user = await _make_user(session)
     await _set_rating(session, user.id, 200)
     await _set_affiliation(session, user.id, aff.id)
 
-    # Judge with a much higher rating — must be ignored
     judge = await _make_judge(session)
-    await _set_rating(session, judge.id, 5000)
+    await _set_rating(session, judge.id, 500)
     await _set_affiliation(session, judge.id, aff.id)
 
-    # Admin with a much higher rating — must be ignored
     admin = await _make_admin(session)
-    await _set_rating(session, admin.id, 5000)
+    await _set_rating(session, admin.id, 400)
     await _set_affiliation(session, admin.id, aff.id)
 
     await rate_affiliation(session=session, affiliation_id=aff.id, f=_DECAY_FACTOR)
@@ -137,8 +134,9 @@ async def test_affiliation_excludes_judge_and_admin_members(session: AsyncSessio
 
     result = await session.scalar(select(arena_affiliations.c.rating).where(arena_affiliations.c.id == aff.id))
 
-    # Only the ARENA_USER (rating=200) should contribute
-    expected = round((1.0 / _DECAY_FACTOR) * 200)
+    w = 1.0 / _DECAY_FACTOR
+    decay = 1.0 - w
+    expected = round(w * 500 + decay * w * 400 + decay**2 * w * 200)
     assert result == expected
 
 

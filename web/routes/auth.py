@@ -10,7 +10,10 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi_flash import FlashCategory, FlashDep
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.enumerations import RoleEnum
 from shared.services.auth_rate_limit import (
     AuthRateLimitSettings,
     InMemoryAuthRateLimiter,
@@ -22,6 +25,7 @@ from shared.services.auth_rate_limit import (
 from shared.services.network_utils import NetworkService
 from shared.services.security_events import record_request_security_event
 from web.config import settings
+from web.models.users import UberAdmin, User
 from web.services.contest_service import get_contest_by_slug
 from web.services.session_service import build_logout_redirect_url
 
@@ -33,6 +37,36 @@ _auth_limiter = InMemoryAuthRateLimiter()
 
 def _templates(request: Request) -> Jinja2Templates:
     return request.app.state.templates  # type: ignore[no-any-return]
+
+
+async def _actor_from_token(request: Request, session: AsyncSession, token: str) -> tuple[str | None, str | None]:
+    """Resolve a Web access token to the local actor id and login when possible.
+
+    Returns:
+        A ``(actor_id, actor_label)`` pair. ``actor_label`` is the token subject
+        (the username used to log in), snapshotted for the security-event log.
+        Both are ``None`` when the token cannot be resolved to a local user.
+    """
+    auth_service = request.app.state.auth_service
+    try:
+        result = auth_service.jwt_service.validate(token)
+    except Exception:
+        return None, None
+    if not result.valid:
+        return None, None
+    if result.aud == RoleEnum.UBERADMIN.value:
+        actor = (
+            await session.execute(select(UberAdmin.id).where(UberAdmin.username == result.sub))
+        ).scalar_one_or_none()
+        return (str(actor), result.sub) if actor is not None else (None, None)
+
+    contest_id = (result.extra_data or {}).get("contest_id")
+    if not isinstance(contest_id, str):
+        return None, None
+    actor = (
+        await session.execute(select(User.id).where(User.username == result.sub, User.contest_id == contest_id))
+    ).scalar_one_or_none()
+    return (str(actor), result.sub) if actor is not None else (None, None)
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -127,6 +161,18 @@ async def login_post(
             throttle_identity,
             fallback_limiter=_auth_limiter,
         )
+        actor_user_id, actor_label = await _actor_from_token(request, session, token)
+        await record_request_security_event(
+            session,
+            request,
+            module="web",
+            event_type="auth_success",
+            actor_user_id=actor_user_id,
+            actor_label=actor_label,
+            identifier_hash=throttle_identity.identifier_hash,
+            metadata={"action": "login", "scope": "uberadmin"},
+        )
+        await session.commit()
 
     response = RedirectResponse(url=next_url or "/uberadmin", status_code=303)
     response.set_cookie(
@@ -232,6 +278,18 @@ async def contest_login_post(
             throttle_identity,
             fallback_limiter=_auth_limiter,
         )
+        actor_user_id, actor_label = await _actor_from_token(request, session, token)
+        await record_request_security_event(
+            session,
+            request,
+            module="web",
+            event_type="auth_success",
+            actor_user_id=actor_user_id,
+            actor_label=actor_label,
+            identifier_hash=throttle_identity.identifier_hash,
+            metadata={"action": "contest-login", "contest_slug": slug},
+        )
+        await session.commit()
 
     response = RedirectResponse(url=f"/c/{slug}", status_code=303)
     response.set_cookie(
@@ -259,12 +317,22 @@ def _rate_limit_settings() -> AuthRateLimitSettings:
 
 @router.get("/logout")
 async def logout(request: Request, flash: FlashDep) -> RedirectResponse:
+    token = request.cookies.get("noca_access_token")
     async with request.app.state.db_session() as session:
         redirect_url = await build_logout_redirect_url(request, session)
-
-    token = request.cookies.get("noca_access_token")
-    if token:
-        request.app.state.auth_service.logout(token)
+        actor_user_id, actor_label = await _actor_from_token(request, session, token) if token else (None, None)
+        if token:
+            request.app.state.auth_service.logout(token)
+        await record_request_security_event(
+            session,
+            request,
+            module="web",
+            event_type="auth_logout",
+            actor_user_id=actor_user_id,
+            actor_label=actor_label,
+            metadata={"token_present": bool(token), "token_valid": actor_user_id is not None},
+        )
+        await session.commit()
 
     flash("You have been logged out.", FlashCategory.INFO)
     response = RedirectResponse(url=redirect_url, status_code=303)

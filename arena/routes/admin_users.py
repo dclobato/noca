@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_admin
+from arena.models.arena_badges import ArenaUserBadge
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_date_helpers import _effective_per_page, _local_midnight_to_utc, _parse_date_param
 from arena.routes.admin_user_route_support import (
@@ -36,16 +37,30 @@ from arena.routes.admin_user_route_support import (
     _html,
 )
 from arena.services import admin_login_history_service, admin_user_service
-from arena.services.pagination_service import build_pagination_params, parse_page
-from arena.services.user_timezone_service import timezone_name_for_user
+from arena.services.pagination_service import Pagination, build_pagination_params, clamp_page, parse_page
+from arena.services.submission_list_service import (
+    ARENA_SUBMISSIONS_PER_PAGE,
+    SubmissionListRow,
+    get_user_submissions,
+)
+from arena.services.user_timezone_service import format_user_datetime, timezone_name_for_user
 from shared.db_schema.arena.arena_heatmap import arena_user_submission_heatmap
-from shared.enumerations import ArenaRole
+from shared.db_schema.arena.arena_rating_history import arena_user_rating_history
+from shared.enumerations import (
+    ARENA_BADGE_METADATA,
+    ARENA_NOTIFICATION_ICONS,
+    ArenaRole,
+    Verdict,
+)
+from shared.services.arena_notification_service import paginate_arena_notifications
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
 
 _CREDITS_PER_PAGE = 25
+_NOTIFICATIONS_PER_PAGE = 25
+_SUBMISSIONS_PER_PAGE = ARENA_SUBMISSIONS_PER_PAGE
 _LOGIN_HISTORY_ALLOWED_PER_PAGE: set[int] = {10, 25, 50, 100, 500}
 _LOGIN_HISTORY_DEFAULT_PER_PAGE = 25
 
@@ -111,6 +126,10 @@ async def admin_user_profile(
     flash: FlashDep,
     tab: str | None = None,
     credits_page: str | None = None,
+    notifications_page: str | None = None,
+    submissions_page: str | None = None,
+    submissions_search: str | None = None,
+    submissions_verdict: str | None = None,
     login_page: str | None = None,
     login_per_page: str | None = None,
     login_sort_dir: str = "desc",
@@ -121,17 +140,30 @@ async def admin_user_profile(
 ) -> Response:
     """Render the admin view of an Arena user's profile, or raise 404 if not found.
 
-    Shows personal/security details, AI credits, and login history.
-    Back-navigation query params are forwarded from the calling list view.
+    Shows personal/security details, AI credits, badges, notifications,
+    submissions, and login history. Back-navigation query params are forwarded
+    from the calling list view.
     """
     target = await _get_target_or_404(user_id, session)
 
+    valid_tabs = {
+        "personal-security",
+        "credits",
+        "badges",
+        "notifications",
+        "submissions",
+        "login-history",
+    }
     if credits_page is not None:
         active_tab = "credits"
+    elif notifications_page is not None:
+        active_tab = "notifications"
+    elif any(value is not None for value in (submissions_page, submissions_search, submissions_verdict)):
+        active_tab = "submissions"
     elif any(value is not None for value in (login_page, login_per_page, login_date_from, login_date_to)):
         active_tab = "login-history"
     else:
-        active_tab = tab if tab in {"personal-security", "credits", "login-history"} else "personal-security"
+        active_tab = tab if tab in valid_tabs else "personal-security"
 
     credit_transactions = None
     if active_tab == "credits":
@@ -139,6 +171,46 @@ async def admin_user_profile(
             session,
             user_id=target.id,
             params=build_pagination_params(credits_page, per_page=_CREDITS_PER_PAGE),
+        )
+
+    badges: list[ArenaUserBadge] = []
+    if active_tab == "badges":
+        badge_result = await session.scalars(
+            select(ArenaUserBadge)
+            .where(ArenaUserBadge.user_id == target.id)
+            .order_by(ArenaUserBadge.awarded_at.desc(), ArenaUserBadge.id.desc())
+        )
+        badges = [badge for badge in badge_result.all() if badge.badge.value in ARENA_BADGE_METADATA]
+
+    notifications: Pagination[object] | None = None
+    if active_tab == "notifications":
+        raw_notif_page = build_pagination_params(notifications_page, per_page=_NOTIFICATIONS_PER_PAGE)
+        notif_rows, notif_total = await paginate_arena_notifications(
+            session,
+            user_id=target.id,
+            page=raw_notif_page.page,
+            per_page=_NOTIFICATIONS_PER_PAGE,
+        )
+        effective_notif_page = clamp_page(
+            raw_notif_page.page,
+            total=notif_total,
+            per_page=_NOTIFICATIONS_PER_PAGE,
+        )
+        notifications = Pagination(
+            items=notif_rows,
+            page=effective_notif_page,
+            per_page=_NOTIFICATIONS_PER_PAGE,
+            total=notif_total,
+        )
+
+    submissions: Pagination[SubmissionListRow] | None = None
+    if active_tab == "submissions":
+        submissions = await get_user_submissions(
+            session=session,
+            user_id=target.id,
+            search=submissions_search,
+            verdict_filter=submissions_verdict,
+            params=build_pagination_params(submissions_page, per_page=_SUBMISSIONS_PER_PAGE),
         )
 
     login_history = None
@@ -194,6 +266,14 @@ async def admin_user_profile(
             {
                 "target_user": target,
                 "credit_transactions": credit_transactions,
+                "badges": badges,
+                "badge_metadata": ARENA_BADGE_METADATA,
+                "notifications": notifications,
+                "notification_icons": ARENA_NOTIFICATION_ICONS,
+                "submissions": submissions,
+                "submissions_search": submissions_search or "",
+                "submissions_verdict": submissions_verdict or "",
+                "all_verdicts": list(Verdict),
                 "login_history": login_history,
                 "login_per_page": resolved_login_per_page,
                 "login_sort_dir": resolved_login_sort_dir,
@@ -209,6 +289,42 @@ async def admin_user_profile(
                 "current_user": admin,
             },
         )
+    )
+
+
+@router.get(
+    "/users/{user_id}/rating-history",
+    name="arena_admin_user_rating_history",
+)
+async def admin_user_rating_history(
+    user_id: str,
+    admin: ArenaUser = Depends(require_arena_admin),
+    session: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Return a given Arena user's rating history for the last 24 months."""
+    target = await _get_target_or_404(user_id, session)
+    cutoff = datetime.now(tz=UTC) - timedelta(days=730)
+    stmt = (
+        select(arena_user_rating_history.c.computed_at, arena_user_rating_history.c.rating)
+        .where(
+            arena_user_rating_history.c.user_id == target.id,
+            arena_user_rating_history.c.computed_at >= cutoff,
+        )
+        .order_by(arena_user_rating_history.c.computed_at.asc())
+    )
+    result = await session.execute(stmt)
+    rows = result.fetchall()
+    return JSONResponse(
+        {
+            "history": [
+                {
+                    "ts": row.computed_at.isoformat(),
+                    "ts_display": format_user_datetime(row.computed_at, admin, "%Y-%m-%d"),
+                    "rating": row.rating,
+                }
+                for row in rows
+            ]
+        }
     )
 
 

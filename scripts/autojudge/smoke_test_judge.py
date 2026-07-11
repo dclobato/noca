@@ -65,6 +65,7 @@ SOURCE_FILES: dict[str, Path] = {
     "swift": SAMPLE_DIR / "main.swift",
     "ruby": SAMPLE_DIR / "main.rb",
     "bash": SAMPLE_DIR / "main.bash",
+    "perl": SAMPLE_DIR / "main.perl",
 }
 
 DEFAULT_LANGUAGES = list(SOURCE_FILES.keys())

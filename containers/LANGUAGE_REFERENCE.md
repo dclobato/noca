@@ -36,6 +36,7 @@ The source of truth is:
 | `swift` | `source.swift` | `swift:6.3.2` + Static Linux SDK (musl) | `debian:bookworm-slim` | Swift 6.3 standard library only, single-file builds; statically linked binary |
 | `ruby` | `source.rb` | `ruby:4.0-slim-bookworm` | `ruby:4.0-slim-bookworm` | Ruby 4.0 standard library only |
 | `bash` | `source.sh` | `debian:bookworm-slim` | `debian:bookworm-slim` | Bash 5.2 built-ins and standard POSIX utilities included in the base image |
+| `perl` | `source.pl` | `perl:5.42.2-slim-bookworm` | `perl:5.42.2-slim-bookworm` | Perl 5.42.2 core modules only |
 
 ## Pinned Image Families
 
@@ -43,6 +44,7 @@ The source of truth is:
 | --- | --- |
 | `debian:bookworm-slim` | Debian 12 (bookworm) |
 | `ruby:4.0-slim-bookworm` | Ruby 4.0 on Debian bookworm slim |
+| `perl:5.42.2-slim-bookworm` | Perl 5.42.2 on Debian bookworm slim |
 | `python:3.14-slim-bookworm` | Python 3.14 on Debian bookworm slim |
 | `node:24-bookworm-slim` | Node.js 24 on Debian bookworm slim |
 | `golang:1.26.2-bookworm` | Go 1.26 on Debian bookworm |
@@ -311,6 +313,44 @@ uniform, and simplifies the worker's runtime bind logic.
 - Not available:
   - third-party Swift Package Manager dependencies (no network at build time)
 
+### Ruby (`ruby`)
+
+- Compile step is a syntax check only:
+  - `/usr/local/bin/ruby -c /sandbox/source.rb`
+- Run command:
+  - `/usr/local/bin/ruby /sandbox/source.rb`
+- Base image: `ruby:4.0-slim-bookworm` for both compile and run
+- Available:
+  - Ruby 4.0 interpreter and standard library
+- Not available:
+  - third-party gems or Bundler dependency installs
+
+### Bash (`bash`)
+
+- Compile step is a syntax check only:
+  - `/bin/bash -n /sandbox/source.sh`
+- Run command:
+  - `/bin/bash /sandbox/source.sh`
+- Base image: `debian:bookworm-slim` for both compile and run
+- Available:
+  - Bash 5.2 built-ins
+  - standard POSIX utilities included in the Debian slim base image
+- Not available:
+  - package installation during judging
+  - non-standard shell tools beyond what the base image already includes
+
+### Perl (`perl`)
+
+- Compile step is a syntax check only:
+  - `/usr/local/bin/perl -c /sandbox/source.pl`
+- Run command:
+  - `/usr/local/bin/perl /sandbox/source.pl`
+- Base image: `perl:5.42.2-slim-bookworm` for both compile and run
+- Available:
+  - Perl 5.42.2 interpreter and core modules
+- Not available:
+  - third-party CPAN modules (no network at build time)
+
 ## Practical Guidance For Teams
 
 - If your solution needs a third-party package manager, assume it will not work.
@@ -322,3 +362,6 @@ uniform, and simplifies the worker's runtime bind logic.
 - For Prolog, end your source file with `:- initialization(main, main).` where `main(_)` is your entry predicate.
 - For Fortran, use free-form source layout (`.f90`) and target the Fortran 2018 standard.
 - For Swift, submit a single source file and rely only on the standard library.
+- For Ruby, rely only on the standard library bundled with Ruby 4.0.
+- For Bash, rely on Bash built-ins and standard POSIX utilities from the base image.
+- For Perl, rely only on the core modules bundled with the interpreter (no CPAN).

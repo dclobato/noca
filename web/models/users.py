@@ -221,7 +221,12 @@ class Login_History(Base):
     uberadmin_id: Mapped[str | None]
     dta_login: Mapped[datetime]
     ip_address: Mapped[str | None]
-    location: Mapped[str | None]
+    country_code: Mapped[str | None]
+    subdivision_code: Mapped[str | None]
+    district: Mapped[str | None]
+    city: Mapped[str | None]
+    is_eu: Mapped[bool | None]
+    as_number: Mapped[str | None]
     user_agent: Mapped[str | None]
 
     user: Mapped[User | None] = relationship(

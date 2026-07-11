@@ -1,0 +1,49 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{# Read-only admin view of a target user's notifications (no mark-read/delete actions). #}
+<section class="arena-progress-list">
+    <div class="arena-progress-list-header">
+        <h2>Notifications</h2>
+        {% if notifications.total > 0 %}
+            <span>{{ notifications.first }}-{{ notifications.last }} of {{ notifications.total }}</span>
+        {% endif %}
+    </div>
+    {% if notifications.items %}
+        {% with pagination=notifications, page_param="notifications_page", heading="Notifications", nav_margin="mb-2" %}
+            {% include "users/_pagination.html" %}
+        {% endwith %}
+        <div class="list-group list-group-flush">
+            {% for notif in notifications.items %}
+                <div class="arena-notification-item {% if notif.read_at is none %}is-unread{% else %}is-read{% endif %}">
+                    <div class="d-flex align-items-start justify-content-between gap-2">
+                        <div class="flex-grow-1 min-w-0">
+                            {% set notif_icon = notification_icons.get(notif.notification_kind, "notifications") %}
+                            {% set submission_kinds = ["SUBMISSION_JUDGED", "AI_REVIEW_COMPLETED", "AI_REVIEW_FAILED"] %}
+                            {% if notif.notification_kind in submission_kinds and notif.context and notif.context.submission_id %}
+                                {% set notif_url = request.url_for("arena_submission_detail", submission_id=notif.context.submission_id) %}
+                            {% elif notif.target_url %}
+                                {% set notif_url = notif.target_url %}
+                            {% else %}
+                                {% set notif_url = "#" %}
+                            {% endif %}
+                            <a href="{{ notif_url }}" class="arena-notification-title">
+                                <span class="material-symbols-outlined arena-notification-icon">{{ notif_icon }}</span>{{ notif.title }}</a>
+                            <span class="arena-notification-message">{{ notif.message }}</span>
+                            <span class="arena-notification-time">{{ arena_format_datetime(notif.created_at, current_user) }}</span>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="arena-empty-state">No notifications yet.</p>
+    {% endif %}
+    {% with pagination=notifications, page_param="notifications_page", heading="Notifications" %}
+        {% include "users/_pagination.html" %}
+    {% endwith %}
+</section>

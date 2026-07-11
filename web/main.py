@@ -38,6 +38,7 @@ from shared.services.security_events_reaper import run_security_events_reaper
 from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
 from shared.services.startup_wait import wait_for_db, wait_for_valkey
 from shared.services.token_revocation import ValkeyRevocationStore
+from shared.signal_names import describe_signal, signal_name
 from shared.static_files import ShortCacheStaticFiles
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
 from web.config import settings
@@ -219,6 +220,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     }
     templates.env.globals["verdict_labels"] = VERDICT_LABELS
     templates.env.globals["verdict_badge_classes"] = VERDICT_BADGE_CLASSES
+    templates.env.globals["describe_signal"] = describe_signal
+    templates.env.globals["signal_name"] = signal_name
     templates.env.globals["contest_verdict_badge_class"] = contest_verdict_badge_class
     templates.env.globals["judgmentstatus_labels"] = {
         JudgmentStatus.QUEUED.value: "Queue",

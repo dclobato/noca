@@ -216,7 +216,8 @@ and summarizes the recent Valkey turnaround statistics above its filters.
 | `POST /admin/dashboard/workers/poll-now` | `arena_admin_dashboard_worker_poll_now` | Form: `worker_class`, `worker_id` | `admin_dashboard.py` |
 | `GET /admin/dashboard/ai-usage` | `arena_admin_dashboard_ai_usage` | `search=`, `sort_dir=`, `per_page=`, `page=`, `date_from=`, `date_to=` | `admin_dashboard.py` |
 | `GET /admin/dashboard/login-history` | `arena_admin_dashboard_login_history` | `search=`, `sort_dir=`, `per_page=`, `page=`, `date_from=`, `date_to=` | `admin_dashboard_history.py` |
-| `GET /admin/dashboard/submissions` | `arena_admin_dashboard_submissions` | `search=`, `verdict_filter=`, `ai_filter=`, `language_filter=`, `problem_filter=`, `date_from=`, `date_to=`, `sort_dir=`, `per_page=`, `page=` | `admin_dashboard_history.py` |
+| `GET /admin/dashboard/submissions` | `arena_admin_dashboard_submissions` | `search=`, `verdict_filter=`, `status_filter=`, `ai_filter=`, `language_filter=`, `problem_filter=`, `date_from=`, `date_to=`, `sort_dir=`, `per_page=`, `page=` | `admin_dashboard_history.py` |
+| `POST /admin/dashboard/submissions/{submission_id}/reenqueue` | `arena_admin_dashboard_submission_reenqueue` | path: `submission_id` | `admin_dashboard_history.py` |
 | `GET /admin/dashboard/security-events` | `arena_admin_dashboard_security_events` | `module=`, `event_type=`, `per_page=`, `page=` | `admin_dashboard_history.py` |
 
 ## Arena Admin – User Management Routes
@@ -226,7 +227,9 @@ GET routes: `arena/routes/admin_users.py` · POST routes: `arena/routes/admin_us
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
 | `GET /admin/users` | `arena_admin_user_list` | `search=`, `role=`, `can_edit=`, `per_page=`, `page=` | `admin_users.py` |
-| `GET /admin/users/{user_id}` | `arena_admin_user_profile` | `user_id=`, query: `tab`, `credits_page`, `login_page`, `login_per_page`, `login_sort_dir`, `login_date_from`, `login_date_to` | `admin_users.py` |
+| `GET /admin/users/{user_id}` | `arena_admin_user_profile` | `user_id=`, query: `tab`, `credits_page`, `notifications_page`, `submissions_page`, `submissions_search`, `submissions_verdict`, `login_page`, `login_per_page`, `login_sort_dir`, `login_date_from`, `login_date_to` | `admin_users.py` |
+| `GET /admin/users/{user_id}/rating-history` | `arena_admin_user_rating_history` | `user_id=` | `admin_users.py` |
+| `GET /admin/users/{user_id}/submission-heatmap` | `arena_admin_user_submission_heatmap` | `user_id=` | `admin_users.py` |
 | `POST /admin/users/{user_id}/role` | `arena_admin_user_change_role` | `user_id=` | `admin_users_actions.py` |
 | `POST /admin/users/{user_id}/toggle-active` | `arena_admin_user_toggle_active` | `user_id=` | `admin_users_actions.py` |
 | `POST /admin/users/{user_id}/force-password-change` | `arena_admin_user_force_pw_change` | `user_id=` | `admin_users_actions.py` |

@@ -42,6 +42,20 @@
                     </select>
                 </div>
                 <div>
+                    <label class="form-label form-label-sm mb-1" for="status_filter">Status</label>
+                    <select class="form-select form-select-sm"
+                            id="status_filter"
+                            name="status_filter">
+                        <option value="">All statuses</option>
+                        {% for status in submission_status_filters %}
+                            <option value="{{ status.value }}"
+                                    {% if status_filter == status.value %}selected{% endif %}>
+                                {{ status.value }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
                     <label class="form-label form-label-sm mb-1" for="ai_filter">AI review</label>
                     <select class="form-select form-select-sm" id="ai_filter" name="ai_filter">
                         <option value="">All</option>
@@ -109,7 +123,7 @@
                     </select>
                 </div>
                 {% include "_partials/filter_submit_button.html" %}
-                {% set _filters_active = search or verdict_filter or ai_filter or language_filter or problem_filter or date_from or date_to or sort_dir != 'desc' or per_page != 25 %}
+                {% set _filters_active = search or verdict_filter or status_filter or ai_filter or language_filter or problem_filter or date_from or date_to or sort_dir != 'desc' or per_page != 25 %}
                 {% with clear_url=request.url_for("arena_admin_dashboard_submissions"), filters_active=_filters_active %}
                     {% include "_partials/filter_clear_link.html" %}
                 {% endwith %}
@@ -160,11 +174,25 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <a href="{{ request.url_for('arena_submission_detail', submission_id=row.submission_id) }}"
-                                       class="btn btn-outline-secondary btn-sm arena-icon-button">
-                                        {{ render_icon(icon="open_in_new") }}
-                                        <span>View</span>
-                                    </a>
+                                    <div class="d-flex gap-1 justify-content-end">
+                                        <a href="{{ request.url_for('arena_submission_detail', submission_id=row.submission_id) }}"
+                                           class="btn btn-outline-secondary btn-sm arena-icon-button">
+                                            {{ render_icon(icon="open_in_new") }}
+                                            <span>View</span>
+                                        </a>
+                                        {% if row.status == 'FAILED' %}
+                                            <form method="post"
+                                                  action="{{ request.url_for('arena_admin_dashboard_submission_reenqueue', submission_id=row.submission_id) }}">
+                                                <button type="submit"
+                                                        class="btn btn-outline-warning btn-sm arena-icon-button"
+                                                        title="Re-enqueue this failed submission for judging"
+                                                        aria-label="Re-enqueue submission">
+                                                    {{ render_icon(icon="replay") }}
+                                                    <span>Re-enqueue</span>
+                                                </button>
+                                            </form>
+                                        {% endif %}
+                                    </div>
                                 </td>
                             </tr>
                         {% else %}

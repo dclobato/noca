@@ -111,6 +111,7 @@ async def arena_2fa_submit(
             event_type="auth_throttle_lockout",
             severity="warning",
             actor_user_id=usuario.id,
+            actor_label=usuario.email_normalizado,
             identifier_hash=throttle_identity.identifier_hash,
             metadata={"action": "2fa", "reason": throttle_check.reason},
         )
@@ -141,6 +142,7 @@ async def arena_2fa_submit(
             event_type="auth_failure",
             severity="warning" if failure.locked else "info",
             actor_user_id=usuario.id,
+            actor_label=usuario.email_normalizado,
             identifier_hash=throttle_identity.identifier_hash,
             metadata={"action": "2fa", "reason": failure.reason},
         )
@@ -215,6 +217,15 @@ async def arena_2fa_submit(
         usuario=usuario,
         remember_me=remember_me,
         session_started_at=session_started_at,
+    )
+    await record_request_security_event(
+        session,
+        request,
+        module="arena",
+        event_type="auth_success",
+        actor_user_id=usuario.id,
+        actor_label=usuario.email_normalizado,
+        metadata={"action": "login", "method": login_mode, "remember_me": remember_me},
     )
     await session.commit()
 

@@ -7,20 +7,20 @@
 {% from "_macros.html" import render_icon %}
 <section class="arena-card h-100">
     <h2 class="arena-card-title">
-        {{ render_icon(icon="casino") }}
-        Random Problems
+        {{ render_icon(icon="schedule") }}
+        Latest Problems
     </h2>
-    <div class="table-responsive arena-dashboard-table-wrap">
+    <div class="table-responsive">
         <table class="arena-table arena-dashboard-table">
             <thead>
                 <tr>
                     <th>#</th>
                     <th>Title</th>
-                    <th style="width:120px">Difficulty</th>
+                    <th style="width:140px">Updated</th>
                 </tr>
             </thead>
             <tbody>
-                {% for problem in random_problems %}
+                {% for problem in latest_problems %}
                     <tr>
                         <td class="arena-monospace">
                             <a href="{{ request.url_for('arena_problem_detail', arena_number=problem.arena_number) }}"
@@ -30,24 +30,7 @@
                             <a href="{{ request.url_for('arena_problem_detail', arena_number=problem.arena_number) }}"
                                class="text-decoration-none fw-medium">{{ problem.title }}</a>
                         </td>
-                        <td>
-                            {% if problem.rating is not none %}
-                                <div class="progress arena-rating-progress"
-                                     role="progressbar"
-                                     aria-valuenow="{{ problem.rating }}"
-                                     aria-valuemin="0.1"
-                                     aria-valuemax="10"
-                                     aria-label="Difficulty {{ '%.1f'|format(problem.rating) }} out of 10"
-                                     title="Difficulty: {{ '%.1f'|format(problem.rating) }}/10">
-                                    <div class="progress-bar arena-rating-bar-{{ (problem.rating | round) | int }}"
-                                         style="width:{{ problem.rating * 10 }}%">
-                                        {{ "%.1f"|format(problem.rating) }}
-                                    </div>
-                                </div>
-                            {% else %}
-                                <span class="text-muted">—</span>
-                            {% endif %}
-                        </td>
+                        <td class="text-muted">{{ arena_format_relative_datetime(problem.updated_at) }}</td>
                     </tr>
                 {% else %}
                     <tr>

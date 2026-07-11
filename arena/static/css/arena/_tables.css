@@ -83,14 +83,9 @@
     padding-top: 0.5rem;
 }
 
-/* ── Dashboard fixed-height table (7 rows × 2.5rem each) ────── */
+/* ── Dashboard table (consistent 2.5rem row height, grows to content) ── */
 .arena-dashboard-table tbody tr {
     height: 2.5rem;
-}
-
-.arena-dashboard-table-wrap {
-    height: calc(7 * 2.5rem);
-    overflow: hidden;
 }
 
 /* ── Sortable column headers ─────────────────────────────────── */

@@ -7,6 +7,7 @@
 """Route tests for Arena admin user management (list, profile, and action routes)."""
 
 import logging
+import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -31,10 +32,11 @@ from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_ai_credit_transactions import ArenaAiCreditTransaction
 from arena.models.arena_auth_records import ArenaLoginHistory
+from arena.models.arena_badges import ArenaUserBadge
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_categories import router as arena_admin_categories_router
 from arena.routes.admin_user_route_support import NavState
-from arena.routes.admin_users import admin_user_profile
+from arena.routes.admin_users import admin_user_profile, admin_user_rating_history
 from arena.routes.admin_users import router as arena_admin_users_router
 from arena.routes.admin_users_actions import admin_user_topup_credits
 from arena.routes.admin_users_actions import router as arena_admin_users_actions_router
@@ -43,7 +45,8 @@ from arena.services import admin_login_history_service
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
 from arena.services.user_timezone_service import format_user_datetime
-from shared.enumerations import ArenaRole
+from shared.db_schema.arena.arena_rating_history import arena_user_rating_history
+from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_LABELS, ArenaBadge, ArenaRole
 from shared.services.email_service import EmailConfig, EmailService
 
 TEST_JWT_SECRET = "test-secret-key-for-admin-user-tests-32bytes!!"
@@ -63,6 +66,8 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
     templates.env.globals["next_rating_update_text"] = lambda request: None
     templates.env.globals["arena_role_labels"] = ARENA_ROLE_DISPLAY
     templates.env.globals["arena_format_datetime"] = format_user_datetime
+    templates.env.globals["verdict_badge_classes"] = VERDICT_BADGE_CLASSES
+    templates.env.globals["verdict_labels"] = VERDICT_LABELS
     setup_flash(templates)
     app.state.arena_templates = templates
     app.state.email_service = EmailService(
@@ -222,7 +227,9 @@ async def _create_login(
     user: ArenaUser,
     logged_at: datetime,
     ip_address: str | None = "203.0.113.10",
-    location: str | None = "Sao Paulo, Brazil",
+    country_code: str | None = "BR",
+    subdivision_code: str | None = "BR-SP",
+    city: str | None = "São Paulo",
     user_agent: str | None = "Test Browser/1.0",
 ) -> ArenaLoginHistory:
     """Create one login-history record for route and service tests."""
@@ -230,7 +237,9 @@ async def _create_login(
         arena_user_id=user.id,
         dta_login=logged_at,
         ip_address=ip_address,
-        location=location,
+        country_code=country_code,
+        subdivision_code=subdivision_code,
+        city=city,
         user_agent=user_agent,
         mode="password",
     )
@@ -547,7 +556,9 @@ async def test_admin_user_profile_login_history_tab_renders_records_and_filters(
         user=target,
         logged_at=datetime(2026, 6, 10, 12, tzinfo=UTC),
         ip_address="198.51.100.25",
-        location="Lisbon, Portugal",
+        country_code="PT",
+        subdivision_code=None,
+        city="Lisbon",
         user_agent="Example Browser/5.0",
     )
     await _create_login(
@@ -584,7 +595,8 @@ async def test_admin_user_profile_login_history_tab_renders_records_and_filters(
     assert 'name="login_date_to"' in response.text
     assert 'name="login_per_page"' in response.text
     assert "198.51.100.25" in response.text
-    assert "Lisbon, Portugal" in response.text
+    assert "Portugal" in response.text
+    assert "Lisbon" in response.text
     assert "Example Browser/5.0" in response.text
     assert "Excluded Browser/1.0" not in response.text
     assert 'name="page" value="3"' in response.text
@@ -817,6 +829,110 @@ async def test_admin_user_profile_credits_tab_preserves_back_context(session: As
     assert response.context["back_role"] == ArenaRole.ARENA_USER.value
     assert response.context["back_url"].endswith("/admin/users?search=Target&page=3&per_page=50&role=ARENA_USER")
     assert response.context["credit_transactions"].per_page == 25
+
+
+@pytest.mark.asyncio
+async def test_admin_user_profile_badges_tab_lists_earned_badges(session: AsyncSession) -> None:
+    """The badges tab loads the target user's earned badges and the metadata catalog."""
+    app = _build_admin_app(session)
+    admin = await _create_arena_user(session, name="Admin", email="admin@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _create_arena_user(session, name="Target User", email="target@test.example")
+    awarded = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
+    session.add(
+        ArenaUserBadge(id=str(uuid.uuid4()), user_id=target.id, badge=ArenaBadge.HELLO_WORLD, awarded_at=awarded)
+    )
+    session.add(ArenaUserBadge(id=str(uuid.uuid4()), user_id=target.id, badge=ArenaBadge.ONE_SHOT, awarded_at=awarded))
+    await session.commit()
+    request = _make_request(app, f"/admin/users/{target.id}", query="tab=badges")
+    flashes: list[tuple[str, object]] = []
+
+    response = await admin_user_profile(
+        request,
+        target.id,
+        lambda message, category: flashes.append((message, category)),
+        tab="badges",
+        admin=admin,
+        session=session,
+    )
+
+    assert response.status_code == 200
+    assert response.context["active_tab"] == "badges"
+    assert {b.badge for b in response.context["badges"]} == {ArenaBadge.HELLO_WORLD, ArenaBadge.ONE_SHOT}
+    assert response.context["badge_metadata"]
+
+
+@pytest.mark.asyncio
+async def test_admin_user_profile_notifications_tab_returns_pagination(session: AsyncSession) -> None:
+    """The notifications tab resolves and exposes a paginated result for the target user."""
+    app = _build_admin_app(session)
+    admin = await _create_arena_user(session, name="Admin", email="admin@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _create_arena_user(session, name="Target User", email="target@test.example")
+    request = _make_request(app, f"/admin/users/{target.id}", query="tab=notifications")
+    flashes: list[tuple[str, object]] = []
+
+    response = await admin_user_profile(
+        request,
+        target.id,
+        lambda message, category: flashes.append((message, category)),
+        tab="notifications",
+        admin=admin,
+        session=session,
+    )
+
+    assert response.status_code == 200
+    assert response.context["active_tab"] == "notifications"
+    assert response.context["notifications"] is not None
+    assert response.context["notifications"].per_page == 25
+
+
+@pytest.mark.asyncio
+async def test_admin_user_profile_submissions_tab_returns_pagination(session: AsyncSession) -> None:
+    """The submissions tab resolves and exposes a paginated result plus filter context."""
+    app = _build_admin_app(session)
+    admin = await _create_arena_user(session, name="Admin", email="admin@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _create_arena_user(session, name="Target User", email="target@test.example")
+    request = _make_request(app, f"/admin/users/{target.id}", query="tab=submissions")
+    flashes: list[tuple[str, object]] = []
+
+    response = await admin_user_profile(
+        request,
+        target.id,
+        lambda message, category: flashes.append((message, category)),
+        tab="submissions",
+        submissions_search="hello",
+        admin=admin,
+        session=session,
+    )
+
+    assert response.status_code == 200
+    assert response.context["active_tab"] == "submissions"
+    assert response.context["submissions"] is not None
+    assert response.context["submissions_search"] == "hello"
+    assert response.context["all_verdicts"]
+
+
+@pytest.mark.asyncio
+async def test_admin_user_rating_history_returns_target_history(session: AsyncSession) -> None:
+    """The admin rating-history endpoint returns the target user's rating points."""
+    admin = await _create_arena_user(session, name="Admin", email="admin@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _create_arena_user(session, name="Target User", email="target@test.example")
+    await session.execute(
+        arena_user_rating_history.insert().values(
+            user_id=target.id, rating=1234, computed_at=datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+        )
+    )
+    await session.commit()
+
+    response = await admin_user_rating_history(target.id, admin=admin, session=session)
+
+    assert response.status_code == 200
+    import json
+
+    payload = json.loads(bytes(response.body))
+    assert len(payload["history"]) == 1
+    assert payload["history"][0]["rating"] == 1234
+    assert "ts" in payload["history"][0]
+    assert "ts_display" in payload["history"][0]
 
 
 def test_profile_tab_nav_preserves_non_tab_query_parameters() -> None:

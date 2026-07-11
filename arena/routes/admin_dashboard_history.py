@@ -15,7 +15,8 @@ from datetime import timedelta
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy import distinct, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,9 +29,10 @@ from arena.services.pagination_service import parse_page
 from arena.services.user_timezone_service import timezone_name_for_user
 from shared.db_schema import languages as languages_table
 from shared.db_schema.arena import arena_submissions
-from shared.enumerations import Verdict
+from shared.enumerations import JudgmentStatus, Verdict
 from shared.services.pagination_service import effective_per_page
 from shared.services.security_events import list_security_event_filter_values, list_security_events_paginated
+from shared.services.valkey_service.queue_ops import enqueue_arena_submission_job
 
 router = APIRouter(prefix="/admin/dashboard", tags=["arena-admin"])
 
@@ -43,6 +45,13 @@ _SUBMISSIONS_DEFAULT_PER_PAGE = 25
 _SECURITY_EVENTS_ALLOWED_PER_PAGE: set[int] = {10, 25, 50, 100, 500}
 _SECURITY_EVENTS_DEFAULT_PER_PAGE = 25
 _SECURITY_EVENTS_MODULES = ["arena", "aiassistant"]
+_SUBMISSION_STATUS_FILTERS: tuple[JudgmentStatus, ...] = (
+    JudgmentStatus.QUEUED,
+    JudgmentStatus.DISPATCHED,
+    JudgmentStatus.JUDGING,
+    JudgmentStatus.DONE,
+    JudgmentStatus.FAILED,
+)
 
 
 def _html(response: Any) -> HTMLResponse:
@@ -111,6 +120,7 @@ async def admin_dashboard_submissions(
     per_page: str | None = None,
     search: str = "",
     verdict_filter: str = "",
+    status_filter: str = "",
     ai_filter: str = "",
     language_filter: str = "",
     problem_filter: str = "",
@@ -130,7 +140,9 @@ async def admin_dashboard_submissions(
 
     # Validate verdict_filter against known values
     valid_verdicts = {v.value for v in Verdict}
+    valid_statuses = {status.value for status in _SUBMISSION_STATUS_FILTERS}
     eff_verdict = verdict_filter if verdict_filter in valid_verdicts else None
+    eff_status = status_filter if status_filter in valid_statuses else None
     eff_ai = ai_filter if ai_filter in ("yes", "no") else None
     eff_language = language_filter or None
     eff_problem = problem_filter or None
@@ -147,6 +159,7 @@ async def admin_dashboard_submissions(
         per_page=resolved_per_page,
         search=search,
         verdict_filter=eff_verdict,
+        status_filter=eff_status,
         ai_filter=eff_ai,
         language_filter=eff_language,
         problem_filter=eff_problem,
@@ -176,6 +189,7 @@ async def admin_dashboard_submissions(
                 "per_page": resolved_per_page,
                 "search": search,
                 "verdict_filter": verdict_filter,
+                "status_filter": status_filter,
                 "ai_filter": ai_filter,
                 "language_filter": language_filter,
                 "problem_filter": problem_filter,
@@ -184,9 +198,37 @@ async def admin_dashboard_submissions(
                 "date_to": date_to or "",
                 "available_languages": available_languages,
                 "Verdict": Verdict,
+                "submission_status_filters": _SUBMISSION_STATUS_FILTERS,
             },
         )
     )
+
+
+@router.post(
+    "/submissions/{submission_id}/reenqueue",
+    response_class=HTMLResponse,
+    name="arena_admin_dashboard_submission_reenqueue",
+)
+async def admin_dashboard_submission_reenqueue(
+    request: Request,
+    submission_id: str,
+    flash: FlashDep,
+    admin: ArenaUser = Depends(require_arena_admin),
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    """Re-enqueue a submission whose latest judgment failed with an internal error."""
+    job = await admin_submission_service.reenqueue_failed_submission(session, submission_id=submission_id)
+    if job is None:
+        await session.rollback()
+        flash("Submission not found or not in a failed state.", FlashCategory.DANGER)
+    else:
+        await session.commit()
+        await enqueue_arena_submission_job(request.app.state.valkey_runtime, job)
+        flash("Submission re-enqueued for judging.", FlashCategory.SUCCESS)
+
+    referer = request.headers.get("referer")
+    redirect_url = referer or str(request.url_for("arena_admin_dashboard_submissions"))
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 
 @router.get("/security-events", response_class=HTMLResponse, name="arena_admin_dashboard_security_events")

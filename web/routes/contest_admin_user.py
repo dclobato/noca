@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from shared.enumerations import RoleEnum
+from shared.services.security_events import record_request_security_event
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_user_edit import edit_user_submit, export_users  # noqa: F401
 from web.routes.contest_admin_user_helpers import (
@@ -40,6 +41,30 @@ _ROLE_LABELS = {
     RoleEnum.TEAM: "team",
     RoleEnum.USER: "user",
 }
+
+
+async def _record_credential_email_event(
+    request: Request,
+    ctx: ContestAdminContext,
+    *,
+    event_type: str,
+    target_username: str,
+) -> None:
+    """Record a contest credential-email audit event without storing secrets."""
+    await record_request_security_event(
+        ctx.session,
+        request,
+        module="web",
+        event_type=event_type,
+        severity="info" if event_type == "credential_email_sent" else "warning",
+        actor_user_id=ctx.actor.id,
+        metadata={
+            "scope": "contest_user",
+            "contest_slug": ctx.contest.login_slug,
+            "target_username": target_username,
+        },
+    )
+    await ctx.session.commit()
 
 
 @router.get("/new", response_class=HTMLResponse)
@@ -218,6 +243,12 @@ async def send_single_user_credentials_email(
         "location": location,
     }
     if not email.strip():
+        await _record_credential_email_event(
+            request,
+            ctx,
+            event_type="credential_email_skipped",
+            target_username=username,
+        )
         return _html(
             templates.TemplateResponse(
                 request,
@@ -251,6 +282,12 @@ async def send_single_user_credentials_email(
             password=password,
             sender_name=email_service.default_from_name or "Noca Contest",
         ),
+    )
+    await _record_credential_email_event(
+        request,
+        ctx,
+        event_type="credential_email_sent" if delivery.success else "credential_email_failed",
+        target_username=username,
     )
     return _html(
         templates.TemplateResponse(

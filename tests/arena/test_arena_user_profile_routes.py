@@ -412,11 +412,13 @@ async def test_guest_dashboard_hides_notifications_and_avatar(session: AsyncSess
 
 @pytest.mark.asyncio
 async def test_dashboard_renders_real_top_rated_users(session: AsyncSession) -> None:
-    """Dashboard Top Users card should render persisted Arena ratings (top 7)."""
+    """Dashboard Leaderboard card should render persisted Arena ratings (top 10)."""
     await _create_ranked_arena_user(session, name="Top One", rating=900)
     await _create_ranked_arena_user(session, name="Top Two", rating=800)
-    await _create_ranked_arena_user(session, name="Eighth Place", rating=100)
-    for index in range(3, 8):
+    await _create_ranked_arena_user(session, name="Below Cutoff", rating=100)
+    # Eight more filler users so the leaderboard fills its top-10 window and
+    # "Below Cutoff" (lowest rating) is pushed to rank 11, outside the top 10.
+    for index in range(3, 11):
         await _create_ranked_arena_user(
             session,
             name=f"Ranked User {index}",
@@ -432,7 +434,7 @@ async def test_dashboard_renders_real_top_rated_users(session: AsyncSession) -> 
     assert "900" in response.text
     assert "Top Two" in response.text
     assert "tourist" not in response.text
-    assert "Eighth Place" not in response.text
+    assert "Below Cutoff" not in response.text
 
 
 @pytest.mark.asyncio

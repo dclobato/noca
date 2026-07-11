@@ -170,8 +170,8 @@ async def test_create_arena_submission_counts_judge_attempts(session: AsyncSessi
 
 
 @pytest.mark.asyncio
-async def test_create_arena_submission_excludes_admin_from_attempts(session: AsyncSession) -> None:
-    """An admin submission creates progress rows but does not count as a rating attempt."""
+async def test_create_arena_submission_counts_non_owner_staff_as_attempt(session: AsyncSession) -> None:
+    """A staff submission on a problem they do not own counts as a rating attempt."""
     language = await _make_language(session)
     author = await _make_user(session)
     admin = await _make_user(session, role=ArenaRole.ARENA_ADMIN)
@@ -186,8 +186,8 @@ async def test_create_arena_submission_excludes_admin_from_attempts(session: Asy
         bypass_rate_limit=True,
     )
 
-    # total_submissions still increments for every submission; attempted_users does not.
-    assert await _attempted_and_total(session, problem.id) == (0, 1)
+    # The admin does not own the problem, so the attempt counts; roles are irrelevant.
+    assert await _attempted_and_total(session, problem.id) == (1, 1)
 
 
 @pytest.mark.asyncio

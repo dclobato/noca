@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
@@ -40,6 +41,7 @@ from shared.services.password_service import PasswordPolicy
 from shared.services.security_events import record_request_security_event
 
 router = APIRouter(prefix="/auth", tags=["arena-auth"])
+logger = logging.getLogger(__name__)
 _SIGNUP_SUCCESS_MESSAGE = "If this account can be created, we will send the next steps by email."
 
 
@@ -82,6 +84,27 @@ def _signup_failure_message(status: user_service.UserOperationStatus) -> str:
     if status == user_service.UserOperationStatus.DATABASE_ERROR:
         return "We could not create your account right now. Please try again."
     return "We could not create your account right now. Please review the form and try again."
+
+
+async def _record_email_delivery_event(
+    session: AsyncSession,
+    request: Request,
+    *,
+    user_id: str,
+    purpose: str,
+    source: str,
+    sent: bool,
+) -> None:
+    """Record a security event for an account-lifecycle email delivery attempt."""
+    await record_request_security_event(
+        session,
+        request,
+        module="arena",
+        event_type=f"{purpose}_email_{'sent' if sent else 'failed'}",
+        severity="info" if sent else "warning",
+        actor_user_id=user_id,
+        metadata={"purpose": purpose, "source": source},
+    )
 
 
 def _signup_context(
@@ -354,13 +377,37 @@ async def arena_signup_submit(
                 terms_checked=terms_checked,
             )
 
+    await record_request_security_event(
+        session,
+        request,
+        module="arena",
+        event_type="account_signup_created",
+        actor_user_id=result.user.id,
+        actor_label=result.user.email_normalizado,
+        metadata={
+            "parental_consent_required": age_status == AgeStatus.NEEDS_PARENTAL_CONSENT,
+            "profile_photo_uploaded": upload is not None and bool(upload.filename),
+        },
+    )
     await session.commit()
     await reset_auth_throttle(request, throttle_identity, fallback_limiter=AUTH_RATE_LIMITER)
-    email_sent = user_registration_service.enviar_email_ativacao(
-        result.user,
-        result.token or "",
-        request.app.state.email_service,
-        _base_url(request),
+    try:
+        email_sent = user_registration_service.enviar_email_ativacao(
+            result.user,
+            result.token or "",
+            request.app.state.email_service,
+            _base_url(request),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Activation email send failed for user %s: %s", result.user.id, exc)
+        email_sent = False
+    await _record_email_delivery_event(
+        session,
+        request,
+        user_id=result.user.id,
+        purpose="account_activation",
+        source="signup",
+        sent=email_sent,
     )
     parental_email_sent = True
     if age_status == AgeStatus.NEEDS_PARENTAL_CONSENT:
@@ -371,12 +418,25 @@ async def arena_signup_submit(
                 expires_in=86_400,
             )
         )
-        parental_email_sent = user_registration_service.enviar_email_consentimento_responsavel(
-            result.user,
-            parental_token,
-            request.app.state.email_service,
-            _base_url(request),
+        try:
+            parental_email_sent = user_registration_service.enviar_email_consentimento_responsavel(
+                result.user,
+                parental_token,
+                request.app.state.email_service,
+                _base_url(request),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Parental-consent email send failed for user %s: %s", result.user.id, exc)
+            parental_email_sent = False
+        await _record_email_delivery_event(
+            session,
+            request,
+            user_id=result.user.id,
+            purpose="parental_consent",
+            source="signup",
+            sent=parental_email_sent,
         )
+    await session.commit()
     if email_sent and parental_email_sent:
         flash(_SIGNUP_SUCCESS_MESSAGE, FlashCategory.SUCCESS)
     else:
@@ -410,6 +470,25 @@ async def arena_activate(
     result = await user_email_service.validar_email_por_token(token, session, jwt_service)
     if result.status == user_service.UserOperationStatus.SUCCESS and result.user is not None:
         activated = await user_service.ativar_conta_se_pronta(result.user, session)
+        await record_request_security_event(
+            session,
+            request,
+            module="arena",
+            event_type="email_confirmed",
+            actor_user_id=result.user.id,
+            actor_label=result.user.email_normalizado,
+            metadata={"source": "activation_token"},
+        )
+        if activated:
+            await record_request_security_event(
+                session,
+                request,
+                module="arena",
+                event_type="account_activated",
+                actor_user_id=result.user.id,
+                actor_label=result.user.email_normalizado,
+                metadata={"source": "email_confirmation"},
+            )
         await session.commit()
         if activated:
             flash("Your account is active. You can log in now.", FlashCategory.SUCCESS)
@@ -443,6 +522,25 @@ async def arena_parental_consent(
     result = await user_email_service.validar_consentimento_responsavel_por_token(token, session, jwt_service)
     if result.status == user_service.UserOperationStatus.SUCCESS and result.user is not None:
         activated = await user_service.ativar_conta_se_pronta(result.user, session)
+        await record_request_security_event(
+            session,
+            request,
+            module="arena",
+            event_type="parental_consent_confirmed",
+            actor_user_id=result.user.id,
+            actor_label=result.user.email_normalizado,
+            metadata={"source": "parental_consent_token"},
+        )
+        if activated:
+            await record_request_security_event(
+                session,
+                request,
+                module="arena",
+                event_type="account_activated",
+                actor_user_id=result.user.id,
+                actor_label=result.user.email_normalizado,
+                metadata={"source": "parental_consent"},
+            )
         await session.commit()
         if activated:
             flash("Consent confirmed. The account is active and ready to use.", FlashCategory.SUCCESS)

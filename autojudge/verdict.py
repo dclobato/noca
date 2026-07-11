@@ -58,6 +58,7 @@ class CaseResult:
     output_bytes: int | None = None
     peak_pids: int | None = None
     exit_code: int | None = None
+    exit_signal: int | None = None
 
     # Truncated output for UI display (never the full stdout)
     stdout_excerpt: bytes = field(default_factory=bytes)

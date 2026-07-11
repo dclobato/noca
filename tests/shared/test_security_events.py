@@ -41,6 +41,8 @@ async def test_record_and_list_security_event(session) -> None:
         module="arena",
         event_type="auth_failure",
         severity="info",
+        actor_user_id="user-42",
+        actor_label="joao@example.com",
         client_ip="203.0.113.9",
         metadata={"action": "login"},
     )
@@ -50,6 +52,8 @@ async def test_record_and_list_security_event(session) -> None:
     assert len(rows) == 1
     assert rows[0].module == "arena"
     assert rows[0].event_type == "auth_failure"
+    assert rows[0].actor_user_id == "user-42"
+    assert rows[0].actor_label == "joao@example.com"
     assert rows[0].metadata == {"action": "login"}
 
 

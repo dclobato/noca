@@ -133,6 +133,26 @@ def test_new_language_configs_fortran_and_lua() -> None:
     assert lua.artifact_is_source is True
 
 
+def test_new_language_config_perl() -> None:
+    registry = default_language_registry()
+
+    perl = registry["perl"]
+    assert perl.source_filename == "source.pl"
+    assert perl.compile_image == "noca/judge-perl:compile"
+    assert perl.run_image == "noca/judge-perl:run"
+    assert perl.compile_cmd == ["/usr/local/bin/perl", "-c", "/sandbox/source.pl"]
+    assert perl.run_cmd == ["/usr/local/bin/perl", "/sandbox/source.pl"]
+    assert perl.artifact_path == "/sandbox/source.pl"
+    assert perl.artifact_is_source is True
+
+    seed_ids = {str(row["id"]) for row in default_language_seed_rows()}
+    assert "perl" in seed_ids
+
+    assert highlightjs_language_for_language_id("perl") == "perl"
+    assert "perl" in highlightjs_languages_for_registry()
+    assert "perl" in highlight_asset_languages()
+
+
 def test_submission_highlight_assets_support_javascript() -> None:
     assert submission_highlight_assets("javascript") == {
         "highlight_language_path": "highlight/languages/javascript.min.js",

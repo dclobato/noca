@@ -6,10 +6,12 @@ import pytest
 
 from autojudge.runner import (
     IsolateError,
+    _is_suspicious_signal_kill,
     _parse_isolate_meta,
     _resolve_peak_pids,
     _runtime_isolate_dirs,
 )
+from autojudge.types import IsolateMeta
 from shared.language_registry import default_language_configs
 
 
@@ -71,3 +73,51 @@ def test_runtime_isolate_dirs_include_dynamic_loader_paths_for_python() -> None:
     assert "--dir=/lib=/lib" in dirs
     assert "--dir=/lib64=/lib64" in dirs
     assert "--dir=/usr=/usr" in dirs
+
+
+def _sg_meta(*, wall_time_ms: int, memory_kb: int, status: str = "SG") -> IsolateMeta:
+    return IsolateMeta(
+        status=status,
+        exit_code=None,
+        exit_signal=11,
+        wall_time_ms=wall_time_ms,
+        cpu_time_ms=wall_time_ms,
+        memory_kb=memory_kb,
+    )
+
+
+def test_suspicious_signal_kill_detected_for_instant_no_output_death() -> None:
+    meta = _sg_meta(wall_time_ms=7, memory_kb=692)
+
+    assert _is_suspicious_signal_kill(meta, stdout_size=0, stderr_excerpt=b"") is True
+
+
+def test_suspicious_signal_kill_rejects_real_crash_with_runtime_memory() -> None:
+    # A genuine segfault has the language runtime loaded (a few MB of cg-mem).
+    meta = _sg_meta(wall_time_ms=7, memory_kb=2940)
+
+    assert _is_suspicious_signal_kill(meta, stdout_size=0, stderr_excerpt=b"") is False
+
+
+def test_suspicious_signal_kill_rejects_crash_with_stderr() -> None:
+    meta = _sg_meta(wall_time_ms=7, memory_kb=692)
+
+    assert _is_suspicious_signal_kill(meta, stdout_size=0, stderr_excerpt=b"boom") is False
+
+
+def test_suspicious_signal_kill_rejects_crash_after_producing_output() -> None:
+    meta = _sg_meta(wall_time_ms=7, memory_kb=692)
+
+    assert _is_suspicious_signal_kill(meta, stdout_size=17, stderr_excerpt=b"") is False
+
+
+def test_suspicious_signal_kill_rejects_slow_death() -> None:
+    meta = _sg_meta(wall_time_ms=500, memory_kb=692)
+
+    assert _is_suspicious_signal_kill(meta, stdout_size=0, stderr_excerpt=b"") is False
+
+
+def test_suspicious_signal_kill_rejects_nonzero_exit_status() -> None:
+    meta = _sg_meta(wall_time_ms=7, memory_kb=692, status="RE")
+
+    assert _is_suspicious_signal_kill(meta, stdout_size=0, stderr_excerpt=b"") is False

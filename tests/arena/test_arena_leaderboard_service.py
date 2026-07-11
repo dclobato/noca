@@ -97,10 +97,10 @@ async def test_get_top_rated_users_uses_competition_rank_for_rating_ties(
 
 
 @pytest.mark.asyncio
-async def test_get_top_rated_users_filters_staff_inactive_and_unconfirmed(
+async def test_get_top_rated_users_includes_staff_and_filters_inactive_unconfirmed(
     session: AsyncSession,
 ) -> None:
-    """Leaderboard should only include active confirmed regular Arena users."""
+    """Leaderboard should include all roles but exclude inactive and unconfirmed users."""
     await _make_user(session, name="Visible", rating=50, solved=2)
     await _make_user(session, name="Inactive", rating=100, solved=3, active=False)
     await _make_user(session, name="Unconfirmed", rating=90, solved=3, confirmed=False)
@@ -111,10 +111,17 @@ async def test_get_top_rated_users_filters_staff_inactive_and_unconfirmed(
         solved=3,
         role=ArenaRole.ARENA_JUDGE,
     )
+    await _make_user(
+        session,
+        name="Admin",
+        rating=70,
+        solved=3,
+        role=ArenaRole.ARENA_ADMIN,
+    )
 
     top_users = await get_top_rated_users(session, limit=5)
 
-    assert [user.name for user in top_users] == ["Visible"]
+    assert [user.name for user in top_users] == ["Judge", "Admin", "Visible"]
 
 
 @pytest.mark.asyncio

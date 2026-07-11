@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
+from shared.services.security_events import record_request_security_event
 from shared.timezone import Timezone
 from web.config import settings
 from web.dependencies import get_uberadmin
@@ -64,6 +65,32 @@ def _build_uberadmin_login_url(request: Request) -> str:
     if settings.WEB_URL_BASE:
         return settings.WEB_URL_BASE + str(url.path)
     return str(url)
+
+
+async def _record_credential_email_event(
+    request: Request,
+    *,
+    actor_user_id: str,
+    event_type: str,
+    scope: str,
+    target_username: str,
+    contest_slug: str | None = None,
+) -> None:
+    """Record a Web credential-email audit event without storing secrets."""
+    metadata = {"scope": scope, "target_username": target_username}
+    if contest_slug is not None:
+        metadata["contest_slug"] = contest_slug
+    async with request.app.state.db_session() as session:
+        await record_request_security_event(
+            session,
+            request,
+            module="web",
+            event_type=event_type,
+            severity="info" if event_type == "credential_email_sent" else "warning",
+            actor_user_id=actor_user_id,
+            metadata=metadata,
+        )
+        await session.commit()
 
 
 def _contest_creation_context(
@@ -215,6 +242,13 @@ async def send_uberadmin_credentials_email_route(
         "email": email.strip(),
     }
     if not email.strip():
+        await _record_credential_email_event(
+            request,
+            actor_user_id=_uberadmin.id,
+            event_type="credential_email_skipped",
+            scope="uberadmin",
+            target_username=username,
+        )
         return _templates(request).TemplateResponse(
             request,
             "uberadmin/add_useradmin.html",
@@ -240,6 +274,13 @@ async def send_uberadmin_credentials_email_route(
             password=password,
             sender_name=email_service.default_from_name or "Noca Contest",
         ),
+    )
+    await _record_credential_email_event(
+        request,
+        actor_user_id=_uberadmin.id,
+        event_type="credential_email_sent" if delivery.success else "credential_email_failed",
+        scope="uberadmin",
+        target_username=username,
     )
     return _templates(request).TemplateResponse(
         request,
@@ -451,6 +492,14 @@ async def send_contest_credentials_email(
         "email": email.strip(),
     }
     if not email.strip():
+        await _record_credential_email_event(
+            request,
+            actor_user_id=_uberadmin.id,
+            event_type="credential_email_skipped",
+            scope="contest_owner",
+            target_username=username,
+            contest_slug=contest_slug,
+        )
         return _templates(request).TemplateResponse(
             request,
             "uberadmin/add_contest.html",
@@ -478,6 +527,14 @@ async def send_contest_credentials_email(
             password=password,
             sender_name=email_service.default_from_name or "Noca Contest",
         ),
+    )
+    await _record_credential_email_event(
+        request,
+        actor_user_id=_uberadmin.id,
+        event_type="credential_email_sent" if delivery.success else "credential_email_failed",
+        scope="contest_owner",
+        target_username=username,
+        contest_slug=contest_slug,
     )
     return _templates(request).TemplateResponse(
         request,

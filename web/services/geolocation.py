@@ -6,6 +6,6 @@
 
 """Compatibility re-export for shared geolocation service."""
 
-from shared.services.geolocation import GeolocationIP
+from shared.services.geolocation import GeolocationDetails, GeolocationIP
 
-__all__ = ["GeolocationIP"]
+__all__ = ["GeolocationDetails", "GeolocationIP"]

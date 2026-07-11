@@ -30,6 +30,7 @@ from shared.language_configs import (
     LUA_PATH,
     LUAC_PATH,
     NODE_PATH,
+    PERL_PATH,
     PYTHON3_PATH,
     SANDBOX_DIR,
     STDERR_PATH,
@@ -52,6 +53,7 @@ __all__ = [
     "LUA_PATH",
     "LUAC_PATH",
     "NODE_PATH",
+    "PERL_PATH",
     "PYTHON3_PATH",
     "SANDBOX_DIR",
     "STDERR_PATH",
@@ -147,6 +149,7 @@ def highlightjs_language_for_language_id(language_id: str) -> str:
         "swift": "swift",
         "ruby": "ruby",
         "bash": "bash",
+        "perl": "perl",
     }
     return mapping.get(language_id, "plaintext")
 
@@ -176,6 +179,7 @@ def ace_mode_for_language_id(language_id: str) -> str:
         "swift": "swift",
         "ruby": "ruby",
         "bash": "sh",
+        "perl": "perl",
     }
     return mapping.get(language_id, "text")
 

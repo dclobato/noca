@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from _helpers import _make_admin, _make_problem, _make_user
+from _helpers import _make_admin, _make_judge, _make_problem, _make_user
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -171,11 +171,12 @@ async def test_compute_statistics_distributions_and_ac_aggregates(session: Async
 
 
 @pytest.mark.asyncio
-async def test_compute_statistics_excludes_admin_and_author(session: AsyncSession) -> None:
-    """Statistics must exclude ARENA_ADMIN and the problem owner; judges/users count."""
+async def test_compute_statistics_counts_all_roles_except_problem_owner(session: AsyncSession) -> None:
+    """Statistics must count every role but exclude the problem owner."""
     author = await _make_user(session)
     user = await _make_user(session)
     admin = await _make_admin(session)
+    judge = await _make_judge(session)
     problem = await _make_problem(session, author)
     py = await _make_language(session, "Python 3")
 
@@ -185,8 +186,9 @@ async def test_compute_statistics_excludes_admin_and_author(session: AsyncSessio
     )
     # Excluded: the author's own submission.
     await _make_submission(session, user_id=author.id, problem_id=problem.id, language_id=py, verdict="WA")
-    # Excluded: an admin's submission.
+    # Counted: staff submissions on a problem they do not own.
     await _make_submission(session, user_id=admin.id, problem_id=problem.id, language_id=py, verdict="WA")
+    await _make_submission(session, user_id=judge.id, problem_id=problem.id, language_id=py, verdict="TLE")
 
     count = await compute_all_problem_statistics(session)
     await session.commit()
@@ -196,9 +198,8 @@ async def test_compute_statistics_excludes_admin_and_author(session: AsyncSessio
         select(arena_problem_statistics.c.data).where(arena_problem_statistics.c.problem_id == problem.id)
     )
     assert data is not None
-    # Only the regular user's single AC submission is counted.
-    assert data["total_submissions"] == 1
-    assert {v["verdict"]: v["count"] for v in data["verdicts"]} == {"AC": 1}
+    assert data["total_submissions"] == 3
+    assert {v["verdict"]: v["count"] for v in data["verdicts"]} == {"AC": 1, "WA": 1, "TLE": 1}
 
 
 @pytest.mark.asyncio

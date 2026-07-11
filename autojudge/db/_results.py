@@ -17,6 +17,7 @@ import math
 import uuid
 
 from autojudge.db._base import _DatabaseBase, _utcnow
+from autojudge.runtime_utils import decode_for_text_column
 from autojudge.types import ProfilingObservedLimits
 from shared.db_schema import profiling_case_results as _profiling_case_result
 from shared.db_schema import submission_test_results as _submission_test_result
@@ -34,6 +35,7 @@ class _ResultsMixin(_DatabaseBase):
         wall_time_ms: int | None,
         memory_kb: int | None,
         exit_code: int | None,
+        exit_signal: int | None,
         stdout_excerpt: bytes,
         stderr_excerpt: bytes,
     ) -> None:
@@ -47,6 +49,7 @@ class _ResultsMixin(_DatabaseBase):
             wall_time_ms: Measured wall-clock time in milliseconds.
             memory_kb: Peak memory usage in kilobytes.
             exit_code: Process exit code.
+            exit_signal: Fatal signal number when the process was signal-killed.
             stdout_excerpt: First N bytes of stdout (already truncated).
             stderr_excerpt: First N bytes of stderr (already truncated).
         """
@@ -59,8 +62,9 @@ class _ResultsMixin(_DatabaseBase):
                 wall_time_ms=wall_time_ms,
                 memory_kb=memory_kb,
                 exit_code=exit_code,
-                stdout_excerpt=stdout_excerpt.decode(errors="replace"),
-                stderr_excerpt=stderr_excerpt.decode(errors="replace"),
+                exit_signal=exit_signal,
+                stdout_excerpt=decode_for_text_column(stdout_excerpt),
+                stderr_excerpt=decode_for_text_column(stderr_excerpt),
                 created_at=_utcnow(),
             )
         )

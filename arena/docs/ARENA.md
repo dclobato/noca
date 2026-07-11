@@ -124,7 +124,8 @@ Every successful login can record:
 
 - timestamp
 - IP address
-- geolocated location string
+- structured geolocation resolved from the IP (country, subdivision, district,
+  city, EU flag, AS number)
 - user agent
 - login mode
 
@@ -187,15 +188,12 @@ Judges do **not** get the user-admin surface; that remains admin-only.
 
 ### Dashboard
 
-`/dashboard` currently renders four cards:
+`/dashboard` currently renders three cards, all backed by live database data:
 
-- Random Problems
-- Top Users
-- Top Countries
-- Top Leagues
-
-Only **Top Users** is backed by live database data today (`leaderboard_service.get_top_rated_users`).
-The other three cards are still template placeholders/mock content.
+- Languages (active language registry)
+- Latest Problems — the 10 most recently created or edited enabled problems,
+  showing relative "updated" time (`problem_browse_service.get_latest_problems`)
+- Leaderboard — the top 10 rated users (`leaderboard_service.get_top_rated_users`)
 
 ### User profile
 
@@ -381,7 +379,8 @@ doing Valkey I/O per request.
 
 - excludes inactive users
 - excludes unconfirmed users
-- excludes staff accounts (`ARENA_ADMIN`, `ARENA_JUDGE`)
+- excludes users hidden from public rankings (`ranking_visible=False`)
+- includes every Arena role that otherwise meets the eligibility rules
 - ranks by `user_rating`, then solved count, then creation time
 
 ---
@@ -394,15 +393,14 @@ Arena already has a working backend path for submissions even though the public 
 
 - `arena/services/submission_service.py` validates problem/language/test-case availability
 - it creates `arena_submissions` and `arena_submission_judgments`
-- it updates `arena_problem_tried` and the aggregate `attempted_users` counter (excluding
-  `ARENA_ADMIN` and the problem owner; `ARENA_JUDGE` and regular users count)
+- it updates `arena_problem_tried` and the aggregate `attempted_users` counter, excluding
+  only the problem owner
 - it emits an `ArenaSubmissionJob`
 - `autojudge/arena_submission_job.py` compiles and judges Arena submissions
 - the worker stores the first non-AC test result only
 - first AC updates `arena_problem_solvers` for everyone (personal solved marker); problem rating
   counters (`solved_users`, `total_tries_before_solve`) are incremented only for submissions that
-  count toward the problem — that is, excluding `ARENA_ADMIN` and the problem owner (`ARENA_JUDGE`
-  and regular users count). The shared rule lives in
+  count toward the problem — that is, excluding only the problem owner. The shared rule lives in
   `shared/services/arena_query_helpers.py` (`counts_toward_problem_rating` / `is_excluded_from_problem_rating`)
 
 ### What is still missing in Arena web

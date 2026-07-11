@@ -159,7 +159,7 @@ def test_sync_create_container_passes_configured_apparmor_profile(monkeypatch: p
     )
 
     monkeypatch.setattr("autojudge.pool.settings.DOCKER_APPARMOR_PROFILE", "unconfined")
-    monkeypatch.setattr(pool, "_validate_isolate_runtime", lambda container: None)
+    monkeypatch.setattr(pool, "_validate_isolate_runtime", lambda container, box_id: None)
 
     container_id = pool._sync_create_container()
 

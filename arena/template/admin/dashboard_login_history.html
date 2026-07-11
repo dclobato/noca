@@ -26,7 +26,7 @@
             <form method="get"
                   class="d-flex flex-wrap gap-2 align-items-end mb-3"
                   id="login-history-filter-form">
-                {% with label="Search user", value=search, placeholder="Full name, email or location…" %}
+                {% with label="Search user", value=search, placeholder="Full name, email or city…" %}
                     {% include "_partials/filter_search_field.html" %}
                 {% endwith %}
                 <div>
@@ -99,8 +99,11 @@
                                     </a>
                                 </td>
                                 <td>
-                                    {% if login.location %}
-                                        {{ login.location }}
+                                    {% if login.country_name %}
+                                        <img src="{{ request.url_for('static_vendor', path='img/flags/' + login.country_code.lower() + '.svg') }}"
+                                             class="arena-country-flag"
+                                             alt="">
+                                        {{ login.detailed_location }}
                                     {% else %}
                                         <span class="text-muted">&mdash;</span>
                                     {% endif %}
@@ -112,7 +115,8 @@
                                             data-bs-target="#login-detail-modal"
                                             data-login-date="{{ arena_format_datetime(login.dta_login, current_user, '%Y-%m-%d %H:%M:%S %Z') }}"
                                             data-login-ip="{{ login.ip_address or '' }}"
-                                            data-login-location="{{ login.location or '' }}"
+                                            data-login-location="{{ login.detailed_location or '' }}"
+                                            data-login-asn="{{ login.as_number or '' }}"
                                             data-login-ua="{{ login.user_agent or '' }}"
                                             data-login-mode="{{ login.mode or '' }}">
                                         {{ render_icon(icon="info") }}
@@ -157,6 +161,9 @@
                         </dd>
                         <dt>Location</dt>
                         <dd id="login-detail-location">
+                        </dd>
+                        <dt>AS number</dt>
+                        <dd id="login-detail-asn">
                         </dd>
                         <dt>User agent</dt>
                         <dd id="login-detail-ua" class="text-break small">

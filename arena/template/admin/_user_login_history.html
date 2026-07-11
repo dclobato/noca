@@ -99,8 +99,11 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if login.location %}
-                                {{ login.location }}
+                            {% if login.country_name %}
+                                <img src="{{ request.url_for('static_vendor', path='img/flags/' + login.country_code.lower() + '.svg') }}"
+                                     class="arena-country-flag"
+                                     alt="">
+                                {{ login.detailed_location }}
                             {% else %}
                                 <span class="text-muted">&mdash;</span>
                             {% endif %}

@@ -53,7 +53,6 @@ from shared.db_schema.arena import arena_problems as _arena_problems
 from shared.db_schema.arena import arena_submissions as _arena_submissions
 from shared.db_schema.arena import arena_user_rating_history as _arena_user_rating_history
 from shared.db_schema.arena import arena_users as _arena_users
-from shared.enumerations import ArenaRole
 from shared.services.arena_difficulty_histogram import persist_difficulty_histogram
 from shared.services.arena_query_helpers import counts_toward_problem_rating
 
@@ -344,11 +343,11 @@ async def _should_record_history(
 
 
 async def _recompute_stats_for_problem(session: AsyncSession, problem_id: str) -> None:
-    """Rewrite arena_problem_ratings stats from raw tables, excluding admins and the author.
+    """Rewrite arena_problem_ratings stats from raw tables, excluding the owner.
 
-    Called at the start of each full rating cycle so that ARENA_ADMIN submissions
-    and the problem owner's own submissions are never factored into problem
-    difficulty. ARENA_JUDGE and regular ARENA_USER submissions count.
+    Called at the start of each full rating cycle so that the problem owner's
+    own submissions are never factored into problem difficulty. User roles do
+    not affect the counting rule.
 
     Args:
         session: Active async database session.
@@ -358,11 +357,9 @@ async def _recompute_stats_for_problem(session: AsyncSession, problem_id: str) -
 
     attempted = (
         await session.scalar(
-            select(func.count(func.distinct(_arena_submissions.c.user_id)))
-            .join(_arena_users, _arena_users.c.id == _arena_submissions.c.user_id)
-            .where(
+            select(func.count(func.distinct(_arena_submissions.c.user_id))).where(
                 _arena_submissions.c.problem_id == problem_id,
-                counts_toward_problem_rating(_arena_users.c.role, _arena_submissions.c.user_id, owner_id),
+                counts_toward_problem_rating(_arena_submissions.c.user_id, owner_id),
             )
         )
         or 0
@@ -372,10 +369,9 @@ async def _recompute_stats_for_problem(session: AsyncSession, problem_id: str) -
         await session.scalar(
             select(func.count())
             .select_from(_arena_problem_solvers)
-            .join(_arena_users, _arena_users.c.id == _arena_problem_solvers.c.user_id)
             .where(
                 _arena_problem_solvers.c.problem_id == problem_id,
-                counts_toward_problem_rating(_arena_users.c.role, _arena_problem_solvers.c.user_id, owner_id),
+                counts_toward_problem_rating(_arena_problem_solvers.c.user_id, owner_id),
             )
         )
         or 0
@@ -396,10 +392,9 @@ async def _recompute_stats_for_problem(session: AsyncSession, problem_id: str) -
         await session.scalar(
             select(func.coalesce(func.sum(tries_per_solver), 0))
             .select_from(_arena_problem_solvers)
-            .join(_arena_users, _arena_users.c.id == _arena_problem_solvers.c.user_id)
             .where(
                 _arena_problem_solvers.c.problem_id == problem_id,
-                counts_toward_problem_rating(_arena_users.c.role, _arena_problem_solvers.c.user_id, owner_id),
+                counts_toward_problem_rating(_arena_problem_solvers.c.user_id, owner_id),
             )
         )
         or 0
@@ -561,9 +556,10 @@ async def rate_all_problems(session: AsyncSession) -> int:
 async def rate_user(*, session: AsyncSession, user_id: str) -> None:
     """Compute and persist the rating score for a single Arena user.
 
-    Reads all problems solved by the user from ``arena_problem_solvers``,
-    sums exponential point values based on current problem difficulties, and
-    updates ``user_rating``, ``solved_problems``, and ``dta_rating_update``.
+    Reads all problems solved by the user from ``arena_problem_solvers`` except
+    problems owned by that same user, sums exponential point values based on
+    current problem difficulties, and updates ``user_rating``,
+    ``solved_problems``, and ``dta_rating_update``.
 
     Users with no solved problems receive score 0 and solved_problems 0.
     Does **not** commit; caller is responsible for the transaction.
@@ -579,7 +575,11 @@ async def rate_user(*, session: AsyncSession, user_id: str) -> None:
                 _arena_problem_solvers,
                 _arena_problem_rating.c.problem_id == _arena_problem_solvers.c.problem_id,
             )
-            .where(_arena_problem_solvers.c.user_id == user_id)
+            .join(_arena_problems, _arena_problems.c.id == _arena_problem_solvers.c.problem_id)
+            .where(
+                _arena_problem_solvers.c.user_id == user_id,
+                _arena_problems.c.owner_id != user_id,
+            )
         )
     ).all()
 
@@ -610,7 +610,7 @@ async def rate_user(*, session: AsyncSession, user_id: str) -> None:
 
 
 async def rate_all_users(session: AsyncSession) -> int:
-    """Rate every Arena user.
+    """Rate every Arena user, regardless of role.
 
     Args:
         session: Active async database session.
@@ -618,7 +618,7 @@ async def rate_all_users(session: AsyncSession) -> int:
     Returns:
         int: Number of users rated.
     """
-    user_ids = list(await session.scalars(select(_arena_users.c.id).where(_arena_users.c.role == ArenaRole.ARENA_USER)))
+    user_ids = list(await session.scalars(select(_arena_users.c.id)))
     for uid in user_ids:
         await rate_user(session=session, user_id=uid)
     cutoff = datetime.now(UTC) - timedelta(days=730)
@@ -672,7 +672,6 @@ async def rate_affiliation(*, session: AsyncSession, affiliation_id: str, f: flo
                 _arena_users.c.affiliation_id == affiliation_id,
                 _arena_users.c.user_rating.is_not(None),
                 _arena_users.c.ranking_visible.is_(True),
-                _arena_users.c.role == ArenaRole.ARENA_USER,
             )
         )
     ).all()

@@ -9,15 +9,28 @@
 {% set result_verdict = test_result_verdict | default("") %}
 {% set output_label = test_result_output_label | default("Your output") %}
 {% set context_classes = test_result_context_classes | default("mt-3 pt-3 border-top") %}
-{% if test_result and (result_verdict == "WA" or test_result.stderr_excerpt) %}
+{% set result_exit_signal = test_result.exit_signal_description if test_result else none %}
+{% if test_result and (result_verdict == "WA" or test_result.stderr_excerpt or result_exit_signal) %}
     <div class="{{ context_classes }}">
         <p class="small text-muted mb-2">
             {{ render_icon(icon="compare_arrows") }}
-            Output mismatch on test case #{{ test_result.test_case_ordinal }}
+            {% if result_verdict == "WA" %}
+                Output mismatch on test case #{{ test_result.test_case_ordinal }}
+            {% else %}
+                Failed on test case #{{ test_result.test_case_ordinal }}
+            {% endif %}
             {% if not test_result.is_sample %}
                 <span class="badge bg-secondary ms-1" title="Secret test case">secret</span>
             {% endif %}
         </p>
+        {% if result_exit_signal %}
+            <div class="mb-2">
+                <p class="fw-semibold small text-danger-emphasis mb-1">
+                    {{ render_icon(icon="report") }}
+                    Process killed by signal: {{ result_exit_signal }}
+                </p>
+            </div>
+        {% endif %}
         {% if result_verdict == "WA" %}
             <div class="arena-output-compare">
                 <div>

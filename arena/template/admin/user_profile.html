@@ -81,6 +81,42 @@
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'badges' %}active{% endif %}"
+                            id="ap-badges-tab"
+                            data-profile-tab="badges"
+                            type="button"
+                            role="tab"
+                            aria-controls="ap-badges-pane"
+                            aria-selected="{{ 'true' if active_tab == 'badges' else 'false' }}">
+                        {{ render_icon(icon="workspace_premium") }}
+                        <span>Badges</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'notifications' %}active{% endif %}"
+                            id="ap-notifications-tab"
+                            data-profile-tab="notifications"
+                            type="button"
+                            role="tab"
+                            aria-controls="ap-notifications-pane"
+                            aria-selected="{{ 'true' if active_tab == 'notifications' else 'false' }}">
+                        {{ render_icon(icon="notifications") }}
+                        <span>Notifications</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'submissions' %}active{% endif %}"
+                            id="ap-submissions-tab"
+                            data-profile-tab="submissions"
+                            type="button"
+                            role="tab"
+                            aria-controls="ap-submissions-pane"
+                            aria-selected="{{ 'true' if active_tab == 'submissions' else 'false' }}">
+                        {{ render_icon(icon="send") }}
+                        <span>Submissions</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
                     <button class="nav-link {% if active_tab == 'credits' %}active{% endif %}"
                             id="ap-credits-tab"
                             data-profile-tab="credits"
@@ -287,6 +323,22 @@
                                             <span class="text-arena-muted">Never</span>
                                         {% endif %}
                                     </dd>
+                                    <dt>Legal guardian email</dt>
+                                    <dd>
+                                        {% if target_user.email_responsavel_legal %}
+                                            {{ target_user.email_responsavel_legal }}
+                                        {% else %}
+                                            <span class="text-arena-muted">Not set</span>
+                                        {% endif %}
+                                    </dd>
+                                    <dt>Account created</dt>
+                                    <dd>
+                                        {{ arena_format_datetime(target_user.created_at, current_user) }}
+                                    </dd>
+                                    <dt>Last updated</dt>
+                                    <dd>
+                                        {{ arena_format_datetime(target_user.updated_at, current_user) }}
+                                    </dd>
                                 </dl>
                             </div>
                             <div class="col-12 col-lg-5">
@@ -405,6 +457,39 @@
                                 </dl>
                             </div>
                         </div>
+                        <div class="mt-2">
+                            {% with chart_id="arena-admin-user-rating-chart",
+                                data_url=request.url_for("arena_admin_user_rating_history", user_id=target_user.id) %}
+                                {% include "users/_rating_history_chart.html" %}
+                            {% endwith %}
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="tab-pane fade {% if active_tab == 'badges' %}show active{% endif %}"
+                     id="ap-badges-pane"
+                     role="tabpanel"
+                     aria-labelledby="ap-badges-tab"
+                     tabindex="0">
+                    {% if active_tab == 'badges' %}
+                        {% include "users/_badges_grid.html" %}
+                    {% endif %}
+                </div>
+                <div class="tab-pane fade {% if active_tab == 'notifications' %}show active{% endif %}"
+                     id="ap-notifications-pane"
+                     role="tabpanel"
+                     aria-labelledby="ap-notifications-tab"
+                     tabindex="0">
+                    {% if active_tab == 'notifications' %}
+                        <div class="py-4">{% include "admin/_user_notifications_list.html" %}</div>
+                    {% endif %}
+                </div>
+                <div class="tab-pane fade {% if active_tab == 'submissions' %}show active{% endif %}"
+                     id="ap-submissions-pane"
+                     role="tabpanel"
+                     aria-labelledby="ap-submissions-tab"
+                     tabindex="0">
+                    {% if active_tab == 'submissions' %}
+                        <div class="py-4">{% include "admin/_user_submissions_list.html" %}</div>
                     {% endif %}
                 </div>
                 <div class="tab-pane fade {% if active_tab == 'credits' %}show active{% endif %}"
@@ -871,6 +956,7 @@
 {% block extra_script %}
     <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-submission-heatmap.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-rating-history-chart.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.js') }}"></script>
     <script src="{{ request.url_for('static_vendor', path='flatpickr/l10n/default.min.js') }}"></script>
     <script src="{{ request.url_for('static_vendor', path='flatpickr/plugins/rangePlugin.min.js') }}"></script>

@@ -15,9 +15,9 @@ request.
 
 Aggregation rules (confirmed product decisions):
   - Verdict and language distributions cover judged submissions that count toward
-    a problem: ARENA_ADMIN submissions and the problem owner's own submissions are
-    excluded (ARENA_JUDGE and regular users count), matching the rating and public
-    solver-count rules.
+    a problem: the problem owner's own submissions are excluded, and user roles do
+    not affect the counting rule. This matches the rating and public solver-count
+    rules.
   - Per-language wall-time / peak-memory tables and the wall-time histogram
     cover **AC submissions only** (under the same exclusion).
 
@@ -40,7 +40,6 @@ from shared.db_schema.arena import arena_problems as _arena_problems
 from shared.db_schema.arena import arena_submission_judgments as _judgments
 from shared.db_schema.arena import arena_submissions as _submissions
 from shared.db_schema.arena import arena_user_statistics as _arena_user_statistics
-from shared.db_schema.arena import arena_users as _arena_users
 from shared.enumerations import Verdict
 from shared.services.arena_query_helpers import active_arena_judgment_subquery, counts_toward_problem_rating
 
@@ -188,12 +187,11 @@ async def compute_all_problem_statistics(session: AsyncSession) -> int:
                     _judgments.c.created_at == active.c.max_created_at,
                 ),
             )
-            .join(_arena_users, _arena_users.c.id == _submissions.c.user_id)
             .join(_arena_problems, _arena_problems.c.id == _submissions.c.problem_id)
         )
         .where(
             _judgments.c.final_verdict.isnot(None),
-            counts_toward_problem_rating(_arena_users.c.role, _submissions.c.user_id, _arena_problems.c.owner_id),
+            counts_toward_problem_rating(_submissions.c.user_id, _arena_problems.c.owner_id),
         )
     )
 

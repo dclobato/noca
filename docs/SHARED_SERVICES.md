@@ -25,6 +25,29 @@ Main entrypoints:
 
 ---
 
+## `signal_names.py`
+
+Purpose:
+- translate fatal POSIX signal numbers (isolate `exitsig`) into human-readable
+  descriptions so Runtime Error verdicts explain *how* the process died
+  (e.g. "SIGSEGV — segmentation fault (invalid memory access)")
+
+Canonical location:
+- `shared/signal_names.py`
+
+Main entrypoints:
+- `describe_signal(signum) -> str` returns `"<NAME> — <explanation>"` for known
+  fatal signals, the bare signal name for other valid signals, and
+  `"signal <n>"` for unknown numbers
+- `signal_name(signum) -> str` returns the short name (`"SIGSEGV"`), or
+  `"SIG<n>"` for unknown numbers
+
+Consumers:
+- Web submission review page (registered as the `describe_signal` Jinja global)
+- Arena submission detail page and problem-set batch feedback service
+
+---
+
 ## `age_check.py`
 
 Purpose:
@@ -189,9 +212,9 @@ Main entrypoint:
   submission) and returns the number of problems written
 
 Aggregation rules:
-- only judged submissions that count toward a problem are aggregated: `ARENA_ADMIN`
-  submissions and the problem author's own submissions are excluded (`ARENA_JUDGE` and
-  regular users count), matching the rating and public solver-count rules
+- only judged submissions that count toward a problem are aggregated: the problem
+  owner's own submissions are excluded, and user roles do not affect the rule,
+  matching the rating and public solver-count rules
   (`shared/services/arena_query_helpers.counts_toward_problem_rating`)
 - verdict and language distributions cover those judged submissions (active = most
   recent non-`SUPERSEDED` judgment per submission)
@@ -310,7 +333,8 @@ Model:
   in either the AC or non-AC batch.
 - badge eligibility uses **only** the active-judgment selection
   (`active_arena_judgment_subquery`); it does **not** apply
-  `counts_toward_problem_rating` — admins and problem authors are eligible.
+  `counts_toward_problem_rating` by default. Rule-specific filters still apply,
+  such as `FIRST_SOLVER` excluding the problem owner.
 - event ordering is canonical `(submission.created_at, submission.id)`; per-submission badges use
   the AC's `created_at` in the submitter's timezone (via `user_timezone.py`), while the watermark
   cursor is the judgment `finished_at`.
@@ -320,7 +344,9 @@ Model:
   `last_ac_date`). The distinct-problem-count tiers (PROBLEMS_10 / PROBLEMS_25 / PROBLEMS_100 /
   PROBLEMS_500) are award-only: each user in the batch is awarded every threshold their distinct
   solved-problem count (from `arena_problem_solvers`) has crossed.
-- FIRST_SOLVER uses `arena_problem_solvers` to find each affected problem's earliest solver.
+- FIRST_SOLVER joins `arena_problem_solvers` to `arena_problems` to find each affected problem's
+  earliest solver who is not the problem owner. Eligibility is gated by ownership, not role: the
+  owner is excluded and any other user is eligible regardless of role.
   FIRST_TO_HAND_IN and ALMOST_LATE consider only AC submissions explicitly tied to a problem set
   through `arena_submissions.problem_set_id`, with ALMOST_LATE requiring a non-null elapsed
   deadline. ROCK_CRACKER reads solve rates from `arena_problem_ratings`, THIS_IS_THE_WAY scans a
@@ -493,7 +519,7 @@ Notes:
 ## `geolocation.py`
 
 Purpose:
-- resolve a client IP address to a human-readable location string for login history
+- resolve a client IP address to structured geolocation fields for login history
 - disabled gracefully when no API key is configured
 
 Canonical location:
@@ -502,22 +528,32 @@ Canonical location:
 
 Main types:
 - `GeolocationIP`
+- `GeolocationDetails` — frozen dataclass with `country_code`, `subdivision_code`, `district`,
+  `city`, `is_eu`, `as_number` (all optional)
 
 Constructor:
 - `GeolocationIP(api_key: str | None, network_service: NetworkService, logger=None)`
-  - `api_key`: ipgeolocation.io API key; when `None` the service is disabled and `get_location_by_ip` always returns `None`
+  - `api_key`: ipgeolocation.io API key; when `None` the service is disabled and `get_details_by_ip` always returns `None`
   - `network_service`: a `NetworkService` instance for the outbound HTTP call
 
 Main entrypoints:
-- `get_location_by_ip(ip_address: str) -> str | None`
-  - Returns a comma-joined string of `country_name, state_prov, district, city` or `None` on any failure
+- `get_details_by_ip(ip_address: str) -> GeolocationDetails | None`
+  - Parses the ipgeolocation.io v3 response into normalized, type-guarded fields, or `None` on any failure
+  - `country_code`: `location.country_code2`, upper-cased; kept only when exactly two alpha chars
+  - `subdivision_code`: `location.state_code`, upper-cased; kept only when prefixed by `"{country_code}-"` (e.g. `DE-BY`)
+  - `district` / `city`: `location.district` / `location.city`, stripped, empty → `None`
+  - `is_eu`: `location.is_eu`, kept only when a real `bool`
+  - `as_number`: `asn.as_number`, normalized to a string (accepts `str` or `int`)
+  - No arbitrary JSON value ever flows into a column; every field is validated defensively
 
 Notes:
+- Replaces the former `get_location_by_ip` string method (removed); callers now store the six structured columns
 - Private and loopback IPs (RFC 1918, RFC 4193, etc.) always return `None` without making an HTTP request
 - API errors and network failures are logged and return `None` — the caller never raises
 - Configured via `NOCA_GEOLOCATION_API_KEY` in both the `web` and `arena` modules
 - In `arena/main.py` the instance is exposed on `app.state.geo_service`
 - In `web/main.py` the instance is injected into `AuthenticationService`
+- Existing login rows are backfilled from their stored `ip_address` by `scripts/backfill_login_geolocation.py`
 
 ---
 
@@ -1094,9 +1130,10 @@ Canonical location:
 
 Key types and functions:
 - `record_security_event(...)` — insert a security event from a session or
-  connection
+  connection; accepts `actor_user_id` (opaque id) and `actor_label` (human-readable
+  login, e.g. email/username) snapshotted at event time
 - `record_request_security_event(...)` — insert an event with request IP and
-  user-agent metadata
+  user-agent metadata; also forwards `actor_user_id` and `actor_label`
 - `list_recent_security_events(session, limit=50, module=None, event_type=None)`
   — return recent events for callers that need a bounded list
 - `list_security_events_paginated(session, page=..., per_page=..., module=None,
@@ -1111,6 +1148,11 @@ Key types and functions:
 
 Notes:
 - events are stored in the `security_events` table
+- rows carry both an opaque `actor_user_id` and a human-readable `actor_label`
+  (the login, snapshotted at event time so it survives account rename/deletion);
+  the viewers render `actor_label` in a "User" column, falling back to a truncated
+  `actor_user_id`. `auth_*` / `parental_*` callers pass both whenever the user is
+  in scope (login success/failure, 2FA, activation, parental-consent flows)
 - callers record auth lockouts, repeated auth failures, existing-account signup
   attempts, AI response redactions, suspicious token/session mismatches, and
   admin actions (via `admin_audit.py`)

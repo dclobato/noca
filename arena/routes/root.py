@@ -22,7 +22,7 @@ from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_users import ArenaUser
 from arena.services.leaderboard_service import get_top_rated_users
-from arena.services.problem_browse_service import get_random_problems
+from arena.services.problem_browse_service import get_latest_problems
 from shared.db_schema import languages as languages_table
 
 logger = logging.getLogger(__name__)
@@ -115,7 +115,8 @@ async def arena_dashboard(
     """Render the Arena public dashboard.
 
     Displays a languages card (full-width) followed by two side-by-side cards:
-    Random Problems and Top Users (7 rows each). Top Users is backed by Arena ratings.
+    Latest Problems (10 most recently created or edited problems) and the
+    Leaderboard (top 10 users, backed by Arena ratings).
 
     The ``current_user`` dependency validates the session cookie and performs
     the ``get_token_id()`` consistency check.  A mismatch (password change or
@@ -128,8 +129,8 @@ async def arena_dashboard(
         session: Async database session used for dashboard summary data.
     """
     templates = request.app.state.arena_templates
-    top_users = await get_top_rated_users(session, limit=7, only_users=False)
-    random_problems = await get_random_problems(session, limit=7)
+    top_users = await get_top_rated_users(session, limit=10)
+    latest_problems = await get_latest_problems(session, limit=10)
     result = await session.execute(
         select(languages_table).where(languages_table.c.active == True).order_by(languages_table.c.name)  # noqa: E712
     )
@@ -141,7 +142,7 @@ async def arena_dashboard(
             {
                 "current_user": current_user,
                 "top_users": top_users,
-                "random_problems": random_problems,
+                "latest_problems": latest_problems,
                 "languages": languages,
             },
         )
