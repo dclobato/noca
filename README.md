@@ -1,481 +1,471 @@
 # NOCA - Next Online Contest Administrator
 
-NOCA is a modern, Docker-based platform for running ICPC-like programming contests. Built with Python and FastAPI, it provides a modular infrastructure for managing competitive programming competitions with support for multiple concurrent contests, automated judging, and comprehensive contest administration.
+NOCA is an ecosystem for competitive programming. It combines two independent
+products: **Contest**, for organizing and running ICPC-style competitions, and
+**Arena**, a free-to-use training environment. Both products use the same
+AutoJudge infrastructure for compiling submissions and running them against
+problem test cases.
 
-## Overview
+Contest and Arena can run together or as separate deployments. Arena also has
+optional Rating and AI Assistant workers for ratings, statistics, badges, and
+submission feedback.
 
-NOCA reimagines the core principles of BOCA (the backbone of Brazilian programming marathons) for the modern era. It is a modular application designed specifically for competitive programming contests, offering flexible contest management, secure code execution, public Arena accounts, and real-time scoring.
+# Project structure
 
-### Key Features
+NOCA is a `uv` workspace. Each runtime module is an independent package, while
+`shared` contains the contracts and services that the modules use in common.
 
-- **Multiple Concurrent Contests**: Run multiple contests simultaneously, each with isolated problems, users, and configurations
-- **Per-Contest Scope**: Problems and users are scoped to individual contests, ensuring clean separation
-- **Multi-Site Contest Management**: Organize each contest into physical sites, assign teams and staff to sites, auto-create missing sites during imports, and manage users with site-aware grouping
-- **Flexible Judging Modes**: 
-  - Autojudge-only contests for fully automated verdicts
-  - Human-reviewed contests requiring judge confirmation for final verdicts
-  - Submissions can be re-judged if required
-- **Customizable Contest Rules**: Each contest can define its own:
-  - Duration and timing
-  - Penalty systems
-  - Reaper cycles for background tasks
-  - Scoreboard freeze/thaw mechanics
-- **Import/Export**: Bulk import and export problems and users via CSV/JSON
-- **Site Logistics Reporting**: Generate a markdown users-per-site report with role grouping, chief judge annotation, login URL, contest rules summary, and team location data for printing or PDF conversion
-- **Submission Management**: Teams can download their submissions after contest ends
-- **Contest Analytics Reports**: Admins and judges can access a reports page with problem summaries, verdict/language cross-tables, team-vs-problem breakdowns, and time-based charts
-- **Animeitor / Reveleitor Compatibility Service**: Admins and UberAdmins can download an Animeitor-compatible webcast ZIP from `Administration > Export/Import` for use with [maratona-animeitor](https://github.com/wuerges/maratona-animeitor), including live animated scoreboards and post-freeze revelation ceremonies
-- **Flexible Problem Statements**: Support for both PDF and Markdown formats with LaTeX math equations and Mermaid diagram rendering
-- **Online Test Case Editor**: Web-based interface for managing problem test cases
-- **Operational Task Workflow**: Accepted runs can auto-create balloon tasks, and task dashboards include queue time, service time, and finished-task detail views
-- **Container-Based Isolation**: 
-  - Each submission runs in isolated Docker containers
-  - `isolate` is the authoritative inner sandbox for time, memory, PID, and output limits
-  - Docker remains the outer safety boundary around judge execution
-  - Custom Dockerfile support for compilation and execution
-- **Per-Contest Language Selection**: At contest creation, the uberadmin selects which active languages are available to teams. The allowed set is immutable after creation and enforced across submission, problem limits, and language-display pages
-- **Language Support**: Script for seeding common languages (C, C++, Java, Python, etc.) with optional icon metadata for richer UI presentation
-- **Auto-Limit Profiling**: Reference solutions can be profiled per language to populate problem limits, with per-language profiling defaults for repetitions and PID floors
-- **Modern Web UI**: Plain HTML + CSS + JavaScript + Bootstrap with Server-Sent Events
-- **Safer Team Workflow**: Submission forms can show a confirmation modal before upload, while team profile identity, site, and location fields remain administrator-managed during contests
-- **Background Services**: Task queue for balloons, printing, and SOS requests
-- **Comprehensive RBAC**: Role-based access control with contest-scoped identities
-
-## Architecture
-
-NOCA follows a strict multi-module architecture with clear separation between contest administration, public Arena identity, shared contracts, and untrusted code execution.
-
-### Module Structure
-
-```
-├── web/              # Contest administration and contest-facing FastAPI app
-├── arena/            # Public Arena FastAPI app with its own identity domain
-├── autojudge/        # Asynchronous judge worker (compilation + sandboxed execution)
-├── rating/           # Single-replica Arena rating recomputation worker
-├── aiassistant/      # Arena AI code review worker (OpenAI Responses / Batch API)
-└── shared/           # Common schema, enums, queue payloads, and services
+```text
+noca/
+|-- web/                    # Contest FastAPI application
+|   |-- routes/             # HTTP endpoints
+|   |-- services/           # Contest business logic
+|   |-- models/             # Contest ORM models
+|   |-- template/           # Jinja templates
+|   `-- static/             # Contest CSS, JavaScript, and images
+|-- arena/                  # Arena FastAPI application
+|   |-- routes/             # HTTP endpoints
+|   |-- services/           # Arena business logic
+|   |-- models/             # Arena ORM models
+|   |-- template/           # Jinja templates
+|   `-- static/             # Arena CSS, JavaScript, and images
+|-- autojudge/              # Compilation and execution worker
+|-- rating/                 # Arena rating, statistics, and badge worker
+|-- aiassistant/            # Arena AI review worker
+|-- shared/                 # Shared schemas, services, assets, and contracts
+|   |-- db_schema/          # SQLAlchemy Core table definitions
+|   |-- services/           # Cross-module services
+|   |-- static/             # Shared browser assets
+|   `-- template/           # Shared Jinja templates
+|-- containers/             # Application and judge image definitions
+|-- migrations/             # Alembic database migrations
+|-- scripts/                # Bootstrap, maintenance, and diagnostic tools
+|-- tests/                  # Test suite for all workspace packages
+|-- docs/                   # System-wide architecture and operations docs
+|-- web/docs/               # Contest route and service references
+|-- arena/docs/             # Arena route and service references
+|-- docker-compose.yml.sample
+`-- pyproject.toml          # Workspace and development tool configuration
 ```
 
-The repository root is a non-package uv workspace. Each runtime module has its
-own workspace package and console-script entrypoint:
+## Modules
 
-| Package | Entrypoint | Role |
-|---------|-----------|------|
-| `noca-web` | `uv run noca-web` | Contest administration HTTP server (port 8000) |
-| `noca-arena` | `uv run noca-arena` | Public Arena HTTP server (port 8001) |
-| `noca-autojudge` | `uv run noca-autojudge` | Asynchronous judge worker |
-| `noca-rating` | `uv run noca-rating` | Arena rating recomputation worker (single replica) |
-| `noca-aiassistant` | `uv run noca-aiassistant` | Arena AI review worker |
-| `noca-shared` | *(library only)* | Cross-module schema, enums, and services |
+The runtime is composed of two user-facing applications, three workers, and one
+shared library. Arrows in the following figure show logical dependencies and
+workflows, not direct imports between runtime applications.
 
-### Module Relationships
+```text
 
-No module imports Python code from another runtime module. All coordination happens
-through **PostgreSQL**, **Valkey**, and the **shared filesystem**.
-
-```
-                         ┌─────────────────────────────────────────────┐
-                         │              noca-shared                     │
-                         │  (schema · enums · services · queue payloads)│
-                         └──────────────────┬──────────────────────────┘
-                                            │  imported by all runtime modules
-          ┌─────────────────────────────────┼──────────────────────────────────┐
-          │                                 │                                  │
-          ▼                                 ▼                                  ▼
-  ┌───────────────┐                ┌────────────────┐               ┌──────────────────┐
-  │   noca-web    │                │   noca-arena   │               │  noca-autojudge  │
-  │  (port 8000)  │                │  (port 8001)   │               │  (judge worker)  │
-  │               │                │                │               │                  │
-  │ Contest admin │                │ Public Arena   │               │ Compile + run    │
-  │ Auth / RBAC   │                │ Signup / Login │               │ submissions in   │
-  │ Problems      │                │ OTP accounts   │               │ Docker+isolate   │
-  │ Submissions   │                │ Submissions    │               │ containers       │
-  │ Scoreboard    │                │ Notifications  │               │                  │
-  └───────┬───────┘                └───────┬────────┘               └────────┬─────────┘
-          │                                │                                  │
-          │    ┌───────────────────────────┼──────────────────────────────────┤
-          │    │                           │                                  │
-          ▼    ▼                           ▼                                  ▼
-  ┌──────────────────────────────────────────────────────────────────────────────────┐
-  │                          Infrastructure Boundaries                               │
-  │                                                                                  │
-  │   PostgreSQL (system of record)  ·  Valkey (queues & cache)  ·  Filesystem      │
-  └──────────────────────────────────────────────────────────────────────────────────┘
-          ▲                                ▲
-          │                                │
-  ┌───────┴───────┐                ┌───────┴────────────┐
-  │  noca-rating  │                │  noca-aiassistant  │
-  │               │                │                    │
-  │ Arena problem │                │ AI code review     │
-  │ user &        │                │ OpenAI Responses   │
-  │ affiliation   │                │ API (user key)     │
-  │ rating cycles │                │ OpenAI Batch API   │
-  │ (single       │                │ (platform key,     │
-  │  replica)     │                │  ~50% cost saving) │
-  └───────────────┘                └──────────┬─────────┘
-                                              │
-                                       OpenAI API
+ ┌───────────────────────────────────────────────────────┐
+ │      Shared (shared ws) contracts and services        │
+ └────┬────────┬───────┬────────────────┬───────────────┬┘
+ ┌────▼─────┐  │  ┌────▼─────┐     ┌────▼─────┐         │
+ │ Contest  │  │  │  Arena   │     │  Rating  │         │
+ └────┬─────┘  │  └────┬───▲─┘     └────┬─────┘         │
+      │        │       │   └────────────┘               │
+      │        │   ratings, statistics and badges  ┌────▼─────┐
+      │        │       │                           │    AI    │
+      │        │       ├── optional review jobs ───► Assistant│
+      │        │       │                           └────┬─────┘
+      │        │       │                                │
+      │        │       │       Responses & Batch APIs   │
+      │        │       │                          ┌─────▼────┐
+      │        │       │ submission jobs          │  OpenAI  │
+      │        │       │                          │   API    │
+      │        │ ┌─────▼─────┐                    └──────────┘
+      │        └─► AutoJudge │
+      │          └─────▲─────┘
+      └────────────────┘
+   submission and profiling jobs
 ```
 
-#### Key data flows
+The workspace packages and their entry points are:
 
-| Flow | Producers | Channel | Consumers |
-|------|-----------|---------|-----------|
-| Contest submission judging | `noca-web` | Valkey `judge:queue:pending` | `noca-autojudge` |
-| Arena AI review (online) | `noca-arena` | Valkey `ai:queue:pending` | `noca-aiassistant` |
-| Arena AI review (batch) | `noca-aiassistant` | OpenAI Batch API + `arena_ai_batch_jobs` PostgreSQL table | `noca-aiassistant` batch poller |
-| Arena rating recomputation | `noca-rating` | PostgreSQL + Valkey (next-cycle timestamp) | `noca-arena` (footer display) |
-| Arena notifications | `noca-aiassistant`, `noca-autojudge` | PostgreSQL `arena_notifications` | `noca-arena` |
+| Workspace | Package | Entrypoint | Responsibility |
+| --- | --- | --- | --- |
+| `web/` | `noca-web` | `uv run noca-web` | Contest application |
+| `arena/` | `noca-arena` | `uv run noca-arena` | Arena application |
+| `autojudge/` | `noca-autojudge` | `uv run noca-autojudge` | Shared judge worker |
+| `rating/` | `noca-rating` | `uv run noca-rating` | Arena rating worker |
+| `aiassistant/` | `noca-aiassistant` | `uv run noca-aiassistant` | Arena AI review worker |
+| `shared/` | `noca-shared` | Library only | Shared contracts and services |
 
-### Communication Model
+## Module relationships
 
-The modules communicate through three infrastructure boundaries:
+Runtime modules don't import code from one another. They coordinate through
+shared infrastructure and import only the `shared` package for common schemas,
+enumerations, queue payloads, and services.
 
-1. **PostgreSQL**: System of record for all persistent data
-2. **Valkey (Redis)**: Lightweight coordination layer for judging queues, AI review queues, and rating cache
-3. **Shared Filesystem**: Problem statements and test case storage
+- **PostgreSQL is authoritative.** It stores identities, contests, problems,
+  submissions, immutable judgment attempts, results, ratings, AI reviews,
+  notifications, worker pause state, and other durable application data.
+- **Valkey provides cache and synchronization.** It carries judge and AI work
+  queues, idempotency locks, short-lived coordination state, cache entries,
+  worker presence, and signed worker-control notifications. Durable state is
+  reconciled from PostgreSQL when queue delivery is interrupted.
+- **The shared filesystem stores problem data.** Contest statements and test
+  cases are stored in configured directories. Test cases use separate
+  `contest/` and `arena/` namespaces and are shared with AutoJudge.
+- **Docker provides the execution boundary.** AutoJudge manages language
+  containers through the Docker daemon. Contest and Arena never execute
+  submitted code in their application processes.
+- **OpenAI is optional.** Only AI Assistant calls the OpenAI API, and Arena
+  remains usable when the worker or API is unavailable.
 
-This design enables:
-- Independent scaling of each module
-- Different security hardening per module
-- Clear failure boundaries
-- Auditability of all operations
+This separation lets you deploy and scale the user-facing applications and
+workers independently while keeping durable transitions auditable.
 
-### Judging Architecture
+## Contest
 
-```
-Team submits code → Web validates & stores → Valkey queue → Autojudge processes
-   ↓                                                                              ↓
-SubmissionJudgment ← PostgreSQL ← Container execution ← Verdict calculation
-```
+Contest is the `web` workspace. It organizes and runs programming competitions,
+including ICPC-style events, with contest-scoped users, roles, problems,
+submissions, clarifications, operational tasks, and scoreboards.
 
-The system separates immutable submissions from judgment attempts, supporting:
-- Rejudging without mutating original submissions
-- Separate machine and human verdict flows
-- Complete audit trails
+Its main features include:
 
-### AI Review Architecture
+- Support for every active language in the shared NOCA language registry. The
+  built-in registry currently defines 18 languages.
+- Multiple concurrent contests with isolated users, problems, schedules,
+  rules, and scoreboards.
+- Contest-scoped role-based access control for administrators, judges, staff,
+  teams, and read-only users.
+- Automatic judging or a human-confirmation workflow, with rejudging and chief
+  judge overrides.
+- Live, frozen, and final scoreboards, plus contest reports and analytics.
+- Multi-site organization for teams, staff, and event logistics.
+- CSV and JSON user import and export.
+- Import and export of NOCA-compatible problem packages.
+- Compatibility exports for SBC BOCA Animeitor and Reveleitor workflows.
+- PDF and Markdown problem statements with math and Mermaid support.
+- An online test case editor and ZIP-based test case management.
+- Auto-Limit profiling of reference solutions to calculate per-language time,
+  memory, process, and output limits.
+- Per-contest language selection and problem limits.
+- Clarification, balloon, print, and SOS task workflows.
+- Submission and verdict audit trails without executing untrusted code in the
+  web process.
 
-Arena participants can request AI-powered code review on their submissions:
+See the [architecture overview](docs/ARCHITECTURE.md),
+[Contest routes](web/docs/ROUTES.md), and
+[Contest services](web/docs/SERVICES.md) for implementation details.
 
-- **User-funded (fast path)**: if the user has configured a personal OpenAI API key,
-  the aiassistant worker calls the Responses API synchronously and stores the result immediately.
-- **Platform-funded (batch path)**: if no user key is present, the worker submits to
-  the OpenAI Batch API (up to 24 h, ~50% cost reduction) and polls for completion via
-  the `arena_ai_batch_jobs` state-machine table.
+## Arena
 
-### Rating Architecture
+Arena is the `arena` workspace. It is a free-to-use training environment where
+users can browse problems, submit solutions, track progress, and participate in
+teacher-managed classes. Arena has its own identity and authorization domain,
+separate from Contest accounts.
 
-The `rating` worker runs as a **single replica** and periodically recomputes Arena
-problem difficulty, user scores, and affiliation ratings. It publishes the next scheduled
-cycle timestamp to Valkey so all Arena replicas can display a consistent rating-update
-countdown in the footer without querying the database.
+Its main features include:
 
-### Core Components
+- Free self-service registration, email confirmation, password recovery, and
+  optional two-factor authentication.
+- Regular user and teacher roles. Teachers can create classes and assign
+  scheduled problem sets.
+- Optional class self-registration and teacher-reviewed registration requests.
+- AutoJudge-only submissions using every active language in the shared NOCA
+  language registry.
+- Public problem browsing, samples, statistics, and rating history.
+- User profiles with solved and attempted problems, submission statistics,
+  rating history, affiliation, and optional public visibility.
+- Leaderboards and live submission activity.
+- Gamification through Capybara badges, because everybody loves capybaras.
+- An LGPD/GDPR age gate that rejects registrations under age 13 and requires
+  parental or legal-guardian consent for users aged 13 through 17.
+- Notifications for judging, rating, and optional AI review events.
+- Administrative tools for users, affiliations, categories, problems, test
+  cases, and worker status.
 
-- **Web Module**: Handles HTTP requests, authentication, contest management, and business logic
-- **Autojudge Worker**: Processes submission queues, runs code in containers, produces verdicts
-- **Rating Worker**: Owns periodic Arena rating recomputation cycles (single-replica)
-- **AI Assistant Worker**: Dequeues Arena AI review jobs; routes to online or batch OpenAI path
-- **Container Pool**: Pre-warmed Docker containers for low-latency execution
-- **Scoreboard Cache**: Aggressive caching with TTL management for live contests
-- **Background Reapers**: Async tasks for clarification, task, and stale-job recovery
+See the [Arena overview](arena/docs/ARENA.md),
+[Arena routes](arena/docs/ROUTES.md), and
+[Arena services](arena/docs/SERVICES.md) for implementation details.
 
-## Technology Stack
+### Rating
 
-- **Backend**: Python 3.14+, FastAPI, SQLAlchemy (async), Pydantic
-- **Database**: PostgreSQL with asyncpg
-- **Queue**: Valkey (Redis) with BLMOVE-based protocol
-- **Containerization**: Docker with `isolate`-backed execution sandboxing
-- **Frontend**: Server-rendered HTML, Bootstrap 5, Vanilla JS, HTMX, LaTeX (KaTeX), Mermaid diagrams
-- **Build**: uv workspace packages for module dependency management, Ruff for formatting/linting
-- **Type Checking**: MyPy with strict mode
+Rating is an optional, single-replica Arena worker. It periodically derives
+competitive and analytical data from authoritative Arena submission records.
 
-## Installation
+The worker:
 
-### Prerequisites
+- Computes problem difficulty from accepted submissions.
+- Computes user ratings and rating-history snapshots.
+- Aggregates institution and affiliation ratings.
+- Precomputes problem and user statistics.
+- Assigns Capybara badges through incremental passes and periodic full
+  reconciliation.
+- Publishes scheduler metadata so Arena can display consistent update timing.
 
-- Python 3.14 or higher
-- PostgreSQL 13+
-- Valkey (Redis) 6+
-- Docker with buildx
-- UV package manager
+Rating isn't required to submit or judge Arena solutions, but rating,
+statistics, and badge data won't update while it is stopped.
 
-### Quick Start
+### AI Assistant
 
-See [BOOTSTRAP.md](docs/BOOTSTRAP.md) for detailed instructions on running in development or production mode.
+AI Assistant is an optional Arena worker that provides feedback on a user's
+submission. A review request combines the problem statement, submitted source
+code, and a system prompt that asks the model to guide the user without writing
+the solution for them.
 
-### Upgrade Notes for 5.0.0
+AI Assistant supports two API-key paths:
 
-This release changes the judging stack in a breaking way:
+- **Bring your own key (BYOK):** Arena encrypts the user's OpenAI API key at
+  rest. The worker processes that user's request through the OpenAI Responses
+  API and stores the review immediately.
+- **Platform key:** When `NOCA_AI_OPENAI_API_KEY` is configured, users without
+  a personal key can use platform-funded reviews. These requests use the OpenAI
+  Batch API and complete asynchronously.
 
-- apply the latest database migrations before starting the web app or worker
-- rebuild the judge images so the run containers include `isolate`
-- re-bootstrap languages so the DB-backed language registry picks up the new per-language profiling defaults
+The worker tracks credits, token usage, estimated cost, durable batch jobs,
+notifications, stale-job recovery, and queue reconciliation. Prompt-injection
+patterns in submission content are rejected before an OpenAI request is made.
 
-Typical upgrade commands:
+See [AI Assistant](docs/AIASSISTANT.md) and the
+[AI review flow](docs/AIREVIEW_FLOW.md) for the full lifecycle.
 
-```bash
-uv run alembic upgrade head
-uv run python scripts/bootstrap_languages.py
-```
+## AutoJudge
 
-### Running the Application
+AutoJudge is the `autojudge` workspace and is shared by Contest and Arena. Each
+submission is stored in PostgreSQL and queued through Valkey. One worker slot
+claims the job, compiles the source when required, runs it against the problem's
+test cases, and persists the judgment and test results.
 
-**Development mode:**
+Its main capabilities include:
 
-```bash
-# Terminal 1: Web server (contest administration, port 8000)
-uv run noca-web
+- **Language registry:** AutoJudge uses the database-backed registry shared by
+  Contest and Arena. NOCA currently ships definitions for 18 languages, and
+  deployments can activate the required subset.
+- **Container-based isolation:** Each submission runs in isolated Docker
+  containers. `isolate` is the authoritative inner sandbox for time, memory,
+  PID, and output limits, while Docker is the outer safety boundary. Languages
+  can define custom compilation and execution images and commands.
+- **Verdict aggregation:** The final priority is CE -> RE -> TLE -> MLE -> OLE
+  -> WA -> PE -> AC, with per-test results stored alongside the final verdict.
+- **Immutable submissions, mutable judgments:** Source submissions aren't
+  changed. Separate judgment-attempt rows support rejudging without modifying
+  the original submission.
+- **Separate machine and human verdict flows:** Contest can require a judge to
+  confirm a machine verdict. Arena uses machine verdicts directly.
+- **Container pool:** Pre-warmed run containers per language reduce execution
+  latency.
+- **Auto-Limit profiling:** Dedicated priority jobs execute reference solutions
+  repeatedly and persist measured per-language resource limits.
+- **Stale in-flight recovery:** Startup and periodic reconciliation requeue
+  non-terminal database jobs missing from Valkey, including jobs lost between a
+  producer's commit and follow-up enqueue.
+- **Zombie container cleanup and worker heartbeat:** Background reapers clean
+  up stuck containers and publish worker liveness.
+- **Fixed-width concurrency:** Each worker process runs a configured number of
+  independent consumer slots.
 
-# Terminal 2: Arena server (public platform, port 8001)
-uv run noca-arena
+See the [AutoJudge infrastructure reference](autojudge/docs/AUTOJUDGE_INFRA.md)
+and [submission data flow](docs/DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md) for
+implementation details.
 
-# Terminal 3: Autojudge worker
-uv run noca-autojudge
+### Prometheus observability
 
-# Terminal 4: Arena rating worker (single replica)
-uv run noca-rating
+AutoJudge can expose Prometheus metrics for job processing, verdicts,
+compilation, execution resources, queue depth, container-pool saturation,
+recovery activity, and worker health.
 
-# Terminal 5: AI review worker
-uv run noca-aiassistant
-```
-
-**Production deployment:**
-
-See `docker-compose.yml.sample` for production Docker Compose configuration.
-
-## Configuration
-
-Configuration is entirely environment-based. See [CONFIG.md](docs/CONFIG.md) for complete reference of all environment variables.
-
-Key configuration areas:
-- Database and Valkey connection settings
-- JWT secret and cookie security
-- Judge worker concurrency and container limits
-- Password policies and geolocation
-- Problem statement and test case directories
-- OpenAI API key, model, token limits, and per-token pricing (for AI reviews)
-- Batch API poll interval and optional batch price overrides
-- Arena rating recomputation interval and algorithm weights
-
-## Usage
-
-### Creating Your First Contest
-
-1. **Access the system**: Log in as UberAdmin (create account via environment variables)
-2. **Create a contest**: Navigate to contest management and create a new contest
-3. **Login into the contest**: Using the contest owner account, log into the contest
-3. **Add problems**: Upload problem statements and configure test cases
-4. **Import users**: Bulk import teams via CSV or create individually
-5. **Start contest**: Transition contest from DRAFT to ACTIVE state
-6. **Monitor**: Use admin dashboard to track submissions and scoreboard
-
-### Contest Lifecycle
-
-Contests progress through these states:
-- **DRAFT**: Configuration phase, not visible to teams
-- **ACTIVE**: Running contest, accepting submissions
-- **FROZEN**: Scoreboard frozen for teams (judges see live data)
-- **ENDED**: Contest finished, no new submissions
-- **PAST**: Finalized, scoreboard released
-
-### Judging Workflow
-
-1. Team submits solution through web interface
-2. Web validates and queues submission in Valkey
-3. Autojudge dequeues and processes in container:
-   - Compilation in isolated container
-   - Execution through `isolate` with per-test resource limits
-   - Verdict aggregation (CE → RE → TLE → MLE → OLE → WA → PE → AC)
-4. Results stored in PostgreSQL
-5. For human-reviewed contests: judges confirm verdicts
-6. Scoreboard cache invalidated, live updates via SSE
-
-Problems can also be profiled with a reference implementation to derive per-language limits before teams submit solutions.
-
-### Observability
-
-The autojudge worker exposes a Prometheus metrics endpoint at `http://<worker-host>:9101/metrics`
-(port configurable via `NOCA_JUDGE_METRICS_PORT`; disable with `NOCA_JUDGE_METRICS_ENABLED=false`).
-
-Metrics cover:
-- **Job processing**: dispatch/completion counters, submission and profiling duration histograms, verdict totals by language
-- **Compile phase**: outcome counters and duration histograms per language
-- **Run phase**: wall time, CPU time, and memory histograms; timeout counters per timeout kind
-- **Container pool**: available container gauges, acquire duration histograms and outcome counters
-- **Queue depths**: Valkey queue lengths polled every 15 seconds (`pending`, `priority`, `profiling`, `inflight`)
-- **Reaper**: cycle, requeue, drop, and error counters
-- **Worker process**: concurrency slot gauge and start timestamp
-
-See `NOCA_JUDGE_METRICS_*` variables in [CONFIG.md](docs/CONFIG.md) for full configuration details.
-
-#### Connecting Prometheus
-
-Add a scrape job to your `prometheus.yml`:
+Set `NOCA_JUDGE_METRICS_ENABLED=true` and configure
+`NOCA_JUDGE_METRICS_PORT` for the exposition server. A minimal Prometheus scrape
+job is:
 
 ```yaml
 scrape_configs:
   - job_name: autojudge
     static_configs:
-      - targets: ["<worker-host>:9101"]
+      - targets: ["autojudge:9101"]
 ```
 
-If you are using Docker Compose, add a Prometheus service and mount the config:
+See the `NOCA_JUDGE_METRICS_*` entries in the
+[configuration reference](docs/CONFIG.md) for the complete settings.
 
-```yaml
-services:
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+## Communication model
+
+A submission follows the same durable queue pattern in Contest and Arena. The
+consumer-specific persistence step differs because Contest can include human
+review, while Arena uses the machine judgment directly.
+
+```text
+User                 App                           PG                  VK                  AJ
+  (User)          (Contest/Arena)                (PostgreSQL)          (Valkey)          (AutoJudge)
+    |                    |                              |                   |                   |
+    | Submit source code |                              |                   |                   |
+    |------------------->|                              |                   |                   |
+    |                    | Store submission and queued judgment             |                   |
+    |                    |----------------------------->|                   |                   |
+    |                    | Enqueue job identifier       |                   |                   |
+    |                    |------------------------------------------------->|                   |
+    |                    |                              |                   | Claim one job     |
+    |                    |                              |                   |<------------------|
+    |                    | Load source, language, limits, and test cases    |                   |
+    |                    |                              |<--------------------------------------|
+    |                    |                              |                   |                   |---+ Compile and
+    |                    |                              |                   |                   |   | run in Docker 
+    |                    |                              |                   |                   |<--+ and isolate
+    |                    | Store test results and final machine verdict     |                   |
+    |                    |                              |<--------------------------------------|
+    |                    |                              |                   |                   |
+    |                    |                              | Remove in-flight state & publish updates
+    |                    |                              |                   |<------------------|
+    |                    | Read current judgment state  |                   |                   |
+    |                    |----------------------------->|                   |                   |
+    | Display result     |                              |                   |                   |
+    |< - - - - - - - - - |                              |                   |                   |
+    |                    |                              |                   |                   |
 ```
 
-#### Useful starter queries
+PostgreSQL remains the recovery source when the queue and database temporarily
+disagree. AutoJudge's reconciler finds durable, non-terminal jobs missing from
+Valkey and enqueues them again. Idempotency locks and judgment state transitions
+prevent duplicate consumers from applying the same attempt concurrently.
 
-Once Prometheus is scraping, open the expression browser at `http://<prometheus>:9090` or connect Grafana:
+# Running
 
-```promql
-# Verdict rate by language over the last 5 minutes
-rate(autojudge_verdicts_total[5m])
+You can run NOCA as a complete ecosystem or deploy only the product and workers
+you need. PostgreSQL and Valkey are common dependencies for normal deployments;
+AutoJudge additionally needs access to Docker and the configured test case
+storage.
 
-# p95 submission duration per language over the last 10 minutes
-histogram_quantile(0.95, rate(autojudge_submission_duration_seconds_bucket[10m]))
+## Configuration
 
-# Available warm containers per language (pool saturation)
-autojudge_pool_available_containers
+NOCA reads configuration from environment variables, normally supplied through
+a `.env` file. Variables use prefixes that identify their owners:
 
-# Current queue backlog per queue
-autojudge_queue_depth
-```
+| Prefix | Scope |
+| --- | --- |
+| `NOCA_` | Shared database, Valkey, security, email, and runtime settings |
+| `NOCA_WEB_` | Contest application |
+| `NOCA_ARENA_` | Arena application |
+| `NOCA_JUDGE_` | AutoJudge worker |
+| `NOCA_RATING_` | Rating worker |
+| `NOCA_AI_` | AI Assistant worker |
 
-### Animeitor / Reveleitor Compatibility Service
+The [configuration reference](docs/CONFIG.md) lists every supported option,
+its default, validation rules, ownership, and operational notes. Production
+deployments must use secure secrets, secure cookies behind HTTPS, persistent
+storage, and a network-disabled judge execution environment.
 
-NOCA includes an admin-only compatibility export for the legacy BOCA webcast
-format consumed by `maratona-animeitor`.
+Default values are a safe start.
 
-- **Where to access it**: `Administration > Export/Import`
-- **Route**: `GET /c/{slug}/admin/export-animeitor`
-- **Who can use it**: Contest Admins and UberAdmins
-- **Export format**: ZIP archive containing `contest`, `runs`, `time`, `version`, and `icpc`
-- **Protocol details**: Uses the ASCII file separator (`0x1C`), ICPC-rounded run times, and legacy status mapping (`Y` / `N` / `X` / `?`)
-- **Compatibility behavior**: The export contains real verdicts and relies on the consumer to reapply scoreboard freeze locally from the `contest` metadata
-- **Preconditions**: The contest must have at least one team and one problem
+## Quickstart
 
-This export can be generated during the contest for live scoreboard playback or
-after the contest for the reveleitor ceremony. The compatibility layer keeps a
-hardcoded penalty of `20` to match the behavior expected by the downstream
-consumer.
-
-## Documentation
-
-- **[AIREVIEW_FLOW.md](docs/AIREVIEW_FLOW.md)**: End-to-end AI review flow (online fast-track and batch paths)
-- **[AIASSISTANT.md](docs/AIASSISTANT.md)**: AI assistant worker module, runtime loops, and security guardrails
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**: Concise system architecture overview
-- **[ARCHITECTURE_RUNTIME.md](docs/ARCHITECTURE_RUNTIME.md)**: Detailed runtime architecture reference
-- **[ANIMEITOR-REVELEITOR.md](docs/ANIMEITOR-REVELEITOR.md)**: How to use the compatibility export with `animeitor` and `reveleitor`
-- **[DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md](docs/DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md)**: Submission lifecycle details
-- **[CONFIG.md](docs/CONFIG.md)**: Environment configuration reference
-- **[DEVELOPMENT.md](docs/DEVELOPMENT.md)**: Development setup and workflows
-- **[PADROES_UI.md](docs/PADROES_UI.md)**: UI patterns and conventions
-- **[AUTOJUDGE_INFRA.md](autojudge/docs/AUTOJUDGE_INFRA.md)**: Worker isolation and container execution
-
-## Development
-
-### Code Quality
+Install all workspace packages and fetch the shared browser assets before
+starting a development environment:
 
 ```bash
-# Format code
+uv sync --all-packages
+uv run python scripts/fetch_assets.py
+uv run alembic upgrade head
+uv run python scripts/bootstrap_languages.py
+```
+
+Start each selected runtime in a separate terminal. Common combinations are:
+
+- Contest: `noca-web` + `noca-autojudge`.
+- Arena core: `noca-arena` + `noca-autojudge`.
+- Arena with ratings: `noca-arena` + `noca-autojudge` + `noca-rating`.
+- Arena with AI feedback: `noca-arena` + `noca-autojudge` +
+  `noca-aiassistant`.
+- Full ecosystem: all five runtime modules.
+
+For example, start the complete ecosystem with:
+
+```bash
+uv run noca-web
+uv run noca-arena
+uv run noca-autojudge
+uv run noca-rating
+uv run noca-aiassistant
+```
+
+Run **only one** Rating replica. Contest doesn't depend on Arena, Rating, or AI
+Assistant. Arena doesn't depend on Contest, and its Rating and AI Assistant
+workers are optional.
+
+See [Bootstrap and deployment](docs/BOOTSTRAP.md) for database setup, secrets,
+language images, and production preparation.
+
+## Docker
+
+The repository includes [a Docker Compose sample](docker-compose.yml.sample)
+with Caddy, Contest, Arena, AutoJudge, Rating, AI Assistant, PostgreSQL, and
+Valkey services. Use it as a deployment template and remove application or
+worker services that you don't need.
+
+The sample mounts persistent PostgreSQL and Valkey volumes, problem statements,
+shared test case storage, the crypto environment file, and the Docker socket
+required by AutoJudge. Review every environment value and volume path before
+using it in production, especially:
+
+- Database, JWT, worker-command, and encryption secrets.
+- `NOCA_COOKIE_SECURE` and reverse-proxy trust settings.
+- Test case and statement storage paths.
+- Docker socket access and the judge container network mode.
+- OpenAI credentials and AI credit policy.
+- The single-replica requirement for Rating.
+
+Build and start the selected Compose services with:
+
+```bash
+docker compose -f docker-compose.yml.sample up --build
+```
+
+# Development
+
+NOCA requires Python 3.14 and uses `uv` for workspace and dependency management.
+PostgreSQL, Valkey, and Docker must be available for integration paths that use
+them. During local application development, run Contest, Arena, AutoJudge,
+Rating, and AI Assistant directly instead of placing them in containers.
+
+The repository's implementation conventions are documented in
+[AGENTS.md](AGENTS.md), and the detailed architecture is in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Code quality
+
+Run formatting, linting, type checking, and the relevant tests before opening a
+change:
+
+```bash
 uv run ruff format .
-
-# Lint code
 uv run ruff check --fix .
-
-# Type checking
-uv run mypy web shared autojudge arena rating aiassistant
-
-# Run tests
+uv run mypy web shared autojudge arena rating
 uv run pytest
 ```
 
-### Project Structure
+The full test suite takes more than five minutes. During development, run the
+focused module or test file first, then run the full suite before release.
+Template changes also require `djlint`:
 
-```
-noca/
-├── web/                      # FastAPI web application (contest administration)
-│   ├── routes/              # HTTP route handlers
-│   ├── services/            # Business logic
-│   ├── models/              # ORM models
-│   ├── template/            # Jinja2 templates
-│   └── static/              # CSS, JS, images
-├── arena/                    # Public Arena FastAPI application
-│   ├── routes/              # HTTP route handlers
-│   ├── services/            # Arena business logic
-│   ├── models/              # Arena ORM models
-│   ├── template/            # Jinja2 templates
-│   └── static/              # CSS, JS, images
-├── autojudge/               # Judge worker
-│   ├── worker.py            # Queue consumer
-│   ├── runner.py            # Container execution
-│   └── pool.py              # Container pool management
-├── rating/                  # Arena rating recomputation worker (single replica)
-│   ├── worker.py            # Main entry point and loop orchestration
-│   └── loops.py             # Rating cycle loops (problems, users, affiliations)
-├── aiassistant/             # Arena AI review worker
-│   ├── worker.py            # Queue consumer + loop orchestration
-│   ├── reviewer.py          # Online (synchronous) Responses API reviewer
-│   ├── batch_reviewer.py    # Batch API submission (platform key path)
-│   ├── batch_poller.py      # Polls OpenAI batch jobs, orchestrates results
-│   ├── batch_results.py     # Stores batch review results, notifs, file cleanup
-│   ├── batch_status.py      # OpenAI status mapping + response parsing helpers
-│   ├── prompts.py           # Shared AI system prompt
-│   ├── config.py            # AI assistant settings
-│   └── db/                  # SQLAlchemy Core query helpers
-├── shared/                  # Common code
-│   ├── db_schema/           # Database schema definitions (per-domain sub-packages)
-│   ├── enumerations.py      # Cross-module enums (verdicts, roles, statuses…)
-│   ├── queue_schema.py      # Queue payload models
-│   ├── language_registry.py # Language configurations
-│   └── services/            # Shared service modules (email, Valkey, rating…)
-├── docs/                    # Architecture and design docs
-├── containers/              # Docker image definitions
-├── migrations/              # Alembic database migrations
-├── scripts/                 # Shared utility scripts
-└── tests/                   # Test suite
+```bash
+uv run djlint web/template --reformat
+uv run djlint arena/template --reformat
 ```
 
-### Adding New Features
+# Credits and acknowledgments
 
-1. Follow existing code patterns and conventions
-2. Add type hints for all functions and methods
-3. Write tests for new functionality
-4. Update documentation as needed
-5. Ensure all checks pass: format, lint, typecheck, tests
+NOCA builds on open-source projects and the work of the competitive programming
+community.
 
-## Security
+- [FastAPI](https://fastapi.tiangolo.com/) by Sebastian Ramirez provides the
+  asynchronous web framework.
+- [HTMX](https://htmx.org/) provides focused browser interactions without a
+  client-side application framework.
+- SQLAlchemy, Pydantic, Uvicorn, Starlette, PostgreSQL, Valkey, Docker, and
+  `isolate` provide core runtime infrastructure.
+- [Country Flags](https://github.com/hampusborgos/country-flags) by Hampus
+  Borgos provides the ISO 3166-1 flag assets used in Arena.
+- [BOCA](https://www.github.com/cassiopc/boca) Online Contest Administrator and Brazil's competitive programming
+  community inspired NOCA's Contest workflows.
 
-- **Container Isolation**: Untrusted code runs in Docker containers with `network=none` and `isolate` as the authoritative inner sandbox
-- **Contest Scoping**: All users (except UberAdmin) are isolated to single contests
-- **RBAC**: Strict role-based access control with JWT tokens
-- **No Code Execution in Web Layer**: Judge worker handles all compilation and execution
+See [CREDITS](CREDITS) for the maintained attribution list.
 
-## License
+# Legal
 
-See [LICENSE](LICENSE) file for details.
+NOCA is distributed under the terms in [LICENSE](LICENSE), without warranty.
+Deployment operators are responsible for their own privacy notices, terms of
+service, data-retention policies, OpenAI usage, and compliance obligations.
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes with tests
-4. Ensure all quality checks pass
-5. Submit a pull request
-
-## Support
-
-For issues and questions:
-- GitHub Issues: [Report bugs and request features](https://github.com/dclobato/noca/issues)
-- Documentation: Check the [docs/](docs/) directory
-- Architecture: Review [ARCHITECTURE.md](docs/ARCHITECTURE.md) for system understanding
+Arena's user-facing legal documents live in [docs/legal](docs/legal/). Review
+and adapt them for the organization and jurisdiction operating the deployment.
