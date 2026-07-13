@@ -54,6 +54,7 @@ class ProblemImportResult:
 
     problem: Problem
     skipped_language_ids: list[str]
+    validator_candidate_token: str | None = None
 
 
 def problem_meta(raw_meta: object) -> ProblemMeta:

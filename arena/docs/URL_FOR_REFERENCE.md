@@ -277,6 +277,7 @@ GET routes: `arena/routes/admin_users.py` · POST routes: `arena/routes/admin_us
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
 | `GET /admin/problems/import` | `arena_admin_problem_import_form` | — | `admin_problem_io.py` |
+| `GET /admin/problems/import/sample` | `arena_admin_problem_sample_package` | — | `admin_problem_io.py` |
 | `POST /admin/problems/import` | `arena_admin_problem_import_submit` | Form: `package` (file) | `admin_problem_io.py` |
 | `GET /admin/problems/{problem_id}/export` | `arena_admin_problem_export` | `problem_id=` | `admin_problem_io.py` |
 
@@ -321,3 +322,7 @@ GET routes: `arena/routes/admin_users.py` · POST routes: `arena/routes/admin_us
 
 - `GET /` performs a plain 302 redirect to `/dashboard` and has no endpoint name.
 - For StaticFiles mounts, `path=` is the filename relative to the mount directory (no leading slash).
+| `POST /admin/problems/{problem_id}/validator` | `arena_admin_problem_validator_upload` | `problem_id=` |
+| `GET /admin/problems/{problem_id}/validator/status` | `arena_admin_problem_validator_status` | `problem_id=` |
+| `GET /admin/problems/{problem_id}/validator/source` | `arena_admin_problem_validator_download` | `problem_id=` |
+| `POST /admin/problems/{problem_id}/validator/remove` | `arena_admin_problem_validator_remove` | `problem_id=` |

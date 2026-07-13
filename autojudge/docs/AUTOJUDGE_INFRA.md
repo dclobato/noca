@@ -68,3 +68,55 @@
 - The reaper scans stale inflight jobs and requeues them up to a configured retry limit.
 - The reconciler periodically (and at startup) re-scans the database for non-terminal jobs (QUEUED/DISPATCHED/JUDGING) that are missing from the Valkey queue and re-enqueues them. This recovers jobs lost between a producer's DB commit and its follow-up Valkey enqueue (the web/arena submission and rejudge paths commit first, then enqueue) without waiting for a worker restart.
 - The worker writes detailed judgment state transitions and audit entries back to PostgreSQL.
+# Custom validator validation
+
+See [../../docs/CUSTOM_VALIDATOR.md](../../docs/CUSTOM_VALIDATOR.md) for the author-facing
+contract (exit codes, limits, how to write a validator). This section covers the worker side.
+
+Custom validator candidates share the profiling-priority queue. The worker
+loads the globally active language registry, compiles the candidate in a
+disposable compile container, caps diagnostics, and promotes only the matching
+candidate token. Unknown or inactive languages produce an `INVALID` candidate.
+
+Interactive verdicts use the validator's clean exit code: `0` is `AC`, `1` is
+`WA`, `2` is `TLE`, and `4` is `PE`. Any other clean exit is contestant `RE`.
+Signals, startup or communication failures, and watchdog expiration are
+internal failures and are eligible for one retry.
+
+For each submission, the active validator is compiled again; binaries are never
+cached. Contestant and validator artifacts are ready before run containers are
+acquired. Each attempt acquires two independent run containers from
+`PoolManager`; either may consume a prewarmed container, and the validator does
+not consume another worker slot. Both containers are destroyed afterward.
+
+The contestant runs through isolate with the problem memory and PID limits but
+without the problem CPU or wall-time limits. The trusted validator is supervised in
+its separate network-disabled container without problem resource limits. Docker
+SDK bidirectional exec sockets carry the full-duplex protocol, including
+half-close/EOF propagation. Contestant stdout alone counts toward OLE; the two
+retained stderr streams are independently excerpt-capped.
+
+Because every byte is relayed through the bridge, both stdout streams are
+recorded together as one ordered, line-split `transcript` (the two former
+per-side stdout excerpts are gone). Ordering is *as observed by the judge*: the
+two pumps are separate tasks, so this is not a causal proof, but these protocols
+are strict request/response — neither side can speak until the peer's line has
+been relayed to it — so observed order is protocol order. Recording is
+capture-only and cannot affect a verdict: past its 256 KiB cap the transcript is
+flagged `truncated` and stops growing, while the pump keeps reading, keeps
+relaying, keeps counting contestant output bytes, and still trips the real output
+limit.
+
+Pending validation jobs are durable database state. Reconciliation recreates a
+missing profiling-queue job, and the reaper requeues stale validation work up
+to the ordinary retry ceiling. A validation that exhausts its retries is
+flagged (`reaper_dropped`) rather than silently discarded: the reconciler then
+marks the matching pending candidate `INVALID` with an explanatory compile log
+so the uploader can stage it again. Token matching suppresses results from
+removed or superseded candidates.
+
+Arena crash containment applies only after two attempts without a clean
+validator exit. It marks the active revision `RUNTIME_FAILED`, disables the
+problem, fails and dequeues other queued judgments, and emits one owner
+notification. Clean undocumented exits, contestant failures/limits, and
+pre-interaction compilation failures do not create strikes.

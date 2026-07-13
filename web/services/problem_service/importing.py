@@ -13,13 +13,17 @@ import json
 import random
 import zipfile
 from pathlib import Path
+from typing import Any, cast
 
 import anyio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.custom_validator import parse_packaged_validator, stage_candidate
+from shared.services.imageprocessing_service import ImageProcessingService
+from shared.services.problem_image import load_packaged_image
 from web.models.contest import Contest
-from web.models.problem import Problem, ProblemTestCase
+from web.models.problem import Problem, ProblemCustomValidator, ProblemTestCase
 from web.services.category_service import get_or_create_categories, replace_problem_categories
 
 from .files import (
@@ -69,8 +73,24 @@ async def import_problem_from_zip(
     zip_bytes: bytes,
     testcase_dir: Path,
     statement_dir: Path,
+    image_service: ImageProcessingService,
 ) -> ProblemImportResult:
-    """Import a problem from a ZIP archive."""
+    """Import a problem from a ZIP archive.
+
+    Args:
+        session: Active async database session.
+        contest: Contest that receives the imported problem.
+        zip_bytes: Raw bytes of the uploaded ZIP package.
+        testcase_dir: Contest test-case root.
+        statement_dir: Contest statement root.
+        image_service: Service used to validate a packaged image, if present.
+
+    Returns:
+        ProblemImportResult: The imported problem and its staged validator token.
+
+    Raises:
+        ValueError: On any malformed package or validation failure.
+    """
     try:
         archive = zipfile.ZipFile(io.BytesIO(zip_bytes))
     except zipfile.BadZipFile as exc:
@@ -113,6 +133,17 @@ async def import_problem_from_zip(
         raise ValueError("statement.pdf or statement.md is required in the ZIP.")
 
     parsed = parse_testcases_zip(zip_bytes)
+    packaged_validator = parse_packaged_validator(
+        meta.get("custom_validator"),
+        read_file=archive.read,
+        archive_names=set(archive.namelist()),
+    )
+    if packaged_validator is not None and meta.get("test_case_visibility") != "sample":
+        raise ValueError("Validator packages must declare test_case_visibility: 'sample'.")
+
+    image_b64, image_mime = load_packaged_image(cast(dict[str, Any], meta), archive, archive.namelist(), image_service)
+    raw_caption = meta.get("image_caption")
+    image_caption = str(raw_caption).strip() or None if raw_caption else None
 
     used_colors = set(await session.scalars(select(Problem.color).where(Problem.contest_id == contest.id)))
     color = _pick_balloon_color(used_colors)
@@ -126,6 +157,9 @@ async def import_problem_from_zip(
         memory_limit_kb=int(str(meta["memory_limit_kb"])),
         pids_limit=int(str(meta["pids_limit"])),
         output_limit_in_bytes=int(str(meta["output_limit_in_bytes"])) if meta.get("output_limit_in_bytes") else None,
+        problem_image_base64=image_b64,
+        problem_image_mime=image_mime,
+        problem_image_caption=image_caption,
     )
     await append_problem(session, contest, problem)
 
@@ -140,7 +174,7 @@ async def import_problem_from_zip(
 
     for source_ordinal, (in_bytes, out_bytes) in sorted(parsed.pairs.items()):
         test_case = ProblemTestCase(
-            is_sample=False,
+            is_sample=packaged_validator is not None,
             explanation=parsed.explanations.get(source_ordinal),
         )
         await append_test_case(session, problem, test_case)
@@ -172,5 +206,19 @@ async def import_problem_from_zip(
         if filtered_language_limits:
             await upsert_language_limits(session, problem, filtered_language_limits)
 
+    validator_candidate_token: str | None = None
+    if packaged_validator is not None:
+        validator = ProblemCustomValidator(problem_id=problem.id)
+        validator_candidate_token = stage_candidate(
+            validator,
+            language_id=packaged_validator.language_id,
+            source=packaged_validator.source,
+        )
+        session.add(validator)
+
     await session.commit()
-    return ProblemImportResult(problem=problem, skipped_language_ids=sorted(skipped_language_ids))
+    return ProblemImportResult(
+        problem=problem,
+        skipped_language_ids=sorted(skipped_language_ids),
+        validator_candidate_token=validator_candidate_token,
+    )

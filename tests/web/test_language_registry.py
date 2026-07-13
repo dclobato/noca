@@ -30,6 +30,8 @@ def test_default_language_registry_includes_javascript() -> None:
     assert javascript.run_cmd == ["/usr/local/bin/node", "/sandbox/source.js"]
     assert javascript.artifact_path == "/sandbox/source.js"
     assert javascript.artifact_is_source is True
+    assert javascript.stdout_flush_hint is not None
+    assert "process.stdout.write" in javascript.stdout_flush_hint
 
     go = registry["go"]
     assert go.source_filename == "source.go"
@@ -70,7 +72,9 @@ def test_default_language_registry_includes_javascript() -> None:
 
 
 def test_seed_rows_and_highlight_languages_include_javascript() -> None:
-    seed_ids = {str(row["id"]) for row in default_language_seed_rows()}
+    seed_rows = default_language_seed_rows()
+    seed_ids = {str(row["id"]) for row in seed_rows}
+    seed_flush_hints = {str(row["id"]): row["stdout_flush_hint"] for row in seed_rows}
 
     assert "gcc-cpp23" in seed_ids
     assert "javascript" in seed_ids
@@ -80,6 +84,7 @@ def test_seed_rows_and_highlight_languages_include_javascript() -> None:
     assert "lua" in seed_ids
     assert "prolog" in seed_ids
     assert "fortran" in seed_ids
+    assert all(seed_flush_hints.values())
 
     assert highlightjs_language_for_language_id("gcc-cpp23") == "cpp"
     assert highlightjs_language_for_language_id("javascript") == "javascript"

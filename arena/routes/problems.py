@@ -64,6 +64,7 @@ from shared.db_schema.arena import arena_submissions
 from shared.enumerations import ArenaNotificationKind, ArenaRole
 from shared.language_registry import ace_mode_for_language_id, default_stub_for_language_id
 from shared.services.arena_notification_service import create_arena_notification
+from shared.services.custom_validator import status_view
 from shared.services.testcase_files import read_testcase_full
 from shared.services.valkey_service.queue_ops import enqueue_arena_submission_job
 
@@ -423,6 +424,7 @@ async def arena_problem_detail(
                 "prefill_source_code": prefill_source_code,
                 "prefill_language_id": prefill_language_id,
                 "accepting_set": accepting_set,
+                "has_custom_validator": status_view(problem.custom_validator).configured,
                 "prev_problem_url": prev_problem_url,
                 "next_problem_url": next_problem_url,
                 "prev_problem_number": prev_number,

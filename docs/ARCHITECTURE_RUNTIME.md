@@ -749,6 +749,27 @@ It also implies some operational constraints:
 
 ## 9. Summary
 
+### Custom-validator runtime
+
+Custom-validator candidates are durable staged revisions. Web and Arena commit
+the candidate first and enqueue a `custom_validator_validation` job afterward.
+Startup and periodic reconciliation reconstruct missing queue hashes for every
+still-`PENDING` token; stale jobs are harmless because database updates include
+the candidate token.
+
+At submission dispatch, Autojudge loads the active `VALID` revision and compiles
+it in a disposable compile container before compiling contestant source. Each
+interactive attempt then consumes two fresh network-disabled run containers,
+one for the contestant and one for the trusted validator, without reserving a
+second worker-concurrency slot. The bridge pumps both stdout-to-stdin directions,
+propagates EOF, records bounded diagnostics, and destroys both containers.
+
+Only a validator signal, startup/communication failure, or emergency watchdog
+expiration is retryable. After two such attempts, an Arena validator becomes
+`RUNTIME_FAILED`: the problem is disabled, its queued judgments are failed and
+removed from Valkey, and its owner receives one idempotent notification. Clean
+exit codes never trigger containment.
+
 In short, NOCA is a five-process contest platform:
 
 - `web` manages contest and business workflows (port 8000)

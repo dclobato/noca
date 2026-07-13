@@ -34,7 +34,8 @@
             <a href="{{ request.url_for("arena_status") }}">Status</a>
             <a href="#">Contact</a>
             <a href="https://www.github.com/dclobato/noca">GitHub</a>
-            <a href="/legal/terms">Terms</a>
+            <a href="{{ request.url_for("arena_terms_of_service") }}">Terms</a>
+            <a href="{{ request.url_for("arena_privacy_policy") }}">Privacy</a>
         </nav>
     </div>
 </footer>

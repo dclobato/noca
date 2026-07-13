@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi_flash import get_flash_service, setup_flash
 from httpx import ASGITransport, AsyncClient
+from jinja2 import ChoiceLoader, FileSystemLoader
 from jwtservice import JWTService, load_token_config_from_dict
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -41,6 +42,7 @@ from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.models.arena_ai_credit_transactions import ArenaAiCreditTransaction
 from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_users import ArenaUser
+from arena.routes.legal import router as arena_legal_router
 from arena.routes.problems import router as arena_problems_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.routes.submissions import router as arena_submissions_router
@@ -54,6 +56,7 @@ from arena.services.user_timezone_service import (
 from shared.db_schema.arena import (
     arena_ai_batch_jobs,
     arena_submission_ai_reviews,
+    arena_submission_interactive_attempts,
     arena_submission_judgments,
     arena_submissions,
 )
@@ -87,6 +90,13 @@ def _build_app(session: AsyncSession, *, valkey_runtime: object | None = None) -
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
     templates = Jinja2Templates(directory=_ARENA_DIR / "template")
+    # Mirror arena/main.py: shared `_partials/` live in shared/template.
+    templates.env.loader = ChoiceLoader(
+        [
+            FileSystemLoader(str(_ARENA_DIR / "template")),
+            FileSystemLoader(str(_SHARED_DIR / "template")),
+        ]
+    )
     templates.env.globals["app_version"] = "test"
     templates.env.globals["next_rating_update_text"] = lambda request: None
     templates.env.globals["arena_role_labels"] = ARENA_ROLE_DISPLAY
@@ -235,6 +245,7 @@ def _build_app(session: AsyncSession, *, valkey_runtime: object | None = None) -
     app.include_router(arena_problems_router)
     app.include_router(arena_submissions_router)
     app.include_router(arena_ranking_router)
+    app.include_router(arena_legal_router)
     return app
 
 
@@ -348,6 +359,62 @@ async def _make_submission_with_judgment(
     )
     await session.commit()
     return sub_id, judgment_id
+
+
+@pytest.mark.asyncio
+async def test_interactive_diagnostics_are_visible_only_to_authorized_viewers(
+    session: AsyncSession,
+) -> None:
+    """Diagnostic protocol excerpts must not leak to unrelated Arena users."""
+    app = _build_app(session)
+    author = await _make_arena_user(session, email_prefix="validator_author")
+    problem = await _make_problem_with_tc(session, author)
+    language = await _make_language(session)
+    owner = await _make_arena_user(session, email_prefix="validator_owner")
+    unrelated = await _make_arena_user(session, email_prefix="validator_other")
+    submission_id, judgment_id = await _make_submission_with_judgment(
+        session,
+        owner,
+        problem,
+        language,
+        verdict=Verdict.WA.value,
+    )
+    await session.execute(
+        insert(arena_submission_interactive_attempts).values(
+            id=str(uuid.uuid4()),
+            judgment_id=judgment_id,
+            attempt_number=1,
+            contestant_exit_code=0,
+            validator_exit_code=1,
+            transcript={
+                "lines": [
+                    {"dir": "user", "line": "private-protocol-excerpt"},
+                    {"dir": "validator", "line": "wrong"},
+                ],
+                "truncated": False,
+            },
+            contestant_stderr_excerpt="",
+            validator_stderr_excerpt="validator-diagnostic",
+            validator_verdict=Verdict.WA.value,
+        )
+    )
+    await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login_user(client, app, owner)
+        owner_response = await client.get(f"/submissions/{submission_id}")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login_user(client, app, unrelated)
+        unrelated_response = await client.get(f"/submissions/{submission_id}")
+
+    assert owner_response.status_code == 200
+    assert "Interactive validator diagnostics" in owner_response.text
+    assert "0 / —" in owner_response.text
+    assert "1 / —" in owner_response.text
+    assert "private-protocol-excerpt" in owner_response.text
+    assert unrelated_response.status_code == 404
+    assert "private-protocol-excerpt" not in unrelated_response.text
 
 
 async def _make_ai_review(

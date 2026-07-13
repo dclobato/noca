@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 
 from autojudge.db._base import _DatabaseBase, _utcnow
 from autojudge.types import QueuedSubmission
+from shared.db_schema import submission_interactive_attempts as _submission_interactive_attempt
 from shared.db_schema import submission_judgments as _submission_judgment
 from shared.db_schema import submission_test_results as _submission_test_result
 from shared.db_schema import submissions as _submission
@@ -52,6 +53,9 @@ class _JudgmentMixin(_DatabaseBase):
         state = await self._get_judgment_state(judgment_id)
         await self._conn.execute(
             delete(_submission_test_result).where(_submission_test_result.c.judgment_id == judgment_id)
+        )
+        await self._conn.execute(
+            delete(_submission_interactive_attempt).where(_submission_interactive_attempt.c.judgment_id == judgment_id)
         )
         await self._conn.execute(
             _submission_judgment.update()

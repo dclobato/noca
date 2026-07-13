@@ -13,10 +13,8 @@ Presentation helpers (URL/context builders, form rendering) live in
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import anyio
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,8 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.config import settings
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_problem_editor
-from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_users import ArenaUser
+from arena.routes.admin_problem_common import get_problem_or_403, validator_languages
 from arena.routes.admin_problem_form_views import (
     edit_form_extras,
     effective_per_page,
@@ -39,29 +37,19 @@ from arena.routes.admin_problem_form_views import (
     safe_next_path,
     selected_cats_data,
 )
-from arena.services import admin_problem_service, admin_problem_tc_service
+from arena.services import admin_problem_service, admin_problem_tc_pending, admin_problem_tc_service
+from arena.services.admin_problem_validator_service import (
+    parse_validator_upload,
+    stage_candidate_revision,
+)
 from arena.services.pagination_service import parse_page
-from shared.enumerations import ArenaRole
 from shared.services.admin_audit import record_admin_action
+from shared.services.custom_validator import status_view
 from shared.services.imageprocessing_service import ImageProcessingError
+from shared.services.valkey_service import enqueue_custom_validator_validation_job
 from shared.services.valkey_service.queue_ops import enqueue_arena_submission_job
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
-
-
-async def _get_problem_or_403(
-    problem_id: str,
-    current_user: ArenaUser,
-    session: AsyncSession,
-) -> ArenaProblem:
-    """Fetch a problem with ownership check for ARENA_JUDGE users."""
-    is_admin_user = current_user.role == ArenaRole.ARENA_ADMIN
-    problem = await admin_problem_service.get_problem(
-        session, problem_id, caller_id=current_user.id, is_admin=is_admin_user
-    )
-    if problem is None:
-        raise HTTPException(status_code=404, detail="Problem not found")
-    return problem
 
 
 @router.get("/problems", response_class=HTMLResponse, name="arena_admin_problem_list")
@@ -166,6 +154,7 @@ async def admin_problem_new(
             category_slugs=category_slugs,
         ),
         current_user=current_user,
+        validator_languages=await validator_languages(session),
     )
 
 
@@ -194,6 +183,8 @@ async def admin_problem_create(
     image_caption: str = Form(""),
     notes: str = Form(""),
     license: str = Form(""),
+    validator_language_id: str = Form(""),
+    validator_source_file: UploadFile = File(None),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -242,8 +233,21 @@ async def admin_problem_create(
             back_url=back_url,
             state=state,
             current_user=current_user,
+            validator_languages=await validator_languages(session),
             status_code=400,
         )
+
+    # Check the validator upload before creating anything, so a bad file cannot
+    # burn an Arena problem number.
+    try:
+        validator_upload = await parse_validator_upload(
+            session,
+            language_id=validator_language_id,
+            source_file=validator_source_file,
+        )
+    except ValueError as exc:
+        flash(str(exc), FlashCategory.DANGER)
+        return await render_error()
 
     image_b64: str | None = None
     image_mime: str | None = None
@@ -279,8 +283,16 @@ async def admin_problem_create(
         flash(str(exc), FlashCategory.DANGER)
         return await render_error()
 
+    validation_job = (
+        stage_candidate_revision(session, problem, validator_upload) if validator_upload is not None else None
+    )
+
     await session.commit()
+    if validation_job is not None:
+        await enqueue_custom_validator_validation_job(request.app.state.valkey_runtime, validation_job)
     flash(f"Problem #{problem.arena_number} created (disabled).", FlashCategory.SUCCESS)
+    if validation_job is not None:
+        return RedirectResponse(request.url_for("arena_admin_problem_edit", problem_id=problem.id), 303)
     return RedirectResponse(
         url=problem_list_url(
             request,
@@ -316,7 +328,7 @@ async def admin_problem_edit(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the edit form for an existing problem."""
-    problem = await _get_problem_or_403(problem_id, current_user, session)
+    problem = await get_problem_or_403(problem_id, current_user, session)
     test_cases, all_categories, problem_owner, has_submissions = await edit_form_extras(problem, current_user, session)
     selected_ids = [cat.id for cat in problem.categories]
     safe_next = safe_next_path(next)
@@ -363,6 +375,8 @@ async def admin_problem_edit(
         ),
         problem_owner=problem_owner,
         has_submissions=has_submissions,
+        validator_status=status_view(problem.custom_validator),
+        validator_languages=await validator_languages(session),
         current_user=current_user,
     )
 
@@ -395,11 +409,13 @@ async def admin_problem_update(
     image_caption: str = Form(""),
     notes: str = Form(""),
     license: str = Form(""),
+    validator_language_id: str = Form(""),
+    validator_source_file: UploadFile = File(None),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Submit updates to an existing Arena problem."""
-    problem = await _get_problem_or_403(problem_id, current_user, session)
+    problem = await get_problem_or_403(problem_id, current_user, session)
     safe_next = safe_next_path(next_url)
     back_url = problem_list_url(
         request,
@@ -452,9 +468,23 @@ async def admin_problem_update(
             state=state,
             problem_owner=problem_owner,
             has_submissions=has_submissions,
+            validator_status=status_view(problem.custom_validator),
+            validator_languages=await validator_languages(session),
             current_user=current_user,
             status_code=400,
         )
+
+    # Check the validator upload before any database write, so a bad file leaves
+    # the problem untouched.
+    try:
+        validator_upload = await parse_validator_upload(
+            session,
+            language_id=validator_language_id,
+            source_file=validator_source_file,
+        )
+    except ValueError as exc:
+        flash(str(exc), FlashCategory.DANGER)
+        return await render_error()
 
     image_b64: str | None = None
     image_mime: str | None = None
@@ -492,60 +522,41 @@ async def admin_problem_update(
         return await render_error()
 
     form_data = await request.form()
-    pending_indices = sorted(
-        {
-            int(key.rsplit("_", 1)[1])
-            for key in form_data
-            if (key.startswith("tc_in_") or key.startswith("tc_out_")) and key.rsplit("_", 1)[1].isdigit()
-        }
-    )
-    has_pending_adds = any(
-        str(form_data.get(f"tc_in_{index}", "")) or str(form_data.get(f"tc_out_{index}", ""))
-        for index in pending_indices
-    )
+    has_validator = validator_upload is not None or status_view(problem.custom_validator).configured
+    try:
+        cleanup_callbacks, file_writes = await admin_problem_tc_pending.apply_pending_testcases(
+            session,
+            problem,
+            form_data,
+            testcase_dir=settings.PROBLEM_TESTCASE_DIR,
+            allow_empty=has_validator,
+        )
+    except ValueError as exc:
+        flash(str(exc), FlashCategory.DANGER)
+        return await render_error()
 
-    # Apply pending removals (marked on the edit page) before appending new rows
-    # so ordinals stay contiguous. Removals run in descending ordinal order to
-    # minimise file renumber churn; file cleanup happens after the commit.
-    remove_ids = {value.strip() for value in str(form_data.get("tc_remove_ids", "") or "").split(",") if value.strip()}
-    cleanup_callbacks: list[Callable[[], None]] = []
-    if remove_ids:
-        existing = await admin_problem_tc_service.list_testcases(session, problem.id)
-        to_remove = [tc for tc in existing if tc.id in remove_ids]
-        if len(existing) - len(to_remove) == 0 and not has_pending_adds:
-            flash("At least one test case must remain.", FlashCategory.DANGER)
-            return await render_error()
-        for tc in sorted(to_remove, key=lambda item: item.ordinal, reverse=True):
-            cleanup_callbacks.append(
-                await admin_problem_tc_service.delete_testcase(session, tc, testcase_dir=settings.PROBLEM_TESTCASE_DIR)
-            )
-
-    file_writes: list[Callable[[], None]] = []
-    for index in pending_indices:
-        if not (str(form_data.get(f"tc_in_{index}", "")) or str(form_data.get(f"tc_out_{index}", ""))):
-            continue
+    # Stage the validator last: the all-samples rule must be judged against the
+    # test cases this save actually leaves behind, not the ones it started with.
+    validation_job = None
+    if validator_upload is not None:
         try:
-            raw_explanation = str(form_data.get(f"tc_explanation_{index}", "")).strip()
-            _tc, write_files = await admin_problem_tc_service.create_testcase(
+            validation_job = stage_candidate_revision(
                 session,
                 problem,
-                input_content=str(form_data.get(f"tc_in_{index}", "")),
-                output_content=str(form_data.get(f"tc_out_{index}", "")),
-                is_sample=bool(form_data.get(f"tc_is_sample_{index}")),
-                explanation=raw_explanation or None,
-                testcase_dir=settings.PROBLEM_TESTCASE_DIR,
+                validator_upload,
+                test_cases=await admin_problem_tc_service.list_testcases(session, problem.id),
             )
         except ValueError as exc:
             flash(str(exc), FlashCategory.DANGER)
             return await render_error()
-        file_writes.append(write_files)
-        await session.flush()
 
     await session.commit()
     for fn in cleanup_callbacks:
         await anyio.to_thread.run_sync(fn)
     for fn in file_writes:
         await anyio.to_thread.run_sync(fn)
+    if validation_job is not None:
+        await enqueue_custom_validator_validation_job(request.app.state.valkey_runtime, validation_job)
     flash(f"Problem #{problem.arena_number} updated.", FlashCategory.SUCCESS)
     redirect_target = safe_next or back_url
     return RedirectResponse(
@@ -569,7 +580,10 @@ async def admin_problem_toggle_enabled(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Toggle the enabled/disabled state of a problem."""
-    problem = await _get_problem_or_403(problem_id, current_user, session)
+    problem = await get_problem_or_403(problem_id, current_user, session)
+    if not problem.enabled and not status_view(problem.custom_validator).usable:
+        flash("Compile a valid custom validator before enabling this problem.", FlashCategory.DANGER)
+        return RedirectResponse(request.url_for("arena_admin_problem_edit", problem_id=problem.id), 303)
     await admin_problem_service.toggle_enabled(session, problem)
     await session.commit()
     state = "enabled" if problem.enabled else "disabled"
@@ -605,7 +619,7 @@ async def admin_problem_delete(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Permanently delete a problem and all its dependent data."""
-    problem = await _get_problem_or_403(problem_id, current_user, session)
+    problem = await get_problem_or_403(problem_id, current_user, session)
     edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
 
     if not current_user.check_password(password):
@@ -649,7 +663,7 @@ async def admin_problem_rejudge_all(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Re-enqueue all existing submissions for a problem on the low-priority autojudge queue."""
-    problem = await _get_problem_or_403(problem_id, current_user, session)
+    problem = await get_problem_or_403(problem_id, current_user, session)
     edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
 
     if not current_user.check_password(password):

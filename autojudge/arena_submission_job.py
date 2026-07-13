@@ -19,6 +19,7 @@ import docker
 import valkey.asyncio as aiovalkey
 
 from autojudge.compiler import compile_submission
+from autojudge.custom_validator_submission import prepare_custom_validator, run_custom_validator_submission
 from autojudge.db import DatabaseAccess, QueuedArenaSubmission
 from autojudge.metrics import SUBMISSION_DURATION_SECONDS, TEST_CASES_RUN_TOTAL, VERDICTS_TOTAL
 from autojudge.pool import PoolExhaustedError, PoolManager, PoolShutdownError
@@ -30,6 +31,13 @@ from autojudge.verdict import CaseResult, aggregate_verdict, worst_resource_usag
 from shared.enumerations import Verdict
 from shared.language_registry import LanguageConfig, get_language
 from shared.queue_schema import ArenaVerdictEvent
+from shared.services.valkey_service.constants import (
+    QUEUE_INFLIGHT_KEY,
+    QUEUE_INFLIGHT_TIMES_KEY,
+    QUEUE_JOB_HASH_PREFIX,
+    QUEUE_PENDING_KEY,
+    QUEUE_PRIORITY_KEY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +77,28 @@ async def process_arena_submission_job(
         await db.set_arena_judgment_failed(judgment_id, str(exc))
         return
 
+    try:
+        prepared_validator = await prepare_custom_validator(
+            domain="arena",
+            judgment_id=judgment_id,
+            problem_id=submission.problem_id,
+            db=db,
+            language_registry=language_registry,
+            docker_client=docker_client,
+            executor=executor,
+        )
+    except Exception as exc:
+        await db.set_arena_judgment_failed(judgment_id, f"Custom validator unavailable: {exc}")
+        return
+    if prepared_validator is not None and (
+        not prepared_validator.compile_result.success or prepared_validator.compile_result.artifact_data is None
+    ):
+        await db.set_arena_judgment_failed(
+            judgment_id,
+            f"Custom validator compilation failed: {prepared_validator.compile_result.compile_log}",
+        )
+        return
+
     compile_result = await compile_submission(
         SubmissionSource(
             judgment_id=judgment_id,
@@ -90,6 +120,52 @@ async def process_arena_submission_job(
         return
 
     await db.set_arena_judgment_judging(judgment_id)
+    interactive_result, _ = await run_custom_validator_submission(
+        domain="arena",
+        judgment_id=judgment_id,
+        problem_id=submission.problem_id,
+        contestant_language=language,
+        contestant_artifact=compile_result.artifact_data or b"",
+        limits=submission.limits,
+        db=db,
+        pool_manager=pool_manager,
+        language_registry=language_registry,
+        docker_client=docker_client,
+        executor=executor,
+        prepared=prepared_validator,
+    )
+    if interactive_result is not None:
+        verdict = interactive_result.classification.verdict
+        if verdict is None:
+            queued_ids = await db.contain_arena_validator_crash(submission.problem_id, judgment_id)
+            for queued_id in queued_ids:
+                with suppress(Exception):
+                    pipe = valkey.pipeline()
+                    pipe.lrem(QUEUE_PENDING_KEY, 0, queued_id)
+                    pipe.lrem(QUEUE_PRIORITY_KEY, 0, queued_id)
+                    pipe.lrem(QUEUE_INFLIGHT_KEY, 0, queued_id)
+                    pipe.delete(f"{QUEUE_JOB_HASH_PREFIX}:{queued_id}")
+                    pipe.delete(f"judge:lock:{queued_id}")
+                    pipe.zrem(QUEUE_INFLIGHT_TIMES_KEY, queued_id)
+                    await pipe.execute()
+            await db.set_arena_judgment_failed(judgment_id, "Custom validator failed twice without a clean exit.")
+            return
+        await db.set_arena_judgment_done(
+            submission,
+            verdict=verdict,
+            compile_log=compile_result.compile_log or None,
+            max_wall_time_ms=interactive_result.wall_time_ms,
+            max_memory_kb=interactive_result.memory_kb,
+            max_output_bytes=interactive_result.contestant_output_bytes,
+        )
+        VERDICTS_TOTAL.labels(verdict=verdict.value, language_id=submission.language_id).inc()
+        if interactive_result.wall_time_ms is not None:
+            SUBMISSION_DURATION_SECONDS.labels(language_id=submission.language_id).observe(
+                interactive_result.wall_time_ms / 1000
+            )
+        await _publish(verdict)
+        return
+
     try:
         container_id: str | None = await pool_manager.acquire(submission.language_id)
     except (PoolExhaustedError, PoolShutdownError) as exc:

@@ -516,6 +516,7 @@ compile/run phases, container pool, queue depths, reaper activity, and worker pr
 | `NOCA_JUDGE_DOCKER_BASE_URL` | `unix:///var/run/docker.sock` | Docker daemon socket or TCP address used by the worker to manage compile and run containers. Use `tcp://host:2376` for a remote daemon with TLS. |
 | `NOCA_JUDGE_DOCKER_NETWORK` | `none` | Network mode for judge containers. **Must be `none` in production** to prevent contestant code from accessing the network. Can be set to `bridge` in local development for debugging only. |
 | `NOCA_JUDGE_DOCKER_APPARMOR_PROFILE` | *(empty)* | Optional AppArmor profile for run containers. Set to `unconfined` on Ubuntu hosts where AppArmor blocks `isolate --run` with errors such as `Cannot privatize mounts: Permission denied`. Empty leaves Docker's default AppArmor handling unchanged. |
+| `NOCA_JUDGE_CUSTOM_VALIDATOR_WATCHDOG_SECONDS` | `300` | Emergency wall-clock watchdog for one complete interactive custom-validator attempt. This protects the worker from a stalled protocol; it is not the contestant time limit. |
 
 ### Canonical Judge Image Sync
 

@@ -42,7 +42,7 @@ trusted local health-check CIDRs bypass this limit.
 |--------|-----|-------------|
 | `GET` | `/help/rating` | Rating system help page. Explains how problem difficulty, user score, and affiliation ratings are computed, with the mathematical formulas and the configured rating update interval. No authentication required. |
 | `GET` | `/help/rating/difficulty-distribution` | JSON snapshot of the catalogue-wide problem-difficulty histogram (20 bins over `[0, 10]`), written by the rating worker at the end of each difficulty cycle. Returns an explicit empty shape when no snapshot exists yet. No authentication required. |
-| `GET` | `/help/languages` | Languages and verdicts help page. Lists all active languages (name, version, compile/run commands) from the database and explains every possible judgment verdict. No authentication required. |
+| `GET` | `/help/languages` | Languages and verdicts help page. Lists all active languages (name, version, compile/run commands, and stdout flush hints for custom-validator problems) from the database and explains every possible judgment verdict. No authentication required. |
 
 ## Legal (`arena/routes/legal.py`)
 
@@ -324,10 +324,10 @@ to their own problems; admins may manage any problem.
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/admin/problems` | Paginated problem-management list. Supports `search`, `sort_by` (`title_asc`, `title_desc`, `number_asc`, `number_desc`, `rating_asc`, `rating_desc`), `owner_id` (admin only), `category_slugs` (AND semantics, repeatable), `per_page` (10/25/50/100, default 25), `page`, and hash-based row highlighting after CRUD redirects. |
-| `GET` | `/admin/problems/new` | Render the create-problem form with owner-backed or free-text authorship, statement editor, limits, optional image upload, category picker, and optional list-return query state. |
-| `POST` | `/admin/problems/new` | Create a disabled Arena problem owned by the current user. Form fields `author_is_owner` and `author` select the owner's fullname or a required free-text author of at most 80 characters. The route also validates scalar and Markdown fields, processes an optional image, binds categories, and redirects to the highlighted problem-list row. |
-| `GET` | `/admin/problems/{problem_id}/edit` | Render the edit form for an existing problem. Includes test-case list, selected categories, problem rating-history chart data URL, and optional list-return query state (`page`, `per_page`, `search`, `sort_by`, `owner_id`, `category_slugs`). |
-| `POST` | `/admin/problems/{problem_id}/edit` | Update mutable problem fields, including `author_is_owner` and `author`, without transferring ownership. It can replace or clear the statement image and category links, applies pending test-case removals (`tc_remove_ids`) and inline add-rows (`tc_in_N` / `tc_out_N` / `tc_explanation_N` / `tc_is_sample_N`) on save, then redirects while preserving list-return state. |
+| `GET` | `/admin/problems/new` | Render the create-problem form with owner-backed or free-text authorship, statement editor, limits, optional image upload, category picker, optional validator upload, and optional list-return query state. |
+| `POST` | `/admin/problems/new` | Create a disabled Arena problem owned by the current user. Form fields `author_is_owner` and `author` select the owner's fullname or a required free-text author of at most 80 characters. The route also validates scalar and Markdown fields, processes an optional image, binds categories, optionally stages a custom validator (`validator_language_id` + `validator_source_file`), and redirects to the highlighted problem-list row. |
+| `GET` | `/admin/problems/{problem_id}/edit` | Render the edit form for an existing problem: six cards (Basic Info, Problem statement, Problem illustration, Categories, Custom interactive validator, Test cases) plus a Danger zone. Includes selected categories, the rating-history chart data URL, and optional list-return query state (`page`, `per_page`, `search`, `sort_by`, `owner_id`, `category_slugs`). |
+| `POST` | `/admin/problems/{problem_id}/edit` | The page's single Save. Updates mutable problem fields, including `author_is_owner` and `author`, without transferring ownership; replaces or clears the statement image and category links; applies pending test-case removals (`tc_remove_ids`) and inline add-rows (`tc_in_N` / `tc_out_N` / `tc_explanation_N` / `tc_is_sample_N`); and stages a custom validator when `validator_language_id` + `validator_source_file` are supplied, enqueueing its compile job after the commit. The validator is staged last, so its all-samples rule is judged against the test cases this save leaves behind. Redirects while preserving list-return state. |
 | `POST` | `/admin/problems/{problem_id}/toggle-enabled` | Toggle the problem's `enabled` flag and redirect to the problem list while preserving query state and adding `#problem_id` row highlight. |
 | `POST` | `/admin/problems/{problem_id}/delete` | Permanently delete the problem and all dependent data (test cases, submissions, judgments, AI reviews, solve/attempt/favourite records). Requires current-password confirmation via form field. Redirects to the problem list on success or back to the edit page on wrong password. |
 | `POST` | `/admin/problems/{problem_id}/rejudge-all` | Create new `QUEUED` judgment rows for every existing submission and enqueue them on the low-priority autojudge queue (`judge:queue:pending`). Requires current-password confirmation. Redirects back to the edit page. |
@@ -382,3 +382,17 @@ No authentication required. `current_user` dependency is optional so the sidebar
 | `GET` | `/ranking/users` | Paginated user ranking (50/page). Query params: `search` (name/email ilike), `page`. Global rank computed via SQL `RANK()` window function over all eligible users before search is applied, so rank positions are globally consistent. |
 | `GET` | `/ranking/affiliations` | Paginated affiliation ranking (50/page). Query params: `search` (name ilike), `country_code`, `subdivision_code`, `page`. Country/subdivision filter options are sourced from actual affiliation data, not the full pycountry list. |
 | `GET` | `/ranking/affiliations/{affiliation_id}/users` | Paginated user ranking scoped to one affiliation's members. Same layout and query params as `/ranking/users`. Returns 404 if the affiliation is not found. |
+## Custom validator routes (`arena/routes/admin_problem_validator.py`)
+
+Staging a validator is part of the problem form's single Save (see
+`POST /admin/problems/{problem_id}/edit` above), so the edit page renders no
+upload button of its own. These routes cover what that form cannot express. The
+status endpoint supports HTMX polling while compilation remains pending.
+
+- `POST /admin/problems/{problem_id}/validator` stages and enqueues a candidate
+  directly. Kept for API/direct use; the edit page does not post to it.
+  Replacing a configured validator means removing it first.
+- `GET /admin/problems/{problem_id}/validator/status` renders current status.
+- `GET /admin/problems/{problem_id}/validator/source` downloads the current
+  source (active revision, falling back to a staged candidate).
+- `POST /admin/problems/{problem_id}/validator/remove` clears both revisions.

@@ -22,12 +22,13 @@ from arena.models.arena_submissions import ArenaSubmission, ArenaSubmissionJudgm
 from arena.services.arena_problem_set_service import _is_accepting, _is_active_member
 from arena.services.rate_limit_service import check_submission_rate_limit
 from shared.db_schema import languages as _language
+from shared.db_schema.arena import arena_problem_custom_validators as _arena_problem_custom_validator
 from shared.db_schema.arena import arena_problem_ratings as _arena_problem_rating
 from shared.db_schema.arena import arena_problem_set_problems as _arena_problem_set_problems
 from shared.db_schema.arena import arena_problem_tried as _arena_problem_tried
 from shared.db_schema.arena import arena_problems as _arena_problem
 from shared.db_schema.arena import arena_test_cases as _arena_test_case
-from shared.enumerations import JudgmentStatus
+from shared.enumerations import CustomValidatorActiveState, JudgmentStatus
 from shared.queue_schema import ArenaSubmissionJob
 from shared.services.arena_query_helpers import is_excluded_from_problem_rating
 
@@ -195,11 +196,29 @@ async def _validate_problem_language_and_cases(session: AsyncSession, problem_id
     if language_exists is None:
         raise ArenaSubmissionServiceError("Language is not available.")
 
-    test_case_count = await session.scalar(
-        select(func.count()).select_from(_arena_test_case).where(_arena_test_case.c.problem_id == problem_id)
+    validator = (
+        await session.execute(
+            select(
+                _arena_problem_custom_validator.c.active_state,
+                _arena_problem_custom_validator.c.active_source,
+                _arena_problem_custom_validator.c.candidate_source,
+            ).where(_arena_problem_custom_validator.c.problem_id == problem_id)
+        )
+    ).one_or_none()
+    validator_configured = validator is not None and (
+        validator.active_source is not None or validator.candidate_source is not None
     )
-    if int(test_case_count or 0) == 0:
-        raise ArenaSubmissionServiceError("Arena problem has no test cases.")
+    if validator is not None and validator_configured and validator.active_state != CustomValidatorActiveState.VALID:
+        raise ArenaSubmissionServiceError("The custom validator is not available.")
+
+    # Interactive judgments never read test-case files, so a validator problem
+    # may legitimately ship no test cases at all.
+    if not validator_configured:
+        test_case_count = await session.scalar(
+            select(func.count()).select_from(_arena_test_case).where(_arena_test_case.c.problem_id == problem_id)
+        )
+        if int(test_case_count or 0) == 0:
+            raise ArenaSubmissionServiceError("Arena problem has no test cases.")
 
 
 async def _validate_problem_set_tie(

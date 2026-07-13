@@ -26,6 +26,7 @@ async def get_contest_problems(session: AsyncSession, contest: Contest) -> list[
         .options(
             selectinload(Problem.categories),
             selectinload(Problem.test_cases),
+            selectinload(Problem.custom_validator),
             selectinload(Problem.language_limits).selectinload(ProblemLanguageLimit.language),
             selectinload(Problem.profiling_runs).selectinload(ProfilingRun.case_results),
             selectinload(Problem.profiling_runs).selectinload(ProfilingRun.language),
@@ -43,6 +44,7 @@ async def get_problem_in_contest(session: AsyncSession, contest: Contest, proble
         .options(
             selectinload(Problem.categories),
             selectinload(Problem.test_cases),
+            selectinload(Problem.custom_validator),
             selectinload(Problem.language_limits).selectinload(ProblemLanguageLimit.language),
             selectinload(Problem.profiling_runs).selectinload(ProfilingRun.case_results),
             selectinload(Problem.profiling_runs).selectinload(ProfilingRun.language),

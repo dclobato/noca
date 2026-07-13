@@ -851,6 +851,8 @@ Purpose:
 - ordered test-case mutations within a problem
 - deterministic append, move, and removal operations for ordinal-based collections
 - problem statement I/O (PDF and Markdown)
+- problem illustration image round-trip through the package ZIP (the image itself is stored in
+  the database as base64 + MIME + caption; see `shared/services/problem_image.py`)
 - problem and test case ZIP import/export
 - per-language fallback limits and profiling-run orchestration
 - persisted affected-submission batch creation for running-contest limit changes
@@ -882,7 +884,7 @@ Additional entrypoints (query helpers):
 Additional entrypoints (language helpers):
 - `get_active_languages(session) -> list[Language]` — all active languages globally; used for contest creation form and uberadmin screens
 - `get_contest_languages(session, contest) -> list[Language]` — languages allowed for the given contest, ordered by name; use this instead of `get_active_languages` for all contest-scoped callers
-- `import_problem_from_zip(session, contest, zip_bytes, testcase_dir, statement_dir) -> ProblemImportResult` — full atomic import; supports both PDF and Markdown statements; filters `language_limits` to the contest's currently allowed languages and reports skipped IDs
+- `import_problem_from_zip(session, contest, zip_bytes, testcase_dir, statement_dir, image_service) -> ProblemImportResult` — full atomic import; supports both PDF and Markdown statements; filters `language_limits` to the contest's currently allowed languages and reports skipped IDs; validates an optional packaged illustration image through `shared.services.problem_image.load_packaged_image`
 - `get_language_limits_map(session, problem) -> dict[str, ProblemLanguageLimit]`
 - `problem_fallback_limits(problem) -> EffectiveProblemLimits` — normalized fallback limits snapshot with `repetitions=1`
 - `submitted_language_limits(languages, submitted_form, existing_limits) -> dict[str, LanguageLimitInput]` — extracts posted per-language limits and preserves repetitions for unchanged rows
@@ -914,8 +916,8 @@ Additional entrypoints (file I/O — sync, call via `anyio.to_thread.run_sync`):
 
 Additional entrypoints (ZIP):
 - `parse_testcases_zip(zip_bytes) -> ParsedTestCases` — supports Layout A (dir: `in/001.in`) and Layout B (flat: `001.in`); returns a `ParsedTestCases` dataclass with `.pairs` (ordinal → input/output bytes) and `.explanations` (ordinal → text from optional `explanation/NNN.txt`, UTF-8, ≤1024 chars; invalid UTF-8 or overlength raise `ValueError`)
-- `build_export_zip(problem, testcase_dir, statement_dir, language_limits) -> bytes` — produces Layout A ZIP with all test cases and `problem.json`; writes optional `explanation/NNN.txt` per test case; per-language limits include repetitions, while fallback problem metadata does not
-- `build_public_export_zip(problem, testcase_dir, statement_dir) -> bytes` — produces Layout A ZIP with statement and public (sample) test cases only (including any `explanation/NNN.txt`); no `problem.json`, no private test cases; intended for contestant download
+- `build_export_zip(problem, testcase_dir, statement_dir, language_limits) -> bytes` — produces Layout A ZIP with all test cases and `problem.json`; writes optional `explanation/NNN.txt` per test case and optional `image.<ext>` for the problem illustration; per-language limits include repetitions, while fallback problem metadata does not; `problem.json` includes `image` and `image_caption`
+- `build_public_export_zip(problem, testcase_dir, statement_dir) -> bytes` — produces Layout A ZIP with statement, optional problem illustration image, and public (sample) test cases only (including any `explanation/NNN.txt`); no `problem.json`, no private test cases; intended for contestant download
 
 Reuse this module when:
 - adding contest-problem management features
@@ -1151,3 +1153,9 @@ The following capabilities do not currently have dedicated service support:
 - server-side logout/token revocation
 
 When adding those features, prefer extending the relevant existing service module instead of creating route-local business logic.
+## Custom validators
+
+Contest problem import and export services persist full-package validator
+metadata in `problem.json` and source in `validator/source.txt`. Imports always
+stage a fresh `PENDING` candidate and mark every packaged test case as a public
+sample. Public exports omit validator source.

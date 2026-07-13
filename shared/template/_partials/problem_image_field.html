@@ -1,0 +1,74 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Problem illustration upload field, shared by the Arena and Contest admin
+  problem forms so the two cannot drift apart.
+
+  Include with:
+    {% with image_b64=problem.problem_image_base64,
+            image_mime=problem.problem_image_mime,
+            image_caption=form.image_caption,
+            image_form_id="edit-form" %}
+        {% include "_partials/problem_image_field.html" %}
+    {% endwith %}
+
+  Parameters (all optional; each degrades to "no image, empty caption"):
+    image_b64      base64 of the currently stored image, or None
+    image_mime     MIME type of the currently stored image, or None
+    image_caption  caption to pre-fill (echo the submitted value on re-render)
+    image_form_id  id of an outer <form> the inputs belong to (Contest cards sit
+                   outside the form element and attach via form=)
+    image_disabled truthy to render the inputs read-only
+#}
+{% set img_b64 = image_b64 | default(None) %}
+{% set img_mime = image_mime | default(None) %}
+{% set img_caption = image_caption | default("") %}
+{% set img_form = image_form_id | default(None) %}
+{% set img_disabled = image_disabled | default(false) %}
+{% if img_b64 %}
+    <div class="mb-2">
+        <img src="data:{{ img_mime }};base64,{{ img_b64 }}"
+             alt="Problem image"
+             class="img-thumbnail noca-problem-image-preview">
+    </div>
+    <div class="form-check mb-2">
+        <input type="checkbox"
+               class="form-check-input"
+               id="clear_image"
+               name="clear_image"
+               value="true"
+               {% if img_form %}form="{{ img_form }}"{% endif %}
+               {% if img_disabled %}disabled{% endif %}>
+        <label class="form-check-label text-danger" for="clear_image">Remove current image</label>
+    </div>
+{% endif %}
+<label class="form-label" for="image">
+    {% if img_b64 %}
+        Replace image (optional)
+    {% else %}
+        Problem image (optional)
+    {% endif %}
+</label>
+<input type="file"
+       class="form-control"
+       id="image"
+       name="image"
+       data-image-preview
+       accept=".png,.jpg,.jpeg,.webp"
+       {% if img_form %}form="{{ img_form }}"{% endif %}
+       {% if img_disabled %}disabled{% endif %}>
+<div class="form-text">PNG, JPEG or WebP; max 2 MB.</div>
+<label class="form-label mt-2" for="image_caption">Image caption (optional)</label>
+<input type="text"
+       class="form-control"
+       id="image_caption"
+       name="image_caption"
+       value="{{ img_caption }}"
+       maxlength="512"
+       placeholder="Caption displayed below the image"
+       {% if img_form %}form="{{ img_form }}"{% endif %}
+       {% if img_disabled %}disabled{% endif %}>

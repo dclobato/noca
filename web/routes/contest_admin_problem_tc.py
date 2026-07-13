@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.services.custom_validator import status_view
 from shared.services.testcase_files import read_testcase_full, read_testcase_sizes
 from shared.tc_zip import (
     MAX_INLINE_TESTCASE_BYTES,
@@ -148,8 +149,12 @@ async def upload_testcase_zip(
 
     # DB: insert new rows with sizes computed in memory (no file I/O yet).
     new_file_data: list[tuple[int, bytes, bytes]] = []
+    validator_configured = status_view(problem.custom_validator).configured
     for source_ordinal, (in_b, out_b) in sorted(parsed.pairs.items()):
-        tc = ProblemTestCase(is_sample=False, explanation=parsed.explanations.get(source_ordinal))
+        tc = ProblemTestCase(
+            is_sample=validator_configured,
+            explanation=parsed.explanations.get(source_ordinal),
+        )
         await append_test_case(ctx.session, problem, tc)
         ordinal = tc.ordinal
         tc.input_size_bytes = len(normalize_testcase_bytes(in_b))
@@ -311,6 +316,10 @@ async def add_test_case(
         flash("Problem not found.", FlashCategory.DANGER)
         return _redirect(edit_url)
 
+    validator_configured = status_view(problem.custom_validator).configured
+    if validator_configured and is_sample is None:
+        flash("Custom-validator test cases must be public samples.", FlashCategory.DANGER)
+        return _redirect(edit_url)
     tc = ProblemTestCase(is_sample=is_sample is not None, explanation=explanation_value)
     await append_test_case(ctx.session, problem, tc)
     ordinal = tc.ordinal
@@ -364,7 +373,10 @@ async def add_test_case_zip(
         flash(str(exc), FlashCategory.DANGER)
         return _redirect(edit_url)
 
-    tc = ProblemTestCase(is_sample=False, explanation=single.explanation)
+    tc = ProblemTestCase(
+        is_sample=status_view(problem.custom_validator).configured,
+        explanation=single.explanation,
+    )
     await append_test_case(ctx.session, problem, tc)
     ordinal = tc.ordinal
     testcase_dir = settings.PROBLEM_TESTCASE_DIR
@@ -415,6 +427,9 @@ async def edit_test_case(
         flash("Test case not found.", FlashCategory.DANGER)
         return _redirect(edit_url)
 
+    if status_view(problem.custom_validator).configured and is_sample is None:
+        flash("Custom-validator test cases must remain public samples.", FlashCategory.DANGER)
+        return _redirect(edit_url)
     tc.is_sample = is_sample is not None
     tc.explanation = explanation_value
     ordinal = tc.ordinal
@@ -454,7 +469,9 @@ async def remove_test_case_route(
         flash("Test case not found.", FlashCategory.DANGER)
         return _redirect(edit_url)
 
-    if len(problem.test_cases) <= 1:
+    # Interactive judgments never read test-case files, so a validator problem
+    # may legitimately end up with no test cases at all.
+    if len(problem.test_cases) <= 1 and not status_view(problem.custom_validator).configured:
         flash("Cannot remove the only remaining test case.", FlashCategory.DANGER)
         return RedirectResponse(url=edit_url, status_code=303)
 
@@ -499,6 +516,9 @@ async def toggle_test_case_sample(
         flash("Test case not found.", FlashCategory.DANGER)
         return _redirect(edit_url)
 
+    if status_view(problem.custom_validator).configured and tc.is_sample:
+        flash("Custom-validator test cases cannot be made secret.", FlashCategory.DANGER)
+        return _redirect(edit_url)
     tc.is_sample = not tc.is_sample
     await ctx.session.commit()
     kind = "sample" if tc.is_sample else "secret"

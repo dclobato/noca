@@ -1,0 +1,18 @@
+{% if validator_status.polling %}
+    <div hx-get="{{ request.url_for('arena_admin_problem_validator_status', problem_id=problem.id) }}"
+         hx-trigger="load delay:2s"
+         hx-swap="outerHTML">
+        <span class="badge text-bg-warning">Validation pending</span>
+    </div>
+{% elif validator_status.candidate_state and validator_status.candidate_state.value == 'INVALID' %}
+    <div>
+        <span class="badge text-bg-danger">Compilation failed</span>
+        {% if validator_status.candidate_compile_log %}
+            <pre class="small mt-2 mb-0"><code>{{ validator_status.candidate_compile_log }}</code></pre>
+        {% endif %}
+    </div>
+{% elif validator_status.usable and validator_status.configured %}
+    <span class="badge text-bg-success">Active and validated</span>
+{% else %}
+    <span class="badge text-bg-secondary">Not configured</span>
+{% endif %}

@@ -4,6 +4,15 @@
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  One Save posts the whole problem: basic info, statement, illustration,
+  categories, the custom validator and the pending test-case edits.
+
+  `#edit-form` is therefore rendered empty and closed immediately, and every
+  field attaches to it with `form="edit-form"`. That is what lets the cards below
+  hold forms of their own (validator removal, the test-case ZIP uploads, the
+  per-row replace/toggle actions) without nesting a form inside a form, which
+  HTML forbids.
 #}
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon with context %}
@@ -44,284 +53,329 @@
                 {% endfor %}
             {% endif %}
             <input type="hidden" name="next_url" value="{{ next_url | default("") }}">
-            <div class="arena-card mb-3">
-                <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
-                    <h1 class="arena-card-title mb-0">
-                        {{ render_icon(icon="assignment") }}
-                        {{ 'New Problem' if mode == 'create' else 'Edit Problem #' ~ problem.arena_number }}
-                    </h1>
-                    <div class="d-flex gap-2">
-                        <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm">
-                            {{ render_icon(icon="arrow_back") }}
-                            Back
-                        </a>
-                        <button type="submit" class="btn btn-primary btn-sm">
-                            {{ render_icon(icon="save") }}
-                            Save
-                        </button>
-                    </div>
+        </form>
+        <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+            <h1 class="h4 mb-0">
+                {{ render_icon(icon="assignment") }}
+                {{ 'New Problem' if mode == 'create' else 'Edit Problem #' ~ problem.arena_number }}
+            </h1>
+            <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm">
+                {{ render_icon(icon="arrow_back") }}
+                Back
+            </a>
+        </div>
+        <div class="arena-card mb-3">
+            <h2 class="arena-card-title">
+                {{ render_icon(icon="info") }}
+                Basic Info
+            </h2>
+            {% if mode == 'edit' %}
+                <div class="arena-rating-sparkline mb-3">
+                    <span class="arena-rating-sparkline-label">
+                        {{ render_icon(icon="show_chart") }}
+                        Difficulty
+                    </span>
+                    {% with chart_id="problem-rating-chart", data_url=rating_history_url %}
+                        {% include "_partials/problem_rating_chart.html" %}
+                    {% endwith %}
                 </div>
-                {% if mode == 'edit' %}
-                    <div class="arena-rating-sparkline mb-3">
-                        <span class="arena-rating-sparkline-label">
-                            {{ render_icon(icon="show_chart") }}
-                            Difficulty
-                        </span>
-                        {% with chart_id="problem-rating-chart", data_url=rating_history_url %}
-                            {% include "_partials/problem_rating_chart.html" %}
-                        {% endwith %}
-                    </div>
-                {% endif %}
-                {% if mode == 'edit' and is_admin and problem_owner %}
-                    <div class="arena-list-item-meta mb-3">
-                        <span class="fw-semibold">
-                            {{ render_icon(icon="person") }}
-                            Owner
-                        </span>
-                        <a href="{{ request.url_for('arena_admin_user_profile', user_id=problem_owner.id) }}">{{ problem_owner.nome }}</a>
-                    </div>
-                {% endif %}
-                <div class="row g-3">
-                    <div class="col-12 col-md-6">
-                        <label class="form-label" for="title">
-                            Title <span class="text-danger">*</span>
-                        </label>
-                        <input type="text"
-                               class="form-control"
-                               id="title"
-                               name="title"
-                               value="{{ form.title }}"
-                               maxlength="256"
-                               required>
-                    </div>
-                    <div class="col-12 col-md-6">
-                        <label class="form-label" for="source">Source</label>
-                        <input type="text"
-                               class="form-control"
-                               id="source"
-                               name="source"
-                               value="{{ form.source }}"
-                               maxlength="256"
-                               placeholder="e.g. contest name or university">
-                    </div>
-                    <div class="col-12">
-                        <div class="d-flex flex-wrap gap-3 align-items-end">
-                            <div class="form-check mb-2">
-                                <input type="checkbox"
-                                       class="form-check-input"
-                                       id="author_is_owner"
-                                       name="author_is_owner"
-                                       value="true"
-                                       aria-controls="author-field"
-                                       {% if form.author_is_owner %}checked{% endif %}>
-                                <label class="form-check-label" for="author_is_owner">I'm problem author</label>
-                            </div>
-                            <div class="flex-grow-1"
-                                 id="author-field"
-                                 {% if form.author_is_owner %}hidden{% endif %}>
-                                <label class="form-label" for="author">
-                                    Author <span class="text-danger">*</span>
-                                </label>
-                                <input type="text"
-                                       class="form-control"
-                                       id="author"
-                                       name="author"
-                                       value="{{ form.author }}"
-                                       maxlength="80"
-                                       {% if not form.author_is_owner %}required{% endif %}>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-12 col-md-3">
-                        <label class="form-label" for="time_limit_ms">
-                            Time limit (ms) <span class="text-danger">*</span>
-                        </label>
-                        <input type="number"
-                               class="form-control"
-                               id="time_limit_ms"
-                               name="time_limit_ms"
-                               value="{{ form.time_limit_ms }}"
-                               min="100"
-                               required>
-                    </div>
-                    <div class="col-12 col-md-3">
-                        <label class="form-label" for="memory_limit_kb">
-                            Memory limit (KB) <span class="text-danger">*</span>
-                        </label>
-                        <input type="number"
-                               class="form-control"
-                               id="memory_limit_kb"
-                               name="memory_limit_kb"
-                               value="{{ form.memory_limit_kb }}"
-                               min="1024"
-                               required>
-                    </div>
-                    <div class="col-12 col-md-3">
-                        <label class="form-label" for="pids_limit">
-                            PIDs limit <span class="text-danger">*</span>
-                        </label>
-                        <input type="number"
-                               class="form-control"
-                               id="pids_limit"
-                               name="pids_limit"
-                               value="{{ form.pids_limit }}"
-                               min="1"
-                               required>
-                    </div>
-                    <div class="col-12 col-md-3">
-                        <label class="form-label" for="output_limit_in_bytes">
-                            Output limit (bytes) <span class="text-danger">*</span>
-                        </label>
-                        <input type="number"
-                               class="form-control"
-                               id="output_limit_in_bytes"
-                               name="output_limit_in_bytes"
-                               value="{{ form.output_limit_in_bytes }}"
-                               min="1"
-                               required>
-                    </div>
-                    <div class="col-12">
-                        <div class="form-check">
+            {% endif %}
+            {% if mode == 'edit' and is_admin and problem_owner %}
+                <div class="arena-list-item-meta mb-3">
+                    <span class="fw-semibold">
+                        {{ render_icon(icon="person") }}
+                        Owner
+                    </span>
+                    <a href="{{ request.url_for('arena_admin_user_profile', user_id=problem_owner.id) }}">{{ problem_owner.nome }}</a>
+                </div>
+            {% endif %}
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    <label class="form-label" for="title">
+                        Title <span class="text-danger">*</span>
+                    </label>
+                    <input type="text"
+                           class="form-control"
+                           id="title"
+                           name="title"
+                           form="edit-form"
+                           value="{{ form.title }}"
+                           maxlength="256"
+                           required>
+                </div>
+                <div class="col-12 col-md-6">
+                    <label class="form-label" for="source">Source</label>
+                    <input type="text"
+                           class="form-control"
+                           id="source"
+                           name="source"
+                           form="edit-form"
+                           value="{{ form.source }}"
+                           maxlength="256"
+                           placeholder="e.g. contest name or university">
+                </div>
+                <div class="col-12">
+                    <div class="d-flex flex-wrap gap-3 align-items-end">
+                        <div class="form-check mb-2">
                             <input type="checkbox"
                                    class="form-check-input"
-                                   id="hide_author_show_source"
-                                   name="hide_author_show_source"
+                                   id="author_is_owner"
+                                   name="author_is_owner"
+                                   form="edit-form"
                                    value="true"
-                                   {% if form.hide_author_show_source %}checked{% endif %}>
-                            <label class="form-check-label" for="hide_author_show_source">Hide author name and show source instead</label>
+                                   aria-controls="author-field"
+                                   {% if form.author_is_owner %}checked{% endif %}>
+                            <label class="form-check-label" for="author_is_owner">I'm problem author</label>
                         </div>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label" for="stmt-md-editor">
-                            Statement (Markdown) <span class="text-danger">*</span>
-                        </label>
-                        <textarea id="stmt-md-editor" name="problem_statement">{{ form.problem_statement }}</textarea>
-                        <div class="form-text small">Only text and formatting. External links and images are not allowed.</div>
-                        <div class="form-text small mt-1">
-                            Support for <span class="fw-semibold">LaTeX</span> (
-                            <span class="text-muted">$x^n + 3 = 0$</span>
-                            )
-                            and <span class="fw-semibold">Mermaid diagrams</span> (
-                            <span class="text-muted arena-monospace">```mermaid ...```</span>
-                            )
-                            <a href="#"
-                               class="ms-1"
-                               data-bs-toggle="modal"
-                               data-bs-target="#syntaxModal">View syntax examples</a>
+                        <div class="flex-grow-1"
+                             id="author-field"
+                             {% if form.author_is_owner %}hidden{% endif %}>
+                            <label class="form-label" for="author">
+                                Author <span class="text-danger">*</span>
+                            </label>
+                            <input type="text"
+                                   class="form-control"
+                                   id="author"
+                                   name="author"
+                                   form="edit-form"
+                                   value="{{ form.author }}"
+                                   maxlength="80"
+                                   {% if not form.author_is_owner %}required{% endif %}>
                         </div>
-                    </div>
-                    <div class="col-12 col-md-6">
-                        <label class="form-label" for="image">Problem image (optional)</label>
-                        {% if mode == 'edit' and problem.problem_image_base64 %}
-                            <div class="mb-2">
-                                <img src="data:{{ problem.problem_image_mime }};base64,{{ problem.problem_image_base64 }}"
-                                     alt="Problem image"
-                                     class="img-thumbnail"
-                                     style="max-height:120px">
-                            </div>
-                            <div class="form-check mb-2">
-                                <input type="checkbox"
-                                       class="form-check-input"
-                                       id="clear_image"
-                                       name="clear_image"
-                                       value="true">
-                                <label class="form-check-label text-danger" for="clear_image">Remove current image</label>
-                            </div>
-                        {% endif %}
-                        <input type="file"
-                               class="form-control"
-                               id="image"
-                               name="image"
-                               accept="image/*">
-                        <div class="form-text">JPEG, PNG, GIF or WebP; max 2 MB.</div>
-                        <label class="form-label mt-2" for="image_caption">Image caption (optional)</label>
-                        <input type="text"
-                               class="form-control"
-                               id="image_caption"
-                               name="image_caption"
-                               value="{{ form.image_caption }}"
-                               maxlength="512"
-                               placeholder="Caption displayed below the image">
-                    </div>
-                    <div class="col-12 col-md-6">
-                        <label class="form-label" for="cat-input">Categories</label>
-                        <div class="arena-cat-picker"
-                             id="cat-picker"
-                             data-search-url="{{ request.url_for("arena_admin_problem_categories_search") }}">
-                            <script type="application/json" id="cat-selected-data">{{ selected_cats_data | tojson }}</script>
-                            <div id="cat-hidden"></div>
-                            <div class="d-flex flex-wrap mb-1" id="cat-pills"></div>
-                            <div class="arena-cat-picker-input-wrap">
-                                <input type="search"
-                                       id="cat-input"
-                                       class="form-control form-control-sm"
-                                       placeholder="Search and add categories…"
-                                       autocomplete="off">
-                            </div>
-                            <div class="arena-cat-dropdown" id="cat-dropdown"></div>
-                        </div>
-                        <div class="form-text small">Type to search for categories and click to add them.</div>
                     </div>
                 </div>
-                <div class="row g-3 mt-0">
-                    <div class="col-12">
-                        <label class="form-label" for="notes">Internal note (optional)</label>
-                        <input type="text"
-                               class="form-control"
-                               id="notes"
-                               name="notes"
-                               value="{{ form.notes }}"
-                               maxlength="256"
-                               placeholder="Management-only note, not visible to users">
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label" for="license">License (optional)</label>
-                        <input type="text"
-                               class="form-control"
-                               id="license"
-                               name="license"
-                               value="{{ form.license }}"
-                               maxlength="256"
-                               placeholder="License name or terms shown on the problem page">
+                <div class="col-12 col-md-3">
+                    <label class="form-label" for="time_limit_ms">
+                        Time limit (ms) <span class="text-danger">*</span>
+                    </label>
+                    <input type="number"
+                           class="form-control"
+                           id="time_limit_ms"
+                           name="time_limit_ms"
+                           form="edit-form"
+                           value="{{ form.time_limit_ms }}"
+                           min="100"
+                           required>
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label" for="memory_limit_kb">
+                        Memory limit (KB) <span class="text-danger">*</span>
+                    </label>
+                    <input type="number"
+                           class="form-control"
+                           id="memory_limit_kb"
+                           name="memory_limit_kb"
+                           form="edit-form"
+                           value="{{ form.memory_limit_kb }}"
+                           min="1024"
+                           required>
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label" for="pids_limit">
+                        PIDs limit <span class="text-danger">*</span>
+                    </label>
+                    <input type="number"
+                           class="form-control"
+                           id="pids_limit"
+                           name="pids_limit"
+                           form="edit-form"
+                           value="{{ form.pids_limit }}"
+                           min="1"
+                           required>
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label" for="output_limit_in_bytes">
+                        Output limit (bytes) <span class="text-danger">*</span>
+                    </label>
+                    <input type="number"
+                           class="form-control"
+                           id="output_limit_in_bytes"
+                           name="output_limit_in_bytes"
+                           form="edit-form"
+                           value="{{ form.output_limit_in_bytes }}"
+                           min="1"
+                           required>
+                </div>
+                <div class="col-12">
+                    <div class="form-check">
+                        <input type="checkbox"
+                               class="form-check-input"
+                               id="hide_author_show_source"
+                               name="hide_author_show_source"
+                               form="edit-form"
+                               value="true"
+                               {% if form.hide_author_show_source %}checked{% endif %}>
+                        <label class="form-check-label" for="hide_author_show_source">Hide author name and show source instead</label>
                     </div>
                 </div>
-                <div class="d-flex flex-wrap gap-2 mt-3">
-                    <button type="submit" class="btn btn-primary">
-                        {{ render_icon(icon="save") }}
-                        Save
-                    </button>
-                    <a href="{{ back_url }}" class="btn btn-outline-secondary">Cancel</a>
+                <div class="col-12">
+                    <label class="form-label" for="notes">Internal note (optional)</label>
+                    <input type="text"
+                           class="form-control"
+                           id="notes"
+                           name="notes"
+                           form="edit-form"
+                           value="{{ form.notes }}"
+                           maxlength="256"
+                           placeholder="Management-only note, not visible to users">
+                </div>
+                <div class="col-12">
+                    <label class="form-label" for="license">License (optional)</label>
+                    <input type="text"
+                           class="form-control"
+                           id="license"
+                           name="license"
+                           form="edit-form"
+                           value="{{ form.license }}"
+                           maxlength="256"
+                           placeholder="License name or terms shown on the problem page">
                 </div>
             </div>
-        </form>
+        </div>
+        <div class="arena-card mb-3">
+            <h2 class="arena-card-title">
+                {{ render_icon(icon="article") }}
+                Problem statement
+            </h2>
+            <label class="form-label" for="stmt-md-editor">
+                Statement (Markdown) <span class="text-danger">*</span>
+            </label>
+            <textarea id="stmt-md-editor" name="problem_statement" form="edit-form">{{ form.problem_statement }}</textarea>
+            <div class="form-text small">Only text and formatting. External links and images are not allowed.</div>
+            <div class="form-text small mt-1">
+                Support for <span class="fw-semibold">LaTeX</span> (
+                <span class="text-muted">$x^n + 3 = 0$</span>
+                )
+                and <span class="fw-semibold">Mermaid diagrams</span> (
+                <span class="text-muted arena-monospace">```mermaid ...```</span>
+                )
+                <a href="#"
+                   class="ms-1"
+                   data-bs-toggle="modal"
+                   data-bs-target="#syntaxModal">View syntax examples</a>
+            </div>
+        </div>
+        <div class="arena-card mb-3">
+            <h2 class="arena-card-title">
+                {{ render_icon(icon="image") }}
+                Problem illustration
+            </h2>
+            {% with image_b64=(problem.problem_image_base64 if mode == 'edit' else None), image_mime=(problem.problem_image_mime if mode == 'edit' else None), image_caption=form.image_caption, image_form_id="edit-form" %}
+                {% include "_partials/problem_image_field.html" %}
+            {% endwith %}
+        </div>
+        <div class="arena-card mb-3">
+            <h2 class="arena-card-title">
+                {{ render_icon(icon="sell") }}
+                Categories
+            </h2>
+            <label class="form-label" for="cat-input">Categories</label>
+            <div class="arena-cat-picker"
+                 id="cat-picker"
+                 data-form-id="edit-form"
+                 data-search-url="{{ request.url_for("arena_admin_problem_categories_search") }}">
+                <script type="application/json" id="cat-selected-data">{{ selected_cats_data | tojson }}</script>
+                <div id="cat-hidden"></div>
+                <div class="d-flex flex-wrap mb-1" id="cat-pills"></div>
+                <div class="arena-cat-picker-input-wrap">
+                    <input type="search"
+                           id="cat-input"
+                           class="form-control form-control-sm"
+                           placeholder="Search and add categories…"
+                           autocomplete="off">
+                </div>
+                <div class="arena-cat-dropdown" id="cat-dropdown"></div>
+            </div>
+            <div class="form-text small">Type to search for categories and click to add them.</div>
+        </div>
+        <div class="arena-card mb-3">
+            <h2 class="arena-card-title">
+                {{ render_icon(icon="rule") }}
+                Custom interactive validator
+            </h2>
+            {% if mode == 'edit' %}
+                {% include "admin/_validator_status.html" %}
+            {% endif %}
+            {% if mode == 'edit' and validator_status.configured %}
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    <a class="btn btn-outline-secondary btn-sm arena-icon-button"
+                       href="{{ request.url_for('arena_admin_problem_validator_download', problem_id=problem.id) }}">
+                        {{ render_icon(icon="download") }}
+                        Download validator source
+                    </a>
+                    <form method="post"
+                          action="{{ request.url_for('arena_admin_problem_validator_remove', problem_id=problem.id) }}">
+                        <button class="btn btn-outline-danger btn-sm arena-icon-button" type="submit">
+                            {{ render_icon(icon="delete") }}
+                            Remove validator
+                        </button>
+                    </form>
+                </div>
+                <div class="form-text">Remove the current validator to upload a different one.</div>
+            {% else %}
+                <div class="row g-2 align-items-end {% if mode == 'edit' %}mt-1{% endif %}">
+                    <div class="col-md-5">
+                        <label class="form-label" for="validator_language_id">Language</label>
+                        <select class="form-select form-select-sm"
+                                id="validator_language_id"
+                                name="validator_language_id"
+                                form="edit-form">
+                            <option value="">No custom validator</option>
+                            {% for language in validator_languages %}<option value="{{ language.id }}">{{ language.name }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-7">
+                        <label class="form-label" for="validator_source_file">UTF-8 source file</label>
+                        <input class="form-control form-control-sm"
+                               id="validator_source_file"
+                               type="file"
+                               name="validator_source_file"
+                               form="edit-form">
+                    </div>
+                </div>
+                <div class="form-text">
+                    All test cases must be samples. Compilation is queued after you click
+                    <strong>Save</strong>, and runs asynchronously.
+                </div>
+            {% endif %}
+        </div>
         {% if mode == 'edit' %}
             <input type="hidden"
                    id="tc_remove_ids"
                    name="tc_remove_ids"
                    value=""
+                   data-allow-empty="{{ 'true' if validator_status and validator_status.configured else 'false' }}"
                    form="edit-form">
             {% include "_partials/problem_tc_list.html" %}
+        {% endif %}
+        <div class="d-flex flex-wrap gap-2 mb-3">
+            <button type="submit" class="btn btn-primary" form="edit-form">
+                {{ render_icon(icon="save") }}
+                Save
+            </button>
+            <a href="{{ back_url }}" class="btn btn-outline-secondary">Cancel</a>
+        </div>
+        {% if mode == 'edit' %}
             <div class="arena-card mb-3 border-danger">
-                <div class="arena-card-header">
-                    <h2 class="arena-card-title mb-0 text-danger">Danger zone</h2>
-                </div>
-                <div class="arena-card-body mt-3">
-                    <div class="d-flex flex-wrap gap-2">
-                        <button type="button"
-                                class="btn btn-outline-danger btn-sm arena-icon-button"
-                                data-problem-delete-button
-                                data-action="{{ request.url_for('arena_admin_problem_delete', problem_id=problem.id) }}"
-                                data-problem-number="{{ problem.arena_number }}">
-                            {{ render_icon("delete") }} Delete problem
-                        </button>
-                        <button type="button"
-                                class="btn btn-outline-warning btn-sm arena-icon-button"
-                                data-problem-rejudge-button
-                                data-action="{{ request.url_for('arena_admin_problem_rejudge_all', problem_id=problem.id) }}"
-                                data-problem-number="{{ problem.arena_number }}">
-                            {{ render_icon("replay") }} Rejudge all submissions
-                        </button>
-                    </div>
+                <h2 class="arena-card-title text-danger">
+                    {{ render_icon(icon="warning") }}
+                    Danger zone
+                </h2>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="button"
+                            class="btn btn-outline-danger btn-sm arena-icon-button"
+                            data-problem-delete-button
+                            data-action="{{ request.url_for('arena_admin_problem_delete', problem_id=problem.id) }}"
+                            data-problem-number="{{ problem.arena_number }}">
+                        {{ render_icon("delete") }} Delete problem
+                    </button>
+                    <button type="button"
+                            class="btn btn-outline-warning btn-sm arena-icon-button"
+                            data-problem-rejudge-button
+                            data-action="{{ request.url_for('arena_admin_problem_rejudge_all', problem_id=problem.id) }}"
+                            data-problem-number="{{ problem.arena_number }}">
+                        {{ render_icon("replay") }} Rejudge all submissions
+                    </button>
                 </div>
             </div>
             <div class="modal fade" id="problem-delete-modal" tabindex="-1">
@@ -483,6 +537,7 @@
     </div>
 {% endblock %}
 {% block extra_script %}
+    {% if mode == 'edit' %}<script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"></script>{% endif %}
     <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"></script>
     <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"></script>
     <script src="{{ request.url_for('static_vendor', path='easymde.min.js') }}"></script>
@@ -493,6 +548,7 @@
     <script src="{{ request.url_for('static_shared_js', path='problem-statement-editor-core.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='problem-statement-editor.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='admin-problem-form.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='problem-image-preview.js') }}?v={{ app_version }}"></script>
     {% if mode == 'edit' %}
         <script src="{{ request.url_for('static_vendor', path='Sortable.min.js') }}"></script>
         <script src="{{ request.url_for('static_shared_js', path='tc-reorder-sortable.js') }}?v={{ app_version }}"></script>

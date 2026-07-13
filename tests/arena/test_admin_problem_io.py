@@ -17,11 +17,13 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings as arena_settings
-from arena.models.arena_problems import ArenaCategory
+from arena.models.arena_problems import ArenaCategory, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_io_service, admin_problem_service, admin_problem_tc_service
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, CustomValidatorCandidateState
 from shared.services.imageprocessing_service import ImageProcessingService
+from shared.services.sample_problem_package import build_sample_problem_package
+from web.models.language import Language
 
 
 async def _make_author(session: AsyncSession) -> ArenaUser:
@@ -72,6 +74,83 @@ def _build_package(*, categories: list[str]) -> bytes:
         archive.writestr("in/002.in", "4 5\n")
         archive.writestr("out/002.out", "9\n")
     return buffer.getvalue()
+
+
+def _build_validator_package() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "problem.json",
+            json.dumps(
+                {
+                    **_VALID_META,
+                    "test_case_visibility": "sample",
+                    "custom_validator": {
+                        "language_id": "python3",
+                        "source_file": "validator/source.txt",
+                    },
+                }
+            ),
+        )
+        archive.writestr("statement.md", "# Interactive\n\nExample cases only.\n")
+        archive.writestr("validator/source.txt", "print('ready')\n")
+        archive.writestr("in/001.in", "example\n")
+        archive.writestr("out/001.out", "example\n")
+    return buffer.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_validator_package_import_is_pending_disabled_and_sample_only(session: AsyncSession) -> None:
+    author = await _make_author(session)
+    session.add(
+        Language(
+            id="python3",
+            name="Python 3",
+            icon="python",
+            compile_image="compile",
+            run_image="run",
+            compile_cmd=["true"],
+            run_cmd=["python3", "/sandbox/source.py"],
+            source_filename="source.py",
+            artifact_path="/sandbox/source.py",
+            artifact_is_source=True,
+            compile_timeout_s=10,
+            active=True,
+        )
+    )
+    await session.commit()
+
+    problem = await admin_problem_io_service.import_problem_from_zip(
+        session,
+        zip_bytes=_build_validator_package(),
+        caller_id=author.id,
+        image_service=ImageProcessingService(),
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+
+    validator = await session.get(ArenaProblemCustomValidator, problem.id)
+    test_cases = await admin_problem_tc_service.list_testcases(session, problem.id)
+    assert problem.enabled is False
+    assert validator is not None
+    assert validator.candidate_state == CustomValidatorCandidateState.PENDING
+    assert test_cases and all(test_case.is_sample for test_case in test_cases)
+
+    loaded = await admin_problem_service.get_problem(
+        session,
+        problem.id,
+        caller_id=author.id,
+        is_admin=False,
+    )
+    assert loaded is not None
+    exported = admin_problem_io_service.build_export_zip(
+        loaded,
+        author.nome,
+        arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+    with zipfile.ZipFile(io.BytesIO(exported)) as archive:
+        metadata = json.loads(archive.read("problem.json"))
+        assert metadata["test_case_visibility"] == "sample"
+        assert archive.read("validator/source.txt") == b"print('ready')\n"
 
 
 @pytest.mark.asyncio
@@ -350,3 +429,35 @@ async def test_import_rejects_binary_test_case(session: AsyncSession) -> None:
             image_service=ImageProcessingService(),
             testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
         )
+
+
+@pytest.mark.asyncio
+async def test_sample_package_imports_cleanly_into_arena(session: AsyncSession) -> None:
+    """The same package the import page offers must import on the Arena side too.
+
+    It carries Contest-only keys (`color`, `language_limits`); the Arena importer
+    must ignore them rather than fail.
+    """
+    author = await _make_author(session)
+    session.add_all([ArenaCategory(name="sample", slug="sample"), ArenaCategory(name="math", slug="math")])
+    await session.commit()
+
+    problem = await admin_problem_io_service.import_problem_from_zip(
+        session,
+        zip_bytes=build_sample_problem_package(),
+        caller_id=author.id,
+        image_service=ImageProcessingService(),
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+
+    test_cases = await admin_problem_tc_service.list_testcases(session, problem.id)
+    await session.refresh(problem, attribute_names=["categories"])
+    assert problem.title == "A + B"
+    assert problem.author == "John Doe"
+    assert problem.notes == "Sample problem"
+    assert problem.license == "cc sa-by"
+    assert problem.time_limit_ms == 1000
+    assert problem.enabled is False
+    assert [tc.ordinal for tc in test_cases] == [1, 2, 3]
+    assert all(not tc.is_sample for tc in test_cases)
+    assert {category.name for category in problem.categories} == {"sample", "math"}

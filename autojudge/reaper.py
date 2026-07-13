@@ -260,9 +260,13 @@ async def _handle_stale_job(
 
     if requeue_count >= settings.REAPER_MAX_REQUEUE_COUNT:
         # This job has been requeued too many times — it is a poison pill.
-        # Remove it entirely and log for operator investigation.
         pipe = valkey.pipeline()
-        pipe.delete(job_key)
+        if job_kind == "custom_validator_validation":
+            # Leave the hash for the DB reconciler so it can mark the matching
+            # pending candidate INVALID instead of re-enqueueing forever.
+            pipe.hset(job_key, mapping={"requeue_count": str(requeue_count), "reaper_dropped": "true"})
+        else:
+            pipe.delete(job_key)
         pipe.delete(lock_key)
         pipe.lrem(settings.queue_inflight_key, 1, judgment_id)
         pipe.zrem(settings.queue_inflight_times_key, judgment_id)
@@ -289,7 +293,11 @@ async def _handle_stale_job(
     pipe = valkey.pipeline()
     pipe.delete(lock_key)
     pipe.hset(job_key, "requeue_count", str(new_count))
-    destination_key = settings.queue_profiling_key if job_kind == "profiling" else settings.queue_pending_key
+    destination_key = (
+        settings.queue_profiling_key
+        if job_kind in {"profiling", "custom_validator_validation"}
+        else settings.queue_pending_key
+    )
     pipe.rpush(destination_key, judgment_id)
     pipe.lrem(settings.queue_inflight_key, 1, judgment_id)
     pipe.zrem(settings.queue_inflight_times_key, judgment_id)

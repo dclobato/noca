@@ -35,6 +35,7 @@ from arena.dependencies.admin import require_arena_admin
 from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_dashboard_history import router
+from arena.routes.legal import router as arena_legal_router
 from arena.services import admin_submission_service
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from shared.db_schema.arena.arena_submissions import (
@@ -576,6 +577,7 @@ def _build_app(session: Any, *, authorized: bool = True) -> FastAPI:
         return Response("[]", media_type="application/json")
 
     app.include_router(router)
+    app.include_router(arena_legal_router)
 
     async def _get_db_override() -> Any:
         yield session

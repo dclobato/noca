@@ -26,10 +26,12 @@ from arena.models.arena_problems import ArenaCategory, ArenaProblem, ArenaRating
 from arena.models.arena_users import ArenaUser
 from arena.services.pagination_service import Pagination, PaginationParams
 from shared.db_schema.arena import arena_problem_category_map as _cat_map_table
+from shared.db_schema.arena import arena_problem_custom_validators as _custom_validator_table
 from shared.db_schema.arena import arena_submissions as _arena_submissions
-from shared.enumerations import ArenaRole, JudgmentStatus
+from shared.enumerations import ArenaRole, CustomValidatorActiveState, JudgmentStatus
 from shared.problem_statement_markdown import validate_md_content
 from shared.queue_schema import ArenaSubmissionJob
+from shared.services.custom_validator import status_view
 
 _DEFAULT_TIME_LIMIT_MS = 1000
 _DEFAULT_MEMORY_LIMIT_KB = 262144
@@ -59,6 +61,7 @@ class ProblemListItem:
     private_tc_count: int
     rating: float | None
     categories: list[ArenaCategory]
+    has_custom_validator: bool
 
 
 def _now() -> datetime:
@@ -191,6 +194,7 @@ async def list_problems_paginated(
             contains_eager(ArenaProblem.rating),
             selectinload(ArenaProblem.categories),
             selectinload(ArenaProblem.test_cases),
+            selectinload(ArenaProblem.custom_validator),
         )
     )
 
@@ -264,6 +268,7 @@ async def list_problems_paginated(
                 private_tc_count=private_tcs,
                 rating=rating,
                 categories=list(problem.categories),
+                has_custom_validator=status_view(problem.custom_validator).configured,
             )
         )
 
@@ -294,6 +299,7 @@ async def get_problem(
         .options(
             selectinload(ArenaProblem.categories),
             selectinload(ArenaProblem.test_cases),
+            selectinload(ArenaProblem.custom_validator),
         )
     )
     if not is_admin:
@@ -457,14 +463,18 @@ async def update_problem(
     problem.problem_statement = problem_statement
     problem.updated_at = _now()
 
+    # A new upload wins over the remove checkbox. Removing the image removes its
+    # caption too: a caption with no image to caption is meaningless.
     if image_b64:
         problem.problem_image_base64 = image_b64
         problem.problem_image_mime = image_mime
+        problem.problem_image_caption = image_caption.strip() if image_caption else None
     elif clear_image:
         problem.problem_image_base64 = None
         problem.problem_image_mime = None
-
-    problem.problem_image_caption = image_caption.strip() if image_caption else None
+        problem.problem_image_caption = None
+    else:
+        problem.problem_image_caption = image_caption.strip() if image_caption else None
     problem.notes = notes.strip() if notes else None
     problem.license = license.strip() if license and license.strip() else None
 
@@ -482,6 +492,22 @@ async def toggle_enabled(session: AsyncSession, problem: ArenaProblem) -> ArenaP
     Returns:
         ArenaProblem: The updated instance (pending flush).
     """
+    if not problem.enabled:
+        validator = (
+            await session.execute(
+                select(
+                    _custom_validator_table.c.active_state,
+                    _custom_validator_table.c.active_source,
+                    _custom_validator_table.c.candidate_source,
+                ).where(_custom_validator_table.c.problem_id == problem.id)
+            )
+        ).one_or_none()
+        if (
+            validator is not None
+            and (validator.active_source is not None or validator.candidate_source is not None)
+            and validator.active_state != CustomValidatorActiveState.VALID
+        ):
+            raise ValueError("Compile a valid custom validator before enabling this problem.")
     problem.enabled = not problem.enabled
     problem.updated_at = _now()
     return problem

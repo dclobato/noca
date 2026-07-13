@@ -97,6 +97,13 @@
         {# Statement embed: PDF inline or Markdown rendered #}
         <div class="card shadow-sm mb-4">
             <div class="card-header fw-semibold">Problem Statement</div>
+            {% if problem.problem_image_base64 %}
+                <div class="card-body pb-0">
+                    {% with image_b64=problem.problem_image_base64, image_mime=problem.problem_image_mime, image_caption=problem.problem_image_caption %}
+                        {% include "_partials/problem_image_figure.html" %}
+                    {% endwith %}
+                </div>
+            {% endif %}
             {% if has_pdf %}
                 <div class="card-body p-0">
                     <object data="{{ request.url_for('contest_problem_statement', slug=contest.login_slug, problem_label=label) }}"

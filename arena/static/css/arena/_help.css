@@ -152,8 +152,7 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--arena-on-surface-variant);
-    min-width: 4.5rem;
-    flex-shrink: 0;
+    flex: 0 0 7.5rem;
 }
 
 .arena-help-cmd {
@@ -163,6 +162,15 @@
     margin: 0;
     white-space: pre-wrap;
     word-break: break-all;
+}
+
+.arena-help-hint {
+    display: inline;
+    min-width: 0;
+}
+
+.arena-help-hint .arena-help-cmd {
+    display: inline;
 }
 
 /* ============================================================
@@ -193,4 +201,3 @@
     border-top: 1px solid var(--arena-outline-variant);
     padding-top: var(--arena-space-sm);
 }
-

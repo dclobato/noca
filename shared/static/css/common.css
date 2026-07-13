@@ -128,3 +128,95 @@
     white-space: pre-wrap;
     font-family: monospace;
 }
+
+/* Test-case row marked for removal on the next save (see tc-pending-remove.js) */
+.tc-pending-removal {
+    opacity: 0.4;
+    text-decoration: line-through;
+}
+
+/* Interactive validator transcript (shared by web review and arena detail pages).
+   A label column, then the raw protocol line flush left. The two sides are told
+   apart by the row tint: the contestant's turns are blue, the validator's are the
+   neutral grey of the "system" side. Bootstrap paints the cells rather than the
+   row, so the tint goes through `--bs-table-bg`, not `background-color`. Both
+   tokens flip with `data-bs-theme`, so dark mode needs no override of its own. */
+.noca-transcript {
+    max-height: 28rem;
+    overflow: auto;
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+}
+
+.noca-transcript-table {
+    font-family: monospace;
+    font-size: 0.85rem;
+}
+
+/* A row header, so the line stays attributed for screen readers even on the rows
+   where the label is not printed. The cell is always rendered — emptying it, not
+   dropping it, is what keeps the column (and so every protocol line) aligned. */
+.noca-transcript-side {
+    width: 6rem;
+    white-space: nowrap;
+    font-family: var(--bs-body-font-family);
+    font-size: 0.7rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--bs-secondary-color);
+}
+
+.noca-transcript-line {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.noca-transcript-user {
+    --bs-table-bg: var(--bs-primary-bg-subtle);
+}
+
+.noca-transcript-user .noca-transcript-side {
+    color: var(--bs-primary-text-emphasis);
+}
+
+.noca-transcript-validator {
+    --bs-table-bg: var(--bs-tertiary-bg);
+}
+
+.noca-transcript-note {
+    font-family: var(--bs-body-font-family);
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
+}
+
+/* ── Problem illustration image ──────────────────────────────────────────── */
+
+.noca-problem-image {
+    max-width: 70%;
+    display: block;
+    margin: 1rem auto;
+    border-radius: var(--arena-border-radius, 0.5rem);
+}
+
+.noca-problem-figure {
+    text-align: center;
+    margin: 1rem auto;
+}
+
+.noca-problem-figure .noca-problem-image {
+    margin: 0 auto;
+}
+
+.noca-problem-figure-caption {
+    font-size: 0.75rem;
+    font-style: italic;
+    text-align: center;
+    margin-top: 0.25rem;
+    color: var(--bs-secondary-color, #6c757d);
+}
+
+.noca-problem-image-preview {
+    display: block;
+    max-height: 120px;
+}

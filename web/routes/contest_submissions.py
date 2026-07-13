@@ -9,7 +9,9 @@ from fastapi.responses import HTMLResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from shared.db_schema import submission_interactive_attempts
 from shared.enumerations import JudgmentStatus, RoleEnum, Verdict
+from shared.services.custom_validator import status_view
 from shared.services.lock_service import get_lock
 from web.config import settings
 from web.dependencies import ContestContext, ensure_allowed_role, get_contest_context
@@ -122,6 +124,7 @@ async def review_submission(
             selectinload(Submission.overrides),
             selectinload(Submission.language),
             selectinload(Submission.problem).selectinload(Problem.language_limits),
+            selectinload(Submission.problem).selectinload(Problem.custom_validator),
         )
     )
     submission = result.scalar_one_or_none()
@@ -184,6 +187,14 @@ async def review_submission(
     judging_history = await get_judging_history(ctx.session, submission_id, ctx.actor, ctx.contest)
     problem_label = _label(submission.problem.ordinal)
     test_results = active_judgment.test_results if can_see_test_results and active_judgment is not None else None
+    interactive_attempts = []
+    if can_see_test_results and active_judgment is not None:
+        attempts_result = await ctx.session.execute(
+            select(submission_interactive_attempts)
+            .where(submission_interactive_attempts.c.judgment_id == active_judgment.id)
+            .order_by(submission_interactive_attempts.c.attempt_number)
+        )
+        interactive_attempts = list(attempts_result.mappings().all())
     highlight_assets = submission_highlight_assets(submission.language.id)
     language_limit = next(
         (limit for limit in submission.problem.language_limits if limit.language_id == submission.language.id),
@@ -212,6 +223,8 @@ async def review_submission(
                 "review_lock_holder_name": review_lock_holder_name,
                 "lock_service_available": lock_service_available,
                 "test_results": test_results,
+                "interactive_attempts": interactive_attempts,
+                "validator_status": status_view(submission.problem.custom_validator),
                 "judging_history": judging_history,
                 "panel": panel,
                 "is_judge": is_judge,

@@ -355,6 +355,41 @@ Model:
 
 ---
 
+## `problem_image.py`
+
+Purpose:
+- own the problem illustration image contract shared by the Arena and Contest problem domains:
+  the size cap, the extension/MIME maps, the upload processor, and the packaged-image loader,
+  so the two domains cannot drift apart when the rules change
+
+Both domains store the image in the database as base64 text plus its MIME type and an optional
+caption (unlike test cases, which live on the filesystem), render it as a `data:` URI with no
+serving route, and round-trip it through the problem package ZIP as a root-level `image.<ext>`
+member declared by the `image` key of `problem.json`.
+
+Canonical location:
+- `shared/services/problem_image.py`
+
+Main entrypoints:
+- `MAX_PROBLEM_IMAGE_BYTES` — 2 MB per-problem cap, tighter than the image service's own default
+- `process_problem_image_upload(image_service, upload) -> (base64, mime)` — validates a form upload
+- `load_packaged_image(meta, archive, names, image_service) -> (base64 | None, mime | None)` — a
+  `problem.json`-referenced filename **must** exist in the archive (a missing referenced image
+  rejects the package); otherwise a root-level image file is auto-detected
+- `export_image_filename(mime) -> str` — the `image.<ext>` package member name
+
+Reused by:
+- `arena/routes/admin_problem_form_views.py`, `arena/services/admin_problem_io_service.py`,
+  `web/routes/contest_admin_problem.py`, `web/routes/contest_admin_problem_edit.py`, and
+  `web/services/problem_service/` (`files.py` export, `importing.py` import)
+
+Paired presentation:
+- `shared/template/_partials/problem_image_field.html` (admin form field) and
+  `shared/template/_partials/problem_image_figure.html` (public display), plus
+  `problem-image-preview.js` and the `.noca-problem-*` rules in `common.css`
+
+---
+
 ## `user_timezone.py`
 
 Purpose:
@@ -433,6 +468,10 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
   / `tc_is_sample_N`).
 - `tc-replace-row.js`: per-row offline ZIP replace trigger (opens the hidden file
   input and submits its form).
+- `problem-image-preview.js`: client-side FileReader preview for the problem
+  illustration field. Self-initializing on any `input[type=file][data-image-preview]`,
+  so including `_partials/problem_image_field.html` is enough to get the preview in
+  both the Arena and Contest admin problem forms.
 - `problem-statement-editor-core.js`: shared core for the statement editor on the
   problem create/edit forms. Exposes `window.NocaStatementEditor.create()`, which
   builds the EasyMDE editor on `#stmt-md-editor` (restricted toolbar, KaTeX preview
@@ -454,9 +493,12 @@ pulls it in with `@import url('/static/shared-css/common.css')` at the top
 (consistent with the absolute `/static/...` paths already used in `url(...)`
 references), so no per-template `<link>` is required.
 
-`common.css` currently holds the `.noca-icon-btn-group` segmented-button rules and
-the shared `live-feed-*` rules / `live-feed-row-flash` keyframes (paired with
-`live-feed-core.js`). Module-specific design tokens stay in the per-module
+`common.css` currently holds the `.noca-icon-btn-group` segmented-button rules, the
+shared `live-feed-*` rules / `live-feed-row-flash` keyframes (paired with
+`live-feed-core.js`), the `.noca-transcript-*` interactive-transcript rules, and the
+`.noca-problem-image` / `.noca-problem-figure` / `.noca-problem-figure-caption` /
+`.noca-problem-image-preview` problem-illustration rules (paired with
+`problem-image-preview.js` and the two image partials). Module-specific design tokens stay in the per-module
 stylesheets: `web/static/css/contest.css` and `arena/static/css/arena.css` keep
 their own `:root` variables, `.material-symbols-outlined`, and `.live-feed-summary`
 (which references a module-specific border token). The `arena-`-prefixed
@@ -1408,3 +1450,25 @@ Canonical location: `shared/services/email_service.py`; `app.state.email_service
 Notes:
 - configured via the same `NOCA_SEND_EMAIL`, `NOCA_EMAIL_PROVIDER`, and `NOCA_SMTP_*` env vars as the web module
 - see the `email_service.py` section above for full API reference
+# Custom validator lifecycle
+
+`shared.services.custom_validator` validates the 256 KiB UTF-8 upload contract,
+creates candidate tokens and queue payloads, promotes matching candidates,
+retains bounded compilation failures, clears revisions, parses package
+metadata, and supplies a domain-neutral status view for both frontends.
+
+`shared.services.valkey_service.enqueue_custom_validator_validation_job`
+stores validation job metadata and pushes the validation identifier onto the
+profiling-priority queue after the owning database transaction commits.
+# Sample problem package
+
+`shared.services.sample_problem_package.build_sample_problem_package()` builds the
+reference "A + B" import package (statement, three test cases with an explanation,
+global limits, and `python3` / `rust` per-language limits) offered for download from
+both import pages.
+
+It is generated from code rather than committed as a binary so it cannot drift from
+the importers, and it deliberately carries fields from both domains (Arena's `source` /
+`license`, the Contest's `color` / `language_limits`) — each importer reads
+`problem.json` as a plain mapping and ignores keys it does not know, so one package
+imports cleanly on either side. Round-trip tests import it through both real importers.

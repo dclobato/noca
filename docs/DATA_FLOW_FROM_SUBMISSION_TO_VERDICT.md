@@ -104,6 +104,37 @@ Human review and confirmation flow
 Submission is fully resolved
 ```
 
+## Custom-validator branch
+
+When a problem has a configured validator, submission and dispatch both require
+an active `VALID` revision. Autojudge reloads that revision at dispatch, compiles
+the validator first, and then compiles the contestant. Validator compilation or
+infrastructure failure ends as internal `FAILED`; contestant compilation still
+ends as `CE` once a validator artifact exists.
+
+Interactive judging does not read test-case input or expected output and does
+not create test-result rows. It stores one or two interactive-attempt rows with
+both exit codes/signals, contestant resource usage, enforced-limit outcome,
+either the clean validator verdict or a typed crash reason, bounded stderr
+excerpts, and an ordered `transcript` of the conversation.
+
+The `transcript` JSON column is the record of the protocol itself:
+`{"lines": [{"dir": "user" | "validator", "line": ..., "partial"?: true}],
+"truncated": bool}`. The judge relays every byte between the two processes, so
+it records both sides in the order it observed them, split into protocol lines
+(`partial` marks a trailing line that ended without a newline). It is null when
+the bridge never ran (a startup or watchdog failure). Recording is capture-only:
+past a 256 KiB cap the transcript reports itself `truncated` while the bridge
+keeps relaying, so a verdict never depends on it. The Arena submission-detail and
+web submission-review pages render it as the User/Validator conversation.
+
+Final precedence is `MLE`, `OLE`, unclean validator failure, contestant `RE`,
+then validator exit mapping: `0` to `AC`, `1` to `WA`, `2` to `TLE`, and `4` to
+`PE`. Every other clean validator exit is contestant `RE`. Only an unclean
+validator exit retries once; a second unclean Arena attempt activates crash
+containment. Diagnostics are available only through the existing authorized
+submission-detail/review pages.
+
 ## Key Architectural Decisions (Rationale)
 
 **Why separate `submission` from `submission_judgment`?**

@@ -27,6 +27,7 @@ from shared.queue_schema import (
     ArenaSubmissionJob,
     ArenaVerdictEvent,
     ContestQueueMetrics,
+    CustomValidatorValidationJob,
     JudgeJob,
     ProfilingJob,
     VerdictEvent,
@@ -45,6 +46,7 @@ class PendingCommand:
     operation: Literal[
         "enqueue_job",
         "enqueue_profiling_job",
+        "enqueue_custom_validator_validation_job",
         "enqueue_arena_submission_job",
         "enqueue_arena_ai_review_job",
         "complete_arena_ai_review_job",
@@ -52,7 +54,7 @@ class PendingCommand:
         "remove_from_ai_review_inflight",
         "publish_verdict",
     ]
-    job: JudgeJob | ProfilingJob | ArenaSubmissionJob | ArenaAIReviewJob | None = None
+    job: JudgeJob | ProfilingJob | CustomValidatorValidationJob | ArenaSubmissionJob | ArenaAIReviewJob | None = None
     priority: bool = False
     job_id: str | None = None
     event: VerdictEvent | None = None
@@ -317,6 +319,11 @@ class ValkeyRuntime:
     async def enqueue_profiling_job(self, job: ProfilingJob) -> None:
         """Execute or buffer a profiling enqueue command."""
         command = PendingCommand(operation="enqueue_profiling_job", job=job)
+        await self._execute_or_buffer(command)
+
+    async def enqueue_custom_validator_validation_job(self, job: CustomValidatorValidationJob) -> None:
+        """Execute or buffer a custom-validator validation command."""
+        command = PendingCommand(operation="enqueue_custom_validator_validation_job", job=job)
         await self._execute_or_buffer(command)
 
     async def enqueue_arena_submission_job(self, job: ArenaSubmissionJob) -> None:
@@ -792,6 +799,15 @@ class ValkeyRuntime:
             if command.job is None:
                 raise RuntimeError("enqueue_profiling_job pending command without job payload")
             await valkey_facade._enqueue_profiling_job_with_client(client, cast(ProfilingJob, command.job))
+            return
+
+        if command.operation == "enqueue_custom_validator_validation_job":
+            if command.job is None:
+                raise RuntimeError("validator validation command without job payload")
+            await valkey_facade._enqueue_custom_validator_validation_job_with_client(
+                client,
+                cast(CustomValidatorValidationJob, command.job),
+            )
             return
 
         if command.operation == "enqueue_arena_submission_job":

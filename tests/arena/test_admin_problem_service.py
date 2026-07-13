@@ -6,7 +6,8 @@
 
 """Unit tests for admin_problem_service and admin_problem_tc_service."""
 
-from datetime import date
+import uuid
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,10 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import arena.models.arena_problems  # noqa: F401
 import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
-from arena.models.arena_problems import ArenaCategory, ArenaProblem
+from arena.models.arena_problems import ArenaCategory, ArenaProblem, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_service
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, CustomValidatorActiveState
+from web.models.language import Language
 
 
 async def _make_user(
@@ -43,6 +45,26 @@ async def _make_user(
     session.add(user)
     await session.flush()
     return user
+
+
+async def _make_language(session: AsyncSession) -> Language:
+    language = Language(
+        id=f"admin-problem-test-{uuid.uuid4().hex[:8]}",
+        name="Admin Problem Test Language",
+        icon="test",
+        compile_image="noca/test:compile",
+        run_image="noca/test:run",
+        compile_cmd=["true"],
+        run_cmd=["true"],
+        source_filename="main.txt",
+        artifact_path="/sandbox/main.txt",
+        artifact_is_source=True,
+        compile_timeout_s=10.0,
+        active=True,
+    )
+    session.add(language)
+    await session.flush()
+    return language
 
 
 async def _make_problem(
@@ -302,6 +324,36 @@ async def test_search_by_title(session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+async def test_problem_list_item_marks_custom_validator_problems(session: AsyncSession) -> None:
+    author = await _make_user(session)
+    language = await _make_language(session)
+    plain_problem = await _make_problem(session, author.id, title="Plain")
+    validator_problem = await _make_problem(session, author.id, title="Interactive")
+    session.add(
+        ArenaProblemCustomValidator(
+            problem_id=validator_problem.id,
+            active_language_id=language.id,
+            active_source="print('validator')\n",
+            active_state=CustomValidatorActiveState.VALID,
+            active_validated_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
+
+    pagination = await admin_problem_service.list_problems_paginated(
+        session,
+        page=1,
+        per_page=25,
+        caller_id=author.id,
+        is_admin=False,
+    )
+
+    flags_by_problem = {item.problem.id: item.has_custom_validator for item in pagination.items}
+    assert flags_by_problem[plain_problem.id] is False
+    assert flags_by_problem[validator_problem.id] is True
+
+
+@pytest.mark.asyncio
 async def test_category_and_filter(session: AsyncSession) -> None:
     author = await _make_user(session)
     cat_a = ArenaCategory(name="Graphs", slug="graphs", color="#ff0000")
@@ -401,3 +453,97 @@ async def test_search_categories(session: AsyncSession) -> None:
     assert "BFS" in names
     assert "Binary Search" in names
     assert "DFS" not in names
+
+
+# ── update_problem: image ─────────────────────────────────────────────────────
+
+
+async def _update_image(
+    session: AsyncSession,
+    problem: ArenaProblem,
+    *,
+    image_b64: str | None,
+    image_mime: str | None,
+    image_caption: str | None,
+    clear_image: bool,
+) -> ArenaProblem:
+    updated = await admin_problem_service.update_problem(
+        session,
+        problem,
+        title=problem.title,
+        source=None,
+        hide_author_show_source=False,
+        time_limit_ms=1000,
+        memory_limit_kb=262144,
+        pids_limit=64,
+        output_limit_in_bytes=65536,
+        problem_statement="Hello world",
+        image_b64=image_b64,
+        image_mime=image_mime,
+        image_caption=image_caption,
+        notes=None,
+        clear_image=clear_image,
+        category_ids=[],
+    )
+    await session.flush()
+    return updated
+
+
+@pytest.mark.asyncio
+async def test_update_problem_clear_image_also_clears_caption(session: AsyncSession) -> None:
+    """Removing the image removes its caption, even when one is still submitted.
+
+    The caption input stays populated in the form when the remove checkbox is
+    ticked, so the service must not keep a caption with no image to caption.
+    """
+    owner = await _make_user(session)
+    problem = await _make_problem(session, owner.id)
+    await _update_image(
+        session,
+        problem,
+        image_b64="AAAA",
+        image_mime="image/png",
+        image_caption="A red square",
+        clear_image=False,
+    )
+    assert problem.problem_image_caption == "A red square"
+
+    await _update_image(
+        session,
+        problem,
+        image_b64=None,
+        image_mime=None,
+        image_caption="A red square",
+        clear_image=True,
+    )
+
+    assert problem.problem_image_base64 is None
+    assert problem.problem_image_mime is None
+    assert problem.problem_image_caption is None
+
+
+@pytest.mark.asyncio
+async def test_update_problem_replacement_wins_over_clear_image(session: AsyncSession) -> None:
+    owner = await _make_user(session)
+    problem = await _make_problem(session, owner.id)
+    await _update_image(
+        session,
+        problem,
+        image_b64="AAAA",
+        image_mime="image/png",
+        image_caption="Old",
+        clear_image=False,
+    )
+
+    await _update_image(
+        session,
+        problem,
+        image_b64="BBBB",
+        image_mime="image/webp",
+        image_caption="New",
+        clear_image=True,
+    )
+
+    assert problem.problem_image_base64 == "BBBB"
+    assert problem.problem_image_mime == "image/webp"
+    assert problem.problem_image_caption == "New"

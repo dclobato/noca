@@ -21,6 +21,7 @@ from shared.queue_schema import (
     ArenaSubmissionJob,
     ArenaVerdictEvent,
     ContestQueueMetrics,
+    CustomValidatorValidationJob,
     JudgeJob,
     ProfilingJob,
     VerdictEvent,
@@ -79,6 +80,17 @@ async def enqueue_profiling_job_with_client(client: aivalkey.Valkey, job: Profil
     pipe = client.pipeline()
     pipe.hset(job_key, mapping=job_mapping)
     pipe.lpush(QUEUE_PROFILING_KEY, job.profiling_run_id)
+    await pipe.execute()
+
+
+async def enqueue_custom_validator_validation_job_with_client(
+    client: aivalkey.Valkey, job: CustomValidatorValidationJob
+) -> None:
+    """Store a validator-validation job on the profiling-priority queue."""
+    job_key = f"{QUEUE_JOB_HASH_PREFIX}:{job.validation_id}"
+    pipe = client.pipeline()
+    pipe.hset(job_key, mapping={key: str(value) for key, value in job.model_dump().items()})
+    pipe.lpush(QUEUE_PROFILING_KEY, job.validation_id)
     await pipe.execute()
 
 
@@ -281,6 +293,18 @@ async def enqueue_profiling_job(client_or_runtime: aivalkey.Valkey | object, job
         await client_or_runtime.enqueue_profiling_job(job)
         return
     await enqueue_profiling_job_with_client(cast(aivalkey.Valkey, client_or_runtime), job)
+
+
+async def enqueue_custom_validator_validation_job(
+    client_or_runtime: aivalkey.Valkey | object, job: CustomValidatorValidationJob
+) -> None:
+    """Enqueue validator compilation after its database transaction commits."""
+    from shared.services.valkey_service.runtime import ValkeyRuntime
+
+    if isinstance(client_or_runtime, ValkeyRuntime):
+        await client_or_runtime.enqueue_custom_validator_validation_job(job)
+        return
+    await enqueue_custom_validator_validation_job_with_client(cast(aivalkey.Valkey, client_or_runtime), job)
 
 
 async def enqueue_arena_submission_job(client_or_runtime: aivalkey.Valkey | object, job: ArenaSubmissionJob) -> None:

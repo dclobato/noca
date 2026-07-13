@@ -55,6 +55,7 @@ class LanguageConfig:
     profiled_pids_floor: int = 32
     active: bool = True
     version: str | None = None
+    stdout_flush_hint: str | None = None
 
 
 def default_language_configs() -> list[LanguageConfig]:
@@ -85,6 +86,7 @@ def default_language_configs() -> list[LanguageConfig]:
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
             version="gcc version 12.2.0 (Debian 12.2.0-14+deb12u1)",
+            stdout_flush_hint="`fflush(stdout);`",
         ),
         LanguageConfig(
             id="gcc-cpp23",
@@ -110,6 +112,7 @@ def default_language_configs() -> list[LanguageConfig]:
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
             version="gcc version 12.2.0 (Debian 12.2.0-14+deb12u1)",
+            stdout_flush_hint="`cout << flush;` or `cout << endl;`",
         ),
         LanguageConfig(
             id="python3",
@@ -138,6 +141,7 @@ def default_language_configs() -> list[LanguageConfig]:
             profiling_repetitions_default=3,
             profiled_pids_floor=32,
             version="Python 3.14.4",
+            stdout_flush_hint="`print(..., flush=True)` or `sys.stdout.flush()`",
         ),
         LanguageConfig(
             id="java",
@@ -172,6 +176,7 @@ def default_language_configs() -> list[LanguageConfig]:
             default_extension=".java",
             artifact_path=JAR_PATH,
             version="OpenJDK 25.0.3+9 (Eclipse Temurin)",
+            stdout_flush_hint="`System.out.flush();`",
         ),
         LanguageConfig(
             id="javascript",
@@ -198,6 +203,9 @@ def default_language_configs() -> list[LanguageConfig]:
             profiling_repetitions_default=3,
             profiled_pids_floor=32,
             version="node v24.18.0",
+            stdout_flush_hint=(
+                "Use `process.stdout.write(...)`; wait for its callback or drain when `write()` returns false."
+            ),
         ),
         LanguageConfig(
             id="kotlin",
@@ -228,6 +236,7 @@ def default_language_configs() -> list[LanguageConfig]:
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
             version="kotlinc-jvm 2.3.0 (JRE 25.0.3+9-LTS)",
+            stdout_flush_hint="`System.out.flush()`",
         ),
         LanguageConfig(
             id="fpc-pascal",
@@ -248,6 +257,7 @@ def default_language_configs() -> list[LanguageConfig]:
             default_extension=".pas",
             artifact_path=BINARY_PATH,
             version="Free Pascal Compiler 3.2.2",
+            stdout_flush_hint="`Flush(Output);`",
         ),
         LanguageConfig(
             id="go",
@@ -274,6 +284,7 @@ def default_language_configs() -> list[LanguageConfig]:
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
             version="go version go1.26.2 linux/amd64",
+            stdout_flush_hint="If using `bufio.Writer`, call `writer.Flush()`.",
         ),
         LanguageConfig(
             id="rust",
@@ -303,6 +314,7 @@ def default_language_configs() -> list[LanguageConfig]:
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
             version="rustc 1.96.1",
+            stdout_flush_hint="`use std::io::Write; std::io::stdout().flush().unwrap();`",
         ),
         LanguageConfig(
             id="c-sharp",
@@ -365,6 +377,7 @@ def default_language_configs() -> list[LanguageConfig]:
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
             version="dotnet 10.0.301",
+            stdout_flush_hint="`Console.Out.Flush();`",
         ),
         LanguageConfig(
             id="haskell",
@@ -389,6 +402,7 @@ def default_language_configs() -> list[LanguageConfig]:
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
             version="The Glorious Glasgow Haskell Compilation System, version 9.0.2",
+            stdout_flush_hint="`hFlush stdout`",
         ),
         LanguageConfig(
             id="lua",
@@ -414,6 +428,7 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=10.0,
             profiling_repetitions_default=3,
             version="Lua 5.5.0",
+            stdout_flush_hint="`io.stdout:flush()`",
         ),
         LanguageConfig(
             id="prolog",
@@ -446,6 +461,7 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=15.0,
             profiling_repetitions_default=3,
             version="SWI-Prolog version 9.0.4",
+            stdout_flush_hint="`flush_output.` or `flush_output(current_output).`",
         ),
         LanguageConfig(
             id="fortran",
@@ -471,6 +487,7 @@ def default_language_configs() -> list[LanguageConfig]:
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
             version="GNU Fortran (Debian 12.2.0-3) 12.2.0",
+            stdout_flush_hint="`use iso_fortran_env, only: output_unit; flush(output_unit)`",
         ),
         LanguageConfig(
             id="swift",
@@ -513,6 +530,7 @@ def default_language_configs() -> list[LanguageConfig]:
             profiling_repetitions_default=10,
             profiled_pids_floor=32,
             version="Swift version 6.3.2 (swift-6.3.2-RELEASE)",
+            stdout_flush_hint="`import Glibc; fflush(stdout)`",
         ),
         LanguageConfig(
             id="ruby",
@@ -538,6 +556,7 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=10.0,
             profiling_repetitions_default=3,
             version="ruby 4.0.5",
+            stdout_flush_hint="`$stdout.flush` or set `$stdout.sync = true`",
         ),
         LanguageConfig(
             id="bash",
@@ -563,6 +582,9 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=10.0,
             profiling_repetitions_default=3,
             version="GNU bash, version 5.2.15(1)-release",
+            stdout_flush_hint=(
+                "Bash builtins like `printf` and `echo` write directly; avoid buffered external commands."
+            ),
         ),
         LanguageConfig(
             id="perl",
@@ -588,6 +610,7 @@ def default_language_configs() -> list[LanguageConfig]:
             compile_timeout_s=10.0,
             profiling_repetitions_default=3,
             version="This is perl 5, version 42, subversion 2 (v5.42.2)",
+            stdout_flush_hint="`use IO::Handle; STDOUT->flush();` or set `$| = 1;`",
         ),
     ]
 
@@ -615,6 +638,7 @@ def default_language_seed_rows() -> list[dict[str, object]]:
                 "profiling_repetitions_default": language.profiling_repetitions_default,
                 "profiled_pids_floor": language.profiled_pids_floor,
                 "version": language.version,
+                "stdout_flush_hint": language.stdout_flush_hint,
                 "active": True,
             }
         )

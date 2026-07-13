@@ -36,6 +36,9 @@
 
   if (picker) {
     const searchUrl = picker.getAttribute("data-search-url") || "";
+    // The picker sits outside the form element, so its inputs must name the form
+    // they belong to or they are never submitted.
+    const formId = picker.getAttribute("data-form-id") || "";
     const pillsEl = document.getElementById("cat-pills");
     const hiddenEl = document.getElementById("cat-hidden");
     const inputEl = document.getElementById("cat-input");
@@ -67,6 +70,7 @@
         input.type = "hidden";
         input.name = "category_ids";
         input.value = cat.id;
+        if (formId) input.setAttribute("form", formId);
         hiddenEl.appendChild(input);
 
         // Visible pill
@@ -219,27 +223,6 @@
     });
   }
 
-  // ── Image preview ───────────────────────────────────────────────────────────
-
-  const imageInput = document.getElementById("image");
-  if (imageInput) {
-    imageInput.addEventListener("change", () => {
-      const file = imageInput.files && imageInput.files[0];
-      if (!file) return;
-
-      const existingPreview = document.getElementById("image-preview");
-      if (existingPreview) existingPreview.remove();
-
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = document.createElement("img");
-        img.id = "image-preview";
-        img.src = e.target.result;
-        img.alt = "Image preview";
-        img.className = "img-thumbnail mt-2 arena-problem-image-preview";
-        imageInput.insertAdjacentElement("afterend", img);
-      };
-      reader.readAsDataURL(file);
-    });
-  }
+  // Image preview lives in the shared problem-image-preview.js, loaded alongside
+  // this script by the form template.
 })();

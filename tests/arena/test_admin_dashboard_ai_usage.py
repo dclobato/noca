@@ -34,6 +34,7 @@ from arena.database import get_db
 from arena.dependencies.admin import require_arena_admin
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_dashboard import router
+from arena.routes.legal import router as arena_legal_router
 from arena.services import admin_ai_credits_service
 from shared.db_schema.arena import arena_ai_batch_jobs
 from shared.db_schema.arena.arena_ai_credit_transactions import arena_ai_credit_transactions
@@ -627,6 +628,7 @@ def _build_app(
         return Response("security events")
 
     app.include_router(router)
+    app.include_router(arena_legal_router)
 
     async def _get_db_override() -> Any:
         yield session

@@ -115,6 +115,7 @@ def language_config_from_row(row: dict[str, Any]) -> LanguageConfig:
         profiling_repetitions_default=profiling_repetitions_default,
         profiled_pids_floor=_require_int(row, "profiled_pids_floor", default=32, minimum=1),
         version=_optional_str(row, "version"),
+        stdout_flush_hint=_optional_str(row, "stdout_flush_hint"),
     )
 
 

@@ -71,6 +71,17 @@ class _RecoverableKind:
     membership_id_sets: Callable[[_QueueSnapshot], tuple[set[str | None], ...]]
     target_queue_key: str
     hash_mapping: Callable[[Any, str, int], Mapping[str, Any]]
+    rejects_exhausted_custom_validator: bool = False
+
+
+def _hash_value(hash_data: Mapping[Any, Any], key: str) -> str | None:
+    """Decode a single Valkey hash field from mixed str/bytes test clients."""
+    raw = hash_data.get(key)
+    if raw is None:
+        raw = hash_data.get(key.encode())
+    if isinstance(raw, bytes):
+        return raw.decode(errors="replace")
+    return str(raw) if raw is not None else None
 
 
 async def _read_id_set(valkey: Valkey_Client, key: str) -> set[str | None]:
@@ -104,6 +115,21 @@ async def _rebuild_kind(
         lock_key = f"judge:lock:{jid}"
         hash_data = await cast(Any, valkey.hgetall(job_key))
         queue_seen = any(jid in id_set for id_set in spec.membership_id_sets(snapshot))
+        if spec.rejects_exhausted_custom_validator and hash_data and _hash_value(hash_data, "reaper_dropped") == "true":
+            reject_exhausted = getattr(db, "reject_exhausted_custom_validator_validation", None)
+            if reject_exhausted is not None:
+                await reject_exhausted(
+                    domain=item.payload.domain,
+                    problem_id=item.payload.problem_id,
+                    candidate_token=item.payload.candidate_token,
+                )
+            await cast(Any, valkey.delete(job_key))
+            await cast(Any, valkey.delete(lock_key))
+            await cast(Any, valkey.lrem(settings.queue_inflight_key, 0, jid))
+            await cast(Any, valkey.zrem(settings.queue_inflight_times_key, jid))
+            snapshot.profiling.discard(jid)
+            snapshot.inflight.discard(jid)
+            continue
         recover = item.status in spec.active_statuses or not hash_data or not queue_seen
         if not recover:
             continue
@@ -180,6 +206,30 @@ def _arena_submission_spec() -> _RecoverableKind:
     )
 
 
+def _custom_validator_spec() -> _RecoverableKind:
+    async def list_jobs(db: DatabaseAccess) -> Sequence[Any]:
+        """Support test/rollout accessors that predate validator recovery."""
+        method = getattr(db, "list_recoverable_custom_validator_jobs", None)
+        return [] if method is None else await method()
+
+    return _RecoverableKind(
+        list_jobs=list_jobs,
+        job_id_of=lambda payload: payload.validation_id,
+        active_statuses=frozenset(),
+        membership_id_sets=lambda snap: (snap.profiling, snap.inflight),
+        target_queue_key=settings.queue_profiling_key,
+        hash_mapping=lambda payload, jid, requeue_count: {
+            "validation_id": jid,
+            "domain": payload.domain,
+            "problem_id": payload.problem_id,
+            "candidate_token": payload.candidate_token,
+            "requeue_count": str(requeue_count),
+            "job_kind": JobKind.CUSTOM_VALIDATOR_VALIDATION,
+        },
+        rejects_exhausted_custom_validator=True,
+    )
+
+
 async def reconcile_queue_state(db: DatabaseAccess, valkey: Valkey_Client, *, phase: str = "Startup") -> None:
     """Rebuild missing queue state from DB so non-terminal jobs are never orphaned.
 
@@ -198,8 +248,9 @@ async def reconcile_queue_state(db: DatabaseAccess, valkey: Valkey_Client, *, ph
     recovered_submissions = await _rebuild_kind(_submission_spec(), db, valkey, snapshot)
     recovered_profiling = await _rebuild_kind(_profiling_spec(), db, valkey, snapshot)
     recovered_arena_submissions = await _rebuild_kind(_arena_submission_spec(), db, valkey, snapshot)
+    recovered_custom_validators = await _rebuild_kind(_custom_validator_spec(), db, valkey, snapshot)
 
-    if recovered_submissions or recovered_profiling or recovered_arena_submissions:
+    if recovered_submissions or recovered_profiling or recovered_arena_submissions or recovered_custom_validators:
         logger.warning("%s reconciliation re-enqueued non-terminal jobs", phase)
         logger.warning(
             json.dumps(
@@ -207,6 +258,7 @@ async def reconcile_queue_state(db: DatabaseAccess, valkey: Valkey_Client, *, ph
                     "recovered_submissions": recovered_submissions,
                     "recovered_profiling": recovered_profiling,
                     "recovered_arena_submissions": recovered_arena_submissions,
+                    "recovered_custom_validators": recovered_custom_validators,
                 },
                 indent=2,
             )

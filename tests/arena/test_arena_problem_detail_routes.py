@@ -7,7 +7,8 @@
 """Route tests for Arena public problem detail pages."""
 
 import logging
-from datetime import date
+import uuid
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
+from jinja2 import ChoiceLoader, FileSystemLoader
 from jwtservice import JWTService, load_token_config_from_dict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
@@ -26,13 +28,15 @@ import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
 from arena.config import settings as arena_settings
 from arena.middleware.auth_middleware import ArenaAuthMiddleware
-from arena.models.arena_problems import ArenaProblem
+from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
+from arena.routes.legal import router as arena_legal_router
 from arena.routes.problems import router as arena_problems_router
 from arena.services import admin_problem_service, admin_problem_tc_service
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, CustomValidatorActiveState
+from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-problem-detail-tests"
 
@@ -43,8 +47,16 @@ def _build_problem_detail_app(session: AsyncSession) -> FastAPI:
     app.add_middleware(ArenaAuthMiddleware)
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
-    arena_dir = Path(__file__).resolve().parents[2] / "arena"
+    repo_root = Path(__file__).resolve().parents[2]
+    arena_dir = repo_root / "arena"
     templates = Jinja2Templates(directory=arena_dir / "template")
+    # Mirror arena/main.py so shared/_partials (e.g. the problem image figure) resolve.
+    templates.env.loader = ChoiceLoader(
+        [
+            FileSystemLoader(arena_dir / "template"),
+            FileSystemLoader(repo_root / "shared" / "template"),
+        ]
+    )
     templates.env.globals["app_version"] = "test"
     templates.env.globals["next_rating_update_text"] = lambda request: None
     templates.env.globals["arena_role_labels"] = ARENA_ROLE_DISPLAY
@@ -155,6 +167,7 @@ def _build_problem_detail_app(session: AsyncSession) -> FastAPI:
         return Response("[]", media_type="application/json")
 
     app.include_router(arena_problems_router)
+    app.include_router(arena_legal_router)
     return app
 
 
@@ -185,6 +198,26 @@ async def _create_user(
     return user
 
 
+async def _create_language(session: AsyncSession) -> Language:
+    language = Language(
+        id=f"problem-detail-test-{uuid.uuid4().hex[:8]}",
+        name="Problem Detail Test Language",
+        icon="test",
+        compile_image="noca/test:compile",
+        run_image="noca/test:run",
+        compile_cmd=["true"],
+        run_cmd=["true"],
+        source_filename="main.txt",
+        artifact_path="/sandbox/main.txt",
+        artifact_is_source=True,
+        compile_timeout_s=10.0,
+        active=True,
+    )
+    session.add(language)
+    await session.flush()
+    return language
+
+
 def _login_token(app: FastAPI, user: ArenaUser) -> str:
     """Build a login token for the given Arena user."""
     return str(
@@ -202,12 +235,13 @@ async def _create_enabled_problem(
     author: ArenaUser,
     *,
     license: str | None = None,
+    title: str = "Visible Problem",
 ) -> ArenaProblem:
     """Create an enabled problem for public detail route tests."""
     problem = await admin_problem_service.create_problem(
         session,
         caller_id=author.id,
-        title="Visible Problem",
+        title=title,
         source=None,
         hide_author_show_source=False,
         time_limit_ms=1000,
@@ -254,6 +288,44 @@ async def test_problem_detail_renders_resizable_workspace(session: AsyncSession)
     assert 'role="separator"' in response.text
     assert 'aria-controls="problem-statement-panel solution-panel"' in response.text
     assert "problem-column-resizer.js?v=test" in response.text
+
+
+@pytest.mark.asyncio
+async def test_problem_detail_renders_custom_validator_banner(session: AsyncSession) -> None:
+    app = _build_problem_detail_app(session)
+    author = await _create_user(
+        session,
+        name="Validator Author",
+        email="validator-author@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    language = await _create_language(session)
+    plain_problem = await _create_enabled_problem(session, author, title="Plain Detail")
+    validator_problem = await _create_enabled_problem(session, author, title="Interactive Detail")
+    session.add(
+        ArenaProblemCustomValidator(
+            problem_id=validator_problem.id,
+            active_language_id=language.id,
+            active_source="print('validator')\n",
+            active_state=CustomValidatorActiveState.VALID,
+            active_validated_at=datetime.now(UTC),
+        )
+    )
+    await session.commit()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, author)},
+    ) as client:
+        validator_response = await client.get(f"/problems/{validator_problem.arena_number}")
+        plain_response = await client.get(f"/problems/{plain_problem.arena_number}")
+
+    assert validator_response.status_code == 200
+    assert "This problem uses a custom validator." in validator_response.text
+    assert "published_with_changes" in validator_response.text
+    assert plain_response.status_code == 200
+    assert "This problem uses a custom validator." not in plain_response.text
 
 
 @pytest.mark.asyncio

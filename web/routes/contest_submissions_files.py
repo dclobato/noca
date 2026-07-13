@@ -15,6 +15,8 @@ from shared.enumerations import RoleEnum
 from web.config import settings
 from web.dependencies import ContestContext, ensure_allowed_role, get_contest_context
 from web.models import Submission, SubmissionJudgment, SubmissionTestResult, User
+from web.models.language import Language
+from web.models.problem import Problem
 from web.routes.contest_admin_problem_helpers import _label
 from web.routes.contest_submissions_helpers import _html, load_submission_in_contest
 from web.services.judgment_utils import get_active_judgment
@@ -111,6 +113,38 @@ async def download_source(
         content=submission.source_code.encode("utf-8"),
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{submission.language.source_filename}"'},
+    )
+
+
+@router.get("/{submission_id}/validator-source", name="submission_validator_source_download")
+async def download_submission_validator_source(
+    submission_id: str,
+    ctx: ContestContext = Depends(get_contest_context),
+) -> Response:
+    """Download the validator source used to judge an interactive submission."""
+    ensure_allowed_role(ctx.actor, (RoleEnum.UBERADMIN, RoleEnum.ADMIN, RoleEnum.JUDGE))
+
+    submission = await load_submission_in_contest(
+        ctx.session,
+        submission_id,
+        ctx.contest.id,
+        selectinload(Submission.problem).selectinload(Problem.custom_validator),
+        selectinload(Submission.problem).selectinload(Problem.language_limits),
+    )
+    if submission is None:
+        raise HTTPException(status_code=404)
+
+    validator = submission.problem.custom_validator
+    if validator is None or validator.active_source is None or validator.active_language_id is None:
+        raise HTTPException(status_code=404, detail="This problem has no active custom validator.")
+
+    language = await ctx.session.get(Language, validator.active_language_id)
+    source_filename = language.source_filename if language is not None else "source.txt"
+    filename = f"validator-{_label(submission.problem.ordinal)}-{source_filename}"
+    return Response(
+        content=validator.active_source.encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

@@ -26,4 +26,5 @@ class Language(Base):
     compile_timeout_s: Mapped[float]
     profiling_repetitions_default: Mapped[int]
     profiled_pids_floor: Mapped[int]
+    stdout_flush_hint: Mapped[str | None]
     active: Mapped[bool]

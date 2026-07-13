@@ -30,6 +30,9 @@ from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.routes.help import router as arena_help_router
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
+from shared.db_schema import languages
+from shared.enumerations import VERDICT_BADGE_CLASSES
+from shared.language_registry import default_language_seed_rows
 from shared.services.arena_difficulty_histogram import BIN_COUNT, persist_difficulty_histogram
 
 TEST_JWT_SECRET = "test-secret-key-for-help-rating-tests-32b!!"
@@ -58,11 +61,13 @@ _NAV_ROUTE_NAMES = (
     "arena_logout",
     "arena_notifications_list",
     "arena_problem_list",
+    "arena_privacy_policy",
     "arena_ranking_affiliations",
     "arena_ranking_index",
     "arena_ranking_users",
     "arena_signup",
     "arena_status",
+    "arena_terms_of_service",
     "arena_user_profile",
 )
 
@@ -78,6 +83,8 @@ def _build_help_app(session: AsyncSession) -> FastAPI:
     templates.env.globals["app_version"] = "test"
     templates.env.globals["next_rating_update_text"] = lambda request: None
     templates.env.globals["arena_role_labels"] = ARENA_ROLE_DISPLAY
+    templates.env.globals["verdict_badge_classes"] = VERDICT_BADGE_CLASSES
+    templates.env.filters["fmt_shell_cmd"] = lambda cmd: "" if not cmd else " ".join(cmd)
     setup_flash(templates)
     app.state.arena_templates = templates
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
@@ -125,6 +132,27 @@ async def test_help_rating_renders_for_guest(session: AsyncSession) -> None:
     assert "N_p" in body
     # The blend scale constant is surfaced from the rating service into the page.
     assert "pivot" in body.lower()
+
+
+@pytest.mark.asyncio
+async def test_help_languages_renders_stdout_flush_hints(session: AsyncSession) -> None:
+    """The languages help page renders per-language stdout flush guidance."""
+    python_row = next(row for row in default_language_seed_rows() if row["id"] == "python3")
+    await session.execute(languages.insert().values(python_row))
+    await session.commit()
+
+    app = _build_help_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/help/languages", headers={"Accept": "text/html"})
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Stdout flush" in body
+    assert '<pre class="arena-help-cmd">print(..., flush=True)</pre>' in body
+    assert '<pre class="arena-help-cmd">sys.stdout.flush()</pre>' in body
+    assert "`print(..., flush=True)`" not in body
+    assert "see the stdout flush detail in the" in body
+    assert "Available languages tab" in body
 
 
 @pytest.mark.asyncio

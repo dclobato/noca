@@ -134,6 +134,35 @@ def _sync_run_isolate(
     return cast(int, result.exit_code)
 
 
+def build_interactive_isolate_command(
+    container: Container,
+    language: LanguageConfig,
+    limits: ProblemLimits,
+) -> list[str]:
+    """Build an attached isolate command with memory and PID enforcement only."""
+    command = _isolate_base_cmd(_box_id_for(container)) + [
+        f"--meta={ISOLATE_META_PATH}",
+        f"--cg-mem={limits.memory_limit_kb}",
+        f"--processes={limits.pids_limit}",
+        f"--dir={SANDBOX_DIR}={SANDBOX_DIR}:rw",
+    ]
+    command.extend(_runtime_isolate_dirs(language))
+    command.extend([f"--chdir={SANDBOX_DIR}", "--run", "--", *language.run_cmd])
+    return command
+
+
+def build_validator_isolate_command(container: Container, language: LanguageConfig) -> list[str]:
+    """Build an attached isolate command without contestant resource limits."""
+    command = _isolate_base_cmd(_box_id_for(container)) + [
+        f"--meta={ISOLATE_META_PATH}",
+        "--processes",
+        f"--dir={SANDBOX_DIR}={SANDBOX_DIR}:rw",
+    ]
+    command.extend(_runtime_isolate_dirs(language))
+    command.extend([f"--chdir={SANDBOX_DIR}", "--run", "--", *language.run_cmd])
+    return command
+
+
 def _read_isolate_cgroup_peak_pids(container: Container) -> int | None:
     """
     Read the kernel-recorded peak PID count for the active isolate box.

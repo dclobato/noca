@@ -142,6 +142,13 @@
                     </a>
                 {% endif %}
             </div>
+            {% if has_custom_validator %}
+                <div class="alert alert-info d-flex align-items-center gap-2 mb-3"
+                     role="alert">
+                    {{ render_icon(icon="published_with_changes") }}
+                    <span>This problem uses a custom validator.</span>
+                </div>
+            {% endif %}
             <h1 class="h4 mb-1">#{{ problem.arena_number }} — {{ problem.title }}</h1>
             {% if not problem.hide_author_show_source %}
                 <p class="text-muted small mb-0">
@@ -187,16 +194,9 @@
                 </div>
             {% endif %}
             {# Problem image #}
-            {% if problem.problem_image_base64 %}
-                <figure class="arena-problem-figure">
-                    <img src="data:{{ problem.problem_image_mime }};base64,{{ problem.problem_image_base64 }}"
-                         alt="Problem illustration"
-                         class="arena-problem-image">
-                    {% if problem.problem_image_caption %}
-                        <figcaption class="arena-problem-figure-caption">{{ problem.problem_image_caption | e }}</figcaption>
-                    {% endif %}
-                </figure>
-            {% endif %}
+            {% with image_b64=problem.problem_image_base64, image_mime=problem.problem_image_mime, image_caption=problem.problem_image_caption %}
+                {% include "_partials/problem_image_figure.html" %}
+            {% endwith %}
             {# Markdown statement #}
             <div id="md-statement-rendered" class="mb-3 mt-5"></div>
             <script id="md-statement-src" type="text/plain">{{ problem.problem_statement | e }}</script>

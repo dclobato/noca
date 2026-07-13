@@ -42,6 +42,7 @@ from shared.db_schema.arena import (
     arena_problem_sets,
     arena_problems,
     arena_submission_ai_reviews,
+    arena_submission_interactive_attempts,
     arena_submission_judgments,
     arena_submission_teacher_feedback,
     arena_submission_test_results,
@@ -418,7 +419,14 @@ async def arena_submission_detail(
 
     # Load the first failing test case result (at most one row per judgment)
     test_result: TestResultData | None = None
+    interactive_attempts: list[Any] = []
     if judgment_row is not None:
+        attempt_rows = await session.execute(
+            select(arena_submission_interactive_attempts)
+            .where(arena_submission_interactive_attempts.c.judgment_id == judgment_row[0])
+            .order_by(arena_submission_interactive_attempts.c.attempt_number)
+        )
+        interactive_attempts = list(attempt_rows.mappings().all())
         tr_row = (
             await session.execute(
                 select(
@@ -501,6 +509,7 @@ async def arena_submission_detail(
                 "ai_turnaround_stats": ai_turnaround_stats,
                 # First failing test case
                 "test_result": test_result,
+                "interactive_attempts": interactive_attempts,
                 # Teacher view context (set when a teacher drills into a student's submission)
                 "is_teacher_view": is_teacher_view,
                 "teacher_view_back_url": teacher_view_back_url,

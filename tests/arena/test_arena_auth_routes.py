@@ -182,6 +182,8 @@ async def test_signup_page_renders_with_flash_macro_context(session: AsyncSessio
     assert response.status_code == 200
     assert "Create Account" in response.text
     assert "Password must be at least" in response.text
+    assert 'href="http://testserver/legal/terms"' in response.text
+    assert 'href="http://testserver/legal/privacy"' in response.text
 
 
 @pytest.mark.asyncio

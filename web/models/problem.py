@@ -14,6 +14,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from shared.db_schema import problem_categories as problem_categories_table
 from shared.db_schema import problem_categories_map as problem_categories_map
+from shared.db_schema import problem_custom_validators as problem_custom_validators_table
 from shared.db_schema import problem_language_limits as problem_language_limits_table
 from shared.db_schema import problem_limit_change_batch_languages as problem_limit_change_batch_languages_table
 from shared.db_schema import problem_limit_change_batch_submissions as problem_limit_change_batch_submissions_table
@@ -22,7 +23,12 @@ from shared.db_schema import problems as problems_table
 from shared.db_schema import profiling_case_results as profiling_case_results_table
 from shared.db_schema import profiling_runs as profiling_runs_table
 from shared.db_schema import test_cases as test_cases_table
-from shared.enumerations import ProfilingStatus, Verdict
+from shared.enumerations import (
+    CustomValidatorActiveState,
+    CustomValidatorCandidateState,
+    ProfilingStatus,
+    Verdict,
+)
 from web.database import Base
 
 if TYPE_CHECKING:
@@ -46,6 +52,9 @@ class Problem(Base):
     author: Mapped[str | None]
     notes: Mapped[str | None]
     color: Mapped[str]
+    problem_image_base64: Mapped[str | None]
+    problem_image_mime: Mapped[str | None]
+    problem_image_caption: Mapped[str | None]
     ordinal: Mapped[int]
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
@@ -82,6 +91,11 @@ class Problem(Base):
         cascade="all, delete-orphan",
         order_by=lambda: ProblemLimitChangeBatch.created_at.desc(),
     )
+    custom_validator: Mapped[ProblemCustomValidator | None] = relationship(
+        back_populates="problem",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
     @hybrid_property
     def usable(self) -> bool:
@@ -106,6 +120,28 @@ class ProblemTestCase(Base):
     updated_at: Mapped[datetime]
 
     problem: Mapped[Problem] = relationship(back_populates="test_cases")
+
+
+class ProblemCustomValidator(Base):
+    """Staged and active custom validator revisions for a Contest problem."""
+
+    __table__ = problem_custom_validators_table
+
+    problem_id: Mapped[str]
+    active_language_id: Mapped[str | None]
+    active_source: Mapped[str | None]
+    active_state: Mapped[CustomValidatorActiveState | None]
+    active_validated_at: Mapped[datetime | None]
+    candidate_language_id: Mapped[str | None]
+    candidate_source: Mapped[str | None]
+    candidate_token: Mapped[str | None]
+    candidate_state: Mapped[CustomValidatorCandidateState | None]
+    candidate_compile_log: Mapped[str | None]
+    candidate_validated_at: Mapped[datetime | None]
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+    problem: Mapped[Problem] = relationship(back_populates="custom_validator")
 
 
 class ProblemLanguageLimit(Base):

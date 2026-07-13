@@ -19,7 +19,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from shared.enumerations import JudgmentStatus, RoleEnum, Verdict
+from shared.db_schema import problem_custom_validators
+from shared.enumerations import CustomValidatorActiveState, JudgmentStatus, RoleEnum, Verdict
 from shared.timing import compute_timestamp_seconds, display_minutes_from_seconds
 from web.models._base import _new_uuid
 from web.models.contest import Contest
@@ -271,6 +272,22 @@ async def create_submission(
     if not allowed:
         assert next_allowed_at is not None
         raise SubmissionRateLimitError(next_allowed_at)
+
+    validator = (
+        await session.execute(
+            select(
+                problem_custom_validators.c.active_state,
+                problem_custom_validators.c.active_source,
+                problem_custom_validators.c.candidate_source,
+            ).where(problem_custom_validators.c.problem_id == problem_id)
+        )
+    ).one_or_none()
+    if (
+        validator is not None
+        and (validator.active_source is not None or validator.candidate_source is not None)
+        and validator.active_state != CustomValidatorActiveState.VALID
+    ):
+        raise ValueError("The custom validator is not available.")
 
     # Pre-flight duplicate check (fast path; race covered by DB constraint below)
     duplicate = (

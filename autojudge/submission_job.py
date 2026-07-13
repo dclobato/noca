@@ -25,6 +25,7 @@ import valkey.asyncio as aiovalkey
 
 from autojudge.compiler import compile_submission
 from autojudge.config import settings
+from autojudge.custom_validator_submission import prepare_custom_validator, run_custom_validator_submission
 from autojudge.db import DatabaseAccess
 from autojudge.languages import LanguageConfig
 from autojudge.metrics import SUBMISSION_DURATION_SECONDS, TEST_CASES_RUN_TOTAL, VERDICTS_TOTAL
@@ -246,6 +247,34 @@ async def process_submission_job(
         await db.set_judgment_failed(judgment_id, str(exc), contest_start_time=submission.contest_start_time)
         return
 
+    try:
+        limits = await db.get_problem_limits(submission.problem_id, submission.language_id)
+        prepared_validator = await prepare_custom_validator(
+            domain="contest",
+            judgment_id=judgment_id,
+            problem_id=submission.problem_id,
+            db=db,
+            language_registry=language_registry,
+            docker_client=docker_client,
+            executor=executor,
+        )
+    except Exception as exc:
+        await db.set_judgment_failed(
+            judgment_id,
+            f"Custom validator unavailable: {exc}",
+            contest_start_time=submission.contest_start_time,
+        )
+        return
+    if prepared_validator is not None and (
+        not prepared_validator.compile_result.success or prepared_validator.compile_result.artifact_data is None
+    ):
+        await db.set_judgment_failed(
+            judgment_id,
+            f"Custom validator compilation failed: {prepared_validator.compile_result.compile_log}",
+            contest_start_time=submission.contest_start_time,
+        )
+        return
+
     compile_result = await compile_submission(
         SubmissionSource(
             judgment_id=judgment_id,
@@ -285,10 +314,66 @@ async def process_submission_job(
 
     await db.set_judgment_judging(judgment_id, contest_start_time=submission.contest_start_time)
 
+    interactive_result, _ = await run_custom_validator_submission(
+        domain="contest",
+        judgment_id=judgment_id,
+        problem_id=submission.problem_id,
+        contestant_language=language,
+        contestant_artifact=compile_result.artifact_data or b"",
+        limits=limits,
+        db=db,
+        pool_manager=pool_manager,
+        language_registry=language_registry,
+        docker_client=docker_client,
+        executor=executor,
+        prepared=prepared_validator,
+    )
+    if interactive_result is not None:
+        verdict = interactive_result.classification.verdict
+        if verdict is None:
+            await db.set_judgment_failed(
+                judgment_id,
+                "Custom validator failed twice without a clean exit.",
+                contest_start_time=submission.contest_start_time,
+            )
+            return
+        await db.set_judgment_done(
+            judgment_id,
+            verdict=verdict,
+            autojudge_only=submission.autojudge_only,
+            contest_start_time=submission.contest_start_time,
+            compile_log=compile_result.compile_log or None,
+            max_wall_time_ms=interactive_result.wall_time_ms,
+            max_memory_kb=interactive_result.memory_kb,
+            min_wall_time_ms=interactive_result.wall_time_ms,
+            min_memory_kb=interactive_result.memory_kb,
+        )
+        VERDICTS_TOTAL.labels(verdict=verdict.value, language_id=submission.language_id).inc()
+        if interactive_result.wall_time_ms is not None:
+            SUBMISSION_DURATION_SECONDS.labels(language_id=submission.language_id).observe(
+                interactive_result.wall_time_ms / 1000
+            )
+        if submission.autojudge_only:
+            await db.create_balloon_task_if_needed(submission, verdict)
+            await publish_verdict(
+                valkey,
+                VerdictEvent(
+                    submission_id=submission_id,
+                    judgment_id=judgment_id,
+                    verdict=verdict.value,
+                    judge_time_ms=interactive_result.wall_time_ms,
+                    contest_id=submission.contest_id,
+                    team_id=submission.team_id,
+                    problem_id=submission.problem_id,
+                    update_kind="autojudge",
+                ),
+            )
+        await invalidate_scoreboard_cache(valkey, submission.contest_id)
+        return
+
     try:
-        limits = await db.get_problem_limits(submission.problem_id, submission.language_id)
         test_cases = _load_test_cases(submission.problem_id)
-    except (LookupError, FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError) as exc:
         await db.set_judgment_failed(judgment_id, str(exc), contest_start_time=submission.contest_start_time)
         return
 

@@ -1,0 +1,76 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Renders the ordered interactive-validator conversation for one attempt.
+  Expects `attempt`: a mapping with `transcript` ({lines: [{dir, line, partial}], truncated}),
+  the two stderr excerpts, exit codes/signals, and crash_reason.
+#}
+<h3 class="h6">Attempt {{ attempt.attempt_number }}</h3>
+<dl class="row small mb-2">
+    <dt class="col-sm-5">Contestant exit / signal</dt>
+    <dd class="col-sm-7">
+        {{ attempt.contestant_exit_code if attempt.contestant_exit_code is not none else '—' }} / {{ attempt.contestant_signal if attempt.contestant_signal is not none else '—' }}
+    </dd>
+    <dt class="col-sm-5">Validator exit / signal</dt>
+    <dd class="col-sm-7">
+        {{ attempt.validator_exit_code if attempt.validator_exit_code is not none else '—' }} / {{ attempt.validator_signal if attempt.validator_signal is not none else '—' }}
+    </dd>
+    <dt class="col-sm-5">Crash reason</dt>
+    <dd class="col-sm-7">
+        {{ attempt.crash_reason.value if attempt.crash_reason else '—' }}
+    </dd>
+</dl>
+{% set transcript = attempt.transcript %}
+{% if transcript and transcript.lines %}
+    {# The conversation alternates and each side has its own row tint, so the label
+       is only worth printing the first time a side speaks. `named` tracks which
+       sides have introduced themselves already. Sighted readers get the tint;
+       `scope="row"` + the row's `title` keep every line attributed for anyone
+       reading this through a screen reader, who gets nothing from colour. #}
+    {% set named = namespace(user=false, validator=false) %}
+    <div class="noca-transcript">
+        <table class="table table-sm mb-0 noca-transcript-table">
+            <tbody>
+                {% for entry in transcript.lines %}
+                    {% set is_user = entry.dir == 'user' %}
+                    {% set side = 'User' if is_user else 'Validator' %}
+                    {% set first_turn = not (named.user if is_user else named.validator) %}
+                    {% if is_user %}
+                        {% set named.user = true %}
+                    {% else %}
+                        {% set named.validator = true %}
+                    {% endif %}
+                    <tr class="{{ 'noca-transcript-user' if is_user else 'noca-transcript-validator' }}"
+                        title="{{ side }}">
+                        <th scope="row" class="noca-transcript-side">
+                            {%- if first_turn %}{{ side }}
+                            {% endif -%}
+                        </th>
+                        <td>
+                            {# The protocol line is pre-wrap, so it must contain the raw bytes and
+                               nothing else: the `-` strips keep template indentation out of it no
+                               matter how djlint reflows this file. The note sits outside it. #}
+                            <span class="noca-transcript-line">{{- entry.line -}}</span>
+                            {% if entry.partial %}<span class="noca-transcript-note">(no newline at end)</span>{% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if transcript.truncated %}
+        <p class="small text-muted mt-1 mb-0">Transcript truncated — the conversation exceeded the recording limit.</p>
+    {% endif %}
+{% else %}
+    <p class="text-muted small mb-0">No protocol lines were exchanged.</p>
+{% endif %}
+{% for label, excerpt in [('Contestant stderr', attempt.contestant_stderr_excerpt), ('Validator stderr', attempt.validator_stderr_excerpt)] %}
+    {% if excerpt %}
+        <div class="small fw-semibold mt-2">{{ label }}</div>
+        <pre class="small border rounded p-2 mb-0"><code>{{ excerpt }}</code></pre>
+    {% endif %}
+{% endfor %}

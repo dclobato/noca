@@ -53,6 +53,7 @@ from shared.services.valkey_service.queue_ops import (
     dequeue_job_id,
     enqueue_arena_ai_review_job,
     enqueue_arena_submission_job,
+    enqueue_custom_validator_validation_job,
     enqueue_job,
     enqueue_profiling_job,
     get_ai_review_job_hash,
@@ -78,6 +79,9 @@ from shared.services.valkey_service.queue_ops import (
 )
 from shared.services.valkey_service.queue_ops import (
     enqueue_arena_submission_job_with_client as _enqueue_arena_submission_job_with_client,
+)
+from shared.services.valkey_service.queue_ops import (
+    enqueue_custom_validator_validation_job_with_client as _enqueue_custom_validator_validation_job_with_client,
 )
 from shared.services.valkey_service.queue_ops import (
     enqueue_job_with_client as _enqueue_job_with_client,
@@ -167,6 +171,7 @@ __all__ = [
     "_dequeue_job_id_with_client",
     "_enqueue_arena_ai_review_job_with_client",
     "_enqueue_arena_submission_job_with_client",
+    "_enqueue_custom_validator_validation_job_with_client",
     "_enqueue_job_with_client",
     "_enqueue_profiling_job_with_client",
     "_get_ai_review_job_hash_with_client",
@@ -190,6 +195,7 @@ __all__ = [
     "dequeue_job_id",
     "enqueue_arena_ai_review_job",
     "enqueue_arena_submission_job",
+    "enqueue_custom_validator_validation_job",
     "enqueue_job",
     "enqueue_profiling_job",
     "get_ai_review_job_hash",

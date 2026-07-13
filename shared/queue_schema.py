@@ -25,6 +25,20 @@ class JobKind(str):
     ARENA_SUBMISSION = "arena_submission"
     PROFILING = "profiling"
     ARENA_AI_REVIEW = "arena_ai_review"
+    CUSTOM_VALIDATOR_VALIDATION = "custom_validator_validation"
+
+
+class CustomValidatorValidationJob(BaseModel):
+    """Compile-validation request for a staged custom validator revision."""
+
+    validation_id: str = Field(description="Stable UUID used as the queue item ID")
+    domain: Literal["contest", "arena"]
+    problem_id: str
+    candidate_token: str
+    requeue_count: int = Field(default=0, ge=0)
+    job_kind: str = Field(default=JobKind.CUSTOM_VALIDATOR_VALIDATION)
+
+    model_config = {"frozen": True}
 
 
 class JudgeJob(BaseModel):

@@ -126,6 +126,29 @@ class ProfilingStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class CustomValidatorActiveState(StrEnum):
+    """State of the validator revision used for new submissions."""
+
+    VALID = "VALID"
+    RUNTIME_FAILED = "RUNTIME_FAILED"
+
+
+class CustomValidatorCandidateState(StrEnum):
+    """State of a validator revision awaiting successful compilation."""
+
+    PENDING = "PENDING"
+    INVALID = "INVALID"
+
+
+class CustomValidatorCrashReason(StrEnum):
+    """Why an interactive attempt did not obtain a clean validator exit."""
+
+    SIGNAL = "SIGNAL"
+    STARTUP = "STARTUP"
+    COMMUNICATION = "COMMUNICATION"
+    WATCHDOG = "WATCHDOG"
+
+
 class ContestStatus(StrEnum):
     """
     Lifecycle states of a contest.
@@ -189,6 +212,7 @@ class ArenaNotificationKind(StrEnum):
     CLASS_MEMBERSHIP_ADDED = "CLASS_MEMBERSHIP_ADDED"
     CLASS_MEMBERSHIP_REMOVED = "CLASS_MEMBERSHIP_REMOVED"
     PROBLEM_REMOVAL_REQUEST = "PROBLEM_REMOVAL_REQUEST"
+    CUSTOM_VALIDATOR_DISABLED = "CUSTOM_VALIDATOR_DISABLED"
     TEACHER_FEEDBACK_POSTED = "TEACHER_FEEDBACK_POSTED"
     OTHER = "OTHER"
 
@@ -233,6 +257,7 @@ ARENA_NOTIFICATION_ICONS: dict[ArenaNotificationKind, str] = {
     ArenaNotificationKind.CLASS_MEMBERSHIP_ADDED: "person_add",
     ArenaNotificationKind.CLASS_MEMBERSHIP_REMOVED: "person_remove",
     ArenaNotificationKind.PROBLEM_REMOVAL_REQUEST: "delete_forever",
+    ArenaNotificationKind.CUSTOM_VALIDATOR_DISABLED: "code_off",
     ArenaNotificationKind.TEACHER_FEEDBACK_POSTED: "rate_review",
     ArenaNotificationKind.OTHER: "stacked_email",
 }

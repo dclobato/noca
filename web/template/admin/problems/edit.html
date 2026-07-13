@@ -307,6 +307,14 @@
                         </div>
                     </div>
                     <div class="card shadow-sm mb-4">
+                        <div class="card-header fw-semibold">Problem Illustration</div>
+                        <div class="card-body">
+                            {% with image_b64=(problem.problem_image_base64 if problem else None), image_mime=(problem.problem_image_mime if problem else None), image_caption=form_data.image_caption, image_form_id="edit-form", image_disabled=(not is_edit_allowed) %}
+                                {% include "_partials/problem_image_field.html" %}
+                            {% endwith %}
+                        </div>
+                    </div>
+                    <div class="card shadow-sm mb-4">
                         <div class="card-header fw-semibold">Categories</div>
                         <div class="card-body">
                             <input type="hidden"
@@ -347,6 +355,83 @@
                                 <div class="form-text">
                                     New category names will be created automatically. Changes are saved only after clicking Save Changes.
                                 </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header fw-semibold">Custom interactive validator</div>
+                        <div class="card-body">
+                            {% if problem %}
+                                {% include "admin/problems/_validator_status.html" %}
+                                {% if validator_status.configured %}
+                                    <div class="d-flex flex-wrap gap-2 mt-3">
+                                        <a class="btn btn-outline-secondary btn-sm"
+                                           href="{{ request.url_for('download_problem_custom_validator', slug=contest.login_slug, problem_id=problem.id) }}">
+                                            Download validator source
+                                        </a>
+                                        <form method="post"
+                                              action="{{ request.url_for('remove_problem_custom_validator', slug=contest.login_slug, problem_id=problem.id) }}">
+                                            <button class="btn btn-outline-danger btn-sm" type="submit">Remove validator</button>
+                                        </form>
+                                    </div>
+                                {% else %}
+                                    <form method="post"
+                                          action="{{ request.url_for('upload_problem_custom_validator', slug=contest.login_slug, problem_id=problem.id) }}"
+                                          enctype="multipart/form-data"
+                                          class="row g-2 align-items-end mt-1">
+                                        <div class="col-md-5">
+                                            <label for="validator_language_id" class="form-label">Language</label>
+                                            <select id="validator_language_id"
+                                                    name="language_id"
+                                                    class="form-select form-select-sm"
+                                                    required>
+                                                {% for language in validator_languages %}<option value="{{ language.id }}">{{ language.name }}</option>{% endfor %}
+                                            </select>
+                                        </div>
+                                        <div class="col-md-5">
+                                            <label for="validator_source_file" class="form-label">UTF-8 source file</label>
+                                            <input id="validator_source_file"
+                                                   type="file"
+                                                   name="source_file"
+                                                   class="form-control form-control-sm"
+                                                   required>
+                                        </div>
+                                        <div class="col-md-2">
+                                            <button class="btn btn-primary btn-sm w-100" type="submit">Upload</button>
+                                        </div>
+                                    </form>
+                                {% endif %}
+                            {% else %}
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-5">
+                                        <label for="validator_language_id" class="form-label">Language</label>
+                                        <select id="validator_language_id"
+                                                name="validator_language_id"
+                                                form="edit-form"
+                                                class="form-select form-select-sm">
+                                            <option value="">No custom validator</option>
+                                            {% for language in validator_languages %}
+                                                <option value="{{ language.id }}"
+                                                        {% if validator_language_id | default('') == language.id %}selected{% endif %}>
+                                                    {{ language.name }}
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-7">
+                                        <label for="validator_source_file" class="form-label">UTF-8 source file</label>
+                                        <input id="validator_source_file"
+                                               type="file"
+                                               name="validator_source_file"
+                                               form="edit-form"
+                                               class="form-control form-control-sm">
+                                    </div>
+                                </div>
+                            {% endif %}
+                            {% if problem and validator_status.configured %}
+                                <div class="form-text">Remove the current validator to upload a different one.</div>
+                            {% else %}
+                                <div class="form-text">All test cases must be public samples. Validation runs asynchronously.</div>
                             {% endif %}
                         </div>
                     </div>
@@ -541,6 +626,7 @@
                    name="tc_remove_ids"
                    id="tc_remove_ids"
                    form="edit-form"
+                   data-allow-empty="{{ 'true' if validator_status and validator_status.configured else 'false' }}"
                    value="">
             {% if not problem %}</form>{% endif %}
         <div class="d-flex gap-2 mb-4">
@@ -666,6 +752,8 @@
     <script src="{{ request.url_for('static_js', path='admin-problems-edit.js') }}?v={{ app_version }}"
             defer></script>
     <script src="{{ request.url_for('static_shared_js', path='tc-replace-row.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='problem-image-preview.js') }}?v={{ app_version }}"
             defer></script>
     {% if problem %}
         <script src="{{ request.url_for('static_shared_js', path='tc-pending-remove.js') }}?v={{ app_version }}"

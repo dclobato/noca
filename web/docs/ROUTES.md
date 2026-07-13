@@ -443,3 +443,28 @@ Current-user profile routes accept either a valid contest JWT or UberAdmin JWT (
 
 Site note:
 - contest users cannot self-edit their assigned site from `/profile`; the page displays it as administrator-managed read-only information.
+## Custom validator routes
+
+Contest administrators manage a problem's staged interactive validator through
+dedicated forms. These routes never save unrelated problem-form fields.
+
+- `POST /c/{slug}/admin/problems/{problem_id}/validator` stages and enqueues a
+  candidate. The upload form is only offered while no validator is configured;
+  replacing one means removing it first.
+- `GET /c/{slug}/admin/problems/{problem_id}/validator/status` renders the HTMX
+  status partial.
+- `GET /c/{slug}/admin/problems/{problem_id}/validator/source` downloads the
+  current source (active revision, falling back to a staged candidate).
+- `POST /c/{slug}/admin/problems/{problem_id}/validator/remove` removes active
+  and candidate revisions.
+
+A problem with a configured validator may have zero test cases: the problem form
+drops its "at least one test case" requirement, because interactive judgments
+never read test-case files.
+
+On `/c/{slug}/submissions/{submission_id}/review`, an interactive problem replaces
+the test-case results table with the per-attempt contestant/validator stdout and
+stderr excerpts (the effective-limits table is kept), followed by a link to
+`GET /c/{slug}/submissions/{submission_id}/validator-source`
+(`submission_validator_source_download`), which serves the active validator source
+to uberadmins, admins, and judges — the same audience that may see test results.

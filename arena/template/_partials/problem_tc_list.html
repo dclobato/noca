@@ -7,9 +7,12 @@
 #}
 {% from "_macros.html" import render_icon with context %}
 <div id="arena-tc-management">
-    <div id="arena-tc-section" class="card shadow-sm mb-4">
-        <div class="card-header fw-semibold">Test Cases</div>
-        <div class="card-body">
+    <div id="arena-tc-section" class="arena-card mb-3">
+        <h2 class="arena-card-title">
+            {{ render_icon(icon="checklist") }}
+            Test cases
+        </h2>
+        <div>
             {% if has_submissions %}
                 <div class="alert alert-warning d-flex align-items-start gap-2 mb-3"
                      role="alert">

@@ -77,7 +77,10 @@
                     {% include "_partials/filter_clear_link.html" %}
                 {% endwith %}
             </form>
-            <p class="text-muted small mb-2">{{ pagination.total }} problem{{ 's' if pagination.total != 1 else '' }}</p>
+            <p class="text-muted small mb-1">{{ pagination.total }} problem{{ 's' if pagination.total != 1 else '' }}</p>
+            <p class="text-muted small mb-2">
+                Problems marked with {{ render_icon(icon="published_with_changes", classes="arena-custom-validator-legend-icon", title="Custom validator") }} use a custom validator.
+            </p>
             {% with pagination=pagination, page_param="page", label="Problem list pagination", nav_margin="mb-2" %}
                 {% include "_partials/pagination.html" %}
             {% endwith %}
@@ -162,6 +165,9 @@
                                 <td>
                                     <a href="{{ request.url_for('arena_problem_detail', arena_number=item.problem.arena_number) }}?{{ back_params_qs }}"
                                        class="text-decoration-none fw-medium">{{ item.problem.title }}</a>
+                                    {% if item.has_custom_validator %}
+                                        {{ render_icon(icon="published_with_changes", classes="text-info", title="This problem uses a custom validator") }}
+                                    {% endif %}
                                 </td>
                                 <td class="column-width-medium">
                                     {% for cat in item.categories %}

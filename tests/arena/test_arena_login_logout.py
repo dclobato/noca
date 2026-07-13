@@ -35,6 +35,7 @@ from arena.routes.auth import router as arena_auth_router
 from arena.routes.auth_2fa import router as arena_auth_2fa_router
 from arena.routes.auth_password import router as arena_auth_password_router
 from arena.routes.auth_signup import router as arena_auth_signup_router
+from arena.routes.legal import router as arena_legal_router
 from arena.services.token_service import ArenaTokenAction
 from shared.db_schema import security_events
 from shared.enumerations import ArenaRole
@@ -135,6 +136,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
         return HTMLResponse("avatar")
 
     app.include_router(stubs)
+    app.include_router(arena_legal_router)
     shared_dir = arena_dir.parent / "shared"
     app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
     app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")
@@ -145,6 +147,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     app.include_router(arena_auth_signup_router)
     app.include_router(arena_auth_2fa_router)
     app.include_router(arena_auth_password_router)
+    app.include_router(arena_legal_router)
     return app
 
 

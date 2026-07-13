@@ -7,6 +7,7 @@
 """Arena help pages: rating system and languages/verdicts documentation."""
 
 import logging
+from dataclasses import dataclass
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Request
@@ -65,9 +66,30 @@ _VERDICT_DESCRIPTIONS: dict[Verdict, str] = {
 }
 
 
+@dataclass(frozen=True)
+class StdoutFlushHintPart:
+    """One display segment in a stdout flush hint."""
+
+    text: str
+    is_code: bool
+
+
 def _html(response: Any) -> HTMLResponse:
     """Cast a TemplateResponse to HTMLResponse for type-checker satisfaction."""
     return cast(HTMLResponse, response)
+
+
+def _stdout_flush_hint_parts(hint: str | None) -> list[StdoutFlushHintPart]:
+    """Split a backtick-marked stdout flush hint into display parts."""
+    if not hint:
+        return []
+    parts: list[StdoutFlushHintPart] = []
+    is_code = False
+    for text in hint.split("`"):
+        if text:
+            parts.append(StdoutFlushHintPart(text=text, is_code=is_code))
+        is_code = not is_code
+    return parts
 
 
 @router.get("/help/rating", response_class=HTMLResponse, name="arena_help_rating")
@@ -154,8 +176,8 @@ async def arena_help_languages(
 ) -> HTMLResponse:
     """Render the Arena languages and verdicts help page.
 
-    Lists all active languages with their versions and compile/run commands,
-    and explains the meaning of each possible judgment verdict.
+    Lists all active languages with their versions, compile/run commands, and
+    stdout flush hints, and explains the meaning of each possible judgment verdict.
 
     Args:
         request: The current HTTP request.
@@ -165,7 +187,10 @@ async def arena_help_languages(
     result = await session.execute(
         select(languages_table).where(languages_table.c.active == True).order_by(languages_table.c.name)  # noqa: E712
     )
-    active_languages = result.mappings().all()
+    active_languages = [
+        dict(row) | {"stdout_flush_hint_parts": _stdout_flush_hint_parts(row["stdout_flush_hint"])}
+        for row in result.mappings()
+    ]
 
     templates = request.app.state.arena_templates
     return _html(

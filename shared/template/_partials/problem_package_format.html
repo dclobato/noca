@@ -1,0 +1,198 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Single source of truth for the problem-package (import/export ZIP) format,
+  shared by the Arena and Contest import pages so the two cannot drift apart
+  when the package format gains a field.
+
+  Include with:
+    {% with package_domain="arena", package_table_class="arena-table" %}
+        {% include "_partials/problem_package_format.html" %}
+    {% endwith %}
+
+  Parameters:
+    package_domain      "arena" | "contest"  (selects the domain-specific rows)
+    package_table_class CSS classes for the field table (module look and feel)
+    package_pre_class   CSS classes for the layout <pre> blocks
+    package_sample_url  URL of the sample-package download (omit to hide the button)
+#}
+{% set domain = package_domain | default("contest") %}
+{% set is_arena = domain == "arena" %}
+{% set table_class = package_table_class | default("table table-sm small mb-0") %}
+{% set pre_class = package_pre_class | default("small mb-3") %}
+{# Field rows: (name, type, required, domains). `domains` is "all", "arena" or "contest".
+   Adding a package field means adding one row here — both import pages pick it up. #}
+{% set package_fields = [("title", "string", true, "all"), ("author", "string (maximum 80 characters)", false, "all"), ("time_limit_ms", "integer ≥ 1", true, "all"), ("memory_limit_kb", "integer ≥ 1", true, "all"), ("pids_limit", "integer ≥ 1", true, "all"), ("output_limit_in_bytes", "integer or null", false, "all"), ("categories", "array of strings", false, "all"), ("notes", "string or null", false, "all"), ("custom_validator", "object — see below", false, "all"), ("test_case_visibility", 'string ("sample")', false, "all"), ("image", "filename string or null", false, "all"), ("image_caption", "string or null", false, "all"), ("source", "string or null", false, "arena"), ("hide_author_show_source", "boolean", false, "arena"), ("license", "string (maximum 256 characters) or null", false, "arena"), ("color", "hex string e.g. #ff0000", false, "contest"), ("language_limits", "object — see below", false, "contest")] %}
+{% if package_sample_url %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+<a href="{{ package_sample_url }}" class="btn btn-outline-primary btn-sm">Download sample package</a>
+<span class="text-muted small">A working “A + B” problem: statement, three test cases, and per-language limits.</span>
+</div>
+{% endif %}
+<p class="small fw-semibold mb-1">Directory layout (exported by NOCA)</p>
+{% if is_arena %}
+<pre class="{{ pre_class }}">/
+├── problem.json         ← required
+├── statement.md         ← required
+├── image.png            (optional)
+├── validator/           (optional — interactive problems)
+│   └── source.txt
+├── in/
+│   ├── 001.in
+│   └── 002.in
+├── out/
+│   ├── 001.out          (or 001.sol)
+│   └── 002.out          (or 002.sol)
+└── explanation/         (optional)
+    └── 001.txt</pre>
+{% else %}
+<pre class="{{ pre_class }}">/
+├── problem.json                    ← required
+├── statement.pdf or statement.md   ← one required
+├── image.png                       (optional)
+├── validator/                      (optional — interactive problems)
+│   └── source.txt
+├── in/
+│   ├── 001.in
+│   └── 002.in
+├── out/
+│   ├── 001.out                     (or 001.sol)
+│   └── 002.out                     (or 002.sol)
+└── explanation/                    (optional)
+    └── 001.txt</pre>
+{% endif %}
+<p class="text-muted small mb-3">
+A flat test-case layout (<code>001.in</code> / <code>001.out</code> or
+<code>001.sol</code> at the package root) is also accepted.
+</p>
+<h3 class="h6 text-uppercase text-muted mb-2">
+<code>problem.json</code> fields
+</h3>
+<div class="table-responsive mb-3">
+<table class="{{ table_class }}">
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+{% for name, type, required, field_domains in package_fields %}
+{% if field_domains == "all" or field_domains == domain %}
+<tr>
+<td>
+<code>{{ name }}</code>
+</td>
+<td>{{ type }}</td>
+<td>
+{% if required %}
+<span class="badge text-bg-danger">required</span>
+{% else %}
+<span class="badge text-bg-secondary">optional</span>
+{% endif %}
+</td>
+</tr>
+{% endif %}
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% if not is_arena %}
+<h3 class="h6 text-uppercase text-muted mb-2">
+<code>language_limits</code> object
+</h3>
+<p class="text-muted small mb-2">
+Keyed by language id; each value overrides the problem-level limits for that language.
+All five keys are accepted, <code>output_limit_in_bytes</code> may be <code>null</code>.
+</p>
+<pre class="{{ pre_class }}">"language_limits": {
+  "python3": {
+    "time_limit_ms": 3000,
+    "memory_limit_kb": 262144,
+    "pids_limit": 64,
+    "output_limit_in_bytes": 1048576,
+    "repetitions": 3
+  }
+}</pre>
+{% endif %}
+<h3 class="h6 text-uppercase text-muted mb-2">Interactive problems (custom validator)</h3>
+<p class="text-muted small mb-2">
+A package may ship a custom interactive validator: put its UTF-8 source at
+<code>validator/source.txt</code> and declare it in <code>problem.json</code>. The
+<code>language_id</code> must be an active judge language.
+</p>
+<pre class="{{ pre_class }}">"custom_validator": {
+  "language_id": "cpp20",
+  "source_file": "validator/source.txt"
+},
+"test_case_visibility": "sample"</pre>
+<ul class="small mb-3">
+<li>
+A validator package must also declare <code>"test_case_visibility": "sample"</code>, and every
+packaged test case is imported as a <strong>public sample</strong> — interactive judging never
+reads test-case files, so there are no secrets to protect.
+</li>
+<li>
+The imported validator is staged as a candidate and compiled asynchronously. The problem cannot
+accept submissions until it compiles successfully.
+</li>
+<li>Full exports of an interactive problem include the validator source; public exports never do.</li>
+</ul>
+<h3 class="h6 text-uppercase text-muted mb-2">Validation rules</h3>
+<ul class="small mb-0">
+{% if is_arena %}
+<li>
+<code>statement.md</code> is required and must not contain external links, images, or URLs.
+</li>
+{% else %}
+<li>
+Either <code>statement.pdf</code> or <code>statement.md</code> is required — import fails without one.
+</li>
+<li>
+<code>statement.md</code> must not contain external links, images, or URLs.
+</li>
+{% endif %}
+<li>
+At least one input/output test-case pair is required (ordinals 1–999, up to 1000 pairs), and both
+files must be present for each ordinal.
+</li>
+<li>
+Optional <code>explanation/NNN.txt</code> (UTF-8) adds an explanation for the test case of the same
+number; shown to contestants below the sample.
+</li>
+<li>
+Test cases are imported as <strong>secret</strong>, unless the package declares a custom validator —
+then they are all imported as public samples.
+</li>
+<li>
+An optional illustration image is displayed below the statement. It must be a PNG, JPEG, or WEBP
+of at most 2&nbsp;MB — the same rules as the manual upload on the problem form. When
+<code>problem.json</code> names an <code>image</code>, that file must be present in the package;
+otherwise a root-level image file is picked up automatically. <code>image_caption</code> is shown
+below it.
+</li>
+{% if is_arena %}
+<li>Categories are linked only when they already exist (matched by name); unknown categories are dropped.</li>
+<li>
+A non-empty <code>author</code> is preserved. If omitted, you are recorded as both owner and author.
+</li>
+<li>
+Contest-only fields (<code>color</code>, <code>language_limits</code>) are accepted and ignored.
+</li>
+{% else %}
+<li>Categories are matched by name and created on the fly when they do not exist yet.</li>
+<li>
+Per-language <code>language_limits</code> entries may include <code>repetitions</code>; fallback
+limits always use 1 repetition.
+</li>
+<li>Per-language limits for languages not allowed in this contest are skipped during import.</li>
+<li>
+Legacy top-level <code>repetitions</code> metadata is accepted and ignored during import.
+</li>
+{% endif %}
+</ul>

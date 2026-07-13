@@ -33,6 +33,7 @@ from shared.db_schema.arena import arena_problems as _problems_table
 from shared.db_schema.arena import arena_users as _users_table
 from shared.db_schema.arena.arena_rating_history import arena_problem_rating_history
 from shared.services.arena_query_helpers import counts_toward_problem_rating
+from shared.services.custom_validator import status_view
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,7 @@ class PublicProblemListItem:
         is_solved: Whether the viewing user has a first-AC record for this problem.
         solved: Number of distinct non-owner solvers for this problem, or
             ``None`` if no counted solver data is available.
+        has_custom_validator: Whether an active or candidate custom validator is configured.
     """
 
     problem: ArenaProblem
@@ -90,6 +92,7 @@ class PublicProblemListItem:
     ac_rate: float | None = None
     is_solved: bool = False
     solved: int | None = None
+    has_custom_validator: bool = False
 
 
 def _apply_sort(stmt: Select[Any], sort_by: str, solver_count: Any) -> Select[Any]:
@@ -179,6 +182,7 @@ async def list_enabled_problems_paginated(
             contains_eager(ArenaProblem.rating),
             selectinload(ArenaProblem.categories),
             selectinload(ArenaProblem.test_cases),
+            selectinload(ArenaProblem.custom_validator),
         )
         .where(ArenaProblem.enabled == True)  # noqa: E712
     )
@@ -259,6 +263,7 @@ async def list_enabled_problems_paginated(
                 ac_rate=ac_rate,
                 is_solved=problem.id in solved_ids,
                 solved=solver_count_value if solver_count_value > 0 else None,
+                has_custom_validator=status_view(problem.custom_validator).configured,
             )
         )
 
@@ -347,6 +352,7 @@ async def get_enabled_problem_by_number(
             contains_eager(ArenaProblem.rating),
             selectinload(ArenaProblem.categories),
             selectinload(ArenaProblem.test_cases),
+            selectinload(ArenaProblem.custom_validator),
         )
         .where(ArenaProblem.arena_number == arena_number, ArenaProblem.enabled == True)  # noqa: E712
     )

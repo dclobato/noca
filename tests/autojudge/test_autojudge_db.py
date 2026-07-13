@@ -13,13 +13,19 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from arena.models.arena_notifications import ArenaNotification
-from arena.models.arena_problems import ArenaProblem, ArenaRatingProblem, ArenaTestCase
+from arena.models.arena_problems import (
+    ArenaProblem,
+    ArenaProblemCustomValidator,
+    ArenaRatingProblem,
+    ArenaTestCase,
+)
 from arena.models.arena_submissions import (
     ArenaSubmission,
     ArenaSubmissionJudgment,
@@ -29,7 +35,15 @@ from arena.models.arena_submissions import (
 from arena.models.arena_users import ArenaUser
 from autojudge.config import settings as autojudge_settings
 from autojudge.db import ProfilingObservedLimits, open_db
-from shared.enumerations import ArenaRole, JudgmentStatus, ProfilingStatus, TaskType, Verdict
+from shared.enumerations import (
+    ArenaNotificationKind,
+    ArenaRole,
+    CustomValidatorActiveState,
+    JudgmentStatus,
+    ProfilingStatus,
+    TaskType,
+    Verdict,
+)
 from shared.services.testcase_files import save_testcase_files
 from web.models.contest import Contest, Task
 from web.models.language import Language
@@ -1031,3 +1045,73 @@ async def test_update_language_images(engine, session: AsyncSession):
         assert refreshed is not None
         assert refreshed.compile_image == compile_image
         assert refreshed.run_image == run_image
+
+
+async def test_arena_validator_crash_containment_is_idempotent(engine, session: AsyncSession) -> None:
+    language = _make_language(session, lang_id=f"contain-{uuid.uuid4().hex[:6]}")
+    owner = _make_arena_user(session, role=ArenaRole.ARENA_JUDGE)
+    await session.flush()
+    problem = ArenaProblem(
+        arena_number=991,
+        title="Containment problem",
+        owner_id=owner.id,
+        problem_statement="Interactive.",
+        enabled=True,
+    )
+    session.add(problem)
+    await session.flush()
+    session.add(
+        ArenaProblemCustomValidator(
+            problem_id=problem.id,
+            active_language_id=language.id,
+            active_source="print('validator')",
+            active_state=CustomValidatorActiveState.VALID,
+            active_validated_at=datetime.now(UTC),
+        )
+    )
+    judgment_ids: list[str] = []
+    for index, status in enumerate(
+        [JudgmentStatus.JUDGING.value, JudgmentStatus.QUEUED.value, JudgmentStatus.QUEUED.value]
+    ):
+        submission = ArenaSubmission(
+            user_id=owner.id,
+            problem_id=problem.id,
+            language_id=language.id,
+            source_code=f"print({index})",
+            source_hash=str(index) * 64,
+            source_size_bytes=8,
+        )
+        session.add(submission)
+        await session.flush()
+        judgment = ArenaSubmissionJudgment(submission_id=submission.id, status=status)
+        session.add(judgment)
+        await session.flush()
+        judgment_ids.append(judgment.id)
+    await session.commit()
+
+    async with open_db(engine) as db:
+        failed_ids = await db.contain_arena_validator_crash(problem.id, judgment_ids[0])
+        second_ids = await db.contain_arena_validator_crash(problem.id, judgment_ids[0])
+
+    assert set(failed_ids) == set(judgment_ids[1:])
+    assert second_ids == []
+    async with async_sessionmaker(engine, expire_on_commit=False)() as verify:
+        reloaded_problem = await verify.get(ArenaProblem, problem.id)
+        validator = await verify.get(ArenaProblemCustomValidator, problem.id)
+        queued_judgments = list(
+            await verify.scalars(
+                select(ArenaSubmissionJudgment).where(ArenaSubmissionJudgment.id.in_(judgment_ids[1:]))
+            )
+        )
+        notifications = list(
+            await verify.scalars(
+                select(ArenaNotification).where(
+                    ArenaNotification.user_id == owner.id,
+                    ArenaNotification.notification_kind == ArenaNotificationKind.CUSTOM_VALIDATOR_DISABLED.value,
+                )
+            )
+        )
+    assert reloaded_problem is not None and reloaded_problem.enabled is False
+    assert validator is not None and validator.active_state == CustomValidatorActiveState.RUNTIME_FAILED
+    assert all(judgment.status == JudgmentStatus.FAILED.value for judgment in queued_judgments)
+    assert len(notifications) == 1

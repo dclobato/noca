@@ -7,7 +7,8 @@
 """Route tests for Arena admin problem management."""
 
 import logging
-from datetime import date
+import uuid
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -27,18 +28,21 @@ import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
 from arena.config import settings as arena_settings
 from arena.middleware.auth_middleware import ArenaAuthMiddleware
-from arena.models.arena_problems import ArenaCategory
+from arena.models.arena_problems import ArenaCategory, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_problem_api import router as arena_admin_problem_api_router
 from arena.routes.admin_problem_io import router as arena_admin_problem_io_router
 from arena.routes.admin_problem_tc import router as arena_admin_problem_tc_router
+from arena.routes.admin_problem_validator import router as arena_admin_problem_validator_router
 from arena.routes.admin_problems import router as arena_admin_problems_router
+from arena.routes.legal import router as arena_legal_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.services import admin_problem_service, admin_problem_tc_service
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, CustomValidatorActiveState
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
+from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-admin-problem-tests-32b!"
 
@@ -172,7 +176,9 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
     app.include_router(arena_admin_problem_io_router)
     app.include_router(arena_admin_problem_tc_router)
     app.include_router(arena_admin_problem_api_router)
+    app.include_router(arena_admin_problem_validator_router)
     app.include_router(arena_ranking_router)
+    app.include_router(arena_legal_router)
     return app
 
 
@@ -200,6 +206,26 @@ async def _create_user(
     await session.commit()
     await session.refresh(user)
     return user
+
+
+async def _create_language(session: AsyncSession) -> Language:
+    language = Language(
+        id=f"admin-route-test-{uuid.uuid4().hex[:8]}",
+        name="Admin Route Test Language",
+        icon="test",
+        compile_image="noca/test:compile",
+        run_image="noca/test:run",
+        compile_cmd=["true"],
+        run_cmd=["true"],
+        source_filename="main.txt",
+        artifact_path="/sandbox/main.txt",
+        artifact_is_source=True,
+        compile_timeout_s=10.0,
+        active=True,
+    )
+    session.add(language)
+    await session.flush()
+    return language
 
 
 def _login_token(app: FastAPI, user: ArenaUser) -> str:
@@ -284,6 +310,56 @@ async def test_problem_list_allows_admin(session: AsyncSession) -> None:
     ) as client:
         response = await client.get("/admin/problems")
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_problem_list_renders_custom_validator_marker(session: AsyncSession) -> None:
+    app = _build_admin_app(session)
+    judge = await _create_user(
+        session,
+        email="jvalidator@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+        can_edit=True,
+    )
+    language = await _create_language(session)
+    problem = await admin_problem_service.create_problem(
+        session,
+        caller_id=judge.id,
+        title="Interactive Admin Problem",
+        source=None,
+        hide_author_show_source=False,
+        time_limit_ms=1000,
+        memory_limit_kb=262144,
+        pids_limit=64,
+        output_limit_in_bytes=65536,
+        problem_statement="stmt",
+        image_b64=None,
+        image_mime=None,
+        image_caption=None,
+        notes=None,
+        category_ids=[],
+    )
+    session.add(
+        ArenaProblemCustomValidator(
+            problem_id=problem.id,
+            active_language_id=language.id,
+            active_source="print('validator')\n",
+            active_state=CustomValidatorActiveState.VALID,
+            active_validated_at=datetime.now(UTC),
+        )
+    )
+    await session.commit()
+
+    token = _login_token(app, judge)
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
+    ) as client:
+        response = await client.get("/admin/problems")
+
+    assert response.status_code == 200
+    assert "Interactive Admin Problem" in response.text
+    assert "published_with_changes" in response.text
+    assert "This problem uses a custom validator" in response.text
 
 
 @pytest.mark.asyncio

@@ -21,7 +21,7 @@ shared.db_schema.arena.arena_submissions:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Mapped, relationship
 
@@ -29,12 +29,16 @@ from arena.database import ArenaBase
 from shared.db_schema.arena import arena_problem_solvers as arena_problem_solvers_table
 from shared.db_schema.arena import arena_problem_tried as arena_problem_tried_table
 from shared.db_schema.arena import arena_submission_ai_reviews as arena_submission_ai_reviews_table
+from shared.db_schema.arena import (
+    arena_submission_interactive_attempts as arena_submission_interactive_attempts_table,
+)
 from shared.db_schema.arena import arena_submission_judgments as arena_submission_judgments_table
 from shared.db_schema.arena import (
     arena_submission_teacher_feedback as arena_submission_teacher_feedback_table,
 )
 from shared.db_schema.arena import arena_submission_test_results as arena_submission_test_results_table
 from shared.db_schema.arena import arena_submissions as arena_submissions_table
+from shared.enumerations import CustomValidatorCrashReason, Verdict
 
 if TYPE_CHECKING:
     from arena.models.arena_problems import ArenaProblem, ArenaTestCase
@@ -253,6 +257,12 @@ class ArenaSubmissionJudgment(ArenaBase):
         uselist=False,
         foreign_keys=[arena_submission_test_results_table.c.judgment_id],
     )
+    interactive_attempts: Mapped[list[ArenaSubmissionInteractiveAttempt]] = relationship(
+        "ArenaSubmissionInteractiveAttempt",
+        back_populates="judgment",
+        cascade="all, delete-orphan",
+        order_by="ArenaSubmissionInteractiveAttempt.attempt_number",
+    )
 
 
 class ArenaSubmissionTestResult(ArenaBase):
@@ -301,6 +311,36 @@ class ArenaSubmissionTestResult(ArenaBase):
     test_case: Mapped[ArenaTestCase] = relationship(
         "ArenaTestCase",
         foreign_keys=[arena_submission_test_results_table.c.test_case_id],
+    )
+
+
+class ArenaSubmissionInteractiveAttempt(ArenaBase):
+    """Bounded diagnostics for one Arena interactive attempt."""
+
+    __table__ = arena_submission_interactive_attempts_table
+
+    id: Mapped[str]
+    judgment_id: Mapped[str]
+    attempt_number: Mapped[int]
+    contestant_exit_code: Mapped[int | None]
+    contestant_signal: Mapped[int | None]
+    validator_exit_code: Mapped[int | None]
+    validator_signal: Mapped[int | None]
+    transcript: Mapped[dict[str, Any] | None]
+    contestant_stderr_excerpt: Mapped[str]
+    validator_stderr_excerpt: Mapped[str]
+    wall_time_ms: Mapped[int | None]
+    memory_kb: Mapped[int | None]
+    output_bytes: Mapped[int | None]
+    limit_outcome: Mapped[str | None]
+    validator_verdict: Mapped[Verdict | None]
+    crash_reason: Mapped[CustomValidatorCrashReason | None]
+    created_at: Mapped[datetime]
+
+    judgment: Mapped[ArenaSubmissionJudgment] = relationship(
+        "ArenaSubmissionJudgment",
+        back_populates="interactive_attempts",
+        foreign_keys=[arena_submission_interactive_attempts_table.c.judgment_id],
     )
 
 

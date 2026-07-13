@@ -1,0 +1,27 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Problem illustration display, shared by the Arena and Contest problem pages.
+
+  Include with:
+    {% with image_b64=problem.problem_image_base64,
+            image_mime=problem.problem_image_mime,
+            image_caption=problem.problem_image_caption %}
+        {% include "_partials/problem_image_figure.html" %}
+    {% endwith %}
+
+  Renders nothing when the problem has no image.
+#}
+{% set img_b64 = image_b64 | default(None) %}
+{% if img_b64 %}
+    <figure class="noca-problem-figure">
+        <img src="data:{{ image_mime | default("image/png") }};base64,{{ img_b64 }}"
+             alt="Problem illustration"
+             class="noca-problem-image">
+        {% if image_caption %}<figcaption class="noca-problem-figure-caption">{{ image_caption | e }}</figcaption>{% endif %}
+    </figure>
+{% endif %}

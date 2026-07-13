@@ -40,6 +40,7 @@ from arena.routes.admin_users import admin_user_profile, admin_user_rating_histo
 from arena.routes.admin_users import router as arena_admin_users_router
 from arena.routes.admin_users_actions import admin_user_topup_credits
 from arena.routes.admin_users_actions import router as arena_admin_users_actions_router
+from arena.routes.legal import router as arena_legal_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.services import admin_login_history_service
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
@@ -185,6 +186,7 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
     app.include_router(arena_admin_users_router)
     app.include_router(arena_admin_users_actions_router)
     app.include_router(arena_ranking_router)
+    app.include_router(arena_legal_router)
     return app
 
 

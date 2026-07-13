@@ -34,6 +34,7 @@ from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_badges import ArenaUserBadge
 from arena.models.arena_users import ArenaUser
 from arena.routes.help import router as arena_help_router
+from arena.routes.legal import router as arena_legal_router
 from arena.routes.notifications import router as arena_notifications_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.routes.root import router as arena_root_router
@@ -224,6 +225,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     app.include_router(arena_user_submission_status_router)
     app.include_router(arena_notifications_router)
     app.include_router(arena_ranking_router)
+    app.include_router(arena_legal_router)
     return app
 
 

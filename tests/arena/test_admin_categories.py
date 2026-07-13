@@ -29,6 +29,7 @@ from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.models.arena_problems import ArenaCategory
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_categories import router as arena_admin_categories_router
+from arena.routes.legal import router as arena_legal_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
@@ -148,6 +149,7 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
 
     app.include_router(arena_admin_categories_router)
     app.include_router(arena_ranking_router)
+    app.include_router(arena_legal_router)
     return app
 
 

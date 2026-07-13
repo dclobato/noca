@@ -22,6 +22,9 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy import Enum as SAEnum
+
+from shared.enumerations import CustomValidatorActiveState, CustomValidatorCandidateState
 
 from .._base import _created_at_column, _id_column, _updated_at_column, metadata
 
@@ -193,6 +196,49 @@ arena_problems = Table(
         "(author_is_owner AND author IS NULL) OR "
         "(NOT author_is_owner AND author IS NOT NULL AND length(trim(author)) BETWEEN 1 AND 80)",
         name="ck_arena_problems_author_choice",
+    ),
+)
+
+arena_problem_custom_validators = Table(
+    "arena_problem_custom_validators",
+    metadata,
+    Column("problem_id", String(36), ForeignKey("arena_problems.id", ondelete="CASCADE"), primary_key=True),
+    Column("active_language_id", String(64), ForeignKey("languages.id", ondelete="RESTRICT"), nullable=True),
+    Column("active_source", Text, nullable=True),
+    Column(
+        "active_state",
+        SAEnum(CustomValidatorActiveState, values_callable=lambda e: [m.value for m in e]),
+        nullable=True,
+    ),
+    Column("active_validated_at", DateTime(timezone=True), nullable=True),
+    Column("candidate_language_id", String(64), ForeignKey("languages.id", ondelete="RESTRICT"), nullable=True),
+    Column("candidate_source", Text, nullable=True),
+    Column("candidate_token", String(36), nullable=True, unique=True),
+    Column(
+        "candidate_state",
+        SAEnum(CustomValidatorCandidateState, values_callable=lambda e: [m.value for m in e]),
+        nullable=True,
+    ),
+    Column("candidate_compile_log", Text, nullable=True),
+    Column("candidate_validated_at", DateTime(timezone=True), nullable=True),
+    _created_at_column(),
+    _updated_at_column(),
+    CheckConstraint(
+        "(active_language_id IS NULL AND active_source IS NULL AND active_state IS NULL "
+        "AND active_validated_at IS NULL) OR "
+        "(active_language_id IS NOT NULL AND active_source IS NOT NULL AND active_state IS NOT NULL "
+        "AND active_validated_at IS NOT NULL)",
+        name="ck_arena_custom_validator_active_complete",
+    ),
+    CheckConstraint(
+        "(candidate_language_id IS NULL AND candidate_source IS NULL AND candidate_token IS NULL "
+        "AND candidate_state IS NULL AND candidate_compile_log IS NULL AND candidate_validated_at IS NULL) OR "
+        "(candidate_language_id IS NOT NULL AND candidate_source IS NOT NULL "
+        "AND candidate_token IS NOT NULL AND ((candidate_state = 'PENDING' "
+        "AND candidate_compile_log IS NULL AND candidate_validated_at IS NULL) OR "
+        "(candidate_state = 'INVALID' AND candidate_compile_log IS NOT NULL "
+        "AND candidate_validated_at IS NOT NULL)))",
+        name="ck_arena_custom_validator_candidate_complete",
     ),
 )
 

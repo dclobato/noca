@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -20,7 +22,7 @@ from sqlalchemy import (
 )
 from sqlalchemy import Enum as SAEnum
 
-from shared.enumerations import JudgmentStatus, Verdict
+from shared.enumerations import CustomValidatorCrashReason, JudgmentStatus, Verdict
 
 from ._base import _created_at_column, _id_column, _updated_at_column, _utcnow, metadata
 
@@ -168,6 +170,50 @@ submission_test_results = Table(
     Column("stderr_excerpt", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), default=_utcnow, nullable=False),
     UniqueConstraint("judgment_id", "test_case_id", name="uq_submission_test_results_case"),
+)
+
+submission_interactive_attempts = Table(
+    "submission_interactive_attempts",
+    metadata,
+    _id_column(),
+    Column(
+        "judgment_id", String(36), ForeignKey("submission_judgments.id", ondelete="CASCADE"), nullable=False, index=True
+    ),
+    Column("attempt_number", Integer, nullable=False),
+    Column("contestant_exit_code", Integer, nullable=True),
+    Column("contestant_signal", Integer, nullable=True),
+    Column("validator_exit_code", Integer, nullable=True),
+    Column("validator_signal", Integer, nullable=True),
+    Column(
+        "transcript",
+        JSON,
+        nullable=True,
+        comment="Ordered protocol conversation: {'lines': [{'dir', 'line', 'partial'?}], 'truncated': bool}.",
+    ),
+    Column("contestant_stderr_excerpt", Text, nullable=False, server_default=""),
+    Column("validator_stderr_excerpt", Text, nullable=False, server_default=""),
+    Column("wall_time_ms", Integer, nullable=True),
+    Column("memory_kb", Integer, nullable=True),
+    Column("output_bytes", Integer, nullable=True),
+    Column("limit_outcome", String(16), nullable=True),
+    Column("validator_verdict", SAEnum(Verdict, values_callable=lambda e: [m.value for m in e]), nullable=True),
+    Column(
+        "crash_reason",
+        SAEnum(CustomValidatorCrashReason, values_callable=lambda e: [m.value for m in e]),
+        nullable=True,
+    ),
+    Column("created_at", DateTime(timezone=True), default=_utcnow, nullable=False),
+    UniqueConstraint("judgment_id", "attempt_number", name="uq_submission_interactive_attempt"),
+    CheckConstraint("attempt_number IN (1, 2)", name="ck_submission_interactive_attempt_number"),
+    CheckConstraint(
+        "NOT (validator_verdict IS NOT NULL AND crash_reason IS NOT NULL)",
+        name="ck_submission_interactive_outcome_exclusive",
+    ),
+    CheckConstraint("limit_outcome IS NULL OR limit_outcome IN ('MLE', 'OLE')", name="ck_submission_limit_outcome"),
+    CheckConstraint(
+        "validator_verdict IS NULL OR validator_verdict IN ('AC', 'WA', 'TLE', 'PE', 'RE')",
+        name="ck_submission_validator_verdict",
+    ),
 )
 
 submission_judgment_audit = Table(

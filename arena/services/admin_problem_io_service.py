@@ -30,7 +30,7 @@ import io
 import json
 import uuid
 import zipfile
-from base64 import b64decode, b64encode
+from base64 import b64decode
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,19 +39,22 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from arena.models.arena_problems import ArenaCategory, ArenaProblem, ArenaTestCase
+from arena.models.arena_problems import (
+    ArenaCategory,
+    ArenaProblem,
+    ArenaProblemCustomValidator,
+    ArenaTestCase,
+)
 from arena.services import admin_problem_service
 from arena.services.admin_category_service import normalize_slug
 from shared.problem_statement_markdown import validate_md_content
-from shared.services.imageprocessing_service import ImageProcessingError, ImageProcessingService
+from shared.services.custom_validator import parse_packaged_validator, stage_candidate
+from shared.services.imageprocessing_service import ImageProcessingService
+from shared.services.problem_image import export_image_filename, load_packaged_image
 from shared.services.testcase_files import get_testcase_path, save_testcase_files
 from shared.tc_zip import ParsedTestCases, normalize_testcase_bytes, parse_testcases_zip
 
-_MAX_IMAGE_SIZE = 2 * 1024 * 1024  # 2 MB — matches the manual problem-image upload limit
 _DEFAULT_OUTPUT_LIMIT_BYTES = 65536
-
-_MIME_TO_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
-_EXT_TO_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp"}
 
 
 def build_export_zip(problem: ArenaProblem, owner_name: str, testcase_dir: Path) -> bytes:
@@ -83,11 +86,10 @@ def build_export_zip(problem: ArenaProblem, owner_name: str, testcase_dir: Path)
                 archive.writestr(f"explanation/{test_case.ordinal:03d}.txt", test_case.explanation)
 
         if problem.problem_image_base64:
-            ext = _MIME_TO_EXT.get(problem.problem_image_mime or "", "png")
-            image_filename = f"image.{ext}"
+            image_filename = export_image_filename(problem.problem_image_mime)
             archive.writestr(image_filename, b64decode(problem.problem_image_base64))
 
-        problem_json = {
+        problem_json: dict[str, Any] = {
             "title": problem.title,
             "author": owner_name if problem.author_is_owner else problem.author,
             "source": problem.source,
@@ -102,6 +104,25 @@ def build_export_zip(problem: ArenaProblem, owner_name: str, testcase_dir: Path)
             "notes": problem.notes,
             "license": problem.license,
         }
+        validator = problem.custom_validator
+        validator_source = None
+        validator_language_id = None
+        if validator is not None:
+            # Prefer the validated active revision; fall back to a staged
+            # candidate only when no active revision exists yet.
+            if validator.active_source is not None:
+                validator_source = validator.active_source
+                validator_language_id = validator.active_language_id
+            else:
+                validator_source = validator.candidate_source
+                validator_language_id = validator.candidate_language_id
+        if validator_source is not None and validator_language_id is not None:
+            problem_json["custom_validator"] = {
+                "language_id": validator_language_id,
+                "source_file": "validator/source.txt",
+            }
+            problem_json["test_case_visibility"] = "sample"
+            archive.writestr("validator/source.txt", validator_source.encode("utf-8"))
         archive.writestr("problem.json", json.dumps(problem_json, indent=2))
 
     return buffer.getvalue()
@@ -146,7 +167,14 @@ async def import_problem_from_zip(
     # parse_testcases_zip owns its own archive handling, pairing checks, and
     # contiguous ordinal remap, so it re-opens the raw bytes independently.
     parsed = parse_testcases_zip(zip_bytes)
-    image_b64, image_mime = _load_image(meta, archive, names, image_service)
+    packaged_validator = parse_packaged_validator(
+        meta.get("custom_validator"),
+        read_file=archive.read,
+        archive_names=set(names),
+    )
+    if packaged_validator is not None and meta.get("test_case_visibility") != "sample":
+        raise ValueError("Validator packages must declare test_case_visibility: 'sample'.")
+    image_b64, image_mime = load_packaged_image(meta, archive, names, image_service)
     category_ids = await _resolve_category_ids(session, meta.get("categories"))
 
     imported_author = _optional_string(meta, "author")
@@ -171,7 +199,21 @@ async def import_problem_from_zip(
         category_ids=category_ids,
     )
 
-    write_tc_files = _insert_secret_test_cases(session, problem.id, parsed, testcase_dir)
+    write_tc_files = _insert_test_cases(
+        session,
+        problem.id,
+        parsed,
+        testcase_dir,
+        is_sample=packaged_validator is not None,
+    )
+    if packaged_validator is not None:
+        validator = ArenaProblemCustomValidator(problem_id=problem.id)
+        stage_candidate(
+            validator,
+            language_id=packaged_validator.language_id,
+            source=packaged_validator.source,
+        )
+        session.add(validator)
     await session.commit()
     write_tc_files()
     return problem
@@ -224,52 +266,6 @@ def _int_field(meta: dict[str, Any], key: str, *, default: int | None = None) ->
         raise ValueError(f"problem.json: '{key}' must be an integer.") from exc
 
 
-def _find_image_file(names: list[str]) -> str | None:
-    """Return the first root-level image file in the archive, if any."""
-    for name in names:
-        if "/" in name:
-            continue
-        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
-        if ext in _EXT_TO_MIME:
-            return name
-    return None
-
-
-def _load_image(
-    meta: dict[str, Any],
-    archive: zipfile.ZipFile,
-    names: list[str],
-    image_service: ImageProcessingService,
-) -> tuple[str | None, str | None]:
-    """Validate and return the packaged image as ``(base64, mime)`` or ``(None, None)``.
-
-    When ``problem.json`` explicitly references an image filename, that file must
-    exist in the archive — a missing referenced image rejects the package rather
-    than silently dropping the image. Only when no image is referenced does the
-    loader fall back to auto-detecting a root-level image file.
-    """
-    referenced = meta.get("image")
-    filename: str | None
-    if isinstance(referenced, str) and referenced.strip():
-        filename = referenced.strip()
-        if filename not in names:
-            raise ValueError(f"problem.json references image '{filename}' which is not present in the ZIP.")
-    else:
-        filename = _find_image_file(names)
-    if not filename:
-        return None, None
-
-    image_bytes = archive.read(filename)
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "png"
-    mime = _EXT_TO_MIME.get(ext, "image/png")
-    data_uri = f"data:{mime};base64,{b64encode(image_bytes).decode('ascii')}"
-    try:
-        result = image_service.process_base64(data_uri, max_file_size=_MAX_IMAGE_SIZE)
-    except (ImageProcessingError, ValueError) as exc:
-        raise ValueError(f"Invalid problem image: {exc}") from exc
-    return result.imagem_base64, result.mime_type
-
-
 async def _resolve_category_ids(session: AsyncSession, raw_categories: Any) -> list[str]:
     """Resolve category names to existing category IDs, dropping unknown ones."""
     if not isinstance(raw_categories, list):
@@ -307,13 +303,15 @@ def _decode_test_case(data: bytes, *, ordinal: int, stream: str) -> str:
         ) from exc
 
 
-def _insert_secret_test_cases(
+def _insert_test_cases(
     session: AsyncSession,
     problem_id: str,
     parsed: ParsedTestCases,
     testcase_dir: Path,
+    *,
+    is_sample: bool,
 ) -> Callable[[], None]:
-    """Bulk-add all parsed test cases as secret (``is_sample=False``).
+    """Bulk-add parsed test cases using the package's enforced visibility.
 
     Sizes are computed from in-memory normalization; no files are written here.
     Returns a zero-arg callable that the caller must invoke **after** committing
@@ -333,7 +331,7 @@ def _insert_secret_test_cases(
                 id=str(uuid.uuid4()),
                 problem_id=problem_id,
                 ordinal=ordinal,
-                is_sample=False,
+                is_sample=is_sample,
                 input_size_bytes=len(in_norm),
                 output_size_bytes=len(out_norm),
                 explanation=parsed.explanations.get(ordinal),

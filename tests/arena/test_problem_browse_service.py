@@ -18,11 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import arena.models.arena_problems  # noqa: F401
 import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
-from arena.models.arena_problems import ArenaProblem
+from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.services.problem_browse_service import list_enabled_problems_paginated
 from shared.db_schema.arena import arena_problem_ratings, arena_problem_solvers
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, CustomValidatorActiveState
+from web.models.language import Language
 
 _TEMPLATE = Path(__file__).resolve().parents[2] / "arena" / "template" / "problems" / "problem_list.html"
 
@@ -38,6 +39,26 @@ async def _make_user(session: AsyncSession, *, role: ArenaRole) -> ArenaUser:
     session.add(user)
     await session.flush()
     return user
+
+
+async def _make_language(session: AsyncSession) -> Language:
+    language = Language(
+        id=f"browse-test-{uuid.uuid4().hex[:8]}",
+        name="Browse Test Language",
+        icon="test",
+        compile_image="noca/test:compile",
+        run_image="noca/test:run",
+        compile_cmd=["true"],
+        run_cmd=["true"],
+        source_filename="main.txt",
+        artifact_path="/sandbox/main.txt",
+        artifact_is_source=True,
+        compile_timeout_s=10.0,
+        active=True,
+    )
+    session.add(language)
+    await session.flush()
+    return language
 
 
 async def _make_problem(
@@ -203,6 +224,32 @@ async def test_public_problem_list_sorts_by_user_solvers_ascending_with_number_t
     assert [item.solved for item in pagination.items] == [None, None, 1]
 
 
+@pytest.mark.asyncio
+async def test_public_problem_list_marks_custom_validator_problems(
+    session: AsyncSession,
+) -> None:
+    owner = await _make_user(session, role=ArenaRole.ARENA_JUDGE)
+    language = await _make_language(session)
+    plain_problem = await _make_problem(session, owner, arena_number=501, title="Plain")
+    validator_problem = await _make_problem(session, owner, arena_number=502, title="Interactive")
+    session.add(
+        ArenaProblemCustomValidator(
+            problem_id=validator_problem.id,
+            active_language_id=language.id,
+            active_source="print('validator')\n",
+            active_state=CustomValidatorActiveState.VALID,
+            active_validated_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
+
+    pagination = await list_enabled_problems_paginated(session, page=1)
+
+    flags_by_problem = {item.problem.id: item.has_custom_validator for item in pagination.items}
+    assert flags_by_problem[plain_problem.id] is False
+    assert flags_by_problem[validator_problem.id] is True
+
+
 def test_problem_list_uses_distinct_aggregate_and_personal_solved_labels() -> None:
     """Problem list headers must distinguish aggregate solvers from personal solved status."""
     template = _TEMPLATE.read_text(encoding="utf-8")
@@ -212,3 +259,12 @@ def test_problem_list_uses_distinct_aggregate_and_personal_solved_labels() -> No
     assert "solvers_desc" in template
     assert "Solved?" in template
     assert '<th class="column-width-tiny">Solved</th>' not in template
+
+
+def test_problem_list_template_includes_custom_validator_legend_and_marker() -> None:
+    template = _TEMPLATE.read_text(encoding="utf-8")
+
+    assert "Problems marked with" in template
+    assert "use a custom validator" in template
+    assert "published_with_changes" in template
+    assert "item.has_custom_validator" in template

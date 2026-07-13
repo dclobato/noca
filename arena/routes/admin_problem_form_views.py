@@ -29,9 +29,8 @@ from arena.services import admin_problem_service, admin_problem_tc_service
 from arena.services.admin_problem_tc_service import TestCaseView
 from shared.enumerations import ArenaRole
 from shared.services.imageprocessing_service import ImageProcessingService
+from shared.services.problem_image import process_problem_image_upload
 from shared.services.testcase_view import TestCaseRowView
-
-MAX_IMAGE_SIZE = 2 * 1024 * 1024  # 2 MB — limit for problem illustration images
 
 ALLOWED_PER_PAGE = [10, 25, 50, 100, 500]
 DEFAULT_PER_PAGE = 25
@@ -157,8 +156,7 @@ def selected_cats_data(all_categories: list[Any], category_ids: list[str]) -> li
 async def process_problem_image(request: Request, image: UploadFile) -> tuple[str, str]:
     """Process an uploaded problem illustration into a ``(base64, mime)`` pair."""
     image_service: ImageProcessingService = request.app.state.image_service
-    result = await image_service.process_upload_image(image, max_file_size=MAX_IMAGE_SIZE)
-    return result.imagem_base64, result.mime_type
+    return await process_problem_image_upload(image_service, image)
 
 
 def form_fields(
@@ -231,6 +229,8 @@ def render_problem_form(
     next_url: str | None = None,
     problem_owner: ArenaUser | None = None,
     has_submissions: bool = False,
+    validator_status: Any = None,
+    validator_languages: list[Any] | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
     """Render ``problem_form.html`` with the shared create/edit context.
@@ -256,6 +256,8 @@ def render_problem_form(
         "current_user": current_user,
         "is_admin": is_admin(current_user),
         "has_submissions": has_submissions,
+        "validator_status": validator_status,
+        "validator_languages": validator_languages or [],
     }
     if mode == "edit" and problem is not None:
         context["next_url"] = next_url or ""

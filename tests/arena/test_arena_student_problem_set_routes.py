@@ -37,6 +37,7 @@ from arena.models.arena_classes import ArenaClass, ArenaClassMembership
 from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_submissions import ArenaSubmission, ArenaSubmissionJudgment
 from arena.models.arena_users import ArenaUser
+from arena.routes.legal import router as arena_legal_router
 from arena.routes.student_problem_sets import router as arena_student_problem_sets_router
 from arena.services import arena_problem_set_service as svc
 from arena.services.token_service import ArenaTokenAction
@@ -184,6 +185,7 @@ def _build_app(session: AsyncSession) -> FastAPI:
         return Response(f"class {class_id}")
 
     app.include_router(arena_student_problem_sets_router)
+    app.include_router(arena_legal_router)
     return app
 
 

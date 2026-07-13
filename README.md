@@ -166,6 +166,9 @@ Its main features include:
 - AutoJudge-only submissions using every active language in the shared NOCA
   language registry.
 - Public problem browsing, samples, statistics, and rating history.
+- Interactive problems with custom validators. Arena marks these problems in
+  the list and detail pages, validates uploaded validator source before
+  publishing, and blocks submissions while a configured validator is not usable.
 - User profiles with solved and attempted problems, submission statistics,
   rating history, affiliation, and optional public visibility.
 - Leaderboards and live submission activity.
@@ -178,7 +181,9 @@ Its main features include:
 
 See the [Arena overview](arena/docs/ARENA.md),
 [Arena routes](arena/docs/ROUTES.md), and
-[Arena services](arena/docs/SERVICES.md) for implementation details.
+[Arena services](arena/docs/SERVICES.md) for implementation details. See
+[custom interactive validators](docs/CUSTOM_VALIDATOR.md) for validator
+authoring, packaging, judging, and diagnostics.
 
 ### Rating
 

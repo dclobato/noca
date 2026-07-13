@@ -206,12 +206,8 @@
     background: var(--bs-tertiary-bg);
 }
 
-/* ── Problem image preview (admin form) ──────────────────────────────────── */
-
-.arena-problem-image-preview {
-    display: block;
-    max-height: 120px;
-}
+/* Problem image preview (admin form) lives in shared/static/css/common.css
+   as .noca-problem-image-preview, shared with the Contest module. */
 
 /* ── Help version label ──────────────────────────────────────────────────── */
 

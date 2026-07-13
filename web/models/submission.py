@@ -7,18 +7,19 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import event, inspect
 from sqlalchemy.orm import Mapped, Session, relationship
 
 from shared.db_schema import human_submission_confirmations as human_submission_confirmations_table
+from shared.db_schema import submission_interactive_attempts as submission_interactive_attempts_table
 from shared.db_schema import submission_judgment_audit as submission_judgment_audit_table
 from shared.db_schema import submission_judgments as submission_judgments_table
 from shared.db_schema import submission_test_results as submission_test_results_table
 from shared.db_schema import submissions as submissions_table
 from shared.db_schema import verdict_overrides as verdict_overrides_table
-from shared.enumerations import JudgmentStatus, RoleEnum, Verdict
+from shared.enumerations import CustomValidatorCrashReason, JudgmentStatus, RoleEnum, Verdict
 from shared.timing import compute_timestamp_seconds
 from web.database import Base
 
@@ -80,6 +81,12 @@ class SubmissionJudgment(Base):
         "SubmissionTestResult",
         back_populates="judgment",
     )
+    interactive_attempts: Mapped[list[SubmissionInteractiveAttempt]] = relationship(
+        "SubmissionInteractiveAttempt",
+        back_populates="judgment",
+        cascade="all, delete-orphan",
+        order_by="SubmissionInteractiveAttempt.attempt_number",
+    )
     confirmations: Mapped[list[HumanSubmissionConfirmation]] = relationship(
         "HumanSubmissionConfirmation",
         foreign_keys="HumanSubmissionConfirmation.judgment_id",
@@ -139,6 +146,35 @@ class SubmissionTestResult(Base):
         back_populates="test_results",
     )
     test_case: Mapped[ProblemTestCase] = relationship("ProblemTestCase")
+
+
+class SubmissionInteractiveAttempt(Base):
+    """Bounded diagnostics for one Contest interactive attempt."""
+
+    __table__ = submission_interactive_attempts_table
+
+    id: Mapped[str]
+    judgment_id: Mapped[str]
+    attempt_number: Mapped[int]
+    contestant_exit_code: Mapped[int | None]
+    contestant_signal: Mapped[int | None]
+    validator_exit_code: Mapped[int | None]
+    validator_signal: Mapped[int | None]
+    transcript: Mapped[dict[str, Any] | None]
+    contestant_stderr_excerpt: Mapped[str]
+    validator_stderr_excerpt: Mapped[str]
+    wall_time_ms: Mapped[int | None]
+    memory_kb: Mapped[int | None]
+    output_bytes: Mapped[int | None]
+    limit_outcome: Mapped[str | None]
+    validator_verdict: Mapped[Verdict | None]
+    crash_reason: Mapped[CustomValidatorCrashReason | None]
+    created_at: Mapped[datetime]
+
+    judgment: Mapped[SubmissionJudgment] = relationship(
+        "SubmissionJudgment",
+        back_populates="interactive_attempts",
+    )
 
 
 class SubmissionJudgmentAudit(Base):

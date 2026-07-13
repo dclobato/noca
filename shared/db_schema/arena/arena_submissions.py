@@ -19,7 +19,9 @@ Tables defined here:
 from __future__ import annotations
 
 from sqlalchemy import (
+    JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -31,6 +33,9 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy import Enum as SAEnum
+
+from shared.enumerations import CustomValidatorCrashReason, Verdict
 
 from .._base import _created_at_column, _id_column, _updated_at_column, metadata
 
@@ -243,6 +248,54 @@ arena_submission_test_results = Table(
         "judgment_id",
         name="uq_arena_submission_test_results_judgment",
         comment="Enforces at most one result row per judgment (first non-AC case only).",
+    ),
+)
+
+arena_submission_interactive_attempts = Table(
+    "arena_submission_interactive_attempts",
+    metadata,
+    _id_column(),
+    Column(
+        "judgment_id",
+        String(36),
+        ForeignKey("arena_submission_judgments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    ),
+    Column("attempt_number", Integer, nullable=False),
+    Column("contestant_exit_code", Integer, nullable=True),
+    Column("contestant_signal", Integer, nullable=True),
+    Column("validator_exit_code", Integer, nullable=True),
+    Column("validator_signal", Integer, nullable=True),
+    Column(
+        "transcript",
+        JSON,
+        nullable=True,
+        comment="Ordered protocol conversation: {'lines': [{'dir', 'line', 'partial'?}], 'truncated': bool}.",
+    ),
+    Column("contestant_stderr_excerpt", Text, nullable=False, server_default=""),
+    Column("validator_stderr_excerpt", Text, nullable=False, server_default=""),
+    Column("wall_time_ms", Integer, nullable=True),
+    Column("memory_kb", Integer, nullable=True),
+    Column("output_bytes", Integer, nullable=True),
+    Column("limit_outcome", String(16), nullable=True),
+    Column("validator_verdict", SAEnum(Verdict, values_callable=lambda e: [m.value for m in e]), nullable=True),
+    Column(
+        "crash_reason",
+        SAEnum(CustomValidatorCrashReason, values_callable=lambda e: [m.value for m in e]),
+        nullable=True,
+    ),
+    _created_at_column(),
+    UniqueConstraint("judgment_id", "attempt_number", name="uq_arena_submission_interactive_attempt"),
+    CheckConstraint("attempt_number IN (1, 2)", name="ck_arena_interactive_attempt_number"),
+    CheckConstraint(
+        "NOT (validator_verdict IS NOT NULL AND crash_reason IS NOT NULL)",
+        name="ck_arena_interactive_outcome_exclusive",
+    ),
+    CheckConstraint("limit_outcome IS NULL OR limit_outcome IN ('MLE', 'OLE')", name="ck_arena_limit_outcome"),
+    CheckConstraint(
+        "validator_verdict IS NULL OR validator_verdict IN ('AC', 'WA', 'TLE', 'PE', 'RE')",
+        name="ck_arena_validator_verdict",
     ),
 )
 

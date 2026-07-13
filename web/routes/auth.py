@@ -85,8 +85,8 @@ async def login_get(
 async def login_post(
     request: Request,
     flash: FlashDep,
-    identifier: str = Form(...),
-    password: str = Form(...),
+    identifier: str = Form(""),
+    password: str = Form(""),
     next_url: str = Form("/uberadmin"),
 ) -> HTMLResponse | RedirectResponse:
     auth_service = request.app.state.auth_service
@@ -202,8 +202,8 @@ async def contest_login_post(
     request: Request,
     slug: str,
     flash: FlashDep,
-    identifier: str = Form(...),
-    password: str = Form(...),
+    identifier: str = Form(""),
+    password: str = Form(""),
 ) -> HTMLResponse | RedirectResponse:
     auth_service = request.app.state.auth_service
     async with request.app.state.db_session() as session:

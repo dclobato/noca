@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import TypedDict
 
 from shared.enumerations import JudgmentStatus, ProfilingStatus, Verdict
+from shared.queue_schema import CustomValidatorValidationJob
 
 # ---------------------------------------------------------------------------
 # Runner types (compile and run phases)
@@ -87,6 +88,22 @@ class ProblemLimits:
     pids_limit: int
     output_limit_in_bytes: int | None = None
     repetitions: int = 1
+
+
+@dataclass(frozen=True)
+class ActiveCustomValidator:
+    """Active validator source loaded when a submission reaches dispatch."""
+
+    language_id: str
+    source_code: str
+
+
+@dataclass(frozen=True)
+class CustomValidatorDispatchState:
+    """Validator availability snapshot loaded at submission dispatch."""
+
+    configured: bool
+    active: ActiveCustomValidator | None
 
 
 @dataclass(frozen=True)
@@ -217,6 +234,14 @@ class RecoverableArenaSubmissionJob:
 
     status: JudgmentStatus
     payload: QueuedArenaSubmission
+
+
+@dataclass(frozen=True)
+class RecoverableCustomValidatorJob:
+    """Committed pending validator candidate that must exist in Valkey."""
+
+    status: str
+    payload: CustomValidatorValidationJob
 
 
 @dataclass(frozen=True)

@@ -55,6 +55,7 @@
                     <p>
                         Compile and run commands are shown exactly as they are executed inside the sandbox container.
                         Languages without a compilation step run the source file directly.
+                        For custom-validator problems, the stdout flush hint shows how to send each message immediately.
                     </p>
                     {% if languages %}
                         <div class="arena-help-lang-list mt-3">
@@ -84,6 +85,20 @@
                                         <span class="arena-help-lang-label">Run</span>
                                         <pre class="arena-help-cmd">{{ lang.run_cmd | fmt_shell_cmd }}</pre>
                                     </div>
+                                    {% if lang.stdout_flush_hint_parts %}
+                                        <div class="arena-help-lang-row">
+                                            <span class="arena-help-lang-label">Stdout flush</span>
+                                            <span class="arena-help-hint">
+                                                {% for part in lang.stdout_flush_hint_parts %}
+                                                    {% if part.is_code %}
+                                                        <pre class="arena-help-cmd">{{ part.text }}</pre>
+                                                    {% else %}
+                                                        <span>{{ part.text }}</span>
+                                                    {% endif %}
+                                                {% endfor %}
+                                            </span>
+                                        </div>
+                                    {% endif %}
                                 </div>
                             {% endfor %}
                         </div>
@@ -98,7 +113,10 @@
                      aria-labelledby="tab-verdicts-btn">
                     <p>
                         After your submission is judged, it receives one of the verdicts below.
-                        The judge runs your code against all test cases and reports the most severe outcome.
+                        On a regular problem, the judge runs your code against all test cases,
+                        compares your output with the expected output, and reports the most severe outcome.
+                        Interactive problems are judged differently — see
+                        <a href="#verdicts-custom-validators">Interactive problems</a> below.
                     </p>
                     <div class="table-responsive mt-3">
                         <table class="arena-table">
@@ -119,6 +137,37 @@
                                 {% endfor %}
                             </tbody>
                         </table>
+                    </div>
+                    <h2 class="h5 mt-4" id="verdicts-custom-validators">Interactive problems (custom validators)</h2>
+                    <p>
+                        Some problems have no fixed expected output. Instead of comparing your output
+                        against a stored answer file, the problem author supplies a program — the
+                        <em>custom validator</em> — and the judge runs it side by side with your solution:
+                        everything your program prints is read by the validator, and everything the
+                        validator prints is fed back to your program's input. The two exchange messages
+                        until the conversation ends. Problem statements of such problems describe the
+                        protocol you must follow; any test cases they show are illustrative samples only,
+                        and the judge does not use them.
+                    </p>
+                    <p>
+                        When the conversation ends, the validator decides the outcome of your attempt:
+                        whether your answers were correct, wrong, badly formatted, or whether you took
+                        too many queries or too much time for the budget the problem allows. The
+                        remaining verdicts still come from the judging environment itself, which enforces
+                        compilation, memory, output and process limits and detects a crashing program
+                        exactly as it does on regular problems. A crash on your side always wins over
+                        whatever the validator was about to report.
+                    </p>
+                    <div class="alert alert-warning d-flex align-items-start gap-2 mt-3"
+                         role="alert">
+                        {{ render_icon(icon="warning", classes="flex-shrink-0 mt-1") }}
+                        <div>
+                            Because your program and the validator take turns waiting for each other, you
+                            must <strong>flush your output after every message you send</strong> (for
+                            the exact syntax for your language, see the stdout flush detail in the
+                            Available languages tab).
+                            A buffered message that never reaches the validator deadlocks the attempt.
+                        </div>
                     </div>
                 </div>
             </div>

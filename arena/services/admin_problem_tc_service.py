@@ -33,7 +33,7 @@ from pathlib import Path
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from arena.models.arena_problems import ArenaProblem, ArenaTestCase
+from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator, ArenaTestCase
 from shared.services.testcase_files import (
     delete_all_testcase_files,
     delete_testcase_files,
@@ -174,6 +174,11 @@ async def create_testcase(
     Raises:
         ValueError: If either normalized side exceeds ``MAX_INLINE_TESTCASE_BYTES``.
     """
+    validator_configured = await session.scalar(
+        select(ArenaProblemCustomValidator.problem_id).where(ArenaProblemCustomValidator.problem_id == problem.id)
+    )
+    if validator_configured is not None and not is_sample:
+        raise ValueError("Custom-validator test cases must be public samples.")
     in_bytes = input_content.encode("utf-8")
     out_bytes = output_content.encode("utf-8")
     _check_inline_size(in_bytes, out_bytes)
@@ -222,6 +227,11 @@ async def update_testcase(
     Raises:
         ValueError: If either normalized side exceeds ``MAX_INLINE_TESTCASE_BYTES``.
     """
+    validator_configured = await session.scalar(
+        select(ArenaProblemCustomValidator.problem_id).where(ArenaProblemCustomValidator.problem_id == tc.problem_id)
+    )
+    if validator_configured is not None and not is_sample:
+        raise ValueError("Custom-validator test cases must be public samples.")
     in_bytes = input_content.encode("utf-8")
     out_bytes = output_content.encode("utf-8")
     _check_inline_size(in_bytes, out_bytes)
@@ -276,6 +286,11 @@ async def replace_single_testcase(
 
 async def toggle_sample(session: AsyncSession, tc: ArenaTestCase) -> ArenaTestCase:
     """Flip a test case's sample/secret flag without touching its content."""
+    validator_configured = await session.scalar(
+        select(ArenaProblemCustomValidator.problem_id).where(ArenaProblemCustomValidator.problem_id == tc.problem_id)
+    )
+    if validator_configured is not None and tc.is_sample:
+        raise ValueError("Custom-validator test cases cannot be made secret.")
     tc.is_sample = not tc.is_sample
     tc.updated_at = _now()
     return tc
@@ -380,6 +395,11 @@ async def replace_all_from_zip(
     """
     parsed = parse_testcases_zip(zip_bytes)
 
+    validator_configured = await session.scalar(
+        select(ArenaProblemCustomValidator.problem_id).where(ArenaProblemCustomValidator.problem_id == problem.id)
+    )
+    effective_is_sample = True if validator_configured is not None else default_is_sample
+
     await session.execute(delete(ArenaTestCase).where(ArenaTestCase.problem_id == problem.id))
     await session.flush()
 
@@ -393,7 +413,7 @@ async def replace_all_from_zip(
             id=str(uuid.uuid4()),
             problem_id=problem_id,
             ordinal=ordinal,
-            is_sample=default_is_sample,
+            is_sample=effective_is_sample,
             input_size_bytes=len(in_norm),
             output_size_bytes=len(out_norm),
             explanation=parsed.explanations.get(ordinal),

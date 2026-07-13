@@ -101,10 +101,5 @@ textarea.tc-content {
     top: 100%;
 }
 
-/* `.noca-tc-preview-cell` moved to shared/static/css/common.css */
-
-/* Test case pending removal */
-.tc-pending-removal {
-    opacity: 0.4;
-    text-decoration: line-through;
-}
+/* `.noca-tc-preview-cell` and `.tc-pending-removal` moved to
+   shared/static/css/common.css */

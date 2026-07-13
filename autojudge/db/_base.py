@@ -37,6 +37,11 @@ class _DatabaseBase:
     def __init__(self, conn: AsyncConnection) -> None:
         self._conn = conn
 
+    @property
+    def connection(self) -> AsyncConnection:
+        """Expose the underlying async connection for worker-side helpers."""
+        return self._conn
+
     async def _get_judgment_state(self, judgment_id: str) -> _JudgmentState:
         """
         Fetch a lightweight snapshot of a judgment's current state.

@@ -1,5 +1,38 @@
 # Changelog
 
+## [13.3.0] - 2026-07-13
+
+### Features
+
+- **validators**: Add custom interactive validators for Contest and Arena
+  problems: staged candidate revisions compiled and validated by the Autojudge,
+  interactive judging that pipes the contestant and the validator together, and
+  the exit-code-to-verdict mapping
+- **validators**: Support zero-test-case validator problems, render the
+  interactive attempt transcript, and polish the surrounding UI
+- **transcript**: Tell the two sides of an interactive attempt apart in the
+  rendered transcript
+- **arena**: Show custom validator markers on problem listings
+- **arena**: Document per-language stdout flushing on the languages help page
+- **problems**: Add illustration images to Contest problems
+- **import**: Share the package-format documentation and offer a sample package
+
+### Bug Fixes
+
+- **arena**: Add the privacy link to the footer and resolve both legal links by
+  route name
+- **web**: Handle empty login form credentials
+
+### Refactoring
+
+- **arena**: Rebuild the problem editor around six cards and a single Save
+
+### Documentation
+
+- **arena**: Explain interactive problems and custom validators in the judgment
+  verdicts help tab
+- **web**: Document problem image exports
+
 ## [13.2.1] - 2026-07-10
 
 ### Features

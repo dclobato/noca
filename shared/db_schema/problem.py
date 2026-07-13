@@ -21,7 +21,12 @@ from sqlalchemy import (
 )
 from sqlalchemy import Enum as SAEnum
 
-from shared.enumerations import ProfilingStatus, Verdict
+from shared.enumerations import (
+    CustomValidatorActiveState,
+    CustomValidatorCandidateState,
+    ProfilingStatus,
+    Verdict,
+)
 
 from ._base import _created_at_column, _id_column, _updated_at_column, metadata
 
@@ -61,6 +66,21 @@ problems = Table(
     Column("author", String(256), nullable=True),
     Column("notes", String(512), nullable=True),
     Column("color", String(7), nullable=False, comment="Balloon color, e.g. '#ff0000'"),
+    Column("problem_image_base64", Text, nullable=True, comment="BASE-64 encoded image for the statement."),
+    Column(
+        "problem_image_mime",
+        String(129),
+        nullable=True,
+        default=None,
+        comment="MIME type of the problem statement image, used to serve the image correctly.",
+    ),
+    Column(
+        "problem_image_caption",
+        String(512),
+        nullable=True,
+        default=None,
+        comment="Optional caption displayed below the problem image.",
+    ),
     Column(
         "ordinal",
         Integer,
@@ -72,6 +92,49 @@ problems = Table(
     _updated_at_column(),
     UniqueConstraint("contest_id", "ordinal", name="uq_problems_contest_ordinal"),
     CheckConstraint("ordinal >= 1", name="ck_problems_ordinal_positive"),
+)
+
+problem_custom_validators = Table(
+    "problem_custom_validators",
+    metadata,
+    Column("problem_id", String(36), ForeignKey("problems.id", ondelete="CASCADE"), primary_key=True),
+    Column("active_language_id", String(64), ForeignKey("languages.id", ondelete="RESTRICT"), nullable=True),
+    Column("active_source", Text, nullable=True),
+    Column(
+        "active_state",
+        SAEnum(CustomValidatorActiveState, values_callable=lambda e: [m.value for m in e]),
+        nullable=True,
+    ),
+    Column("active_validated_at", DateTime(timezone=True), nullable=True),
+    Column("candidate_language_id", String(64), ForeignKey("languages.id", ondelete="RESTRICT"), nullable=True),
+    Column("candidate_source", Text, nullable=True),
+    Column("candidate_token", String(36), nullable=True, unique=True),
+    Column(
+        "candidate_state",
+        SAEnum(CustomValidatorCandidateState, values_callable=lambda e: [m.value for m in e]),
+        nullable=True,
+    ),
+    Column("candidate_compile_log", Text, nullable=True),
+    Column("candidate_validated_at", DateTime(timezone=True), nullable=True),
+    _created_at_column(),
+    _updated_at_column(),
+    CheckConstraint(
+        "(active_language_id IS NULL AND active_source IS NULL AND active_state IS NULL "
+        "AND active_validated_at IS NULL) OR "
+        "(active_language_id IS NOT NULL AND active_source IS NOT NULL AND active_state IS NOT NULL "
+        "AND active_validated_at IS NOT NULL)",
+        name="ck_problem_custom_validator_active_complete",
+    ),
+    CheckConstraint(
+        "(candidate_language_id IS NULL AND candidate_source IS NULL AND candidate_token IS NULL "
+        "AND candidate_state IS NULL AND candidate_compile_log IS NULL AND candidate_validated_at IS NULL) OR "
+        "(candidate_language_id IS NOT NULL AND candidate_source IS NOT NULL "
+        "AND candidate_token IS NOT NULL AND ((candidate_state = 'PENDING' "
+        "AND candidate_compile_log IS NULL AND candidate_validated_at IS NULL) OR "
+        "(candidate_state = 'INVALID' AND candidate_compile_log IS NOT NULL "
+        "AND candidate_validated_at IS NOT NULL)))",
+        name="ck_problem_custom_validator_candidate_complete",
+    ),
 )
 
 test_cases = Table(

@@ -193,6 +193,13 @@ class Settings(NocaSettings):
         ),
     )
 
+    CUSTOM_VALIDATOR_WATCHDOG_SECONDS: int = Field(
+        default=300,
+        ge=1,
+        le=3600,
+        description="Emergency wall-clock watchdog for a complete interactive validation attempt.",
+    )
+
     WORKER_ID: str = Field(
         default="",
         description=(

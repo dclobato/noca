@@ -80,6 +80,12 @@ languages = Table(
         nullable=True,
         comment="version of compiler/interpreter used, e.g. 'gcc version 12.2.0 (Debian 12.2.0-14+deb12u1)'",
     ),
+    Column(
+        "stdout_flush_hint",
+        String(255),
+        nullable=True,
+        comment="Language-specific hint for flushing standard output in interactive-validator problems.",
+    ),
     Column("active", Boolean, nullable=False, default=True),
     _created_at_column(),
     _updated_at_column(),

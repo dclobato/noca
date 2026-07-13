@@ -8,6 +8,7 @@ Related references:
 - [ARCHITECTURE_RUNTIME.md](ARCHITECTURE_RUNTIME.md) for detailed runtime architecture and operational constraints
 - [autojudge/docs/AUTOJUDGE_INFRA.md](../autojudge/docs/AUTOJUDGE_INFRA.md) for worker isolation, queue protocol, and container execution details
 - [DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md](DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md) for the submission lifecycle
+- [CUSTOM_VALIDATOR.md](CUSTOM_VALIDATOR.md) for interactive custom validators: authoring, exit codes, and which limits apply
 - [FASTAPI_FLASH.md](FASTAPI_FLASH.md) for the flash-message pattern used in the web and arena modules
 - [web/docs/ROUTES.md](../web/docs/ROUTES.md) and [web/docs/SERVICES.md](../web/docs/SERVICES.md) for web-layer responsibilities
 - [SHARED_SERVICES.md](SHARED_SERVICES.md) for cross-module shared services (email, network, image, Valkey, locks)
@@ -310,6 +311,31 @@ The shared module defines cross-runtime contracts: SQLAlchemy Core schema, enums
 queue payloads, language registry helpers, logging, Valkey services, locks,
 scoreboard cache support, email delivery, safe outbound network helpers, image
 processing, and other services reused by more than one runtime module.
+
+## Custom interactive validators
+
+Contest and Arena problems can stage a UTF-8 custom validator revision. The
+application commits the candidate before placing a compile-validation job on
+the profiling-priority Autojudge queue. A candidate token makes delayed results
+safe: the worker updates or promotes a revision only while its token still
+matches.
+
+A successful candidate becomes the active `VALID` revision. A failed
+replacement retains bounded compiler diagnostics and leaves an older active
+revision available. Validator packages expose every test case as a public
+sample because interactive judgments do not read package test-case input or
+expected-output files; such a problem may legitimately have no test cases at all.
+
+See [CUSTOM_VALIDATOR.md](CUSTOM_VALIDATOR.md) for the authoring workflow, the
+exit-code-to-verdict mapping, and which problem limits are enforced by the judge
+versus by the validator.
+
+Each interactive attempt is recorded in `submission_interactive_attempts` /
+`arena_submission_interactive_attempts`, whose `transcript` JSON column holds the
+ordered, line-split conversation between the contestant and the validator (the
+judge relays every byte, so it observes protocol order). Both frontends render it
+from one shared partial, so the presentation can change without touching the
+judge.
 
 ## 6. Summary
 

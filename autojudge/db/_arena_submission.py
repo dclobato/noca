@@ -22,9 +22,11 @@ from autojudge.types import (
     QueuedArenaSubmission,
     RecoverableArenaSubmissionJob,
 )
+from shared.db_schema.arena import arena_problem_custom_validators as _arena_problem_custom_validator
 from shared.db_schema.arena import arena_problem_ratings as _arena_problem_rating
 from shared.db_schema.arena import arena_problem_solvers as _arena_problem_solver
 from shared.db_schema.arena import arena_problems as _arena_problem
+from shared.db_schema.arena import arena_submission_interactive_attempts as _arena_submission_interactive_attempt
 from shared.db_schema.arena import arena_submission_judgments as _arena_submission_judgment
 from shared.db_schema.arena import arena_submission_test_results as _arena_submission_test_result
 from shared.db_schema.arena import arena_submissions as _arena_submission
@@ -76,8 +78,18 @@ class _ArenaSubmissionMixin(_DatabaseBase):
         if status in {JudgmentStatus.DONE.value, JudgmentStatus.FAILED.value, JudgmentStatus.SUPERSEDED.value}:
             raise LookupError(f"Arena judgment '{judgment_id}' is not judgeable (status={status})")
 
-        test_cases = await self._get_arena_test_cases(cast(str, result["problem_id"]))
-        if not test_cases:
+        problem_id = cast(str, result["problem_id"])
+        validator_configured = await self._conn.scalar(
+            select(_arena_problem_custom_validator.c.problem_id).where(
+                _arena_problem_custom_validator.c.problem_id == problem_id,
+                (
+                    _arena_problem_custom_validator.c.active_source.is_not(None)
+                    | _arena_problem_custom_validator.c.candidate_source.is_not(None)
+                ),
+            )
+        )
+        test_cases = [] if validator_configured is not None else await self._get_arena_test_cases(problem_id)
+        if validator_configured is None and not test_cases:
             raise LookupError(f"Arena problem '{result['problem_id']}' has no test cases")
 
         return QueuedArenaSubmission(
@@ -127,6 +139,11 @@ class _ArenaSubmissionMixin(_DatabaseBase):
         await self._conn.execute(
             delete(_arena_submission_test_result).where(
                 _arena_submission_test_result.c.judgment_id == judgment_id,
+            )
+        )
+        await self._conn.execute(
+            delete(_arena_submission_interactive_attempt).where(
+                _arena_submission_interactive_attempt.c.judgment_id == judgment_id,
             )
         )
         await self._conn.execute(

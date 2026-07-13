@@ -138,6 +138,36 @@ async def test_retry_exhaustion_marks_dropped(valkey_client):
     assert lock_exists == 0
 
 
+async def test_exhausted_custom_validator_job_keeps_hash_for_reconciliation(valkey_client):
+    """Validator validation drops keep token metadata so PG can be marked invalid."""
+    jid = "validator-token-1"
+    job_key = f"{JOB_HASH_PREFIX}:{jid}"
+
+    old_ts = time.time() - 600
+    await valkey_client.zadd(INFLIGHT_TIMES_KEY, {jid: old_ts})
+    await valkey_client.rpush(INFLIGHT_KEY, jid)
+    await valkey_client.hset(
+        job_key,
+        mapping={
+            "validation_id": jid,
+            "domain": "contest",
+            "problem_id": "problem-1",
+            "candidate_token": jid,
+            "requeue_count": "3",
+            "job_kind": "custom_validator_validation",
+        },
+    )
+
+    requeued, dropped, already_done = await _reaper_cycle(valkey_client)
+
+    assert requeued == 0
+    assert dropped == 1
+    assert already_done == 0
+    assert jid not in await valkey_client.lrange(PENDING_KEY, 0, -1)
+    assert jid not in await valkey_client.lrange(INFLIGHT_KEY, 0, -1)
+    assert await valkey_client.hget(job_key, "reaper_dropped") in (b"true", "true")
+
+
 # ---------------------------------------------------------------------------
 # Tests — reaper_loop
 # ---------------------------------------------------------------------------

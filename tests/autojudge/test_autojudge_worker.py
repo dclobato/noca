@@ -25,9 +25,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from autojudge.db import RecoverableProfilingJob, RecoverableSubmissionJob, open_db
 from autojudge.runner import CompileResult, IsolateError, RunResult
-from autojudge.types import ArenaQueuedTestCase, QueuedArenaSubmission, RepetitionCaseResult
-from shared.enumerations import JudgmentStatus, ProfilingStatus, Verdict
+from autojudge.types import (
+    ArenaQueuedTestCase,
+    QueuedArenaSubmission,
+    RecoverableCustomValidatorJob,
+    RepetitionCaseResult,
+)
+from shared.enumerations import CustomValidatorCandidateState, JudgmentStatus, ProfilingStatus, Verdict
 from shared.language_registry import default_language_registry
+from shared.queue_schema import CustomValidatorValidationJob
 from shared.services.valkey_service.worker_commands import LivePauseFlag
 from shared.services.worker_pause_state import bump_worker_pause_state
 from web.models.contest import Contest
@@ -979,6 +985,83 @@ async def test_startup_reconciliation_requeues_orphaned_jobs():
     assert fake_valkey.data["judge:job:judgment-orphan"]["requeue_count"] == "2"
     assert fake_valkey.data["judge:job:judgment-healthy"]["judgment_id"] == "judgment-healthy"
     assert fake_valkey.data["judge:job:profiling-orphan"]["contest_id"] == "contest-1"
+
+
+async def test_startup_reconciliation_rejects_exhausted_validator_candidate():
+    """A reaper-dropped validation job becomes INVALID instead of requeued forever."""
+    from autojudge.worker import _reconcile_queue_state
+
+    fake_valkey = _FakeValkey()
+    fake_valkey.data["judge:queue:profiling"] = []
+    fake_valkey.data["judge:queue:inflight"] = []
+    fake_valkey.data["judge:queue:inflight:times"] = {}
+    fake_valkey.data["judge:job:validator-token"] = {
+        "validation_id": "validator-token",
+        "domain": "contest",
+        "problem_id": "problem-1",
+        "candidate_token": "validator-token",
+        "requeue_count": "3",
+        "job_kind": "custom_validator_validation",
+        "reaper_dropped": "true",
+    }
+
+    class _FakeDb:
+        rejected: list[dict[str, str]]
+
+        def __init__(self) -> None:
+            self.rejected = []
+
+        async def list_recoverable_submission_jobs(self):
+            return []
+
+        async def list_recoverable_profiling_jobs(self):
+            return []
+
+        async def list_recoverable_arena_submission_jobs(self):
+            return []
+
+        async def list_recoverable_custom_validator_jobs(self):
+            return [
+                RecoverableCustomValidatorJob(
+                    status=CustomValidatorCandidateState.PENDING.value,
+                    payload=CustomValidatorValidationJob(
+                        validation_id="validator-token",
+                        domain="contest",
+                        problem_id="problem-1",
+                        candidate_token="validator-token",
+                    ),
+                )
+            ]
+
+        async def reject_exhausted_custom_validator_validation(
+            self,
+            *,
+            domain: str,
+            problem_id: str,
+            candidate_token: str,
+        ) -> bool:
+            self.rejected.append(
+                {
+                    "domain": domain,
+                    "problem_id": problem_id,
+                    "candidate_token": candidate_token,
+                }
+            )
+            return True
+
+    db = _FakeDb()
+
+    await _reconcile_queue_state(db, fake_valkey)  # type: ignore[arg-type]
+
+    assert db.rejected == [
+        {
+            "domain": "contest",
+            "problem_id": "problem-1",
+            "candidate_token": "validator-token",
+        }
+    ]
+    assert "judge:job:validator-token" not in fake_valkey.data
+    assert fake_valkey.data.get("judge:queue:profiling", []) == []
 
 
 async def test_reconcile_loop_runs_periodically_and_stops_on_shutdown(monkeypatch):

@@ -495,7 +495,7 @@ scoped to `caller_id`; judges may only see and mutate their own problems.
 
 | Symbol / Function | Description |
 |---|---|
-| `ProblemListItem` | Dataclass containing one `ArenaProblem` plus public/private test-case counts, rating, and loaded categories for list rendering. |
+| `ProblemListItem` | Dataclass containing one `ArenaProblem` plus public/private test-case counts, rating, loaded categories, and `has_custom_validator` for list rendering. |
 | `list_problems_paginated(session, *, page, per_page, search, category_ids, category_slugs, owner_id, sort_by, caller_id, is_admin)` | Paginated problem list with search over public number/title/statement/source, optional admin-only owner filter, AND category filter by ID or slug, and selectable sorting. |
 | `get_problem(session, problem_id, *, caller_id, is_admin)` | Fetch one problem with categories and test cases, applying owner scoping for non-admin editors. |
 | `create_problem(session, *, caller_id, author, author_is_owner, license, ...)` | Validate and create a disabled problem owned by `caller_id`. Stores either a free-text author of at most 80 characters or owner-backed authorship, an optional license of at most 256 characters, and category links. |
@@ -538,6 +538,35 @@ take a `testcase_dir` (the Arena root, `settings.PROBLEM_TESTCASE_DIR`).
 | `delete_testcase(session, tc, *, testcase_dir)` | Delete one test case + files, then renumber remaining rows and files contiguously. |
 | `move_testcase(session, tc, new_ordinal, *, testcase_dir)` | Move one test case to a clamped 1-based ordinal; reorder rows and files. |
 | `replace_all_from_zip(session, problem, zip_bytes, *, default_is_sample=False, testcase_dir)` | Replace the full set from a ZIP parsed by `shared.tc_zip.parse_testcases_zip`; writes files + sizes (no cap). |
+
+---
+
+### `admin_problem_tc_pending.py`
+
+Turns the problem edit form's deferred test-case edits into service calls. The page marks removals
+in a hidden `tc_remove_ids` field and collects new rows as `tc_in_N` / `tc_out_N` groups; nothing is
+applied until Save. Filesystem work is returned as callables the caller runs only after the commit,
+so a rolled-back save never deletes a live test-case file nor orphans a new one.
+
+| Function | Purpose |
+|----------|---------|
+| `removal_ids(form_data)` | The test-case ids the user marked for removal. |
+| `apply_pending_testcases(session, problem, form_data, *, testcase_dir, allow_empty)` | Apply removals (descending ordinal, so renumbering churns fewest files) then the inline add-rows. Returns `(file_cleanups, file_writes)` to run post-commit. Raises `ValueError` if the save would leave a non-validator problem with no test cases, or if a row fails validation. `allow_empty` is true for validator problems, whose interactive judgments never read test-case files. |
+
+---
+
+### `admin_problem_validator_service.py`
+
+Stages custom-validator candidates for both the standalone upload route and the problem form, whose
+single Save carries the validator alongside everything else. Split so a bad upload can be rejected
+before any database write. The caller owns the transaction: staging returns the queue payload to
+enqueue *after* the commit, so a delayed worker never sees a token that was rolled back.
+
+| Function | Purpose |
+|----------|---------|
+| `parse_validator_upload(session, *, language_id, source_file)` | Read and check the upload without touching the database. Returns a `ValidatorUpload`, or `None` when neither field was supplied. Raises `ValueError` if only one of language/file is given, the language is not globally active, or the source is not valid UTF-8. |
+| `stage_candidate_revision(session, problem, upload, *, test_cases=None)` | Stage the parsed upload as the problem's candidate revision and return its `CustomValidatorValidationJob`. Raises `ValueError` if a validator is already configured or any test case is not a public sample. `test_cases` lets the edit form check that rule against the cases the save leaves behind rather than the ones it started with. |
+| `stage_validator_source(session, problem, *, language_id, source_file)` | Parse and stage in one step, for callers that have a persisted problem already. |
 
 ---
 
@@ -1168,13 +1197,14 @@ detail pages at `/problems` and `/problems/{arena_number}`.
 | `ac_rate` | `float \| None` | Fraction from rating stats that count every non-owner, regardless of role |
 | `is_solved` | `bool` | Personal solved status for the viewing user, including staff users |
 | `solved` | `int \| None` | Count of distinct non-owner solvers for the aggregate problem list column |
+| `has_custom_validator` | `bool` | `True` when the problem has an active or candidate custom validator source configured |
 
 **Functions:**
 
 | Symbol | Description |
 |--------|-------------|
 | `list_enabled_problems_paginated(session, *, page, per_page=25, search, category_slugs, sort_by, user_id=None)` | Paginated enabled-problem list. Search uses the resolved author: free text for external authors or the owner fullname for owner-authored problems. Category filtering uses AND semantics. Solver aggregates exclude only problem owners. |
-| `get_enabled_problem_by_number(session, arena_number)` | Fetch a single enabled problem by its public `arena_number`. Returns `(ArenaProblem, AuthorInfo)` or `None` if not found or disabled. Also outer-joins `arena_affiliations` to populate `AuthorInfo.affiliation_name` and `affiliation_flag`. Eagerly loads `rating`, `categories`, and `test_cases`. |
+| `get_enabled_problem_by_number(session, arena_number)` | Fetch a single enabled problem by its public `arena_number`. Returns `(ArenaProblem, AuthorInfo)` or `None` if not found or disabled. Also outer-joins `arena_affiliations` to populate `AuthorInfo.affiliation_name` and `affiliation_flag`. Eagerly loads `rating`, `categories`, `test_cases`, and `custom_validator`. |
 | `get_all_categories(session)` | Return all categories alphabetically by name, for the filter dropdown. |
 | `get_user_problem_status(session, *, user_id, problem_id)` | Return `(solved_at, tried_at, is_favorite)` from the solver, tried, and favorites tables. Datetime values may be `None`; `is_favorite` is `True` only when a favorites row exists. |
 | `get_problem_rating_history(session, problem_id)` | Return rating history for the last 730 days as `[{"ts": ISO8601, "rating": int}, ...]`, chronological. Used by the public ECharts sparkline endpoint. |
@@ -1507,3 +1537,13 @@ not across the whole class.
 
 - `arena_problem_service.py` — problem CRUD and ZIP import beyond current public-number lookup
 - `arena_verdict_handler.py` — Valkey subscriber: VerdictEvent → DB updates
+## Custom validators
+
+Arena problem import and export services use the shared validator package
+schema. Imports stage a new candidate, force package test cases to samples, and
+leave the imported problem disabled until its owner explicitly enables it.
+
+`submission_service` skips the "problem has no test cases" precondition for
+problems with a configured validator: interactive judgments never read
+test-case files, so such a problem may legitimately ship zero test cases. The
+validator must still be `VALID` before any submission is accepted.

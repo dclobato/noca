@@ -11,6 +11,10 @@ from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.services.custom_validator import build_validation_job
+from shared.services.imageprocessing_service import ImageProcessingError
+from shared.services.sample_problem_package import SAMPLE_PACKAGE_FILENAME, build_sample_problem_package
+from shared.services.valkey_service import enqueue_custom_validator_validation_job
 from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_problem_helpers import (
@@ -53,6 +57,19 @@ async def import_problem_form(
     )
 
 
+@router.get("/import/sample", name="download_sample_problem_package")
+async def download_sample_problem_package(
+    ctx: ContestAdminContext = Depends(get_contest_admin_context),
+) -> Response:
+    """Download the reference \"A + B\" problem package."""
+    del ctx
+    return Response(
+        content=build_sample_problem_package(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{SAMPLE_PACKAGE_FILENAME}"'},
+    )
+
+
 @router.post("/import", response_class=HTMLResponse, response_model=None, name="import_problem_submit")
 async def import_problem_submit(
     request: Request,
@@ -71,10 +88,20 @@ async def import_problem_submit(
             zip_bytes,
             settings.PROBLEM_TESTCASE_DIR,
             settings.PROBLEM_STATEMENT_DIR,
+            request.app.state.image_service,
         )
-    except ValueError as exc:
+    except (ImageProcessingError, ValueError) as exc:
         flash(str(exc), FlashCategory.DANGER)
         return _redirect(str(request.url_for("import_problem_form", slug=ctx.contest.login_slug)))
+    if import_result.validator_candidate_token is not None:
+        await enqueue_custom_validator_validation_job(
+            request.app.state.valkey_runtime,
+            build_validation_job(
+                domain="contest",
+                problem_id=import_result.problem.id,
+                candidate_token=import_result.validator_candidate_token,
+            ),
+        )
     if import_result.skipped_language_ids:
         skipped_languages = ", ".join(import_result.skipped_language_ids)
         flash(

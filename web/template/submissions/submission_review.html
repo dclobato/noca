@@ -68,6 +68,14 @@
                                             </a>
                                         </div>
                                         <pre class="mb-0 noca-source-code-pre"><code id="submission-source-code" class="{{ highlight_language_class }}">{{ submission.source_code | e }}</code></pre>
+                                        {% if can_see_test_results and validator_status.configured %}
+                                            <div class="d-flex justify-content-end p-3 pt-2">
+                                                <a href="{{ request.url_for('submission_validator_source_download', slug=contest.login_slug, submission_id=submission.id) }}"
+                                                   class="btn btn-sm btn-outline-secondary">
+                                                    {{ render_icon(icon="download", classes="me-1") }}Download validator source
+                                                </a>
+                                            </div>
+                                        {% endif %}
                                     </div>
                                 </div>
                             </div>
@@ -153,7 +161,13 @@
                 </div>
                 {% if can_see_test_results %}
                     <div class="card shadow-sm border-0">
-                        <div class="card-header fw-semibold">Test Case Results</div>
+                        <div class="card-header fw-semibold">
+                            {% if validator_status.configured %}
+                                Interactive Validator Run
+                            {% else %}
+                                Test Case Results
+                            {% endif %}
+                        </div>
                         <div class="card-body p-0">
                             <div class="border-bottom">
                                 <table class="table table-sm mb-0">
@@ -183,63 +197,73 @@
                                     </tbody>
                                 </table>
                             </div>
-                            <div class="table-responsive">
-                                <table class="table table-sm align-middle mb-0">
-                                    <thead class="table-light">
-                                        <tr>
-                                            <th>Test #</th>
-                                            <th>Verdict</th>
-                                            <th>Wall time ms</th>
-                                            <th>Memory KB</th>
-                                            <th>Exit</th>
-                                            <th>Downloads</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for result in test_results or [] %}
+                            {% if validator_status.configured %}
+                                <div class="p-3">
+                                    {% for attempt in interactive_attempts %}
+                                        {% include "_partials/interactive_transcript.html" %}
+                                    {% else %}
+                                        <p class="text-muted text-center mb-0 py-3">No interactive validator run recorded.</p>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <div class="table-responsive">
+                                    <table class="table table-sm align-middle mb-0">
+                                        <thead class="table-light">
                                             <tr>
-                                                <td>{{ result.test_case.ordinal if result.test_case else '?' }}</td>
-                                                <td>{{ verdict_badge(result.verdict.value) }}</td>
-                                                <td>{{ result.wall_time_ms if result.wall_time_ms is not none else '-' }}</td>
-                                                <td>{{ result.memory_kb if result.memory_kb is not none else '-' }}</td>
-                                                <td>
-                                                    {% if result.exit_signal is not none %}
-                                                        <span class="badge bg-danger-subtle text-danger-emphasis"
-                                                              title="{{ describe_signal(result.exit_signal) }}">{{ signal_name(result.exit_signal) }}</span>
-                                                    {% elif result.exit_code is not none %}
-                                                        {{ result.exit_code }}
-                                                    {% else %}
-                                                        -
-                                                    {% endif %}
-                                                </td>
-                                                <td>
-                                                    {% if result.test_case %}
-                                                        <div class="d-flex gap-1">
-                                                            <a href="{{ request.url_for('submission_test_case_download', slug=contest.login_slug, submission_id=submission.id, test_case_id=result.test_case.id) }}?file=input"
-                                                               class="btn btn-sm btn-outline-secondary"
-                                                               download="input">input</a>
-                                                            <a href="{{ request.url_for('submission_test_case_download', slug=contest.login_slug, submission_id=submission.id, test_case_id=result.test_case.id) }}?file=expected_output"
-                                                               class="btn btn-sm btn-outline-secondary"
-                                                               download="expected_output">expected</a>
-                                                            <a href="{{ request.url_for('submission_test_case_download', slug=contest.login_slug, submission_id=submission.id, test_case_id=result.test_case.id) }}?file=team_output"
-                                                               class="btn btn-sm btn-outline-secondary"
-                                                               download="team_output">team output</a>
-                                                            <a href="{{ request.url_for('submission_tc_detail', slug=contest.login_slug, submission_id=submission.id, test_case_id=result.test_case.id) }}"
-                                                               class="btn btn-sm btn-outline-primary">detail</a>
-                                                        </div>
-                                                    {% else %}
-                                                        <span class="text-muted">—</span>
-                                                    {% endif %}
-                                                </td>
+                                                <th>Test #</th>
+                                                <th>Verdict</th>
+                                                <th>Wall time ms</th>
+                                                <th>Memory KB</th>
+                                                <th>Exit</th>
+                                                <th>Downloads</th>
                                             </tr>
-                                        {% else %}
-                                            <tr>
-                                                <td colspan="6" class="text-center text-muted py-4">No test case results available.</td>
-                                            </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
+                                        </thead>
+                                        <tbody>
+                                            {% for result in test_results or [] %}
+                                                <tr>
+                                                    <td>{{ result.test_case.ordinal if result.test_case else '?' }}</td>
+                                                    <td>{{ verdict_badge(result.verdict.value) }}</td>
+                                                    <td>{{ result.wall_time_ms if result.wall_time_ms is not none else '-' }}</td>
+                                                    <td>{{ result.memory_kb if result.memory_kb is not none else '-' }}</td>
+                                                    <td>
+                                                        {% if result.exit_signal is not none %}
+                                                            <span class="badge bg-danger-subtle text-danger-emphasis"
+                                                                  title="{{ describe_signal(result.exit_signal) }}">{{ signal_name(result.exit_signal) }}</span>
+                                                        {% elif result.exit_code is not none %}
+                                                            {{ result.exit_code }}
+                                                        {% else %}
+                                                            -
+                                                        {% endif %}
+                                                    </td>
+                                                    <td>
+                                                        {% if result.test_case %}
+                                                            <div class="d-flex gap-1">
+                                                                <a href="{{ request.url_for('submission_test_case_download', slug=contest.login_slug, submission_id=submission.id, test_case_id=result.test_case.id) }}?file=input"
+                                                                   class="btn btn-sm btn-outline-secondary"
+                                                                   download="input">input</a>
+                                                                <a href="{{ request.url_for('submission_test_case_download', slug=contest.login_slug, submission_id=submission.id, test_case_id=result.test_case.id) }}?file=expected_output"
+                                                                   class="btn btn-sm btn-outline-secondary"
+                                                                   download="expected_output">expected</a>
+                                                                <a href="{{ request.url_for('submission_test_case_download', slug=contest.login_slug, submission_id=submission.id, test_case_id=result.test_case.id) }}?file=team_output"
+                                                                   class="btn btn-sm btn-outline-secondary"
+                                                                   download="team_output">team output</a>
+                                                                <a href="{{ request.url_for('submission_tc_detail', slug=contest.login_slug, submission_id=submission.id, test_case_id=result.test_case.id) }}"
+                                                                   class="btn btn-sm btn-outline-primary">detail</a>
+                                                            </div>
+                                                        {% else %}
+                                                            <span class="text-muted">—</span>
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
+                                            {% else %}
+                                                <tr>
+                                                    <td colspan="6" class="text-center text-muted py-4">No test case results available.</td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            {% endif %}
                         </div>
                     </div>
                 {% endif %}

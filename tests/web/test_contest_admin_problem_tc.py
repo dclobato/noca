@@ -116,3 +116,20 @@ def test_testcase_table_actions_use_icon_btn_group() -> None:
     assert ">Edit<" not in template
     assert ">Remove<" not in template
     assert ">Undo<" not in template
+
+
+def test_problem_edit_template_includes_shared_image_field() -> None:
+    """The admin form renders the shared problem-image partial, not its own copy."""
+    template = Path("web/template/admin/problems/edit.html").read_text(encoding="utf-8")
+
+    assert "_partials/problem_image_field.html" in template
+    assert 'image_form_id="edit-form"' in template
+    assert "problem-image-preview.js" in template
+
+
+def test_problem_detail_template_includes_shared_image_figure() -> None:
+    """The contestant-facing statement card renders the shared image figure."""
+    template = Path("web/template/contest/problem_detail.html").read_text(encoding="utf-8")
+
+    assert "_partials/problem_image_figure.html" in template
+    assert "problem.problem_image_base64" in template

@@ -29,6 +29,7 @@ from arena.models.arena_users import ArenaUser
 from arena.routes.admin_problem_form_views import build_testcase_row_views
 from arena.services import admin_problem_service, admin_problem_tc_service
 from shared.enumerations import ArenaRole
+from shared.services.custom_validator import status_view
 from shared.services.testcase_files import read_testcase_full
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES, build_single_testcase_zip, parse_single_testcase_zip
 
@@ -164,7 +165,7 @@ async def admin_problem_tc_add_from_zip(
             problem,
             input_content=single.input_bytes.decode("utf-8"),
             output_content=single.output_bytes.decode("utf-8"),
-            is_sample=False,
+            is_sample=status_view(problem.custom_validator).configured,
             explanation=single.explanation,
             testcase_dir=settings.PROBLEM_TESTCASE_DIR,
         )

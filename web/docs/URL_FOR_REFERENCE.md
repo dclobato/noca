@@ -110,6 +110,7 @@ with a degraded payload when either required backend is unavailable.
 | `POST /c/{slug}/submissions/{submission_id}/rejudge` | `submission_rejudge_post` | `slug=`, `submission_id=` | `contest_submissions_review.py` |
 | `GET /c/{slug}/submissions/{submission_id}/source` | `submission_source_download` | `slug=`, `submission_id=` | `contest_submissions_files.py` |
 | `GET /c/{slug}/submissions/{submission_id}/test-cases/{test_case_id}/download` | `submission_test_case_download` | `slug=`, `submission_id=`, `test_case_id=` | `contest_submissions_files.py` |
+| `GET /c/{slug}/submissions/{submission_id}/validator-source` | `submission_validator_source_download` | `slug=`, `submission_id=` | `contest_submissions_files.py` |
 | `GET /c/{slug}/submissions/{submission_id}/test-cases/{test_case_id}/detail` | `submission_tc_detail` | `slug=`, `submission_id=`, `test_case_id=` | `contest_submissions_files.py` |
 
 ## Contest Clarification Routes (`contest_clarifications.py`)
@@ -183,6 +184,7 @@ Import / export / serve routes (`contest_admin_problem_io.py`):
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
 | `GET /c/{slug}/admin/problems/import` | `import_problem_form` | `slug=` | `contest_admin_problem_io.py` |
+| `GET /c/{slug}/admin/problems/import/sample` | `download_sample_problem_package` | `slug=` | `contest_admin_problem_io.py` |
 | `POST /c/{slug}/admin/problems/import` | `import_problem_submit` | `slug=` | `contest_admin_problem_io.py` |
 | `GET /c/{slug}/admin/problems/{problem_id}/statement` | `problem_statement` | `slug=`, `problem_id=` | `contest_admin_problem_io.py` |
 | `GET /c/{slug}/admin/problems/{problem_id}/export` | `export_problem` | `slug=`, `problem_id=` | `contest_admin_problem_io.py` |
@@ -246,3 +248,7 @@ Shared helpers (`contest_admin_problem_helpers.py` and
 - Several route functions are named `view`, but only explicitly named routes are stable for `url_for(...)`. Prefer the endpoint names listed above instead of relying on function names.
 - For StaticFiles mounts, `path=` is the filename relative to the mount directory (no leading slash).
 - Trailing slashes: routes mounted with `prefix + "/"` (e.g. `/c/{slug}/clarifications/`) get a trailing slash in `url_for` output. FastAPI redirects the slash-less version automatically.
+| `POST /c/{slug}/admin/problems/{problem_id}/validator` | `upload_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
+| `GET /c/{slug}/admin/problems/{problem_id}/validator/status` | `problem_custom_validator_status` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
+| `GET /c/{slug}/admin/problems/{problem_id}/validator/source` | `download_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/validator/remove` | `remove_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |

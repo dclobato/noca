@@ -209,7 +209,7 @@ The profile page is already rich and practical. It includes:
 ### Help and legal pages
 
 - `/help/rating` documents the current Arena rating formula and configured interval/factor metadata
-- `/help/languages` reads active languages from the shared `languages` table and explains verdicts
+- `/help/languages` reads active languages from the shared `languages` table, shows stdout flush hints for custom-validator problems, and explains verdicts
 - legal pages render markdown documents from `arena/template/legal/`
 
 ### Admin UI

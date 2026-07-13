@@ -14,10 +14,18 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi_flash import FlashCategory, FlashDep
 
 from shared.services.admin_audit import record_admin_action
+from shared.services.custom_validator import (
+    build_validation_job,
+    parse_validator_source,
+    stage_candidate,
+)
+from shared.services.imageprocessing_service import ImageProcessingError
+from shared.services.problem_image import process_problem_image_upload
+from shared.services.valkey_service import enqueue_custom_validator_validation_job
 from shared.tc_zip import parse_single_testcase_zip
 from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
-from web.models.problem import Problem, ProblemTestCase
+from web.models.problem import Problem, ProblemCustomValidator, ProblemTestCase
 from web.routes import contest_admin_problem_edit as _contest_admin_problem_edit
 from web.routes import contest_admin_problem_limits as _contest_admin_problem_limits
 from web.routes.contest_admin_problem_helpers import (
@@ -41,6 +49,7 @@ from web.services.problem_service import (
     append_test_case,
     delete_all_testcase_files,
     delete_problem_statement,
+    get_active_languages,
     get_contest_languages,
     get_contest_problems,
     get_problem_in_contest,
@@ -122,6 +131,7 @@ async def new_problem_form(
 ) -> HTMLResponse:
     templates = request.app.state.templates
     languages = await get_contest_languages(ctx.session, ctx.contest)
+    validator_languages = await get_active_languages(ctx.session)
     return _html(
         templates.TemplateResponse(
             request,
@@ -152,8 +162,11 @@ async def new_problem_form(
                     "memory_limit_kb": 262144,
                     "pids_limit": 64,
                     "output_limit_in_bytes": "",
+                    "image_caption": "",
                 },
                 "latest_profiling_run": None,
+                "validator_languages": validator_languages,
+                "validator_status": None,
             },
         )
     )
@@ -177,6 +190,10 @@ async def new_problem_submit(
     statement_source: str = Form(""),
     md_content: str = Form(""),
     testcases_zip: UploadFile = File(None),
+    validator_language_id: str = Form(""),
+    validator_source_file: UploadFile = File(None),
+    image: UploadFile = File(None),
+    image_caption: str = Form(""),
 ) -> HTMLResponse | RedirectResponse:
     templates = request.app.state.templates
     form = await request.form()
@@ -251,7 +268,26 @@ async def new_problem_submit(
     else:
         errors.append("Problem statement is required.")
 
+    image_b64: str | None = None
+    image_mime: str | None = None
+    if image and image.filename:
+        try:
+            image_b64, image_mime = await process_problem_image_upload(request.app.state.image_service, image)
+        except (ImageProcessingError, ValueError) as exc:
+            errors.append(f"Problem image: {exc}")
+
     tc_list: list[tuple[bytes, bytes, bool, str | None]] = []
+
+    validator_source: str | None = None
+    validator_language_id = validator_language_id.strip()
+    validator_file_supplied = bool(validator_source_file and validator_source_file.filename)
+    if validator_file_supplied != bool(validator_language_id):
+        errors.append("Choose a validator language and source file together.")
+    elif validator_file_supplied:
+        try:
+            validator_source = parse_validator_source(await validator_source_file.read())
+        except ValueError as exc:
+            errors.append(str(exc))
 
     if testcases_zip and testcases_zip.filename:
         zip_bytes_data = await testcases_zip.read()
@@ -298,10 +334,17 @@ async def new_problem_submit(
         is_sample = bool(form.get(f"tc_zip_is_sample_{i}"))
         tc_list.append((single.input_bytes, single.output_bytes, is_sample, single.explanation))
 
-    if not tc_list:
+    # Interactive judgments never read test-case files, so a validator problem
+    # may legitimately ship no test cases at all.
+    if not tc_list and validator_source is None:
         errors.append("At least one test case is required.")
 
     languages = await get_contest_languages(ctx.session, ctx.contest)
+    validator_languages = await get_active_languages(ctx.session)
+    if validator_language_id and validator_language_id not in {language.id for language in validator_languages}:
+        errors.append("Validator language is not active.")
+    if validator_source is not None and any(not is_sample for _, _, is_sample, _ in tc_list):
+        errors.append("Custom-validator test cases must all be public samples.")
     errors.extend(_validate_language_limit_inputs(languages, form))
 
     if errors:
@@ -314,6 +357,7 @@ async def new_problem_submit(
             "memory_limit_kb": memory_limit_kb,
             "pids_limit": pids_limit,
             "output_limit_in_bytes": output_limit_in_bytes,
+            "image_caption": image_caption,
         }
         return _html(
             templates.TemplateResponse(
@@ -341,6 +385,9 @@ async def new_problem_submit(
                     "balloon_colors": BALLOON_COLORS,
                     "form_data": form_data,
                     "latest_profiling_run": None,
+                    "validator_languages": validator_languages,
+                    "validator_status": None,
+                    "validator_language_id": validator_language_id,
                 },
                 status_code=422,
             )
@@ -358,8 +405,21 @@ async def new_problem_submit(
         memory_limit_kb=mlkb,
         pids_limit=pl,
         output_limit_in_bytes=output_lim,
+        problem_image_base64=image_b64,
+        problem_image_mime=image_mime if image_b64 else None,
+        problem_image_caption=image_caption.strip() or None,
     )
     await append_problem(ctx.session, ctx.contest, problem)
+
+    candidate_token: str | None = None
+    if validator_source is not None:
+        validator = ProblemCustomValidator(problem_id=problem.id)
+        candidate_token = stage_candidate(
+            validator,
+            language_id=validator_language_id,
+            source=validator_source,
+        )
+        ctx.session.add(validator)
 
     statement_dir = settings.PROBLEM_STATEMENT_DIR
     if pdf_bytes is not None:
@@ -387,8 +447,13 @@ async def new_problem_submit(
 
     await ctx.session.commit()
     pid = problem.id
+    if candidate_token is not None:
+        await enqueue_custom_validator_validation_job(
+            request.app.state.valkey_runtime,
+            build_validation_job(domain="contest", problem_id=pid, candidate_token=candidate_token),
+        )
     flash("Problem created successfully.", FlashCategory.SUCCESS)
-    if md_text is not None:
+    if md_text is not None or candidate_token is not None:
         return _redirect(str(request.url_for("edit_problem_form", slug=ctx.contest.login_slug, problem_id=pid)))
     return _redirect(str(request.url_for("manage_problems", slug=ctx.contest.login_slug)))
 

@@ -47,6 +47,7 @@ from arena.models.arena_auth_records import ArenaBackup2FA
 from arena.models.arena_users import ArenaUser
 from arena.routes.auth import router as arena_auth_router
 from arena.routes.help import router as arena_help_router
+from arena.routes.legal import router as arena_legal_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.routes.user_security import router as arena_user_security_router
 from arena.services import backup2fa_service
@@ -203,6 +204,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     app.include_router(arena_help_router)
     app.include_router(arena_user_security_router)
     app.include_router(arena_ranking_router)
+    app.include_router(arena_legal_router)
     return app
 
 

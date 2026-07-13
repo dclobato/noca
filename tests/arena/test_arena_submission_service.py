@@ -20,7 +20,7 @@ import arena.models.arena_problems  # noqa: F401
 import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
 import arena.services.rate_limit_service as arena_rate_limit_module
-from arena.models.arena_problems import ArenaProblem
+from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator
 from arena.models.arena_submissions import ArenaSubmission, ArenaSubmissionJudgment
 from arena.models.arena_users import ArenaUser
 from arena.services.rate_limit_service import check_submission_rate_limit
@@ -31,7 +31,7 @@ from arena.services.submission_service import (
 )
 from shared.db_schema.arena import arena_problem_ratings, arena_problem_tried
 from shared.db_schema.arena.arena_submissions import arena_submissions
-from shared.enumerations import ArenaRole, JudgmentStatus
+from shared.enumerations import ArenaRole, CustomValidatorActiveState, JudgmentStatus
 from web.models.language import Language
 
 
@@ -224,6 +224,36 @@ async def test_create_arena_submission_rejects_problem_without_test_cases(sessio
             language_id=language.id,
             source_code="print(1)\n",
         )
+
+
+@pytest.mark.asyncio
+async def test_create_arena_submission_allows_validator_problem_without_test_cases(
+    session: AsyncSession,
+) -> None:
+    """Interactive problems never read test-case files, so zero cases is valid."""
+    language = await _make_language(session)
+    user = await _make_user(session)
+    problem = await _make_problem(session, user, with_case=False)
+    session.add(
+        ArenaProblemCustomValidator(
+            problem_id=problem.id,
+            active_language_id=language.id,
+            active_source="print('validator')\n",
+            active_state=CustomValidatorActiveState.VALID,
+            active_validated_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
+
+    result = await create_arena_submission(
+        session=session,
+        user_id=user.id,
+        problem_id=problem.id,
+        language_id=language.id,
+        source_code="print(1)\n",
+    )
+
+    assert result.judgment.status == JudgmentStatus.QUEUED.value
 
 
 @pytest.mark.asyncio

@@ -179,6 +179,14 @@
                 {% with test_result_verdict=j_verdict %}
                     {% include "_partials/_submission_test_result_context.html" %}
                 {% endwith %}
+                {% if interactive_attempts %}
+                    <div class="mt-3 pt-3 border-top">
+                        <h3 class="h6">Interactive validator diagnostics</h3>
+                        {% for attempt in interactive_attempts %}
+                            {% include "_partials/interactive_transcript.html" %}
+                        {% endfor %}
+                    </div>
+                {% endif %}
                 {# ── AI review section ──────────────────────────────────── #}
                 {# Admins and judges see the review (read-only); owners also get the request UI #}
                 {% set can_see_ai_review = j_verdict and j_verdict != "AC" %}

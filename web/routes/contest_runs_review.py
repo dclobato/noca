@@ -116,6 +116,9 @@ async def submit(
     except DuplicateSubmissionError:
         flash("Duplicated submission.", FlashCategory.DANGER)
         return RedirectResponse(url=f"/c/{slug}/runs", status_code=303)
+    except ValueError as exc:
+        flash(str(exc), FlashCategory.DANGER)
+        return RedirectResponse(url=f"/c/{slug}/runs", status_code=303)
 
     await ctx.session.commit()
     await enqueue_job(

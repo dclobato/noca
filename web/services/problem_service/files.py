@@ -12,9 +12,12 @@ import io
 import json
 import shutil
 import zipfile
+from base64 import b64decode
 from pathlib import Path
+from typing import Any
 
 from shared.problem_statement_markdown import validate_md_content as validate_md_content  # noqa: F401
+from shared.services.problem_image import export_image_filename
 from shared.services.testcase_files import get_problem_testcase_dir as _shared_get_problem_testcase_dir
 from shared.tc_zip import normalize_testcase_bytes as normalize_testcase_bytes  # noqa: F401
 from shared.tc_zip import parse_testcases_zip as parse_testcases_zip  # noqa: F401
@@ -188,8 +191,15 @@ def build_problem_export_zip(
     statement_zip_name = "statement.md" if active_statement.suffix == ".md" else "statement.pdf"
 
     buffer = io.BytesIO()
+    image_filename: str | None = None
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(statement_zip_name, active_statement.read_bytes())
+
+        # The image ships in the public ZIP too: it is part of the statement a
+        # contestant reads, not privileged data.
+        if problem.problem_image_base64:
+            image_filename = export_image_filename(problem.problem_image_mime)
+            archive.writestr(image_filename, b64decode(problem.problem_image_base64))
 
         test_cases = (
             problem.test_cases if include_private_testcases else [tc for tc in problem.test_cases if tc.is_sample]
@@ -222,7 +232,7 @@ def build_problem_export_zip(
                     "repetitions": limit.repetitions,
                 }
 
-            problem_json = {
+            problem_json: dict[str, Any] = {
                 "title": problem.title,
                 "author": problem.author,
                 "notes": problem.notes,
@@ -232,8 +242,29 @@ def build_problem_export_zip(
                 "pids_limit": problem.pids_limit,
                 "output_limit_in_bytes": problem.output_limit_in_bytes,
                 "categories": [category.name for category in problem.categories],
+                "image": image_filename,
+                "image_caption": problem.problem_image_caption,
                 "language_limits": limits_dict,
             }
+            validator = problem.custom_validator
+            validator_source = None
+            validator_language_id = None
+            if validator is not None:
+                # Prefer the validated active revision; fall back to a staged
+                # candidate only when no active revision exists yet.
+                if validator.active_source is not None:
+                    validator_source = validator.active_source
+                    validator_language_id = validator.active_language_id
+                else:
+                    validator_source = validator.candidate_source
+                    validator_language_id = validator.candidate_language_id
+            if validator_source is not None and validator_language_id is not None:
+                problem_json["custom_validator"] = {
+                    "language_id": validator_language_id,
+                    "source_file": "validator/source.txt",
+                }
+                problem_json["test_case_visibility"] = "sample"
+                archive.writestr("validator/source.txt", validator_source.encode("utf-8"))
             archive.writestr("problem.json", json.dumps(problem_json, indent=2))
 
     return buffer.getvalue()

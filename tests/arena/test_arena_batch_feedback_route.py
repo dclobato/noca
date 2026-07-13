@@ -42,6 +42,7 @@ from arena.models.arena_classes import ArenaClass, ArenaClassMembership
 from arena.models.arena_problem_sets import ArenaProblemSet
 from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_users import ArenaUser
+from arena.routes.legal import router as arena_legal_router
 from arena.routes.problem_sets_batch_feedback import router as batch_feedback_router
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.arena_teacher_feedback_service import get_teacher_feedback_text, upsert_teacher_feedback
@@ -137,6 +138,7 @@ def _build_app(session: AsyncSession) -> FastAPI:
     app.add_api_route("/stub/logout", _stub, methods=["POST"], name="arena_logout")
 
     app.include_router(batch_feedback_router)
+    app.include_router(arena_legal_router)
     return app
 
 

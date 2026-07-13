@@ -28,7 +28,10 @@ from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_io_service, admin_problem_service
 from arena.services.admin_category_service import normalize_slug
 from shared.enumerations import ArenaRole
+from shared.services.custom_validator import build_validation_job
 from shared.services.imageprocessing_service import ImageProcessingError, ImageProcessingService
+from shared.services.sample_problem_package import SAMPLE_PACKAGE_FILENAME, build_sample_problem_package
+from shared.services.valkey_service import enqueue_custom_validator_validation_job
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
 
@@ -62,6 +65,19 @@ async def admin_problem_import_form(
     )
 
 
+@router.get("/problems/import/sample", name="arena_admin_problem_sample_package")
+async def admin_problem_sample_package(
+    current_user: ArenaUser = Depends(require_arena_problem_editor),
+) -> Response:
+    """Download the reference \"A + B\" problem package."""
+    del current_user
+    return Response(
+        content=build_sample_problem_package(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{SAMPLE_PACKAGE_FILENAME}"'},
+    )
+
+
 @router.post("/problems/import", name="arena_admin_problem_import_submit")
 async def admin_problem_import_submit(
     request: Request,
@@ -90,6 +106,17 @@ async def admin_problem_import_submit(
         await session.rollback()
         flash(str(exc), FlashCategory.DANGER)
         return RedirectResponse(url=form_url, status_code=303)
+
+    await session.refresh(problem, attribute_names=["custom_validator"])
+    if problem.custom_validator is not None and problem.custom_validator.candidate_token is not None:
+        await enqueue_custom_validator_validation_job(
+            request.app.state.valkey_runtime,
+            build_validation_job(
+                domain="arena",
+                problem_id=problem.id,
+                candidate_token=problem.custom_validator.candidate_token,
+            ),
+        )
 
     flash(
         f"Problem #{problem.arena_number} imported (disabled). Review and complete the details below.",

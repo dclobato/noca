@@ -25,9 +25,11 @@ from sqlalchemy.orm import Mapped, relationship
 from arena.database import ArenaBase
 from shared.db_schema.arena import arena_problem_categories as arena_problem_categories_table
 from shared.db_schema.arena import arena_problem_category_map as arena_problem_category_map_table
+from shared.db_schema.arena import arena_problem_custom_validators as arena_problem_custom_validators_table
 from shared.db_schema.arena import arena_problem_ratings as arena_problem_ratings_table
 from shared.db_schema.arena import arena_problems as arena_problems_table
 from shared.db_schema.arena import arena_test_cases as arena_test_cases_table
+from shared.enumerations import CustomValidatorActiveState, CustomValidatorCandidateState
 from shared.services.arena_rating import CONFIDENCE_SCALE
 
 if TYPE_CHECKING:
@@ -107,6 +109,12 @@ class ArenaProblem(ArenaBase):
         back_populates="problems",
         lazy="select",
     )
+    custom_validator: Mapped[ArenaProblemCustomValidator | None] = relationship(
+        "ArenaProblemCustomValidator",
+        back_populates="problem",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
 
 class ArenaTestCase(ArenaBase):
@@ -134,6 +142,28 @@ class ArenaTestCase(ArenaBase):
         "ArenaProblem",
         back_populates="test_cases",
     )
+
+
+class ArenaProblemCustomValidator(ArenaBase):
+    """Staged and active custom validator revisions for an Arena problem."""
+
+    __table__ = arena_problem_custom_validators_table
+
+    problem_id: Mapped[str]
+    active_language_id: Mapped[str | None]
+    active_source: Mapped[str | None]
+    active_state: Mapped[CustomValidatorActiveState | None]
+    active_validated_at: Mapped[datetime | None]
+    candidate_language_id: Mapped[str | None]
+    candidate_source: Mapped[str | None]
+    candidate_token: Mapped[str | None]
+    candidate_state: Mapped[CustomValidatorCandidateState | None]
+    candidate_compile_log: Mapped[str | None]
+    candidate_validated_at: Mapped[datetime | None]
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+    problem: Mapped[ArenaProblem] = relationship("ArenaProblem", back_populates="custom_validator")
 
 
 class ArenaRatingProblem(ArenaBase):

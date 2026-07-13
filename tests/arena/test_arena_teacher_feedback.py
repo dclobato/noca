@@ -46,6 +46,7 @@ from arena.models.arena_classes import ArenaClass
 from arena.models.arena_problem_sets import ArenaProblemSet
 from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_users import ArenaUser
+from arena.routes.legal import router as arena_legal_router
 from arena.routes.submissions import router as arena_submissions_router
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.arena_problem_set_report_service import get_student_problem_submissions_for_set
@@ -245,6 +246,7 @@ def _build_app(session: AsyncSession) -> FastAPI:
         return Response("report")
 
     app.include_router(arena_submissions_router)
+    app.include_router(arena_legal_router)
     return app
 
 

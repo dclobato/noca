@@ -45,6 +45,7 @@ from arena.routes.classes_members import (
 from arena.routes.classes_members import (
     router as arena_classes_members_router,
 )
+from arena.routes.legal import router as arena_legal_router
 from arena.routes.problem_sets import class_problem_set_problem_add
 from arena.routes.problem_sets import router as arena_problem_sets_router
 from arena.routes.problem_sets_autocomplete import router as arena_problem_sets_autocomplete_router
@@ -191,6 +192,7 @@ def _build_app(session: AsyncSession) -> FastAPI:
     app.include_router(arena_problem_sets_router)
     app.include_router(arena_problem_sets_report_router)
     app.include_router(arena_problem_sets_autocomplete_router)
+    app.include_router(arena_legal_router)
     return app
 
 

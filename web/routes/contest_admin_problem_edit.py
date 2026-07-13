@@ -7,14 +7,24 @@
 from __future__ import annotations
 
 import anyio
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.services.custom_validator import (
+    build_validation_job,
+    parse_validator_source,
+    remove_validator,
+    stage_candidate,
+    status_view,
+)
+from shared.services.imageprocessing_service import ImageProcessingError
+from shared.services.problem_image import process_problem_image_upload
+from shared.services.valkey_service import enqueue_custom_validator_validation_job
 from shared.tc_zip import normalize_testcase_bytes
 from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
-from web.models.problem import ProblemTestCase
+from web.models.problem import ProblemCustomValidator, ProblemTestCase
 from web.routes.contest_admin_problem_helpers import (
     _delete_md_statement_for,
     _delete_pdf_statement_for,
@@ -43,6 +53,7 @@ from web.services.problem_service import (
     append_test_case,
     changed_effective_limits,
     create_problem_limit_change_batch,
+    get_active_languages,
     get_contest_languages,
     get_language_limits_map,
     get_md_statement_path,
@@ -56,6 +67,118 @@ from web.services.problem_service import (
 )
 
 router = APIRouter(prefix="/c/{slug}/admin/problems", tags=["contest_admin_problems"])
+
+
+@router.post("/{problem_id}/validator", name="upload_problem_custom_validator")
+async def upload_problem_custom_validator(
+    request: Request,
+    problem_id: str,
+    flash: FlashDep,
+    language_id: str = Form(...),
+    source_file: UploadFile = File(...),
+    ctx: ContestAdminContext = Depends(get_contest_admin_context),
+) -> RedirectResponse:
+    """Stage and enqueue a Contest validator without saving unrelated edits."""
+    problem = await get_problem_in_contest(ctx.session, ctx.contest, problem_id)
+    if problem is None:
+        flash("Problem not found.", FlashCategory.DANGER)
+        return RedirectResponse(request.url_for("manage_problems", slug=ctx.contest.login_slug), 303)
+    edit_url = request.url_for("edit_problem_form", slug=ctx.contest.login_slug, problem_id=problem.id)
+    if any(not test_case.is_sample for test_case in problem.test_cases):
+        flash("All existing test cases must be samples before configuring a validator.", FlashCategory.DANGER)
+        return RedirectResponse(edit_url, 303)
+    active_language_ids = {language.id for language in await get_active_languages(ctx.session)}
+    if language_id not in active_language_ids:
+        flash("Validator language is not active.", FlashCategory.DANGER)
+        return RedirectResponse(edit_url, 303)
+    try:
+        source = parse_validator_source(await source_file.read())
+    except ValueError as exc:
+        flash(str(exc), FlashCategory.DANGER)
+        return RedirectResponse(edit_url, 303)
+    validator = problem.custom_validator
+    if validator is None:
+        validator = ProblemCustomValidator(problem_id=problem.id)
+        ctx.session.add(validator)
+    token = stage_candidate(validator, language_id=language_id, source=source)
+    await ctx.session.commit()
+    job = build_validation_job(domain="contest", problem_id=problem.id, candidate_token=token)
+    await enqueue_custom_validator_validation_job(request.app.state.valkey_runtime, job)
+    flash("Custom validator queued for compilation.", FlashCategory.SUCCESS)
+    return RedirectResponse(edit_url, 303)
+
+
+@router.get("/{problem_id}/validator/source", name="download_problem_custom_validator")
+async def download_problem_custom_validator(
+    problem_id: str,
+    ctx: ContestAdminContext = Depends(get_contest_admin_context),
+) -> Response:
+    """Download the current validator source (active revision, else candidate)."""
+    problem = await get_problem_in_contest(ctx.session, ctx.contest, problem_id)
+    if problem is None or problem.custom_validator is None:
+        raise HTTPException(404, "This problem has no custom validator.")
+    validator = problem.custom_validator
+    source: str | None
+    language_id: str | None
+    if validator.active_source is not None:
+        source, language_id = validator.active_source, validator.active_language_id
+    else:
+        source, language_id = validator.candidate_source, validator.candidate_language_id
+    if source is None or language_id is None:
+        raise HTTPException(404, "This problem has no custom validator.")
+    language = next(
+        (item for item in await get_active_languages(ctx.session) if item.id == language_id),
+        None,
+    )
+    source_filename = language.source_filename if language is not None else "source.txt"
+    filename = f"validator-{problem.ordinal}-{source_filename}"
+    return Response(
+        content=source.encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{problem_id}/validator/status", response_class=HTMLResponse, name="problem_custom_validator_status")
+async def problem_custom_validator_status(
+    request: Request,
+    problem_id: str,
+    ctx: ContestAdminContext = Depends(get_contest_admin_context),
+) -> HTMLResponse:
+    """Render the HTMX-polled Contest validator status partial."""
+    problem = await get_problem_in_contest(ctx.session, ctx.contest, problem_id)
+    if problem is None:
+        raise ValueError("Problem not found")
+    return _html(
+        request.app.state.templates.TemplateResponse(
+            request,
+            "admin/problems/_validator_status.html",
+            {
+                "contest": ctx.contest,
+                "problem": problem,
+                "validator_status": status_view(problem.custom_validator),
+            },
+        )
+    )
+
+
+@router.post("/{problem_id}/validator/remove", name="remove_problem_custom_validator")
+async def remove_problem_custom_validator_route(
+    request: Request,
+    problem_id: str,
+    ctx: ContestAdminContext = Depends(get_contest_admin_context),
+) -> RedirectResponse:
+    """Clear both revisions; stale queued jobs become token mismatches."""
+    problem = await get_problem_in_contest(ctx.session, ctx.contest, problem_id)
+    if problem is None:
+        raise ValueError("Problem not found")
+    if problem.custom_validator is not None:
+        remove_validator(problem.custom_validator)
+        await ctx.session.delete(problem.custom_validator)
+        await ctx.session.commit()
+    return RedirectResponse(
+        request.url_for("edit_problem_form", slug=ctx.contest.login_slug, problem_id=problem.id), 303
+    )
 
 
 @router.get("/{problem_id}/edit", response_class=HTMLResponse, name="edit_problem_form")
@@ -93,6 +216,7 @@ async def edit_problem_form(
         "memory_limit_kb": problem.memory_limit_kb,
         "pids_limit": problem.pids_limit,
         "output_limit_in_bytes": problem.output_limit_in_bytes or "",
+        "image_caption": problem.problem_image_caption or "",
     }
     active_tab = request.query_params.get("tab", "content")
     if active_tab not in {"content", "limits"}:
@@ -117,6 +241,8 @@ async def edit_problem_form(
                 "errors": [],
                 "active_tab": active_tab,
                 "balloon_colors": BALLOON_COLORS,
+                "validator_status": status_view(problem.custom_validator),
+                "validator_languages": await get_active_languages(ctx.session),
                 **profiling_limits_context,
             },
         )
@@ -142,6 +268,9 @@ async def edit_problem_submit(
     statement_file: UploadFile = File(None),
     statement_source: str = Form("unchanged"),
     md_content: str = Form(""),
+    image: UploadFile = File(None),
+    image_caption: str = Form(""),
+    clear_image: bool = Form(False),
 ) -> HTMLResponse | RedirectResponse:
     problem = await get_problem_in_contest(ctx.session, ctx.contest, problem_id)
     if problem is None:
@@ -178,6 +307,7 @@ async def edit_problem_submit(
                 "memory_limit_kb": problem.memory_limit_kb,
                 "pids_limit": problem.pids_limit,
                 "output_limit_in_bytes": problem.output_limit_in_bytes or "",
+                "image_caption": problem.problem_image_caption or "",
             }
             profiling_limits_context = await _build_profiling_limits_context(request, ctx, problem, form_data)
             return _html(
@@ -201,6 +331,8 @@ async def edit_problem_submit(
                         "success": False,
                         "active_tab": "limits",
                         "balloon_colors": BALLOON_COLORS,
+                        "validator_status": status_view(problem.custom_validator),
+                        "validator_languages": await get_active_languages(ctx.session),
                         **profiling_limits_context,
                     },
                     status_code=422,
@@ -316,10 +448,33 @@ async def edit_problem_submit(
     else:
         errors.append("Invalid statement source.")
 
+    image_b64: str | None = None
+    image_mime: str | None = None
+    if image and image.filename:
+        try:
+            image_b64, image_mime = await process_problem_image_upload(request.app.state.image_service, image)
+        except (ImageProcessingError, ValueError) as exc:
+            errors.append(f"Problem image: {exc}")
+
     tc_ids_to_remove = {value.strip() for value in str(form.get("tc_remove_ids", "") or "").split(",") if value.strip()}
     tcs_to_remove = [tc for tc in problem.test_cases if tc.id in tc_ids_to_remove]
-    if len(problem.test_cases) - len(tcs_to_remove) == 0:
+    validator_configured = status_view(problem.custom_validator).configured
+    # Interactive judgments never read test-case files, so a validator problem
+    # may legitimately ship no test cases at all.
+    if len(problem.test_cases) - len(tcs_to_remove) == 0 and not validator_configured:
         errors.append("At least one test case is required.")
+    if validator_configured:
+        pending_indices = {
+            int(key.rsplit("_", 1)[1])
+            for key in form
+            if (key.startswith("tc_in_") or key.startswith("tc_out_")) and key.rsplit("_", 1)[1].isdigit()
+        }
+        if any(
+            (str(form.get(f"tc_in_{index}", "")) or str(form.get(f"tc_out_{index}", "")))
+            and not form.get(f"tc_is_sample_{index}")
+            for index in pending_indices
+        ):
+            errors.append("Custom-validator test cases must be public samples.")
 
     if errors:
         testcase_dir = settings.PROBLEM_TESTCASE_DIR
@@ -336,6 +491,7 @@ async def edit_problem_submit(
             "memory_limit_kb": memory_limit_kb,
             "pids_limit": pids_limit,
             "output_limit_in_bytes": output_limit_in_bytes,
+            "image_caption": image_caption,
         }
         profiling_limits_context = await _build_profiling_limits_context(request, ctx, problem, form_data)
         selected_tab = active_tab if active_tab in {"content", "limits"} else "content"
@@ -362,6 +518,8 @@ async def edit_problem_submit(
                     "success": False,
                     "active_tab": selected_tab,
                     "balloon_colors": BALLOON_COLORS,
+                    "validator_status": status_view(problem.custom_validator),
+                    "validator_languages": await get_active_languages(ctx.session),
                     **profiling_limits_context,
                 },
                 status_code=422,
@@ -379,6 +537,18 @@ async def edit_problem_submit(
     problem.memory_limit_kb = mlkb
     problem.pids_limit = pids_limit_value
     problem.output_limit_in_bytes = output_limit_value
+
+    # A new upload wins over the remove checkbox. Removing the image removes its
+    # caption too: a caption with no image to caption is meaningless.
+    if clear_image and not image_b64:
+        problem.problem_image_base64 = None
+        problem.problem_image_mime = None
+        problem.problem_image_caption = None
+    else:
+        if image_b64:
+            problem.problem_image_base64 = image_b64
+            problem.problem_image_mime = image_mime
+        problem.problem_image_caption = image_caption.strip() or None
 
     if statement_source == "pdf":
         assert statement_file is not None

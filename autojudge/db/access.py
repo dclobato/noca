@@ -14,6 +14,7 @@ from autojudge.db (the package __init__) rather than from this module.
 """
 
 from autojudge.db._arena_submission import _ArenaSubmissionMixin
+from autojudge.db._custom_validator import _CustomValidatorMixin
 from autojudge.db._judgment import _JudgmentMixin
 from autojudge.db._languages import _LanguagesMixin
 from autojudge.db._problem import _ProblemMixin
@@ -24,6 +25,7 @@ from autojudge.db._submission import _SubmissionMixin
 
 class DatabaseAccess(
     _LanguagesMixin,
+    _CustomValidatorMixin,
     _ArenaSubmissionMixin,
     _SubmissionMixin,
     _ProblemMixin,

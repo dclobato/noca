@@ -75,6 +75,11 @@
     background-color: var(--arena-surface-container);
 }
 
+.arena-custom-validator-legend-icon {
+    font-size: 1.2rem;
+    vertical-align: middle;
+}
+
 /* ── Public problem detail page ──────────────────────────────────────────── */
 
 .arena-problem-header-strip {
@@ -125,31 +130,8 @@
     text-align: center;
 }
 
-/* ── Problem image and figure ────────────────────────────────────────────── */
-
-.arena-problem-image {
-    max-width: 70%;
-    display: block;
-    margin: 1rem auto;
-    border-radius: var(--arena-border-radius);
-}
-
-.arena-problem-figure {
-    text-align: center;
-    margin: 1rem auto;
-}
-
-.arena-problem-figure .arena-problem-image {
-    margin: 0 auto;
-}
-
-.arena-problem-figure-caption {
-    font-size: 0.6rem;
-    font-style: italic;
-    text-align: center;
-    margin-top: 0.25rem;
-    color: var(--arena-muted-color, #6c757d);
-}
+/* Problem image and figure styles live in shared/static/css/common.css
+   (.noca-problem-image / .noca-problem-figure), shared with the Contest module. */
 
 .arena-login-prompt-icon {
     font-size: 2.5rem;

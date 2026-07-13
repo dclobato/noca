@@ -23,11 +23,13 @@ import logging
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
+from typing import Any, cast
 
 import docker
 
 from autojudge.arena_submission_job import process_arena_submission_job
 from autojudge.config import settings
+from autojudge.custom_validator_validation import process_custom_validator_validation
 from autojudge.db import DatabaseAccess, QueuedSubmission
 from autojudge.languages import LanguageConfig
 from autojudge.metrics import JOBS_COMPLETED_TOTAL, JOBS_DISPATCHED_TOTAL
@@ -125,6 +127,9 @@ async def _persist_job_failure(
     """
     metric_job_kind = job_kind
     try:
+        if job_kind == JobKind.CUSTOM_VALIDATOR_VALIDATION:
+            return False, metric_job_kind
+
         if job_kind == JobKind.PROFILING:
             await db.set_profiling_failed(job_id, f"Internal judge error: {exc}")
         elif job_kind == JobKind.ARENA_SUBMISSION:
@@ -190,6 +195,32 @@ async def dispatch_job(
     metric_job_kind = job_kind
 
     try:
+        if job_kind == JobKind.CUSTOM_VALIDATOR_VALIDATION:
+            job_hash_result = valkey.hgetall(f"judge:job:{job_id}")
+            job_hash = cast(
+                dict[Any, Any],
+                await job_hash_result if asyncio.iscoroutine(job_hash_result) else job_hash_result,
+            )
+            decoded = {
+                (key.decode() if isinstance(key, bytes) else str(key)): (
+                    value.decode() if isinstance(value, bytes) else str(value)
+                )
+                for key, value in job_hash.items()
+            }
+            await process_custom_validator_validation(
+                validation_id=job_id,
+                domain=decoded["domain"],
+                problem_id=decoded["problem_id"],
+                candidate_token=decoded["candidate_token"],
+                connection=db.connection,
+                language_registry=language_registry,
+                docker_client=docker_client,
+                executor=executor,
+            )
+            cleanup_job_state = True
+            JOBS_COMPLETED_TOTAL.labels(job_kind=job_kind, outcome="done").inc()
+            return
+
         if job_kind == JobKind.PROFILING:
             profiling_run = await db.get_profiling_run_for_judging(job_id)
             await process_profiling_job(
