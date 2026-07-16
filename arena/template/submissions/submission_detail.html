@@ -110,9 +110,54 @@
                             </table>
                         </dd>
                     </dl>
+                    {% if is_admin %}
+                        <div class="mt-2">
+                            <button type="button"
+                                    class="btn btn-outline-danger btn-sm d-inline-flex align-items-center gap-1"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#force-rejudge-modal">
+                                {{ render_icon(icon="restart_alt") }}
+                                Force rejudgment
+                            </button>
+                        </div>
+                    {% endif %}
                 </div>
             </div>
         </section>
+        {# ── Force rejudgment modal (Arena admin only) ── #}
+        {% if is_admin %}
+            <div class="modal fade"
+                 id="force-rejudge-modal"
+                 tabindex="-1"
+                 aria-labelledby="force-rejudge-modal-label"
+                 aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <form method="post"
+                          class="modal-content"
+                          action="{{ request.url_for('arena_submission_force_rejudge', submission_id=submission_id) }}">
+                        <div class="modal-header">
+                            <h2 class="modal-title fs-5" id="force-rejudge-modal-label">Force rejudgment</h2>
+                            <button type="button"
+                                    class="btn-close"
+                                    data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="mb-0">
+                                Force a fresh judgment for this submission? The current verdict will be
+                                superseded and the submission re-queued for judging.
+                            </p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button"
+                                    class="btn btn-secondary btn-sm"
+                                    data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-danger btn-sm">Force rejudgment</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
         {# ── Card 2: Resources & Verdict ── #}
         <section class="arena-card mb-4">
             <h2 class="arena-card-title">

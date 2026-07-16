@@ -47,6 +47,7 @@ async def efetuar_login(
     password: str,
     session: AsyncSession,
     ip_address: str | None = None,
+    source_port: int | None = None,
     user_agent: str | None = None,
     mode: str = "password",
     geo_service: GeolocationIP | None = None,
@@ -63,6 +64,7 @@ async def efetuar_login(
         password: Plaintext password to verify.
         session: Active async database session.
         ip_address: Client IP address for login history (optional).
+        source_port: Client source port for login history (optional).
         user_agent: HTTP User-Agent header for login history (optional).
         mode: Authentication mode label stored in login history.
         geo_service: Optional geolocation service to resolve the client IP into
@@ -128,6 +130,7 @@ async def efetuar_login(
                 usuario,
                 session,
                 ip_address=ip_address,
+                source_port=source_port,
                 user_agent=user_agent,
                 mode=mode,
                 geo_service=geo_service,
@@ -302,6 +305,7 @@ async def registrar_login_concluido(
     usuario: ArenaUser,
     session: AsyncSession,
     ip_address: str | None = None,
+    source_port: int | None = None,
     user_agent: str | None = None,
     mode: str = "password",
     geo_service: GeolocationIP | None = None,
@@ -312,6 +316,7 @@ async def registrar_login_concluido(
         usuario: Authenticated Arena user.
         session: Active async database session.
         ip_address: Client IP address for login history (optional).
+        source_port: Client source port for login history (optional).
         user_agent: HTTP User-Agent header for login history (optional).
         mode: Authentication method label stored in login history.
         geo_service: Optional geolocation service for the client IP.
@@ -324,7 +329,7 @@ async def registrar_login_concluido(
         details: GeolocationDetails | None = None
         if ip_address and geo_service:
             details = geo_service.get_details_by_ip(ip_address)
-        await _registrar_login(usuario, ip_address, details, user_agent, mode, session)
+        await _registrar_login(usuario, ip_address, source_port, details, user_agent, mode, session)
         return UserServiceResult(status=UserOperationStatus.SUCCESS, user=usuario)
     except SQLAlchemyError as exc:
         logger.error("Database error recording completed login for %s: %s", usuario.email_normalizado, exc)
@@ -334,6 +339,7 @@ async def registrar_login_concluido(
 async def _registrar_login(
     usuario: ArenaUser,
     ip_address: str | None,
+    source_port: int | None,
     details: GeolocationDetails | None,
     user_agent: str | None,
     mode: str,
@@ -344,6 +350,7 @@ async def _registrar_login(
             arena_user_id=usuario.id,
             dta_login=_utcnow(),
             ip_address=ip_address,
+            source_port=source_port,
             country_code=details.country_code if details else None,
             subdivision_code=details.subdivision_code if details else None,
             district=details.district if details else None,

@@ -37,6 +37,7 @@ from .errors import (
     TaskLockUnavailableError,
     TaskNotAcquiredByActorError,
 )
+from .permissions import can_force_release_tasks, can_handle_tasks
 
 _EMPTY_SOURCE_HASH = hashlib.sha256(b"").hexdigest()
 
@@ -152,11 +153,11 @@ async def acquire_task(
     task: Task,
     lock_client: LockClient,
 ) -> Task:
-    """Acquire a task lock so a staff member may handle it."""
+    """Acquire a task lock so a staff member, admin or the chief judge may handle it."""
     if not contest.is_running:
         raise ContestNotRunningError("Tasks can only be acquired while the contest is running.")
-    if actor.role != RoleEnum.STAFF:
-        raise ForbiddenTaskActionError("Only staff members may acquire tasks.")
+    if not can_handle_tasks(actor, contest):
+        raise ForbiddenTaskActionError("Only staff members, admins and the chief judge may acquire tasks.")
     if task.finished_at is not None:
         raise TaskAlreadyFinishedError("This task has already been finished.")
 
@@ -185,30 +186,31 @@ async def release_task(
     task: Task,
     lock_client: LockClient,
 ) -> Task:
-    """Release a staff member's lock on a task without finishing it."""
+    """Release a handler's lock on a task without finishing it."""
+    can_force = can_force_release_tasks(actor)
+    if not can_force and not can_handle_tasks(actor, contest):
+        raise ForbiddenTaskActionError("Only staff members, admins and the chief judge may release task locks.")
+
     lock = await get_lock(lock_client, kind="task", contest_id=contest.id, resource_id=task.id)
     if lock is None:
-        if isinstance(actor, UberAdmin) or actor.role == RoleEnum.ADMIN:
+        if can_force:
             return task
-        if actor.role != RoleEnum.STAFF:
-            raise ForbiddenTaskActionError("Only staff members and admins may release task locks.")
         raise TaskNotAcquiredByActorError("You do not hold the lock on this task.")
 
-    if not isinstance(actor, UberAdmin) and actor.role not in (RoleEnum.ADMIN, RoleEnum.STAFF):
-        raise ForbiddenTaskActionError("Only staff members and admins may release task locks.")
-    if not isinstance(actor, UberAdmin) and actor.role == RoleEnum.STAFF and lock.holder_id != actor.id:
-        raise TaskNotAcquiredByActorError("You do not hold the lock on this task.")
-
-    if isinstance(actor, UberAdmin) or actor.role == RoleEnum.ADMIN:
+    if can_force:
         await force_release_lock(lock_client, kind="task", contest_id=contest.id, resource_id=task.id)
-    else:
-        await release_lock(
-            lock_client,
-            kind="task",
-            contest_id=contest.id,
-            resource_id=task.id,
-            holder_id=actor.id,
-        )
+        return task
+
+    assert isinstance(actor, User)
+    if lock.holder_id != actor.id:
+        raise TaskNotAcquiredByActorError("You do not hold the lock on this task.")
+    await release_lock(
+        lock_client,
+        kind="task",
+        contest_id=contest.id,
+        resource_id=task.id,
+        holder_id=actor.id,
+    )
     return task
 
 
@@ -219,11 +221,11 @@ async def finish_task(
     task: Task,
     lock_client: LockClient,
 ) -> Task:
-    """Mark a task as finished by the staff member who holds the lock."""
+    """Mark a task as finished by the handler who holds the lock."""
     if not contest.is_running:
         raise ContestNotRunningError("Tasks can only be finished while the contest is running.")
-    if actor.role != RoleEnum.STAFF:
-        raise ForbiddenTaskActionError("Only staff members may finish tasks.")
+    if not can_handle_tasks(actor, contest):
+        raise ForbiddenTaskActionError("Only staff members, admins and the chief judge may finish tasks.")
     if task.finished_at is not None:
         raise TaskAlreadyFinishedError("This task has already been finished.")
 

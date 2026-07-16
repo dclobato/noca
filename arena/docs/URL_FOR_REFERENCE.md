@@ -27,6 +27,7 @@ Use this endpoint for runtime health probes.
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
+| `GET /help` | `arena_help_index` | — | `help.py` |
 | `GET /help/rating` | `arena_help_rating` | — | `help.py` |
 | `GET /help/rating/difficulty-distribution` | `arena_help_difficulty_distribution` | — | `help.py` |
 | `GET /help/languages` | `arena_help_languages` | — | `help.py` |
@@ -44,6 +45,7 @@ Use this endpoint for runtime health probes.
 |---|---|---|
 | `request.url_for('arena_problem_list')` | `/problems` | Query: `search`, `sort_by` (`number_asc`, `number_desc`, `title_asc`, `title_desc`, `solvers_asc`, `solvers_desc`, `rating_asc`, `rating_desc`), `category_slugs`, `page` |
 | `request.url_for('arena_problem_detail', arena_number=N)` | `/problems/{N}` | Query: `back_page`, `back_search`, `back_sort_by`, `back_category_slugs` |
+| `request.url_for('arena_problem_print', arena_number=N)` | `/problems/{N}/print` | Standalone print-friendly problem page (statement, samples, limits); requires auth |
 | `request.url_for('arena_problem_rating_history_public', arena_number=N)` | `/problems/{N}/rating-history` | Returns JSON `{history:[…]}` |
 | `request.url_for('arena_problem_statistics', arena_number=N)` | `/problems/{N}/statistics` | Per-problem statistics page |
 | `request.url_for('arena_problem_statistics_data', arena_number=N)` | `/problems/{N}/statistics.json` | Returns the precomputed statistics payload, or `{}` |
@@ -58,7 +60,6 @@ Use this endpoint for runtime health probes.
 |---|---|---|---|
 | `GET /` | *(redirect, no name)* | — | `root.py` |
 | `GET /dashboard` | `arena_dashboard` | — | `root.py` |
-| `GET /status` | `arena_status` | — | `status.py` |
 | `GET /<favicon asset>` | `arena_favicon_<file>` *(not used in templates; base templates reference the literal root paths)* | — | `root.py` |
 | `GET /live` | `arena_live` | — | `live.py` |
 | `GET /live/feed.json` | `arena_live_feed` | — | `live.py` |
@@ -71,6 +72,7 @@ Use this endpoint for runtime health probes.
 | `request.url_for('arena_submission_detail', submission_id=ID)` | `/submissions/{ID}` | Requires auth; 404 if not owned by user (unless ARENA_ADMIN); owner confirms AI review requests in a balance-preview modal and sees pending, batch-queued, or completed review states for non-AC submissions |
 | `request.url_for('arena_submission_request_ai_review', submission_id=ID)` | `/submissions/{ID}/request-ai-review` | POST only; owner-only (no admin bypass); idempotent; requires `ai_api_key` or `ai_backend_credits > 0`; consumes one credit when using platform key |
 | `request.url_for('arena_submission_teacher_feedback', submission_id=ID)` | `/submissions/{ID}/teacher-feedback` | POST only; manager-only (set's teacher or ARENA_ADMIN); non-AC, set-tied submissions; upserts feedback and notifies the student; `back_class_id`/`back_set_id`/`back_user_id` form fields are navigation-only |
+| `request.url_for('arena_submission_force_rejudge', submission_id=ID)` | `/submissions/{ID}/force-rejudge` | POST only; ARENA_ADMIN-only; supersedes the active judgment, queues a new one, and enqueues a fresh judging job; rendered as a confirmation modal on the submission detail page |
 
 ## Notification Routes (`arena/routes/notifications.py`)
 
@@ -172,6 +174,7 @@ Use this endpoint for runtime health probes.
 | `POST /user/profile/language` | `arena_user_profile_language_update` | — | `user_profile_api.py` |
 | `GET /user/profile/rating-history` | `arena_user_profile_rating_history` | — | `user_profile_api.py` |
 | `GET /user/profile/submission-heatmap` | `arena_user_profile_submission_heatmap` | — | `user_profile_api.py` |
+| `GET /user/profile/statistics` | `arena_user_profile_statistics` | — | `user_profile_api.py` |
 | `POST /user/profile/api-key` | `arena_user_profile_api_key_update` | — | `user_profile_api.py` |
 | `GET /user/submissions/status.json` | `arena_user_submissions_status` | Query: `ids` (CSV of owned submission UUIDs) | `user_submission_status.py` |
 | `GET /user/submissions/status/events` | `arena_user_submissions_events` | Query: `ids` (CSV of owned submission UUIDs) | `user_submission_status.py` |
@@ -230,6 +233,7 @@ GET routes: `arena/routes/admin_users.py` · POST routes: `arena/routes/admin_us
 | `GET /admin/users/{user_id}` | `arena_admin_user_profile` | `user_id=`, query: `tab`, `credits_page`, `notifications_page`, `submissions_page`, `submissions_search`, `submissions_verdict`, `login_page`, `login_per_page`, `login_sort_dir`, `login_date_from`, `login_date_to` | `admin_users.py` |
 | `GET /admin/users/{user_id}/rating-history` | `arena_admin_user_rating_history` | `user_id=` | `admin_users.py` |
 | `GET /admin/users/{user_id}/submission-heatmap` | `arena_admin_user_submission_heatmap` | `user_id=` | `admin_users.py` |
+| `GET /admin/users/{user_id}/statistics` | `arena_admin_user_statistics` | `user_id=` | `admin_users.py` |
 | `POST /admin/users/{user_id}/role` | `arena_admin_user_change_role` | `user_id=` | `admin_users_actions.py` |
 | `POST /admin/users/{user_id}/toggle-active` | `arena_admin_user_toggle_active` | `user_id=` | `admin_users_actions.py` |
 | `POST /admin/users/{user_id}/force-password-change` | `arena_admin_user_force_pw_change` | `user_id=` | `admin_users_actions.py` |
@@ -325,4 +329,8 @@ GET routes: `arena/routes/admin_users.py` · POST routes: `arena/routes/admin_us
 | `POST /admin/problems/{problem_id}/validator` | `arena_admin_problem_validator_upload` | `problem_id=` |
 | `GET /admin/problems/{problem_id}/validator/status` | `arena_admin_problem_validator_status` | `problem_id=` |
 | `GET /admin/problems/{problem_id}/validator/source` | `arena_admin_problem_validator_download` | `problem_id=` |
-| `POST /admin/problems/{problem_id}/validator/remove` | `arena_admin_problem_validator_remove` | `problem_id=` |
+| `GET /admin/problems/{problem_id}/validator/source/view` | `arena_admin_problem_validator_source_view` | `problem_id=` |
+| `POST /admin/problems/{problem_id}/validator/remove` | `arena_admin_problem_validator_remove` | `problem_id=`, Form: `keep_interactions` (`"true"`/`"false"`, required) |
+| `GET /admin/problems/{problem_id}/interactions/{si_id}/edit` | `arena_admin_problem_interaction_edit` | `problem_id=`, `si_id=` |
+| `POST /admin/problems/{problem_id}/interactions/{si_id}/edit` | `arena_admin_problem_interaction_update` | `problem_id=`, `si_id=` |
+| `POST /admin/problems/{problem_id}/interactions/{si_id}/move` | `arena_admin_problem_interaction_move` | `problem_id=`, `si_id=`, Query: `new_ordinal` |

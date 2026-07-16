@@ -9,6 +9,8 @@
   own page chrome. Required context:
     is_edit            bool   editing an existing case (vs creating a new one)
     is_edit_allowed    bool   whether inputs are writable (Web gates; Arena True)
+    interactive        bool   problem has a custom validator, so the case carries
+                              input only and no expected output is collected
     offline            bool   case too large for inline editing
     input_size_bytes   int    (offline notice)
     output_size_bytes  int    (offline notice)
@@ -31,8 +33,10 @@
         {{ render_icon(icon="lock", classes="flex-shrink-0 mt-1") }}
         <div>
             This test case is too large to edit inline
-            (input {{ input_size_bytes | filesizeformat(true) }},
-            output {{ output_size_bytes | filesizeformat(true) }}).
+            (input {{ input_size_bytes | filesizeformat(true) }}
+            {%- if not interactive %}, output {{ output_size_bytes | filesizeformat(true) }}
+            {% endif -%}
+            ).
             Download it, edit the files locally, then upload to replace.
         </div>
     </div>
@@ -56,7 +60,8 @@
             </button>
         </form>
         <div class="form-text mb-3">
-            The ZIP must contain <code>input.txt</code> and <code>output.txt</code>
+            The ZIP must contain <code>input.txt</code>
+            {% if not interactive %}and <code>output.txt</code>{% endif %}
             (optionally <code>explanation.txt</code>). No size limit.
         </div>
     {% endif %}
@@ -64,7 +69,7 @@
 {% else %}
     <form method="post" action="{{ post_action_url }}">
         <div class="row g-3">
-            <div class="col-12 col-md-6">
+            <div class="{% if interactive %}col-12{% else %}col-12 col-md-6{% endif %}">
                 <label class="form-label" for="tc_in">Input</label>
                 <textarea id="tc_in"
                           name="{{ input_field_name }}"
@@ -73,19 +78,27 @@
                           class="form-control form-control-sm font-monospace"
                           placeholder="Test case input…"
                           {% if not is_edit_allowed %}readonly{% endif %}>{{ input_value }}</textarea>
-                <div class="form-text">Up to 10 KB for inline editing. Larger cases must be edited offline.</div>
+                <div class="form-text">
+                    Up to 10 KB for inline editing. Larger cases must be edited offline.
+                    {% if interactive %}
+                        This input is fed to the custom validator's standard input before it starts
+                        interacting with the contestant.
+                    {% endif %}
+                </div>
             </div>
-            <div class="col-12 col-md-6">
-                <label class="form-label" for="tc_out">Expected output</label>
-                <textarea id="tc_out"
-                          name="{{ output_field_name }}"
-                          rows="16"
-                          maxlength="10240"
-                          class="form-control form-control-sm font-monospace"
-                          placeholder="Expected output…"
-                          {% if not is_edit_allowed %}readonly{% endif %}>{{ output_value }}</textarea>
-                <div class="form-text">Up to 10 KB for inline editing.</div>
-            </div>
+            {% if not interactive %}
+                <div class="col-12 col-md-6">
+                    <label class="form-label" for="tc_out">Expected output</label>
+                    <textarea id="tc_out"
+                              name="{{ output_field_name }}"
+                              rows="16"
+                              maxlength="10240"
+                              class="form-control form-control-sm font-monospace"
+                              placeholder="Expected output…"
+                              {% if not is_edit_allowed %}readonly{% endif %}>{{ output_value }}</textarea>
+                    <div class="form-text">Up to 10 KB for inline editing.</div>
+                </div>
+            {% endif %}
             <div class="col-12">
                 <label class="form-label" for="tc_explanation">Explanation (optional)</label>
                 <textarea id="tc_explanation"
@@ -96,18 +109,20 @@
                           {% if not is_edit_allowed %}readonly{% endif %}>{{ explanation_value }}</textarea>
                 <div class="form-text">Shown to contestants below the sample.</div>
             </div>
-            <div class="col-12">
-                <div class="form-check">
-                    <input type="checkbox"
-                           class="form-check-input"
-                           id="is_sample"
-                           name="is_sample"
-                           value="true"
-                           {% if is_sample %}checked{% endif %}
-                           {% if not is_edit_allowed %}disabled{% endif %}>
-                    <label class="form-check-label" for="is_sample">Sample — show input/output to contestants</label>
+            {% if not interactive %}
+                <div class="col-12">
+                    <div class="form-check">
+                        <input type="checkbox"
+                               class="form-check-input"
+                               id="is_sample"
+                               name="is_sample"
+                               value="true"
+                               {% if is_sample %}checked{% endif %}
+                               {% if not is_edit_allowed %}disabled{% endif %}>
+                        <label class="form-check-label" for="is_sample">Sample — show input/output to contestants</label>
+                    </div>
                 </div>
-            </div>
+            {% endif %}
         </div>
         <div class="d-flex flex-wrap gap-2 mt-3">
             {% if is_edit_allowed %}
@@ -127,7 +142,8 @@
         <hr class="my-4">
         <p class="text-muted small mb-2">
             Prefer to edit the files locally? Download this case, edit it, and upload to replace
-            (no size limit). The ZIP must contain <code>input.txt</code> and <code>output.txt</code>
+            (no size limit). The ZIP must contain <code>input.txt</code>
+            {% if not interactive %}and <code>output.txt</code>{% endif %}
             (optionally <code>explanation.txt</code>).
         </p>
         <div class="d-flex flex-wrap gap-2 align-items-center">

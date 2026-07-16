@@ -151,13 +151,25 @@ def build_interactive_isolate_command(
     return command
 
 
-def build_validator_isolate_command(container: Container, language: LanguageConfig) -> list[str]:
-    """Build an attached isolate command without contestant resource limits."""
+def build_validator_isolate_command(
+    container: Container,
+    language: LanguageConfig,
+    environment: dict[str, str] | None = None,
+) -> list[str]:
+    """Build an attached isolate command without contestant resource limits.
+
+    Args:
+        environment: Variables the validator reads. They must be forwarded through
+            isolate, which starts the sandboxed process with an empty environment:
+            variables set on the enclosing Docker exec never reach the validator.
+    """
     command = _isolate_base_cmd(_box_id_for(container)) + [
         f"--meta={ISOLATE_META_PATH}",
         "--processes",
         f"--dir={SANDBOX_DIR}={SANDBOX_DIR}:rw",
     ]
+    for name, value in sorted((environment or {}).items()):
+        command.append(f"--env={name}={value}")
     command.extend(_runtime_isolate_dirs(language))
     command.extend([f"--chdir={SANDBOX_DIR}", "--run", "--", *language.run_cmd])
     return command

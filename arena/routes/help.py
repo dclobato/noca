@@ -92,6 +92,27 @@ def _stdout_flush_hint_parts(hint: str | None) -> list[StdoutFlushHintPart]:
     return parts
 
 
+@router.get("/help", response_class=HTMLResponse, name="arena_help_index")
+async def arena_help_index(
+    request: Request,
+    current_user: ArenaUser | None = Depends(get_current_arena_user),
+) -> HTMLResponse:
+    """Render the Arena help landing page with links to each help topic.
+
+    Args:
+        request: The current HTTP request.
+        current_user: Authenticated ``ArenaUser`` or ``None`` for guests.
+    """
+    templates = request.app.state.arena_templates
+    return _html(
+        templates.TemplateResponse(
+            request,
+            "help_index.html",
+            {"current_user": current_user},
+        )
+    )
+
+
 @router.get("/help/rating", response_class=HTMLResponse, name="arena_help_rating")
 async def arena_help_rating(
     request: Request,

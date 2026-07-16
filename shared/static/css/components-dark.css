@@ -1,0 +1,135 @@
+/* NOCA -- Next Online Contest Administrator */
+/* Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org> */
+/* This program is distributed in the hope that it will be useful, */
+/* but WITHOUT ANY WARRANTY; without even the implied warranty of */
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. */
+
+/*
+ * Dark-mode overrides for shared third-party components whose vendor CSS ships a
+ * single light theme: highlight.js code viewers and the EasyMDE/CodeMirror
+ * Markdown editor. Both are used by the web and arena modules, so the overrides
+ * live here and load through common.css. Every rule is scoped to
+ * [data-bs-theme="dark"], so light mode keeps the vendor defaults untouched.
+ */
+
+/* ── highlight.js (github → github-dark) ─────────────────────────────────────
+   The wrapper rules (.noca-source-code-pre / .arena-source-code-pre) set only
+   layout, so re-colouring .hljs* here is enough. Palette mirrors highlight.js's
+   official github-dark theme. */
+[data-bs-theme="dark"] .hljs {
+    color: #c9d1d9;
+    background: #0d1117;
+}
+[data-bs-theme="dark"] .hljs-doctag,
+[data-bs-theme="dark"] .hljs-keyword,
+[data-bs-theme="dark"] .hljs-meta .hljs-keyword,
+[data-bs-theme="dark"] .hljs-template-tag,
+[data-bs-theme="dark"] .hljs-template-variable,
+[data-bs-theme="dark"] .hljs-type,
+[data-bs-theme="dark"] .hljs-variable.language_ {
+    color: #ff7b72;
+}
+[data-bs-theme="dark"] .hljs-title,
+[data-bs-theme="dark"] .hljs-title.class_,
+[data-bs-theme="dark"] .hljs-title.class_.inherited__,
+[data-bs-theme="dark"] .hljs-title.function_ {
+    color: #d2a8ff;
+}
+[data-bs-theme="dark"] .hljs-attr,
+[data-bs-theme="dark"] .hljs-attribute,
+[data-bs-theme="dark"] .hljs-literal,
+[data-bs-theme="dark"] .hljs-meta,
+[data-bs-theme="dark"] .hljs-number,
+[data-bs-theme="dark"] .hljs-operator,
+[data-bs-theme="dark"] .hljs-variable,
+[data-bs-theme="dark"] .hljs-selector-attr,
+[data-bs-theme="dark"] .hljs-selector-class,
+[data-bs-theme="dark"] .hljs-selector-id {
+    color: #79c0ff;
+}
+[data-bs-theme="dark"] .hljs-regexp,
+[data-bs-theme="dark"] .hljs-string,
+[data-bs-theme="dark"] .hljs-meta .hljs-string {
+    color: #a5d6ff;
+}
+[data-bs-theme="dark"] .hljs-built_in,
+[data-bs-theme="dark"] .hljs-symbol {
+    color: #ffa657;
+}
+[data-bs-theme="dark"] .hljs-comment,
+[data-bs-theme="dark"] .hljs-code,
+[data-bs-theme="dark"] .hljs-formula {
+    color: #8b949e;
+}
+[data-bs-theme="dark"] .hljs-name,
+[data-bs-theme="dark"] .hljs-quote,
+[data-bs-theme="dark"] .hljs-selector-tag,
+[data-bs-theme="dark"] .hljs-selector-pseudo {
+    color: #7ee787;
+}
+[data-bs-theme="dark"] .hljs-subst {
+    color: #c9d1d9;
+}
+[data-bs-theme="dark"] .hljs-section {
+    color: #1f6feb;
+    font-weight: bold;
+}
+[data-bs-theme="dark"] .hljs-bullet {
+    color: #f2cc60;
+}
+[data-bs-theme="dark"] .hljs-emphasis {
+    color: #c9d1d9;
+    font-style: italic;
+}
+[data-bs-theme="dark"] .hljs-strong {
+    color: #c9d1d9;
+    font-weight: bold;
+}
+[data-bs-theme="dark"] .hljs-addition {
+    color: #aff5b4;
+    background-color: #033a16;
+}
+[data-bs-theme="dark"] .hljs-deletion {
+    color: #ffdcd7;
+    background-color: #67060c;
+}
+
+/* ── EasyMDE / CodeMirror Markdown editor ────────────────────────────────────
+   Vendor easymde.min.css is light-only. Re-theme the editor, toolbar, preview
+   and status bar through the shared dark tokens so the admin problem editor is
+   legible in dark mode. */
+[data-bs-theme="dark"] .EasyMDEContainer .CodeMirror {
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    border-color: var(--bs-border-color);
+}
+[data-bs-theme="dark"] .EasyMDEContainer .CodeMirror-cursor {
+    border-color: var(--bs-body-color);
+}
+[data-bs-theme="dark"] .EasyMDEContainer .CodeMirror-selected {
+    background: var(--noca-surface-container-high);
+}
+[data-bs-theme="dark"] .editor-toolbar {
+    background: var(--noca-surface-container-low);
+    border-color: var(--bs-border-color);
+}
+[data-bs-theme="dark"] .editor-toolbar button {
+    color: var(--bs-body-color);
+}
+[data-bs-theme="dark"] .editor-toolbar button:hover,
+[data-bs-theme="dark"] .editor-toolbar button.active {
+    background: var(--noca-surface-container-high);
+    border-color: var(--bs-border-color);
+}
+[data-bs-theme="dark"] .editor-toolbar i.separator {
+    border-left-color: var(--bs-border-color);
+    border-right-color: var(--noca-surface-container-low);
+}
+[data-bs-theme="dark"] .editor-preview,
+[data-bs-theme="dark"] .editor-preview-side {
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+}
+[data-bs-theme="dark"] .editor-statusbar {
+    color: var(--bs-secondary-color);
+}

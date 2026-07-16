@@ -64,6 +64,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
 
     app.state.arena_templates = templates
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
+    app.state.source_port_header = "X-Client-Source-Port"
     app.state.jwt_service = JWTService(
         config=load_token_config_from_dict(
             {
@@ -256,6 +257,16 @@ async def _login_history_modes(session: AsyncSession, user_id: str) -> list[str 
     """Return recorded login-history modes for a user in insertion order."""
     result = await session.execute(
         select(ArenaLoginHistory.mode).where(ArenaLoginHistory.arena_user_id == user_id).order_by(ArenaLoginHistory.id)
+    )
+    return list(result.scalars())
+
+
+async def _login_history_source_ports(session: AsyncSession, user_id: str) -> list[int | None]:
+    """Return recorded login-history source ports for a user in insertion order."""
+    result = await session.execute(
+        select(ArenaLoginHistory.source_port)
+        .where(ArenaLoginHistory.arena_user_id == user_id)
+        .order_by(ArenaLoginHistory.id)
     )
     return list(result.scalars())
 
@@ -492,12 +503,14 @@ async def test_password_only_login_records_password_mode(session: AsyncSession) 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         response = await client.post(
             "/auth/login",
+            headers={"X-Client-Source-Port": "54321"},
             data={"email": "user@test.example", "password": "StrongPass1!"},
             follow_redirects=False,
         )
 
     assert response.status_code == 303
     assert await _login_history_modes(session, user.id) == ["password"]
+    assert await _login_history_source_ports(session, user.id) == [54321]
 
 
 # ---------------------------------------------------------------------------

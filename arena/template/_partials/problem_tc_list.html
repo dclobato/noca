@@ -41,6 +41,8 @@
             <div class="form-text mb-3">
                 ZIP may use directory layout (<code>in/001.in</code> / <code>out/001.out</code> or <code>out/001.sol</code>) or flat layout (<code>001.in</code> / <code>001.out</code> or <code>001.sol</code>). <strong>Replaces all existing test cases.</strong>
             </div>
+            {# An interactive problem's cases are all secret, so it offers no sample toggle. #}
+            {% set sample_toggle_disabled = validator_status is defined and validator_status.configured %}
             {% include "_partials/testcase_list_table.html" %}
             <div id="tc-add-rows"></div>
             <div class="d-flex flex-wrap gap-2 align-items-center mt-1">

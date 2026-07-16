@@ -32,6 +32,7 @@ noca/
 |-- autojudge/              # Compilation and execution worker
 |-- rating/                 # Arena rating, statistics, and badge worker
 |-- aiassistant/            # Arena AI review worker
+|-- healthmonitor/          # Public health-monitoring server
 |-- shared/                 # Shared schemas, services, assets, and contracts
 |   |-- db_schema/          # SQLAlchemy Core table definitions
 |   |-- services/           # Cross-module services
@@ -50,9 +51,11 @@ noca/
 
 ## Modules
 
-The runtime is composed of two user-facing applications, three workers, and one
-shared library. Arrows in the following figure show logical dependencies and
-workflows, not direct imports between runtime applications.
+The runtime is composed of three user-facing applications, three workers, and
+one shared library. Arrows in the following figure show logical dependencies and
+workflows, not direct imports between runtime applications. The Health Monitor
+is omitted from the figure: it observes every other runtime through their
+Valkey worker-presence keys and participates in no business workflow.
 
 ```text
 
@@ -88,6 +91,7 @@ The workspace packages and their entry points are:
 | `autojudge/` | `noca-autojudge` | `uv run noca-autojudge` | Shared judge worker |
 | `rating/` | `noca-rating` | `uv run noca-rating` | Arena rating worker |
 | `aiassistant/` | `noca-aiassistant` | `uv run noca-aiassistant` | Arena AI review worker |
+| `healthmonitor/` | `noca-healthmonitor` | `uv run noca-healthmonitor` | Public health-monitoring server |
 | `shared/` | `noca-shared` | Library only | Shared contracts and services |
 
 ## Module relationships
@@ -372,7 +376,8 @@ Start each selected runtime in a separate terminal. Common combinations are:
 - Arena with ratings: `noca-arena` + `noca-autojudge` + `noca-rating`.
 - Arena with AI feedback: `noca-arena` + `noca-autojudge` +
   `noca-aiassistant`.
-- Full ecosystem: all five runtime modules.
+- Public status dashboards: add `noca-healthmonitor` to any combination.
+- Full ecosystem: all six runtime modules.
 
 For example, start the complete ecosystem with:
 
@@ -382,6 +387,7 @@ uv run noca-arena
 uv run noca-autojudge
 uv run noca-rating
 uv run noca-aiassistant
+uv run noca-healthmonitor
 ```
 
 Run **only one** Rating replica. Contest doesn't depend on Arena, Rating, or AI
@@ -394,8 +400,8 @@ language images, and production preparation.
 ## Docker
 
 The repository includes [a Docker Compose sample](docker-compose.yml.sample)
-with Caddy, Contest, Arena, AutoJudge, Rating, AI Assistant, PostgreSQL, and
-Valkey services. Use it as a deployment template and remove application or
+with Caddy, Contest, Arena, AutoJudge, Rating, AI Assistant, Health Monitor,
+PostgreSQL, and Valkey services. Use it as a deployment template and remove application or
 worker services that you don't need.
 
 The sample mounts persistent PostgreSQL and Valkey volumes, problem statements,

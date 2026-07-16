@@ -619,6 +619,22 @@ def default_language_registry() -> dict[str, LanguageConfig]:
     return {language.id: language for language in default_language_configs()}
 
 
+def default_extension_for_language(language_id: str) -> str:
+    """Return the source-file extension for a language id from the seed configs.
+
+    Args:
+        language_id: The language identifier to resolve.
+
+    Returns:
+        The dotted extension (e.g. ``".py"``) for the language, or ``".txt"``
+        when the id is not present in the default configuration.
+    """
+    language = default_language_registry().get(language_id)
+    if language is None:
+        return ".txt"
+    return language.default_extension
+
+
 def default_language_seed_rows() -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for language in default_language_configs():

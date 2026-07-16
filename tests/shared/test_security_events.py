@@ -26,11 +26,21 @@ from shared.services.security_events import (
 )
 
 
-def _request(client_ip: str = "203.0.113.9", user_agent: str = "pytest-agent") -> SimpleNamespace:
+def _request(
+    client_ip: str = "203.0.113.9",
+    user_agent: str = "pytest-agent",
+    *,
+    source_port: int | None = 54321,
+    request_id: str | None = "11111111-2222-3333-4444-555555555555",
+) -> SimpleNamespace:
     """Build a minimal request-like object."""
+    headers = {"User-Agent": user_agent}
+    if request_id is not None:
+        headers["X-Request-ID"] = request_id
     return SimpleNamespace(
-        client=SimpleNamespace(host=client_ip),
-        headers={"User-Agent": user_agent},
+        client=SimpleNamespace(host=client_ip, port=source_port),
+        headers=headers,
+        app=SimpleNamespace(state=SimpleNamespace(source_port_header=None)),
     )
 
 
@@ -44,6 +54,8 @@ async def test_record_and_list_security_event(session) -> None:
         actor_user_id="user-42",
         actor_label="joao@example.com",
         client_ip="203.0.113.9",
+        source_port=54321,
+        request_id="11111111-2222-3333-4444-555555555555",
         metadata={"action": "login"},
     )
     await session.commit()
@@ -54,6 +66,8 @@ async def test_record_and_list_security_event(session) -> None:
     assert rows[0].event_type == "auth_failure"
     assert rows[0].actor_user_id == "user-42"
     assert rows[0].actor_label == "joao@example.com"
+    assert rows[0].source_port == 54321
+    assert rows[0].request_id == "11111111-2222-3333-4444-555555555555"
     assert rows[0].metadata == {"action": "login"}
 
 
@@ -153,6 +167,8 @@ async def test_record_admin_action_writes_structured_metadata(session) -> None:
     row = rows[0]
     assert row.actor_user_id == "admin-1"
     assert row.client_ip == "203.0.113.9"
+    assert row.source_port == 54321
+    assert row.request_id == "11111111-2222-3333-4444-555555555555"
     assert row.user_agent == "pytest-agent"
     assert row.metadata == {
         "action": "delete",
@@ -174,7 +190,23 @@ async def test_record_request_security_event_uses_request_metadata(session) -> N
 
     rows = await list_recent_security_events(session)
     assert rows[0].client_ip == "198.51.100.5"
+    assert rows[0].source_port == 54321
+    assert rows[0].request_id == "11111111-2222-3333-4444-555555555555"
     assert rows[0].user_agent == "agent-x"
+
+
+@pytest.mark.asyncio
+async def test_record_request_security_event_ignores_invalid_request_id(session) -> None:
+    await record_request_security_event(
+        session,
+        _request(request_id="invalid request id"),
+        module="arena",
+        event_type="auth_failure",
+    )
+    await session.commit()
+
+    rows = await list_recent_security_events(session)
+    assert rows[0].request_id is None
 
 
 @pytest.mark.asyncio

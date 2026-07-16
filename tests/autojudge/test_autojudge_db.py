@@ -16,7 +16,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from arena.models.arena_notifications import ArenaNotification
@@ -35,6 +35,7 @@ from arena.models.arena_submissions import (
 from arena.models.arena_users import ArenaUser
 from autojudge.config import settings as autojudge_settings
 from autojudge.db import ProfilingObservedLimits, open_db
+from shared.db_schema import contest_languages as contest_languages_table
 from shared.enumerations import (
     ArenaNotificationKind,
     ArenaRole,
@@ -678,6 +679,58 @@ async def test_get_problem_limits_with_language_override(
     assert limits.memory_limit_kb == 512000
     assert limits.pids_limit == 128
     assert limits.repetitions == 7
+
+
+async def test_get_problem_effective_limits_by_language(
+    engine,
+    session: AsyncSession,
+    running_contest: Contest,
+    contest_problem: Problem,
+):
+    cpp = _make_language(session, "cpp")
+    java = _make_language(session, "java")
+    await session.flush()
+    await session.execute(
+        insert(contest_languages_table),
+        [
+            {"contest_id": running_contest.id, "language_id": cpp.id},
+            {"contest_id": running_contest.id, "language_id": java.id},
+        ],
+    )
+    session.add(
+        ProblemLanguageLimit(
+            problem_id=contest_problem.id,
+            language_id=cpp.id,
+            time_limit_ms=5000,
+            memory_limit_kb=512000,
+            pids_limit=128,
+            output_limit_in_bytes=4096,
+            repetitions=7,
+        )
+    )
+    await session.flush()
+    await session.commit()
+
+    async with open_db(engine) as db:
+        limits = await db.get_problem_effective_limits_by_language(contest_problem.id)
+
+    assert list(limits) == ["cpp", "java"]
+    assert limits["cpp"].time_limit_ms == 5000
+    assert limits["cpp"].memory_limit_kb == 512000
+    assert limits["cpp"].pids_limit == 128
+    assert limits["cpp"].output_limit_in_bytes == 4096
+    assert limits["cpp"].repetitions == 7
+    assert limits["java"].time_limit_ms == contest_problem.time_limit_ms
+    assert limits["java"].memory_limit_kb == contest_problem.memory_limit_kb
+    assert limits["java"].pids_limit == contest_problem.pids_limit
+    assert limits["java"].output_limit_in_bytes == contest_problem.output_limit_in_bytes
+    assert limits["java"].repetitions == 1
+
+
+async def test_get_problem_effective_limits_by_language_missing_raises(engine, session: AsyncSession):
+    async with open_db(engine) as db:
+        with pytest.raises(LookupError, match="not found"):
+            await db.get_problem_effective_limits_by_language(_uid())
 
 
 async def test_get_problem_limits_missing_raises(engine, session: AsyncSession):

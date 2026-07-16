@@ -17,6 +17,7 @@ from web.models import Submission, SubmissionJudgment, User
 from web.routes.contest_submissions_helpers import load_submission_in_contest
 from web.services.judging_service import (
     AlreadyConfirmedError,
+    DecisiveConfirmationExistsError,
     JudgmentNotReadyError,
     NoFinalVerdictError,
     ReviewAcquisitionTimeoutError,
@@ -24,6 +25,7 @@ from web.services.judging_service import (
     ReviewLockUnavailableError,
     ReviewNotHeldByActorError,
     acquire_submission_review,
+    can_confirm_verdict,
     confirm_verdict,
     create_balloon_task_if_needed,
     rejudge_submission,
@@ -47,7 +49,9 @@ async def post_acquire_submission_review(
     submission_id: str,
     ctx: ContestContext = Depends(get_contest_context),
 ) -> Response:
-    ensure_allowed_role(ctx.actor, (RoleEnum.JUDGE,))
+    ensure_allowed_role(ctx.actor, (RoleEnum.JUDGE, RoleEnum.ADMIN))
+    if not can_confirm_verdict(ctx.actor, ctx.contest):
+        raise HTTPException(status_code=403)
 
     if ctx.contest.autojudge_only:
         raise HTTPException(status_code=404)
@@ -172,7 +176,9 @@ async def post_confirm_submission_verdict(
     ctx: ContestContext = Depends(get_contest_context),
 ) -> Response:
     """Submit a human verdict confirmation for a judgment."""
-    ensure_allowed_role(ctx.actor, (RoleEnum.JUDGE,))
+    ensure_allowed_role(ctx.actor, (RoleEnum.JUDGE, RoleEnum.ADMIN))
+    if not can_confirm_verdict(ctx.actor, ctx.contest):
+        raise HTTPException(status_code=403)
 
     if ctx.contest.autojudge_only:
         raise HTTPException(status_code=404)
@@ -200,6 +206,12 @@ async def post_confirm_submission_verdict(
         return RedirectResponse(url=confirm_url, status_code=303)
     except AlreadyConfirmedError:
         flash("You have already submitted a confirmation for this judgment.", FlashCategory.DANGER)
+        return RedirectResponse(url=confirm_url, status_code=303)
+    except DecisiveConfirmationExistsError:
+        flash(
+            "This judgment already carries a decisive confirmation from the chief judge or an admin.",
+            FlashCategory.DANGER,
+        )
         return RedirectResponse(url=confirm_url, status_code=303)
     except ReviewNotHeldByActorError:
         flash("You must acquire this review before confirming it.", FlashCategory.DANGER)
@@ -269,11 +281,15 @@ async def post_rejudge_submission(
     ctx: ContestContext = Depends(get_contest_context),
 ) -> Response:
     """Supersede the current judgment and create a new queued judgment for rejudging."""
-    ensure_allowed_role(ctx.actor, (RoleEnum.JUDGE,))
+    ensure_allowed_role(ctx.actor, (RoleEnum.JUDGE, RoleEnum.ADMIN, RoleEnum.UBERADMIN))
 
     review_url = str(request.url_for("submission_review", slug=ctx.contest.login_slug, submission_id=submission_id))
-    if not isinstance(ctx.actor, User) or ctx.actor.id != ctx.contest.chief_judge_id:
-        flash("Only the contest chief judge may request a rejudge.", FlashCategory.DANGER)
+    is_chief_judge = isinstance(ctx.actor, User) and ctx.actor.id == ctx.contest.chief_judge_id
+    if not is_chief_judge and ctx.actor.role not in (RoleEnum.ADMIN, RoleEnum.UBERADMIN):
+        flash(
+            "Only the contest chief judge or a contest administrator may request a rejudge.",
+            FlashCategory.DANGER,
+        )
         return RedirectResponse(url=review_url, status_code=303)
 
     try:

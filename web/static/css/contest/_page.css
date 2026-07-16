@@ -30,14 +30,6 @@
     border-radius: 1rem;
 }
 
-.noca-navbar-brand {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    line-height: 1;
-    white-space: nowrap;
-}
-
 .auth-card {
     width: 100%;
     max-width: 420px;
@@ -87,5 +79,5 @@
 :root {
     --bs-breadcrumb-divider: '|';
     --bc-font-size: 0.725rem;
-    --bc-border: 3px solid #dee2e6;
+    --bc-border: 3px solid var(--noca-border);
 }

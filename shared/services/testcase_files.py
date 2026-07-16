@@ -58,23 +58,33 @@ def save_testcase_files(
     problem_id: str,
     ordinal: int,
     in_bytes: bytes,
-    out_bytes: bytes,
+    out_bytes: bytes | None,
     testcase_dir: Path,
-) -> tuple[int, int]:
-    """Write one pair of test-case files to disk.
+) -> tuple[int, int | None]:
+    """Write one test case to disk.
 
     Content is normalized to Unix line endings (LF only) before writing.
 
+    Args:
+        out_bytes: Expected output, or ``None`` for a custom-validator case, which
+            has no expected output. Any stale ``.out`` file is then removed, so a
+            problem that gains a validator stops carrying a misleading one.
+
     Returns:
-        tuple[int, int]: ``(input_size_bytes, output_size_bytes)`` of the
-        normalized content written to disk.
+        tuple[int, int | None]: ``(input_size_bytes, output_size_bytes)`` of the
+        normalized content written to disk; the output size is ``None`` when the
+        case has no expected output.
     """
     base = get_problem_testcase_dir(problem_id, testcase_dir)
     base.mkdir(parents=True, exist_ok=True)
     in_norm = normalize_testcase_bytes(in_bytes)
-    out_norm = normalize_testcase_bytes(out_bytes)
     (base / f"{ordinal:03d}.in").write_bytes(in_norm)
-    (base / f"{ordinal:03d}.out").write_bytes(out_norm)
+    out_path = base / f"{ordinal:03d}.out"
+    if out_bytes is None:
+        out_path.unlink(missing_ok=True)
+        return len(in_norm), None
+    out_norm = normalize_testcase_bytes(out_bytes)
+    out_path.write_bytes(out_norm)
     return len(in_norm), len(out_norm)
 
 

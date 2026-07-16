@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -184,6 +185,67 @@ async def reenqueue_failed_submission(session: AsyncSession, *, submission_id: s
 
     return ArenaSubmissionJob(
         judgment_id=judgment.id,
+        submission_id=submission.id,
+        user_id=submission.user_id,
+        problem_id=submission.problem_id,
+        language_id=submission.language_id,
+        requeue_count=0,
+    )
+
+
+async def force_rejudge_arena_submission(session: AsyncSession, *, submission_id: str) -> ArenaSubmissionJob | None:
+    """Supersede a submission's active judgment and queue a fresh one.
+
+    Unlike :func:`reenqueue_failed_submission` (which only recovers the terminal
+    ``FAILED`` internal-error state by resetting the row in place), this admin
+    action forces a brand-new judgment for a submission in any active state —
+    notably a ``DONE`` submission that already produced a verdict. The active
+    (most recent non-superseded) judgment is marked ``SUPERSEDED`` and a new
+    ``QUEUED`` judgment is inserted, preserving the previous judgment's history.
+    The Arena detail page shows the most recent non-superseded judgment, so the
+    new queued judgment becomes the displayed one.
+
+    The caller owns the transaction: commit the returned change, then enqueue the
+    job. Returns ``None`` (leaving the session unchanged) when the submission is
+    missing or has no non-superseded judgment to supersede.
+
+    Args:
+        session: Active async database session.
+        submission_id: UUID of the arena submission to rejudge.
+
+    Returns:
+        The ready-to-enqueue ``ArenaSubmissionJob``, or ``None`` when the
+        submission cannot be rejudged.
+    """
+    submission = await session.get(ArenaSubmission, submission_id)
+    if submission is None:
+        return None
+
+    active_judgment = (
+        await session.execute(
+            select(ArenaSubmissionJudgment)
+            .where(
+                ArenaSubmissionJudgment.submission_id == submission_id,
+                ArenaSubmissionJudgment.status != JudgmentStatus.SUPERSEDED.value,
+            )
+            .order_by(ArenaSubmissionJudgment.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if active_judgment is None:
+        return None
+
+    active_judgment.status = JudgmentStatus.SUPERSEDED.value
+    new_judgment = ArenaSubmissionJudgment(
+        id=str(uuid.uuid4()),
+        submission_id=submission.id,
+        status=JudgmentStatus.QUEUED.value,
+    )
+    session.add(new_judgment)
+    await session.flush()
+
+    return ArenaSubmissionJob(
+        judgment_id=new_judgment.id,
         submission_id=submission.id,
         user_id=submission.user_id,
         problem_id=submission.problem_id,

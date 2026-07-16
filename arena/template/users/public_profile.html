@@ -104,7 +104,15 @@
                                 {{ profile_user.user_rating or 0 }} pts
                             </span>
                         </dd>
-                        <dt>Solved problems</dt>
+                        <dt>
+                            Solved problems
+                            <span class="text-arena-muted"
+                                  data-bs-toggle="tooltip"
+                                  data-bs-container="body"
+                                  title="Counts problems solved for rating. Problems you authored yourself are excluded, so solving your own problem does not add to this total.">
+                                {{ render_icon(icon="help") }}
+                            </span>
+                        </dt>
                         <dd>
                             {{ profile_user.solved_problems or 0 }}
                         </dd>
@@ -125,33 +133,17 @@
                     </dl>
                 </div>
             </div>
-            <div class="row g-3"
-                 data-arena-user-stats
-                 data-stats-url="{{ statistics_url }}">
-                <div class="col-12 col-md-6">
-                    <div class="arena-card h-100">
-                        <h2 class="h6 mb-2">Verdict distribution</h2>
-                        <div id="public-user-stats-verdicts"
-                             class="arena-stats-chart arena-stats-chart--pie"></div>
-                    </div>
-                </div>
-                <div class="col-12 col-md-6">
-                    <div class="arena-card h-100">
-                        <h2 class="h6 mb-2">Language distribution</h2>
-                        <div id="public-user-stats-languages"
-                             class="arena-stats-chart arena-stats-chart--pie"></div>
-                    </div>
-                </div>
-                <div class="col-12">
-                    <p class="text-muted small mb-0" data-stats-computed-at></p>
-                </div>
-            </div>
+            {% with stats_url=statistics_url %}
+                {% include "users/_statistics_charts.html" %}
+            {% endwith %}
         </section>
     </div>
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='noca-echarts-theme.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-rating-history-chart.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-submission-heatmap.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-user-statistics.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-tooltips.js') }}?v={{ app_version }}"></script>
 {% endblock %}

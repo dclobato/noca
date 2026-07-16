@@ -7,9 +7,17 @@
 
   Renders the ordered interactive-validator conversation for one attempt.
   Expects `attempt`: a mapping with `transcript` ({lines: [{dir, line, partial}], truncated}),
-  the two stderr excerpts, exit codes/signals, and crash_reason.
+  the two stderr excerpts, exit codes/signals, crash_reason, and `test_case_ordinal`
+  (the case that parametrized the attempt; null on rows written before the
+  per-test-case model, which ran one conversation for the whole submission).
 #}
-<h3 class="h6">Attempt {{ attempt.attempt_number }}</h3>
+<h3 class="h6">
+    {% if attempt.test_case_ordinal is not none %}
+        Test case {{ attempt.test_case_ordinal }} — attempt {{ attempt.attempt_number }}
+    {% else %}
+        Attempt {{ attempt.attempt_number }}
+    {% endif %}
+</h3>
 <dl class="row small mb-2">
     <dt class="col-sm-5">Contestant exit / signal</dt>
     <dd class="col-sm-7">
@@ -24,50 +32,9 @@
         {{ attempt.crash_reason.value if attempt.crash_reason else '—' }}
     </dd>
 </dl>
-{% set transcript = attempt.transcript %}
-{% if transcript and transcript.lines %}
-    {# The conversation alternates and each side has its own row tint, so the label
-       is only worth printing the first time a side speaks. `named` tracks which
-       sides have introduced themselves already. Sighted readers get the tint;
-       `scope="row"` + the row's `title` keep every line attributed for anyone
-       reading this through a screen reader, who gets nothing from colour. #}
-    {% set named = namespace(user=false, validator=false) %}
-    <div class="noca-transcript">
-        <table class="table table-sm mb-0 noca-transcript-table">
-            <tbody>
-                {% for entry in transcript.lines %}
-                    {% set is_user = entry.dir == 'user' %}
-                    {% set side = 'User' if is_user else 'Validator' %}
-                    {% set first_turn = not (named.user if is_user else named.validator) %}
-                    {% if is_user %}
-                        {% set named.user = true %}
-                    {% else %}
-                        {% set named.validator = true %}
-                    {% endif %}
-                    <tr class="{{ 'noca-transcript-user' if is_user else 'noca-transcript-validator' }}"
-                        title="{{ side }}">
-                        <th scope="row" class="noca-transcript-side">
-                            {%- if first_turn %}{{ side }}
-                            {% endif -%}
-                        </th>
-                        <td>
-                            {# The protocol line is pre-wrap, so it must contain the raw bytes and
-                               nothing else: the `-` strips keep template indentation out of it no
-                               matter how djlint reflows this file. The note sits outside it. #}
-                            <span class="noca-transcript-line">{{- entry.line -}}</span>
-                            {% if entry.partial %}<span class="noca-transcript-note">(no newline at end)</span>{% endif %}
-                        </td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% if transcript.truncated %}
-        <p class="small text-muted mt-1 mb-0">Transcript truncated — the conversation exceeded the recording limit.</p>
-    {% endif %}
-{% else %}
-    <p class="text-muted small mb-0">No protocol lines were exchanged.</p>
-{% endif %}
+{% with transcript = attempt.transcript %}
+    {% include "_partials/transcript_table.html" %}
+{% endwith %}
 {% for label, excerpt in [('Contestant stderr', attempt.contestant_stderr_excerpt), ('Validator stderr', attempt.validator_stderr_excerpt)] %}
     {% if excerpt %}
         <div class="small fw-semibold mt-2">{{ label }}</div>

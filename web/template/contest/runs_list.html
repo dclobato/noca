@@ -9,6 +9,8 @@
 ) %}
 {% set is_privileged = current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) or is_chief %}
 {% set is_judge_or_above = current_user.role in (RoleEnum.JUDGE.value, RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) %}
+{# Judges and admins may take a review lock and confirm; uberadmins may not (confirmations FK into users). #}
+{% set can_review = current_user.role in (RoleEnum.JUDGE.value, RoleEnum.ADMIN.value) %}
 {% from "_macros.html" import render_icon %}
 <div id="runs-list-wrapper"
      data-accept-pe="{{ 'true' if contest.accept_pe else 'false' }}"
@@ -133,6 +135,7 @@
                                 {% set autojudge_val = newest_judgment.autojudge_verdict.value if (newest_judgment and newest_judgment.autojudge_verdict) else '' %}
                                 {% set final_val = newest_judgment.final_verdict.value if (newest_judgment and newest_judgment.final_verdict) else '' %}
                                 <tr id="{{ s.id }}"
+                                    {% if is_judge_or_above %} class="noca-clickable-row" tabindex="0" role="link" data-href="{{ request.url_for('submission_review', slug=contest.login_slug, submission_id=s.id) }}" {% endif %}
                                     data-problem-id="{{ s.problem_id }}"
                                     data-judgment-status="{{ status_val }}"
                                     data-autojudge="{{ autojudge_val }}"
@@ -165,16 +168,7 @@
                                             <span class="text-muted">—</span>
                                         {% endif %}
                                     </td>
-                                    <td class="fw-semibold text-start">
-                                        {% if is_judge_or_above %}
-                                            <a class="text-decoration-none"
-                                               href="{{ request.url_for('submission_review', slug=contest.login_slug, submission_id=s.id) }}">
-                                                {{ problem_map.get(s.problem_id, '?') }}: {{ s.problem.title }}
-                                            </a>
-                                        {% else %}
-                                            {{ problem_map.get(s.problem_id, '?') }}: {{ s.problem.title }}
-                                        {% endif %}
-                                    </td>
+                                    <td class="fw-semibold text-start">{{ problem_map.get(s.problem_id, '?') }}: {{ s.problem.title }}</td>
                                     <td class="text-start small">
                                         <i class="{{ s.language.icon }} me-1"></i>{{ s.language.name }}
                                     </td>
@@ -271,14 +265,14 @@
                                                 ) %}
                                                 {% set review_holder_id = review_lock_map.get(newest_judgment.id) if newest_judgment else none %}
                                                 {% if not lock_service_available %}
-                                                    {% if current_user.role == RoleEnum.JUDGE.value %}
+                                                    {% if can_review %}
                                                         <a href="{{ request.url_for('submission_review', slug=contest.login_slug, submission_id=s.id) }}"
                                                            class="btn btn-outline-primary btn-sm">Review verdict</a>
                                                     {% else %}
                                                         <span class="badge bg-warning text-dark">Locks off</span>
                                                     {% endif %}
                                                 {% elif review_holder_id is none %}
-                                                    {% if current_user.role == RoleEnum.JUDGE.value %}
+                                                    {% if can_review %}
                                                         <form method="post"
                                                               action="{{ request.url_for('submission_acquire_review', slug=contest.login_slug, submission_id=s.id) }}"
                                                               class="d-inline">

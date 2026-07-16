@@ -37,8 +37,8 @@
                 {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value, RoleEnum.TEAM.value] %}
                     {{ dashboard_card(request.url_for('contest_runs', slug=contest.login_slug) , "terminal", "Runs", "Submission runs", True, filled=True, counter=counters.runs_without_verdict if counters and counters.runs_without_verdict else none) }}
                 {% endif %}
-                {# Tasks - admin, uberadmin, staff, team #}
-                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.STAFF.value, RoleEnum.TEAM.value] %}
+                {# Tasks - admin, uberadmin, staff, chief judge, team #}
+                {% if can_view_tasks %}
                     {{ dashboard_card(request.url_for('contest_tasks', slug=contest.login_slug) , "check_box", "Tasks", "Help, print and balloons!", True, counter=counters.tasks_pending if counters and counters.tasks_pending else none) }}
                 {% endif %}
                 {# Download submissions - team only #}

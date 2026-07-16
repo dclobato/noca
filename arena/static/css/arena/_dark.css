@@ -1,0 +1,27 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Dark mode overrides
+   ------------------------------------------------------------
+   Arena components are built on the --arena-* tokens, which map to the shared
+   --noca-* ramp; that ramp is remapped for [data-bs-theme="dark"] in
+   shared/static/css/tokens.css, so surfaces and text adapt automatically. Only
+   components that hardcode a light literal need an explicit override here.
+   ============================================================ */
+
+/* Backup-codes warning callout: the light amber wash is unreadable on a dark
+   surface, so use a translucent amber instead. */
+[data-bs-theme="dark"] .arena-backup-warning {
+    background-color: color-mix(in srgb, var(--noca-warning) 18%, transparent);
+    border-color: color-mix(in srgb, var(--noca-warning) 45%, transparent);
+}
+
+[data-bs-theme="dark"] .arena-backup-warning .material-symbols-outlined {
+    color: var(--noca-warning);
+}

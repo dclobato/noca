@@ -16,6 +16,8 @@
 #   ./containers/build.sh autojudge    # build only autojudge worker
 #   ./containers/build.sh rating       # build only rating worker
 #   ./containers/build.sh aiassistant  # build only aiassistant worker
+#   ./containers/build.sh healthmonitor
+#                                  # build only healthmonitor server
 #   ./containers/build.sh gcc-c17      # build only gcc-c17 compile + run
 #   ./containers/build.sh gcc-cpp23    # build only gcc-cpp23 compile + run
 #   ./containers/build.sh python3      # build only python3 compile + run
@@ -147,7 +149,7 @@ while [[ $# -gt 0 ]]; do
             TARGETS+=(bash gcc-c17 gcc-cpp23 python3 java javascript kotlin fpc-pascal go ruby rust c-sharp haskell lua prolog fortran swift perl)
             shift
             ;;
-        webapp|arena|autojudge|rating|aiassistant|bash|gcc-c17|gcc-cpp23|python3|java|javascript|kotlin|fpc-pascal|go|ruby|rust|c-sharp|haskell|lua|prolog|fortran|swift|perl)
+        webapp|arena|autojudge|rating|aiassistant|healthmonitor|bash|gcc-c17|gcc-cpp23|python3|java|javascript|kotlin|fpc-pascal|go|ruby|rust|c-sharp|haskell|lua|prolog|fortran|swift|perl)
             TARGETS+=("$1")
             shift
             ;;
@@ -181,6 +183,7 @@ if [ ${#TARGETS[@]} -eq 0 ]; then
     TARGETS+=("autojudge")
     TARGETS+=("rating")
     TARGETS+=("aiassistant")
+    TARGETS+=("healthmonitor")
     for d in "$SCRIPT_DIR"/languages/*/; do
         lang=$(basename "$d")
         TARGETS+=("$lang")
@@ -236,6 +239,16 @@ else
     echo "Mode: single-arch local Docker build"
 fi
 echo ""
+
+docker_native_platform() {
+    local arch
+    arch="$(docker version --format '{{.Server.Arch}}' 2>/dev/null || uname -m)"
+    case "$arch" in
+        x86_64) arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+    esac
+    echo "linux/${arch}"
+}
 
 build_image() {
     local tag="$1"
@@ -383,7 +396,7 @@ build_with_bake() {
 
     for target in "${TARGETS[@]}"; do
         case "$target" in
-            webapp|arena|autojudge|rating|aiassistant)
+            webapp|arena|autojudge|rating|aiassistant|healthmonitor)
                 bake_targets+=("$target")
                 ;;
             *)
@@ -448,10 +461,10 @@ NEED_ISOLATE_BASE=0
 NEED_JUDGE_COMPILE_BASE=0
 
 for target in "${TARGETS[@]}"; do
-    if [[ "$target" == "webapp" || "$target" == "arena" || "$target" == "autojudge" || "$target" == "rating" || "$target" == "aiassistant" ]]; then
+    if [[ "$target" == "webapp" || "$target" == "arena" || "$target" == "autojudge" || "$target" == "rating" || "$target" == "aiassistant" || "$target" == "healthmonitor" ]]; then
         NEED_APP_BASE=1
     fi
-    if [[ "$target" == "webapp" || "$target" == "arena" ]]; then
+    if [[ "$target" == "webapp" || "$target" == "arena" || "$target" == "healthmonitor" ]]; then
         NEED_ASSETS_BASE=1
     fi
     lang_dir="$SCRIPT_DIR/languages/$target"
@@ -470,24 +483,29 @@ fi
 
 # Compute pinned base refs for consumers: versioned when --version set, else :latest.
 APP_BASE_REF="$(image_name app-base):${VERSION:-latest}"
+ASSETS_PLATFORM="$(docker_native_platform)"
+if [[ "$USE_BUILDX" -eq 1 && "$PLATFORMS_SET" -eq 1 ]]; then
+    ASSETS_PLATFORM="$PLATFORMS"
+fi
 
 if [[ "$NEED_ASSETS_BASE" -eq 1 ]]; then
-    # Assets are platform-agnostic (JS/CSS/fonts/SVGs). Always build for linux/amd64
-    # so a single image is shared across all target platforms via --platform=linux/amd64
-    # in the webapp/arena FROM stage. Buildx is required for the explicit platform flag.
+    # Assets are platform-agnostic (JS/CSS/fonts/SVGs). Local single-platform
+    # builds keep assets-base on the selected/native platform so it can inherit
+    # the locally built app-base image. Multi-platform push uses Bake, where the
+    # assets target remains linux/amd64 and resolves app-base through target:.
     if ! docker buildx version >/dev/null 2>&1; then
-        echo "docker buildx is required to build assets-base (always built for linux/amd64)."
+        echo "docker buildx is required to build assets-base."
         exit 1
     fi
     local_tag="$(image_name assets-base):${VERSION:-latest}"
     echo "──────────────────────────────────────────────────"
-    echo "  Building: $local_tag (linux/amd64, shared across all platforms)"
+    echo "  Building: $local_tag ($ASSETS_PLATFORM)"
     echo "  Context:  $SCRIPT_DIR/.."
     echo "  Dockerfile: $SCRIPT_DIR/assets-base/Dockerfile"
     echo "──────────────────────────────────────────────────"
     docker buildx build \
         ${NO_CACHE} \
-        --platform linux/amd64 \
+        --platform "$ASSETS_PLATFORM" \
         --load \
         -f "$SCRIPT_DIR/assets-base/Dockerfile" \
         --build-arg "APP_BASE_REF=${APP_BASE_REF}" \
@@ -514,14 +532,16 @@ for target in "${TARGETS[@]}"; do
     if [[ "$target" == "webapp" ]]; then
         build_image "$(image_name webapp)" "$SCRIPT_DIR/.." "$SCRIPT_DIR/webapp/Dockerfile" \
             "APP_BASE_REF=${APP_BASE_REF}" \
-            "ASSETS_BASE_REF=${ASSETS_BASE_REF}"
+            "ASSETS_BASE_REF=${ASSETS_BASE_REF}" \
+            "ASSETS_PLATFORM=${ASSETS_PLATFORM}"
         continue
     fi
 
     if [[ "$target" == "arena" ]]; then
         build_image "$(image_name arena)" "$SCRIPT_DIR/.." "$SCRIPT_DIR/arena/Dockerfile" \
             "APP_BASE_REF=${APP_BASE_REF}" \
-            "ASSETS_BASE_REF=${ASSETS_BASE_REF}"
+            "ASSETS_BASE_REF=${ASSETS_BASE_REF}" \
+            "ASSETS_PLATFORM=${ASSETS_PLATFORM}"
         continue
     fi
 
@@ -540,6 +560,14 @@ for target in "${TARGETS[@]}"; do
     if [[ "$target" == "aiassistant" ]]; then
         build_image "$(image_name aiassistant)" "$SCRIPT_DIR/.." "$SCRIPT_DIR/aiassistant/Dockerfile" \
             "APP_BASE_REF=${APP_BASE_REF}"
+        continue
+    fi
+
+    if [[ "$target" == "healthmonitor" ]]; then
+        build_image "$(image_name healthmonitor)" "$SCRIPT_DIR/.." "$SCRIPT_DIR/healthmonitor/Dockerfile" \
+            "APP_BASE_REF=${APP_BASE_REF}" \
+            "ASSETS_BASE_REF=${ASSETS_BASE_REF}" \
+            "ASSETS_PLATFORM=${ASSETS_PLATFORM}"
         continue
     fi
 

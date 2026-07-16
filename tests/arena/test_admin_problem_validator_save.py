@@ -7,10 +7,12 @@
 """The Arena problem edit form's single Save also carries the custom validator."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -19,11 +21,12 @@ from arena.config import settings as arena_settings
 from arena.models.arena_problems import ArenaCategory, ArenaProblem
 from arena.services import admin_problem_service, admin_problem_tc_service
 from shared.db_schema import languages as languages_table
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, CustomValidatorActiveState
 from tests.arena.test_admin_problems import _build_admin_app, _create_user, _login_token
 
 _ROOT = Path(__file__).resolve().parents[2]
 _TEMPLATE = _ROOT / "arena" / "template" / "admin" / "problem_form.html"
+_STATUS_TEMPLATE = _ROOT / "arena" / "template" / "admin" / "_validator_status.html"
 _PICKER_SCRIPT = _ROOT / "arena" / "static" / "js" / "admin-problem-form.js"
 _SHARED_CSS = _ROOT / "shared" / "static" / "css" / "common.css"
 
@@ -182,10 +185,10 @@ async def test_save_rejects_language_without_a_source_file(
 
 
 @pytest.mark.asyncio
-async def test_save_rejects_validator_while_a_test_case_is_secret(
+async def test_save_accepts_validator_while_a_test_case_is_secret(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Interactive judging never reads expected output, so every case must be public."""
+    """A validator's cases parametrize it, so they may be secret like any other."""
     app = _build_admin_app(session)
     app.state.valkey_runtime = object()
     enqueue = AsyncMock()
@@ -204,18 +207,17 @@ async def test_save_rejects_validator_while_a_test_case_is_secret(
         files={"validator_source_file": ("validator.py", b"print('ok')\n", "text/x-python")},
     )
 
-    assert response.status_code == 400  # type: ignore[attr-defined]
-    assert "must be samples" in response.text  # type: ignore[attr-defined]
-    enqueue.assert_not_awaited()
+    assert response.status_code == 303  # type: ignore[attr-defined]
+    enqueue.assert_awaited_once()
     stored = await _reload(session, problem.id)
-    assert stored.custom_validator is None
+    assert stored.custom_validator is not None
 
 
 @pytest.mark.asyncio
-async def test_save_drops_the_last_test_case_when_the_same_save_adds_a_validator(
+async def test_save_may_drop_the_last_case_while_staging_a_validator(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Interactive problems may have no test cases, so one Save can do both."""
+    """Draft edits may leave no cases; enable/submit gates enforce readiness."""
     app = _build_admin_app(session)
     app.state.valkey_runtime = object()
     enqueue = AsyncMock()
@@ -242,17 +244,13 @@ async def test_save_drops_the_last_test_case_when_the_same_save_adds_a_validator
     assert await admin_problem_tc_service.list_testcases(session, problem.id) == []
 
 
-def test_removal_guard_stands_down_for_a_validator_staged_in_the_same_save() -> None:
+def test_removal_guard_allows_empty_draft_states() -> None:
     """The client guard must not block what the backend explicitly allows."""
     script = (_ROOT / "shared" / "static" / "js" / "tc-pending-remove.js").read_text(encoding="utf-8")
 
-    # allow-empty is the stored flag OR a validator file staged in the pending form.
-    assert "return validatorStagedInThisSave();" in script
-    assert "form.elements['validator_source_file']" in script
-    # Picking the file must re-evaluate the warning, not just the submit handler.
-    assert 'validatorInput.addEventListener("change", checkAllPending)' in script or (
-        "validatorInput.addEventListener('change', checkAllPending)" in script
-    )
+    assert "allowEmpty" not in script
+    assert "preventDefault" not in script
+    assert "At least one test case must remain" not in script
 
 
 @pytest.mark.asyncio
@@ -316,6 +314,47 @@ def test_cards_render_in_the_agreed_order_with_one_save() -> None:
     assert positions == sorted(positions)
     assert positions[-1] < template.index("Danger zone")
     assert template.count('type="submit" class="btn btn-primary" form="edit-form"') == 1
+
+
+def test_runtime_failed_validator_status_is_not_reported_as_unconfigured() -> None:
+    """A disabled active validator still has source, so the edit card must say so."""
+    env = Environment(
+        loader=FileSystemLoader(_STATUS_TEMPLATE.parent),
+        autoescape=select_autoescape(["html"]),
+    )
+    validator_status = SimpleNamespace(
+        polling=False,
+        candidate_state=None,
+        usable=False,
+        configured=True,
+        active_state=CustomValidatorActiveState.RUNTIME_FAILED,
+    )
+
+    rendered = env.get_template(_STATUS_TEMPLATE.name).render(validator_status=validator_status)
+
+    assert "Disabled after runtime failure" in rendered
+    assert "Not configured" not in rendered
+
+
+def test_problem_form_links_validator_source_view() -> None:
+    """Configured validators should offer a new-tab highlighted source view."""
+    template = _TEMPLATE.read_text(encoding="utf-8")
+
+    assert "arena_admin_problem_validator_source_view" in template
+    assert 'target="_blank"' in template
+    assert 'rel="noopener noreferrer"' in template
+
+
+def test_validator_source_template_uses_highlight_line_numbers() -> None:
+    """The standalone validator source page should use Highlight.js line numbers."""
+    template = (_ROOT / "arena" / "template" / "admin" / "validator_source.html").read_text(encoding="utf-8")
+
+    assert "{{ brand_name }}" in template
+    assert "arena-validator-source-viewer" in template
+    assert "data-highlight-line-numbers" in template
+    assert "highlight-code-blocks.js" in template
+    # Standalone source viewer intentionally has no footer (header + body only).
+    assert "_partials/_footer.html" not in template
 
 
 def test_pending_removal_fade_is_styled_for_both_modules() -> None:

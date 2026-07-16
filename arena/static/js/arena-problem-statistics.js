@@ -29,14 +29,10 @@ var ArenaProblemStatistics = (function () {
         CE: "#6c757d",
     };
 
-    var _instances = [];
-
     function _initChart(elementId) {
         var el = document.getElementById(elementId);
         if (!el) return null;
-        var chart = echarts.init(el);
-        _instances.push(chart);
-        return chart;
+        return NocaECharts.create(el);
     }
 
     function _emptyOption(message) {
@@ -45,7 +41,7 @@ var ArenaProblemStatistics = (function () {
                 type: "text",
                 left: "center",
                 top: "middle",
-                style: { text: message, fontSize: 14, fill: "#999" },
+                style: { text: message, fontSize: 14, fill: NocaECharts.tokens().emptyText },
             }],
         };
     }
@@ -69,7 +65,7 @@ var ArenaProblemStatistics = (function () {
                 radius: ["28%", "72%"],
                 center: ["50%", "42%"],
                 avoidLabelOverlap: true,
-                itemStyle: { borderColor: "#fff", borderWidth: 1 },
+                itemStyle: { borderColor: NocaECharts.tokens().sliceBorder, borderWidth: 1 },
                 label: { show: false },
                 data: data,
             }],
@@ -156,35 +152,39 @@ var ArenaProblemStatistics = (function () {
         var histogramChart = _initChart("problem-stats-histogram");
 
         if (!hasData) {
-            if (verdictChart) verdictChart.setOption(_emptyOption("No submissions yet."));
-            if (languageChart) languageChart.setOption(_emptyOption("No submissions yet."));
-            if (histogramChart) histogramChart.setOption(_emptyOption("No accepted solutions yet."));
+            if (verdictChart) verdictChart.render(function (chart) { chart.setOption(_emptyOption("No submissions yet."), true); });
+            if (languageChart) languageChart.render(function (chart) { chart.setOption(_emptyOption("No submissions yet."), true); });
+            if (histogramChart) histogramChart.render(function (chart) { chart.setOption(_emptyOption("No accepted solutions yet."), true); });
             _fillTable("[data-stats-time-table]", [], "avg_ms", "stddev_ms");
             _fillTable("[data-stats-memory-table]", [], "avg_kb", "stddev_kb");
             return;
         }
 
         if (verdictChart) {
-            verdictChart.setOption(_doughnutOption(
-                "Verdicts",
-                payload.verdicts,
-                function (row) { return VERDICT_LABELS[row.verdict] || row.verdict; },
-                function (row) { return VERDICT_COLORS[row.verdict] || null; }
-            ));
+            verdictChart.render(function (chart) {
+                chart.setOption(_doughnutOption(
+                    "Verdicts",
+                    payload.verdicts,
+                    function (row) { return VERDICT_LABELS[row.verdict] || row.verdict; },
+                    function (row) { return VERDICT_COLORS[row.verdict] || null; }
+                ));
+            });
         }
         if (languageChart) {
-            languageChart.setOption(_doughnutOption(
-                "Languages",
-                payload.languages,
-                function (row) { return row.name; },
-                null
-            ));
+            languageChart.render(function (chart) {
+                chart.setOption(_doughnutOption(
+                    "Languages",
+                    payload.languages,
+                    function (row) { return row.name; },
+                    null
+                ));
+            });
         }
         if (histogramChart) {
             if (payload.wall_time_histogram && payload.wall_time_histogram.length > 0) {
-                histogramChart.setOption(_histogramOption(payload));
+                histogramChart.render(function (chart) { chart.setOption(_histogramOption(payload)); });
             } else {
-                histogramChart.setOption(_emptyOption("No accepted solutions yet."));
+                histogramChart.render(function (chart) { chart.setOption(_emptyOption("No accepted solutions yet."), true); });
             }
         }
 
@@ -213,10 +213,6 @@ var ArenaProblemStatistics = (function () {
                 console.error("ArenaProblemStatistics: failed to load data.", err);
                 _render({});
             });
-
-        window.addEventListener("resize", function () {
-            _instances.forEach(function (chart) { chart.resize(); });
-        });
     }
 
     if (document.readyState === "loading") {

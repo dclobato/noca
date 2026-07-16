@@ -20,7 +20,7 @@ import contextlib
 import pathlib
 import tempfile
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from openai import AsyncOpenAI
 
@@ -169,10 +169,12 @@ async def call_ai_review(
     input_price: float,
     output_price: float,
     is_platform_key: bool,
+    reasoning_effort: str,
     extra_task_instructions: str | None = None,
     image_base64: str | None = None,
     image_mime: str | None = None,
     image_caption: str | None = None,
+    interactive_note: str | None = None,
 ) -> ReviewResult:
     """Upload code and statement to OpenAI and return the AI review result.
 
@@ -192,6 +194,8 @@ async def call_ai_review(
         output_price: Price per 1 million output tokens in USD (for cost recording).
         is_platform_key: When True, ``used_platform_key`` on the result is set to
             ``True``; cost is always computed regardless.
+        reasoning_effort: Reasoning effort passed to the Responses API (one of
+            ``none``, ``low``, ``medium``, ``high``, ``xhigh``).
         extra_task_instructions: Optional extra instructions appended to the user
             task content.
         image_base64: Optional Base64-encoded problem image, sent as an inline data-URI
@@ -199,6 +203,8 @@ async def call_ai_review(
         image_mime: MIME type of the image (e.g. ``'image/png'``). Required when
             ``image_base64`` is provided; ignored otherwise.
         image_caption: Optional caption for the image, appended to the user prompt text.
+        interactive_note: Optional pre-built ``<interactive_context>`` prompt section
+            for interactive problems; inlined into the user prompt text.
 
     Returns:
         ReviewResult with response text, token counts, cost (when usage data is
@@ -245,6 +251,7 @@ async def call_ai_review(
                 lang_context="\n".join(lang_info_lines),
                 extra_task_instructions=extra_task_instructions,
                 image_caption=image_caption,
+                interactive_note=interactive_note,
             )
 
             image_content: list[Any] = []
@@ -260,6 +267,7 @@ async def call_ai_review(
                 model=model,
                 instructions=SYSTEM_PROMPT,
                 max_output_tokens=max_output_tokens,
+                reasoning=cast(Any, {"effort": reasoning_effort}),
                 input=[
                     {
                         "role": "user",

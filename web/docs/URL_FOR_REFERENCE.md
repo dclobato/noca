@@ -70,6 +70,7 @@ with a degraded payload when either required backend is unavailable.
 | `GET /c/{slug}/problems/` | `contest_problems` | `slug=` | `contest_problems.py` |
 | `GET /c/{slug}/problems/{problem_label}` | `contest_problem_detail` | `slug=`, `problem_label=` | `contest_problems.py` |
 | `GET /c/{slug}/problems/{problem_label}/statement` | `contest_problem_statement` | `slug=`, `problem_label=` | `contest_problems.py` |
+| `GET /c/{slug}/problems/{problem_label}/print` | `contest_problem_print` | `slug=`, `problem_label=` | `contest_problems.py` |
 | `GET /c/{slug}/problems/{problem_label}/export` | `contest_problem_export` | `slug=`, `problem_label=` | `contest_problems.py` |
 | `GET /c/{slug}/clarifications/` | `contest_clarifications` | `slug=` | `contest_clarifications.py` |
 | `GET /c/{slug}/clarifications/list` | `contest_clarifications_list` | `slug=` | `contest_clarifications.py` |
@@ -251,4 +252,8 @@ Shared helpers (`contest_admin_problem_helpers.py` and
 | `POST /c/{slug}/admin/problems/{problem_id}/validator` | `upload_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
 | `GET /c/{slug}/admin/problems/{problem_id}/validator/status` | `problem_custom_validator_status` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
 | `GET /c/{slug}/admin/problems/{problem_id}/validator/source` | `download_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/validator/remove` | `remove_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
+| `GET /c/{slug}/admin/problems/{problem_id}/validator/source/view` | `view_problem_custom_validator_source` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/validator/remove` | `remove_problem_custom_validator` | `slug=`, `problem_id=`, Form: `keep_interactions` (`"true"`/`"false"`, required) | `contest_admin_problem_edit.py` |
+| `GET /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/edit` | `edit_problem_interaction_form` | `slug=`, `problem_id=`, `si_id=` | `contest_admin_problem_interactions.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/edit` | `update_problem_interaction` | `slug=`, `problem_id=`, `si_id=` | `contest_admin_problem_interactions.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/move` | `move_problem_interaction` | `slug=`, `problem_id=`, `si_id=`, Query: `new_ordinal` | `contest_admin_problem_interactions.py` |

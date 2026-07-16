@@ -73,6 +73,8 @@
                             <th>User</th>
                             <th>Severity</th>
                             <th>IP</th>
+                            <th>Source port</th>
+                            <th>Request ID</th>
                             <th>Metadata</th>
                         </tr>
                     </thead>
@@ -99,11 +101,25 @@
                                         <span class="text-muted">&mdash;</span>
                                     {% endif %}
                                 </td>
+                                <td>
+                                    {% if event.source_port %}
+                                        {{ event.source_port }}
+                                    {% else %}
+                                        <span class="text-muted">&mdash;</span>
+                                    {% endif %}
+                                </td>
+                                <td class="small text-break">
+                                    {% if event.request_id %}
+                                        {{ event.request_id }}
+                                    {% else %}
+                                        <span class="text-muted">&mdash;</span>
+                                    {% endif %}
+                                </td>
                                 <td class="small text-break">{{ event.metadata }}</td>
                             </tr>
                         {% else %}
                             <tr>
-                                <td colspan="7" class="text-center text-muted py-3">No security events found.</td>
+                                <td colspan="9" class="text-center text-muted py-3">No security events found.</td>
                             </tr>
                         {% endfor %}
                     </tbody>

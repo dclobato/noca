@@ -14,41 +14,11 @@ roll back or raise to the caller.
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
-from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
-
+from arena.services.email_rendering import render_email as _render
 from shared.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
-
-_EMAIL_TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "template" / "emails"
-
-
-@lru_cache(maxsize=1)
-def _email_template_environment() -> Environment:
-    """Return the cached Jinja2 environment for class email templates."""
-    return Environment(
-        loader=FileSystemLoader(str(_EMAIL_TEMPLATE_DIR)),
-        autoescape=False,
-        trim_blocks=False,
-        lstrip_blocks=False,
-        undefined=StrictUndefined,
-    )
-
-
-def _render(template_name: str, **context: object) -> str:
-    """Render a plain-text email template.
-
-    Args:
-        template_name: Filename inside ``arena/template/emails``.
-        **context: Template variables.
-
-    Returns:
-        Rendered plain-text email body.
-    """
-    return _email_template_environment().get_template(template_name).render(**context).rstrip()
 
 
 def send_class_registration_request_email(

@@ -16,14 +16,14 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import web.services.rate_limit_service as rate_limit_module
 from shared.db_schema.submission import submissions
 from web.models.contest import Contest
 from web.models.language import Language
-from web.models.problem import Problem
+from web.models.problem import Problem, ProblemTestCase
 from web.models.users import User
 from web.services.rate_limit_service import check_submission_rate_limit
 from web.services.submission_service import SubmissionRateLimitError, create_submission
@@ -112,14 +112,50 @@ async def test_rate_limit_allows_submissions_within_window(
     session: AsyncSession,
     running_contest: Contest,
     team_user: User,
-    contest_problem: Problem,
+    judgeable_contest_problem: Problem,
 ) -> None:
     """Three distinct submissions within the limit all succeed without raising."""
     language = await _make_language(session)
 
     for i in range(3):
         source = f"print({i})\n"
-        await _submit(session, team_user, running_contest, contest_problem, language, source)
+        await _submit(session, team_user, running_contest, judgeable_contest_problem, language, source)
+
+
+@pytest.mark.asyncio
+async def test_submission_is_refused_when_the_problem_has_no_test_cases(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    judgeable_contest_problem: Problem,
+) -> None:
+    """A problem with no test case cannot be judged, so it cannot be submitted to."""
+    language = await _make_language(session)
+    await session.execute(delete(ProblemTestCase).where(ProblemTestCase.problem_id == judgeable_contest_problem.id))
+    await session.flush()
+
+    with pytest.raises(ValueError, match="no test cases"):
+        await _submit(session, team_user, running_contest, judgeable_contest_problem, language, "print(1)\n")
+
+
+@pytest.mark.asyncio
+async def test_submission_is_refused_when_non_validator_case_has_no_expected_output(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    judgeable_contest_problem: Problem,
+) -> None:
+    """A plain problem cannot be submitted to if any case lacks expected output."""
+    language = await _make_language(session)
+    case = (
+        await session.scalars(select(ProblemTestCase).where(ProblemTestCase.problem_id == judgeable_contest_problem.id))
+    ).first()
+    assert case is not None
+    case.output_size_bytes = None
+    await session.flush()
+
+    with pytest.raises(ValueError, match="no expected output"):
+        await _submit(session, team_user, running_contest, judgeable_contest_problem, language, "print(1)\n")
 
 
 @pytest.mark.asyncio
@@ -127,17 +163,17 @@ async def test_rate_limit_blocks_submission_over_limit(
     session: AsyncSession,
     running_contest: Contest,
     team_user: User,
-    contest_problem: Problem,
+    judgeable_contest_problem: Problem,
 ) -> None:
     """The 4th submission within the window raises SubmissionRateLimitError with a UTC-aware next_allowed_at."""
     language = await _make_language(session)
 
     for i in range(3):
         source = f"print({i})\n"
-        await _submit(session, team_user, running_contest, contest_problem, language, source)
+        await _submit(session, team_user, running_contest, judgeable_contest_problem, language, source)
 
     with pytest.raises(SubmissionRateLimitError) as exc_info:
-        await _submit(session, team_user, running_contest, contest_problem, language, "print(99)\n")
+        await _submit(session, team_user, running_contest, judgeable_contest_problem, language, "print(99)\n")
 
     exc = exc_info.value
     assert isinstance(exc.next_allowed_at, datetime)
@@ -151,18 +187,18 @@ async def test_rate_limit_denial_does_not_create_submission(
     session: AsyncSession,
     running_contest: Contest,
     team_user: User,
-    contest_problem: Problem,
+    judgeable_contest_problem: Problem,
 ) -> None:
     """A denied submission must not insert a Submission row."""
     language = await _make_language(session)
 
     for i in range(3):
-        await _submit(session, team_user, running_contest, contest_problem, language, f"print({i})\n")
+        await _submit(session, team_user, running_contest, judgeable_contest_problem, language, f"print({i})\n")
 
     before_count = await session.scalar(select(func.count()).where(submissions.c.team_id == team_user.id))
 
     with pytest.raises(SubmissionRateLimitError):
-        await _submit(session, team_user, running_contest, contest_problem, language, "print(99)\n")
+        await _submit(session, team_user, running_contest, judgeable_contest_problem, language, "print(99)\n")
 
     after_count = await session.scalar(select(func.count()).where(submissions.c.team_id == team_user.id))
     assert after_count == before_count
@@ -173,13 +209,13 @@ async def test_rate_limit_allows_submission_after_window_rolls_off(
     session: AsyncSession,
     running_contest: Contest,
     team_user: User,
-    contest_problem: Problem,
+    judgeable_contest_problem: Problem,
 ) -> None:
     """Submissions older than the rolling window do not count against the limit."""
     language = await _make_language(session)
 
     for i in range(3):
-        await _submit(session, team_user, running_contest, contest_problem, language, f"print({i})\n")
+        await _submit(session, team_user, running_contest, judgeable_contest_problem, language, f"print({i})\n")
 
     old_timestamp = datetime.now(UTC) - timedelta(seconds=120)
     await session.execute(
@@ -192,7 +228,7 @@ async def test_rate_limit_allows_submission_after_window_rolls_off(
         session,
         team_user,
         running_contest,
-        contest_problem,
+        judgeable_contest_problem,
         language,
         "print('new window')\n",
         window=60,
@@ -204,7 +240,7 @@ async def test_rate_limit_next_allowed_at_is_after_now(
     session: AsyncSession,
     running_contest: Contest,
     team_user: User,
-    contest_problem: Problem,
+    judgeable_contest_problem: Problem,
 ) -> None:
     """next_allowed_at on the raised error is strictly after the moment the 4th call was made."""
     language = await _make_language(session)
@@ -216,7 +252,7 @@ async def test_rate_limit_next_allowed_at_is_after_now(
             session,
             team_user,
             running_contest,
-            contest_problem,
+            judgeable_contest_problem,
             language,
             source,
             max_subs=max_submissions,
@@ -229,7 +265,7 @@ async def test_rate_limit_next_allowed_at_is_after_now(
             session,
             team_user,
             running_contest,
-            contest_problem,
+            judgeable_contest_problem,
             language,
             "print(99)\n",
             max_subs=max_submissions,
@@ -247,7 +283,7 @@ async def test_rate_limit_is_per_team_not_global(
     running_contest: Contest,
     team_user: User,
     another_team_user: User,
-    contest_problem: Problem,
+    judgeable_contest_problem: Problem,
 ) -> None:
     """team_user hitting the limit does not affect another_team_user's ability to submit."""
     language = await _make_language(session)
@@ -255,18 +291,18 @@ async def test_rate_limit_is_per_team_not_global(
     # Fill team_user's limit
     for i in range(3):
         source = f"print({i})\n"
-        await _submit(session, team_user, running_contest, contest_problem, language, source)
+        await _submit(session, team_user, running_contest, judgeable_contest_problem, language, source)
 
     # team_user's 4th call raises
     with pytest.raises(SubmissionRateLimitError):
-        await _submit(session, team_user, running_contest, contest_problem, language, "print(99)\n")
+        await _submit(session, team_user, running_contest, judgeable_contest_problem, language, "print(99)\n")
 
     # another_team_user can still submit (window is empty for them)
     await _submit(
         session,
         another_team_user,
         running_contest,
-        contest_problem,
+        judgeable_contest_problem,
         language,
         "print('other')\n",
     )
@@ -277,7 +313,7 @@ async def test_rate_limit_monkeypatches_lock(
     session: AsyncSession,
     running_contest: Contest,
     team_user: User,
-    contest_problem: Problem,
+    judgeable_contest_problem: Problem,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """acquire_submission_rate_lock is independently monkeypatchable at module level.

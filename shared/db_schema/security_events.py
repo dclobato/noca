@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import JSON, Column, DateTime, Index, String, Table, Text, func
+from sqlalchemy import JSON, Column, DateTime, Index, Integer, String, Table, Text, func
 
 from ._base import _id_column, metadata
 
@@ -24,6 +24,8 @@ security_events = Table(
     Column("actor_label", String(320), nullable=True),
     Column("identifier_hash", String(64), nullable=True),
     Column("client_ip", String(64), nullable=True),
+    Column("source_port", Integer, nullable=True),
+    Column("request_id", String(64), nullable=True),
     Column("user_agent", Text, nullable=True),
     Column("metadata", JSON, nullable=False, server_default="{}"),
     Index("ix_security_events_created_at", "created_at"),

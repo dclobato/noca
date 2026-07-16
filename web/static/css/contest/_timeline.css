@@ -24,7 +24,7 @@
 }
 
 .timeline-seg-live {
-    background-color: #2f9e41;
+    background-color: var(--noca-brand);
 }
 
 [data-bs-theme="dark"] .timeline-seg-live {

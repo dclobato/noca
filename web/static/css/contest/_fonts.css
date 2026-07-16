@@ -6,39 +6,13 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-@font-face {
-    font-family: 'Material Symbols Outlined';
-    font-style: normal;
-    src: url('/static/webfonts/mso.woff2') format('woff');
-}
-
+/* Material Symbols Outlined and its .material-symbols-* helpers are provided by
+   the shared shared/static/vendor/noca-fonts.css (linked in _base.html). Only the
+   web-only devicon face lives here. */
 @font-face {
     font-family: 'devicon';
     src: url('/static/vendor/fonts/devicon.woff?qd25fp') format('woff'),
     url('/static/vendor/fonts/devicon.ttf?qd25fp') format('truetype');
     font-weight: normal;
     font-style: normal;
-}
-
-.material-symbols-outlined {
-    font-family: 'Material Symbols Outlined';
-    font-weight: normal;
-    font-style: normal;
-    font-size: 24px; /* Preferred icon size */
-    display: inline-block;
-    line-height: 1;
-    text-transform: none;
-    letter-spacing: normal;
-    word-wrap: normal;
-    white-space: nowrap;
-    direction: ltr;
-    vertical-align: middle;
-}
-
-.material-symbols-filled {
-    font-variation-settings: 'FILL' 1;
-}
-
-.material-symbols-outline {
-    font-variation-settings: 'FILL' 0;
 }

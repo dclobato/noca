@@ -37,7 +37,13 @@ from arena.routes.admin_problem_form_views import (
     safe_next_path,
     selected_cats_data,
 )
-from arena.services import admin_problem_service, admin_problem_tc_pending, admin_problem_tc_service
+from arena.services import (
+    admin_problem_interaction_pending,
+    admin_problem_interaction_service,
+    admin_problem_service,
+    admin_problem_tc_pending,
+    admin_problem_tc_service,
+)
 from arena.services.admin_problem_validator_service import (
     parse_validator_upload,
     stage_candidate_revision,
@@ -46,6 +52,7 @@ from arena.services.pagination_service import parse_page
 from shared.services.admin_audit import record_admin_action
 from shared.services.custom_validator import status_view
 from shared.services.imageprocessing_service import ImageProcessingError
+from shared.services.sample_interactions import InteractionParseError
 from shared.services.valkey_service import enqueue_custom_validator_validation_job
 from shared.services.valkey_service.queue_ops import enqueue_arena_submission_job
 
@@ -284,7 +291,7 @@ async def admin_problem_create(
         return await render_error()
 
     validation_job = (
-        stage_candidate_revision(session, problem, validator_upload) if validator_upload is not None else None
+        await stage_candidate_revision(session, problem, validator_upload) if validator_upload is not None else None
     )
 
     await session.commit()
@@ -377,6 +384,7 @@ async def admin_problem_edit(
         has_submissions=has_submissions,
         validator_status=status_view(problem.custom_validator),
         validator_languages=await validator_languages(session),
+        interactions=await admin_problem_interaction_service.list_interactions(session, problem.id),
         current_user=current_user,
     )
 
@@ -470,6 +478,7 @@ async def admin_problem_update(
             has_submissions=has_submissions,
             validator_status=status_view(problem.custom_validator),
             validator_languages=await validator_languages(session),
+            interactions=await admin_problem_interaction_service.list_interactions(session, problem.id),
             current_user=current_user,
             status_code=400,
         )
@@ -483,6 +492,14 @@ async def admin_problem_update(
             source_file=validator_source_file,
         )
     except ValueError as exc:
+        flash(str(exc), FlashCategory.DANGER)
+        return await render_error()
+
+    # Same for the pending sample interactions: a malformed transcript is rejected
+    # while the problem is still untouched.
+    try:
+        pending_interactions = admin_problem_interaction_pending.parse_pending_interactions(await request.form())
+    except InteractionParseError as exc:
         flash(str(exc), FlashCategory.DANGER)
         return await render_error()
 
@@ -522,30 +539,27 @@ async def admin_problem_update(
         return await render_error()
 
     form_data = await request.form()
-    has_validator = validator_upload is not None or status_view(problem.custom_validator).configured
     try:
         cleanup_callbacks, file_writes = await admin_problem_tc_pending.apply_pending_testcases(
             session,
             problem,
             form_data,
             testcase_dir=settings.PROBLEM_TESTCASE_DIR,
-            allow_empty=has_validator,
+        )
+        await admin_problem_interaction_pending.apply_pending_interactions(
+            session,
+            problem,
+            form_data,
+            pending_interactions,
         )
     except ValueError as exc:
         flash(str(exc), FlashCategory.DANGER)
         return await render_error()
 
-    # Stage the validator last: the all-samples rule must be judged against the
-    # test cases this save actually leaves behind, not the ones it started with.
     validation_job = None
     if validator_upload is not None:
         try:
-            validation_job = stage_candidate_revision(
-                session,
-                problem,
-                validator_upload,
-                test_cases=await admin_problem_tc_service.list_testcases(session, problem.id),
-            )
+            validation_job = await stage_candidate_revision(session, problem, validator_upload)
         except ValueError as exc:
             flash(str(exc), FlashCategory.DANGER)
             return await render_error()
@@ -581,9 +595,16 @@ async def admin_problem_toggle_enabled(
 ) -> Response:
     """Toggle the enabled/disabled state of a problem."""
     problem = await get_problem_or_403(problem_id, current_user, session)
-    if not problem.enabled and not status_view(problem.custom_validator).usable:
-        flash("Compile a valid custom validator before enabling this problem.", FlashCategory.DANGER)
-        return RedirectResponse(request.url_for("arena_admin_problem_edit", problem_id=problem.id), 303)
+    if not problem.enabled:
+        if not status_view(problem.custom_validator).usable:
+            flash("Compile a valid custom validator before enabling this problem.", FlashCategory.DANGER)
+            return RedirectResponse(request.url_for("arena_admin_problem_edit", problem_id=problem.id), 303)
+        tc_error = await admin_problem_tc_service.testcase_readiness_error(session, problem.id)
+        if tc_error is None and status_view(problem.custom_validator).configured:
+            tc_error = await admin_problem_interaction_service.interactive_testcase_error(session, problem.id)
+        if tc_error is not None:
+            flash(f"Cannot enable this problem. {tc_error}", FlashCategory.DANGER)
+            return RedirectResponse(request.url_for("arena_admin_problem_edit", problem_id=problem.id), 303)
     await admin_problem_service.toggle_enabled(session, problem)
     await session.commit()
     state = "enabled" if problem.enabled else "disabled"

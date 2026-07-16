@@ -55,6 +55,11 @@ class Settings(BaseSettings):
             "module default ('noca') so tokens issued by each server are not mutually valid."
         ),
     )
+    BRAND_NAME: str = Field(
+        default="NOCA Arena",
+        validation_alias="NOCA_ARENA_BRAND_NAME",
+        description="Public brand name shown in the UI, page titles, and email templates.",
+    )
     ARENA_URL_BASE: str | None = Field(
         default=None,
         description=(
@@ -65,6 +70,13 @@ class Settings(BaseSettings):
     FORWARDED_ALLOW_IPS: str = Field(
         default="127.0.0.1,::1",
         description="Comma-separated trusted reverse-proxy IPs/CIDRs for X-Forwarded-* headers.",
+    )
+    SOURCE_PORT_HEADER: str = Field(
+        default="",
+        description=(
+            "Optional trusted reverse-proxy header carrying the original client source port. "
+            "The proxy must strip client-supplied values before setting it."
+        ),
     )
     ENVIRONMENT: Environment = Field(
         default=Environment.DEVELOPMENT,
@@ -381,6 +393,44 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
+    # Health monitor
+    # ------------------------------------------------------------------
+    HEALTHMON_URL: str = Field(
+        default="",
+        validation_alias="NOCA_HEALTHMON_URL",
+        description=(
+            "Public URL of the health monitor status page (e.g. https://status.example.com). "
+            "Shown as the footer 'Status' link; the link is hidden when empty."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Worker presence (healthmonitor up/down probing of this Arena replica)
+    # ------------------------------------------------------------------
+    WORKER_ID: str = Field(
+        default="",
+        validation_alias="NOCA_ARENA_WORKER_ID",
+        description="Stable worker ID; defaults to '<fqdn>:<pid>' when empty.",
+    )
+    WORKER_PRESENCE_INTERVAL_SECONDS: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=300.0,
+        validation_alias="NOCA_ARENA_WORKER_PRESENCE_INTERVAL_SECONDS",
+        description="Seconds between Valkey worker-presence heartbeats.",
+    )
+    WORKER_PRESENCE_TTL_SECONDS: int = Field(
+        default=60,
+        ge=2,
+        le=3600,
+        validation_alias="NOCA_ARENA_WORKER_PRESENCE_TTL_SECONDS",
+        description=(
+            "TTL for the Valkey worker-presence live marker. "
+            "Must be greater than NOCA_ARENA_WORKER_PRESENCE_INTERVAL_SECONDS."
+        ),
+    )
+
+    # ------------------------------------------------------------------
     # AI assistant batch window (mirrors aiassistant config for display)
     # ------------------------------------------------------------------
     AI_BATCH_POLL_INTERVAL_SECONDS: float = Field(
@@ -518,6 +568,11 @@ class Settings(BaseSettings):
             raise ValueError(
                 "NOCA_ARENA_PRESENCE_HEARTBEAT_SECONDS must be smaller than "
                 "NOCA_ARENA_PRESENCE_TTL_SECONDS so a still-active user never expires."
+            )
+        if self.WORKER_PRESENCE_TTL_SECONDS <= self.WORKER_PRESENCE_INTERVAL_SECONDS:
+            raise ValueError(
+                "NOCA_ARENA_WORKER_PRESENCE_TTL_SECONDS must be greater than "
+                "NOCA_ARENA_WORKER_PRESENCE_INTERVAL_SECONDS."
             )
         return self
 

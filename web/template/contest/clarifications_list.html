@@ -79,22 +79,20 @@
                                                     data-answer="{{ c.answer | e if c.answer else '' }}"
                                                     data-visibility="{{ 'global' if c.is_contest_public else 'private' }}"
                                                     title="Detail">{{ render_icon(icon="visibility") }}</button>
-                                            {%- if current_user.role == RoleEnum.JUDGE.value %}
-                                                {%- if c.answered_at is none and not c.hidden and (not lock_service_available or c.acquired_at is none or c.acquired_by_me) %}
-                                                    <form method="post"
-                                                          action="{{ request.url_for('contest_clarifications_acquire', slug=contest.login_slug) }}"
-                                                          class="noca-icon-btn-wrap">
-                                                        <input type="hidden" name="clarification_id" value="{{ c.id }}">
-                                                        <button type="submit" class="btn btn-primary noca-icon-btn" title="Answer">
-                                                            {{ render_icon(icon="edit_square") }}
-                                                        </button>
-                                                    </form>
-                                                {%- endif %}
-                                                {%- if not c.hidden %}
-                                                    <a href="{{ request.url_for('contest_clarifications_hide', slug=contest.login_slug) }}?id={{ c.id }}"
-                                                       class="btn btn-warning noca-icon-btn"
-                                                       title="Hide">{{ render_icon(icon="visibility_off") }}</a>
-                                                {%- endif %}
+                                            {%- if can_answer_clarifications and c.answered_at is none and not c.hidden and (not lock_service_available or c.acquired_at is none or c.acquired_by_me) %}
+                                                <form method="post"
+                                                      action="{{ request.url_for('contest_clarifications_acquire', slug=contest.login_slug) }}"
+                                                      class="noca-icon-btn-wrap">
+                                                    <input type="hidden" name="clarification_id" value="{{ c.id }}">
+                                                    <button type="submit" class="btn btn-primary noca-icon-btn" title="Answer">
+                                                        {{ render_icon(icon="edit_square") }}
+                                                    </button>
+                                                </form>
+                                            {%- endif %}
+                                            {%- if current_user.role == RoleEnum.JUDGE.value and not c.hidden %}
+                                                <a href="{{ request.url_for('contest_clarifications_hide', slug=contest.login_slug) }}?id={{ c.id }}"
+                                                   class="btn btn-warning noca-icon-btn"
+                                                   title="Hide">{{ render_icon(icon="visibility_off") }}</a>
                                             {%- endif %}
                                             {%- if current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) %}
                                                 <a href="{{ request.url_for('contest_clarifications_togglehide', slug=contest.login_slug) }}?id={{ c.id }}"
@@ -102,11 +100,11 @@
                                                    title="{{ 'Unhide' if c.hidden else 'Hide' }}">
                                                     {{ render_icon(icon="visibility" if c.hidden else "visibility_off") }}
                                                 </a>
-                                                {%- if lock_service_available and c.acquired_at is not none and c.answered_at is none %}
+                                                {%- if lock_service_available and c.acquired_at is not none and not c.acquired_by_me and c.answered_at is none %}
                                                     <form method="post"
                                                           action="{{ request.url_for('contest_clarifications_releaselock', slug=contest.login_slug) }}"
                                                           class="noca-icon-btn-wrap"
-                                                          onsubmit="return confirm('Release the lock on this clarification? The judge will lose their hold.');">
+                                                          onsubmit="return confirm('Release the lock on this clarification? The current holder will lose their hold.');">
                                                         <input type="hidden" name="clarification_id" value="{{ c.id }}">
                                                         <button type="submit"
                                                                 class="btn btn-outline-danger noca-icon-btn"

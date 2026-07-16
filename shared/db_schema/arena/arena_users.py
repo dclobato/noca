@@ -455,6 +455,7 @@ arena_login_history = Table(
         comment="Timestamp of the login event",
     ),
     Column("ip_address", String(45), nullable=True, comment="Client IP address (IPv4 or IPv6)"),
+    Column("source_port", Integer, nullable=True, comment="Client source port associated with the IP address"),
     Column("country_code", String(2), nullable=True, comment="ISO 3166-1 alpha-2 country code from IP"),
     Column("subdivision_code", String(16), nullable=True, comment="ISO 3166-2 subdivision code from IP"),
     Column("district", String(128), nullable=True, comment="District/county name from IP"),

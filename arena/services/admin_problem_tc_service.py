@@ -34,6 +34,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator, ArenaTestCase
+from shared.services.custom_validator import status_view
 from shared.services.testcase_files import (
     delete_all_testcase_files,
     delete_testcase_files,
@@ -64,7 +65,7 @@ class TestCaseView:
     is_large: bool
 
 
-def _check_inline_size(in_bytes: bytes, out_bytes: bytes) -> None:
+def _check_inline_size(in_bytes: bytes, out_bytes: bytes | None) -> None:
     """Reject inline content whose normalized side exceeds the gate threshold.
 
     Raises:
@@ -75,11 +76,35 @@ def _check_inline_size(in_bytes: bytes, out_bytes: bytes) -> None:
             f"Input exceeds the {MAX_INLINE_TESTCASE_BYTES // 1024} KB inline-edit limit; "
             "edit this case offline via download/replace."
         )
-    if len(normalize_testcase_bytes(out_bytes)) > MAX_INLINE_TESTCASE_BYTES:
+    if out_bytes is not None and len(normalize_testcase_bytes(out_bytes)) > MAX_INLINE_TESTCASE_BYTES:
         raise ValueError(
             f"Output exceeds the {MAX_INLINE_TESTCASE_BYTES // 1024} KB inline-edit limit; "
             "edit this case offline via download/replace."
         )
+
+
+async def has_custom_validator(session: AsyncSession, problem_id: str) -> bool:
+    """Whether the problem is interactive, so its cases carry no expected output."""
+    validator = await session.scalar(
+        select(ArenaProblemCustomValidator).where(ArenaProblemCustomValidator.problem_id == problem_id)
+    )
+    return status_view(validator).configured
+
+
+async def testcase_readiness_error(session: AsyncSession, problem_id: str) -> str | None:
+    """Return why the problem's test cases cannot judge submissions yet, else None.
+
+    Every problem needs at least one test case: a plain problem compares each
+    case's expected output, and an interactive one replays its validator once per
+    case with that case's input. A plain problem additionally needs an expected
+    output on every case — which one that lost its validator no longer has.
+    """
+    cases = await list_testcases(session, problem_id)
+    if not cases:
+        return "Add at least one test case first."
+    if not await has_custom_validator(session, problem_id) and any(case.output_size_bytes is None for case in cases):
+        return "Every test case needs an expected output. Add one to each case, or configure a custom validator."
+    return None
 
 
 async def list_testcases(session: AsyncSession, problem_id: str) -> list[ArenaTestCase]:
@@ -169,31 +194,28 @@ async def create_testcase(
 
     Returns the new ``ArenaTestCase`` row (not yet committed) and a zero-arg
     callable that the caller must invoke **after** committing the transaction to
-    write the pair of files to disk.
+    write the files to disk. On an interactive problem the case carries input
+    only: the submitted output, if any, is discarded.
 
     Raises:
         ValueError: If either normalized side exceeds ``MAX_INLINE_TESTCASE_BYTES``.
     """
-    validator_configured = await session.scalar(
-        select(ArenaProblemCustomValidator.problem_id).where(ArenaProblemCustomValidator.problem_id == problem.id)
-    )
-    if validator_configured is not None and not is_sample:
-        raise ValueError("Custom-validator test cases must be public samples.")
+    interactive = await has_custom_validator(session, problem.id)
     in_bytes = input_content.encode("utf-8")
-    out_bytes = output_content.encode("utf-8")
+    out_bytes = None if interactive else output_content.encode("utf-8")
     _check_inline_size(in_bytes, out_bytes)
 
     in_norm = normalize_testcase_bytes(in_bytes)
-    out_norm = normalize_testcase_bytes(out_bytes)
+    out_size = None if out_bytes is None else len(normalize_testcase_bytes(out_bytes))
     now = _now()
     ordinal = await _next_ordinal(session, problem.id)
     tc = ArenaTestCase(
         id=str(uuid.uuid4()),
         problem_id=problem.id,
         ordinal=ordinal,
-        is_sample=is_sample,
+        is_sample=False if interactive else is_sample,
         input_size_bytes=len(in_norm),
-        output_size_bytes=len(out_norm),
+        output_size_bytes=out_size,
         explanation=explanation,
         created_at=now,
         updated_at=now,
@@ -222,25 +244,21 @@ async def update_testcase(
 
     Returns the mutated ``ArenaTestCase`` (not yet committed) and a zero-arg
     callable that the caller must invoke **after** committing to write the
-    updated files to disk.
+    updated files to disk. On an interactive problem the case carries input only:
+    the submitted output, if any, is discarded.
 
     Raises:
         ValueError: If either normalized side exceeds ``MAX_INLINE_TESTCASE_BYTES``.
     """
-    validator_configured = await session.scalar(
-        select(ArenaProblemCustomValidator.problem_id).where(ArenaProblemCustomValidator.problem_id == tc.problem_id)
-    )
-    if validator_configured is not None and not is_sample:
-        raise ValueError("Custom-validator test cases must be public samples.")
+    interactive = await has_custom_validator(session, tc.problem_id)
     in_bytes = input_content.encode("utf-8")
-    out_bytes = output_content.encode("utf-8")
+    out_bytes = None if interactive else output_content.encode("utf-8")
     _check_inline_size(in_bytes, out_bytes)
 
     in_norm = normalize_testcase_bytes(in_bytes)
-    out_norm = normalize_testcase_bytes(out_bytes)
     tc.input_size_bytes = len(in_norm)
-    tc.output_size_bytes = len(out_norm)
-    tc.is_sample = is_sample
+    tc.output_size_bytes = None if out_bytes is None else len(normalize_testcase_bytes(out_bytes))
+    tc.is_sample = False if interactive else is_sample
     tc.explanation = explanation
     tc.updated_at = _now()
 
@@ -258,7 +276,7 @@ async def replace_single_testcase(
     tc: ArenaTestCase,
     *,
     input_bytes: bytes,
-    output_bytes: bytes,
+    output_bytes: bytes | None,
     explanation: str | None,
     testcase_dir: Path,
 ) -> tuple[ArenaTestCase, Callable[[], None]]:
@@ -266,12 +284,12 @@ async def replace_single_testcase(
 
     Returns the mutated ``ArenaTestCase`` (not yet committed) and a zero-arg
     callable that the caller must invoke **after** committing to write the
-    replacement files to disk.
+    replacement files to disk. ``output_bytes`` is ``None`` on an interactive
+    problem, whose cases carry input only.
     """
     in_norm = normalize_testcase_bytes(input_bytes)
-    out_norm = normalize_testcase_bytes(output_bytes)
     tc.input_size_bytes = len(in_norm)
-    tc.output_size_bytes = len(out_norm)
+    tc.output_size_bytes = None if output_bytes is None else len(normalize_testcase_bytes(output_bytes))
     tc.explanation = explanation
     tc.updated_at = _now()
 
@@ -285,12 +303,14 @@ async def replace_single_testcase(
 
 
 async def toggle_sample(session: AsyncSession, tc: ArenaTestCase) -> ArenaTestCase:
-    """Flip a test case's sample/secret flag without touching its content."""
-    validator_configured = await session.scalar(
-        select(ArenaProblemCustomValidator.problem_id).where(ArenaProblemCustomValidator.problem_id == tc.problem_id)
-    )
-    if validator_configured is not None and tc.is_sample:
-        raise ValueError("Custom-validator test cases cannot be made secret.")
+    """Flip a test case's sample/secret flag without touching its content.
+
+    Raises:
+        ValueError: If the problem is interactive. Such a problem presents sample
+            interactions instead, so none of its cases may be public.
+    """
+    if await has_custom_validator(session, tc.problem_id):
+        raise ValueError("Interactive problems present sample interactions instead of sample test cases.")
     tc.is_sample = not tc.is_sample
     tc.updated_at = _now()
     return tc
@@ -307,6 +327,10 @@ async def delete_testcase(
     Performs only DB mutations (delete row + renumber ordinals of survivors).
     Returns a zero-arg callable that the caller must invoke **after** committing
     the transaction to remove the deleted file and renumber the remaining ones.
+
+    The "an interactive problem keeps at least one secret case" invariant is
+    enforced by the caller against the *net* outcome of a save, not here: a single
+    save may legitimately remove every existing case and add replacements.
     """
     problem_id = tc.problem_id
     deleted_ordinal = tc.ordinal
@@ -388,34 +412,34 @@ async def replace_all_from_zip(
     Deletes all existing DB rows and inserts new metadata rows with sizes
     computed from in-memory normalization.  Returns the count of imported cases
     and a zero-arg callable that the caller must invoke **after** committing the
-    transaction to delete the old files and write the new ones.
+    transaction to delete the old files and write the new ones. On an interactive
+    problem the archive's outputs, if any, are ignored, and every imported case is
+    secret regardless of ``default_is_sample``: such a problem presents sample
+    interactions instead of sample test cases.
 
     Raises:
         ValueError: Propagated from ``parse_testcases_zip`` on malformed ZIP.
     """
-    parsed = parse_testcases_zip(zip_bytes)
-
-    validator_configured = await session.scalar(
-        select(ArenaProblemCustomValidator.problem_id).where(ArenaProblemCustomValidator.problem_id == problem.id)
-    )
-    effective_is_sample = True if validator_configured is not None else default_is_sample
+    interactive = await has_custom_validator(session, problem.id)
+    parsed = parse_testcases_zip(zip_bytes, require_output=not interactive)
+    is_sample = False if interactive else default_is_sample
 
     await session.execute(delete(ArenaTestCase).where(ArenaTestCase.problem_id == problem.id))
     await session.flush()
 
     problem_id = problem.id
-    pairs_for_disk: list[tuple[int, bytes, bytes]] = []
+    pairs_for_disk: list[tuple[int, bytes, bytes | None]] = []
     now = _now()
     for ordinal, (in_bytes, out_bytes) in sorted(parsed.pairs.items()):
         in_norm = normalize_testcase_bytes(in_bytes)
-        out_norm = normalize_testcase_bytes(out_bytes)
+        out_size = None if out_bytes is None else len(normalize_testcase_bytes(out_bytes))
         tc = ArenaTestCase(
             id=str(uuid.uuid4()),
             problem_id=problem_id,
             ordinal=ordinal,
-            is_sample=effective_is_sample,
+            is_sample=is_sample,
             input_size_bytes=len(in_norm),
-            output_size_bytes=len(out_norm),
+            output_size_bytes=out_size,
             explanation=parsed.explanations.get(ordinal),
             created_at=now,
             updated_at=now,

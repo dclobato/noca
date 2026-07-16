@@ -146,7 +146,7 @@ async def test_submit_rate_limited_flashes_and_does_not_enqueue(
     session: AsyncSession,
     running_contest: Contest,
     team_user: User,
-    contest_problem: Problem,
+    judgeable_contest_problem: Problem,
     uberadmin: UberAdmin,
 ) -> None:
     language = await _make_language(session)
@@ -174,13 +174,13 @@ async def test_submit_rate_limited_flashes_and_does_not_enqueue(
             client.cookies.set("noca_access_token", token)
             first = await client.post(
                 f"/c/{running_contest.login_slug}/runs/submit",
-                data={"problem_id": contest_problem.id, "language_id": language.id},
+                data={"problem_id": judgeable_contest_problem.id, "language_id": language.id},
                 files={"source_file": ("main.py", b"print('first')\n", "text/plain")},
                 follow_redirects=False,
             )
             second = await client.post(
                 f"/c/{running_contest.login_slug}/runs/submit",
-                data={"problem_id": contest_problem.id, "language_id": language.id},
+                data={"problem_id": judgeable_contest_problem.id, "language_id": language.id},
                 files={"source_file": ("main.py", b"print('second')\n", "text/plain")},
                 follow_redirects=False,
             )

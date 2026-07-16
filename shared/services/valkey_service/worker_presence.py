@@ -34,11 +34,19 @@ return 1
 
 
 class WorkerClass(StrEnum):
-    """Worker process classes displayed by the Arena administration dashboard."""
+    """Process classes that publish Valkey presence.
+
+    The worker classes (autojudge, aiassistant, rating) are displayed by the
+    Arena administration dashboard and participate in the pause machinery.
+    The HTTP server classes (web, arena) are presence-only: they are monitored
+    by the healthmonitor module and must never appear in pause/dashboard UIs.
+    """
 
     AUTOJUDGE = "autojudge"
     AIASSISTANT = "aiassistant"
     RATING = "rating"
+    WEB = "web"
+    ARENA = "arena"
 
 
 @dataclass(frozen=True, slots=True)

@@ -37,7 +37,10 @@
         <div class="mb-4">
             <h1 class="h3 mb-1">Submission Review</h1>
             <p class="text-muted mb-0">
-                {{ problem_label }}: {{ submission.problem.title }} / <i class="{{ submission.language.icon }} me-1"></i>{{ submission.language.name }}
+                <a href="{{ request.url_for('contest_problem_detail', slug=contest.login_slug, problem_label=problem_label) }}">
+                    {{ problem_label }}: {{ submission.problem.title }}
+                </a>
+                / <i class="{{ submission.language.icon }} me-1"></i>{{ submission.language.name }}
             </p>
         </div>
         <div class="row g-4">
@@ -199,11 +202,19 @@
                             </div>
                             {% if validator_status.configured %}
                                 <div class="p-3">
-                                    {% for attempt in interactive_attempts %}
-                                        {% include "_partials/interactive_transcript.html" %}
+                                    {# An accepted submission passed every test case, so there is no
+                                       failing conversation to show. #}
+                                    {% if active_judgment and active_judgment.final_verdict == Verdict.AC %}
+                                        <p class="text-muted text-center mb-0 py-3">
+                                            Every test case was accepted, so there is no failing conversation to show.
+                                        </p>
                                     {% else %}
-                                        <p class="text-muted text-center mb-0 py-3">No interactive validator run recorded.</p>
-                                    {% endfor %}
+                                        {% for attempt in interactive_attempts %}
+                                            {% include "_partials/interactive_transcript.html" %}
+                                        {% else %}
+                                            <p class="text-muted text-center mb-0 py-3">No interactive validator run recorded.</p>
+                                        {% endfor %}
+                                    {% endif %}
                                 </div>
                             {% else %}
                                 <div class="table-responsive">
@@ -288,7 +299,7 @@
                                 {% endif %}
                             {% else %}
                                 <p class="text-muted small mb-2">No judge is currently reviewing this submission.</p>
-                                {% if is_judge and not has_confirmed and active_judgment.status == JudgmentStatus.DONE and not active_judgment.final_verdict %}
+                                {% if can_acquire_review %}
                                     <form method="post"
                                           action="{{ request.url_for('submission_acquire_review', slug=contest.login_slug, submission_id=submission.id) }}">
                                         <button type="submit" class="btn btn-outline-primary btn-sm w-100">Acquire review</button>
@@ -378,6 +389,50 @@
                         </table>
                     </div>
                 </div>
+                {% if can_rejudge %}
+                    <div class="card shadow-sm border-0 mb-4">
+                        <div class="card-header fw-semibold">Rejudge Submission</div>
+                        <div class="card-body">
+                            <p class="text-muted small mb-3">
+                                This will supersede the current judgment and restart the full autojudge and confirmation cycle.
+                            </p>
+                            <button type="button"
+                                    class="btn btn-warning w-100"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#rejudgeConfirmModal">Rejudge Submission</button>
+                        </div>
+                    </div>
+                    <div class="modal fade"
+                         id="rejudgeConfirmModal"
+                         tabindex="-1"
+                         aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h2 class="modal-title fs-5">Confirm Rejudge</h2>
+                                    <button type="button"
+                                            class="btn-close"
+                                            data-bs-dismiss="modal"
+                                            aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    This will supersede the current judgment
+                                    (final verdict: {{ verdict_badge(active_judgment.final_verdict.value) }})
+                                    and submit the submission for a new autojudge cycle. Are you sure?
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button"
+                                            class="btn btn-outline-secondary"
+                                            data-bs-dismiss="modal">Cancel</button>
+                                    <form method="post"
+                                          action="{{ request.url_for('submission_rejudge_post', slug=contest.login_slug, submission_id=submission.id) }}">
+                                        <button type="submit" class="btn btn-warning">Confirm Rejudge</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
                 {% if can_confirm %}
                     <div class="card shadow-sm border-0 mb-4">
                         <div class="card-header fw-semibold">Submit Confirmation</div>
@@ -391,18 +446,18 @@
                                         {% for v in verdicts %}<option value="{{ v.value }}">{{ verdict_labels.get(v.value, v.value) }}</option>{% endfor %}
                                     </select>
                                 </div>
-                                {% if is_chief_judge %}
+                                {% if is_decisive_confirmer %}
                                     <button type="button"
                                             class="btn btn-danger w-100"
                                             data-bs-toggle="modal"
-                                            data-bs-target="#chiefConfirmModal">Submit as Chief Judge</button>
+                                            data-bs-target="#chiefConfirmModal">Submit as final confirmation</button>
                                 {% else %}
                                     <button type="submit" class="btn btn-primary w-100">Submit Confirmation</button>
                                 {% endif %}
                             </form>
                         </div>
                     </div>
-                    {% if is_chief_judge %}
+                    {% if is_decisive_confirmer %}
                         <div class="modal fade"
                              id="chiefConfirmModal"
                              tabindex="-1"
@@ -410,20 +465,24 @@
                             <div class="modal-dialog modal-dialog-centered">
                                 <div class="modal-content">
                                     <div class="modal-header">
-                                        <h2 class="modal-title fs-5">Chief Judge Confirmation</h2>
+                                        <h2 class="modal-title fs-5">Final Confirmation</h2>
                                         <button type="button"
                                                 class="btn-close"
                                                 data-bs-dismiss="modal"
                                                 aria-label="Close"></button>
                                     </div>
                                     <div class="modal-body">
-                                        As the contest chief judge, your confirmation is final and will immediately set the final verdict.
+                                        {% if is_chief_judge %}
+                                            As the contest chief judge, your confirmation is final and will immediately set the final verdict.
+                                        {% else %}
+                                            As a contest admin, your confirmation is final and will immediately set the final verdict.
+                                        {% endif %}
                                     </div>
                                     <div class="modal-footer">
                                         <button type="button"
                                                 class="btn btn-outline-secondary"
                                                 data-bs-dismiss="modal">Cancel</button>
-                                        <button type="submit" class="btn btn-danger" form="confirm-form">Confirm as Chief Judge</button>
+                                        <button type="submit" class="btn btn-danger" form="confirm-form">Submit final confirmation</button>
                                     </div>
                                 </div>
                             </div>
@@ -432,7 +491,7 @@
                 {% endif %}
                 {% if can_override %}
                     <div class="card shadow-sm border-0">
-                        <div class="card-header fw-semibold">Override Verdict as Chief Judge</div>
+                        <div class="card-header fw-semibold">Override Final Verdict</div>
                         <div class="card-body">
                             <form method="post"
                                   action="{{ request.url_for('contest_runs_override', slug=contest.login_slug, submission_id=submission.id) }}"
@@ -481,50 +540,6 @@
                                             class="btn btn-outline-secondary"
                                             data-bs-dismiss="modal">Cancel</button>
                                     <button type="submit" class="btn btn-danger" form="override-form">Confirm Override</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                {% endif %}
-                {% if can_rejudge %}
-                    <div class="card shadow-sm border-0 mt-3">
-                        <div class="card-header fw-semibold">Rejudge Submission</div>
-                        <div class="card-body">
-                            <p class="text-muted small mb-3">
-                                This will supersede the current judgment and restart the full autojudge and confirmation cycle.
-                            </p>
-                            <button type="button"
-                                    class="btn btn-warning w-100"
-                                    data-bs-toggle="modal"
-                                    data-bs-target="#rejudgeConfirmModal">Rejudge Submission</button>
-                        </div>
-                    </div>
-                    <div class="modal fade"
-                         id="rejudgeConfirmModal"
-                         tabindex="-1"
-                         aria-hidden="true">
-                        <div class="modal-dialog modal-dialog-centered">
-                            <div class="modal-content">
-                                <div class="modal-header">
-                                    <h2 class="modal-title fs-5">Confirm Rejudge</h2>
-                                    <button type="button"
-                                            class="btn-close"
-                                            data-bs-dismiss="modal"
-                                            aria-label="Close"></button>
-                                </div>
-                                <div class="modal-body">
-                                    This will supersede the current judgment
-                                    (final verdict: {{ verdict_badge(active_judgment.final_verdict.value) }})
-                                    and submit the submission for a new autojudge cycle. Are you sure?
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button"
-                                            class="btn btn-outline-secondary"
-                                            data-bs-dismiss="modal">Cancel</button>
-                                    <form method="post"
-                                          action="{{ request.url_for('submission_rejudge_post', slug=contest.login_slug, submission_id=submission.id) }}">
-                                        <button type="submit" class="btn btn-warning">Confirm Rejudge</button>
-                                    </form>
                                 </div>
                             </div>
                         </div>

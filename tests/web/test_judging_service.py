@@ -21,6 +21,7 @@ from web.models.users import UberAdmin, User
 from web.services.judging_service import (
     AlreadyConfirmedError,
     ChiefJudgeRemovalBlockedError,
+    DecisiveConfirmationExistsError,
     JudgmentNotDoneError,
     JudgmentNotReadyError,
     SameVerdictError,
@@ -29,6 +30,7 @@ from web.services.judging_service import (
     get_judging_history,
     override_verdict,
     queue_limit_change_batch_rejudges,
+    rejudge_submission,
     remove_chief_judge,
     set_chief_judge,
 )
@@ -199,7 +201,7 @@ async def test_set_chief_judge_sets_selected_judge(
     assert updated.chief_judge_id == judge_user.id
 
 
-async def test_set_chief_judge_clears_assignment_when_blank(
+async def test_set_chief_judge_refuses_to_clear_while_the_contest_has_judges(
     session: AsyncSession,
     running_contest,
     admin_user: User,
@@ -207,6 +209,24 @@ async def test_set_chief_judge_clears_assignment_when_blank(
 ) -> None:
     running_contest.owner_user_id = admin_user.id
     running_contest.chief_judge_id = judge_user.id
+    await session.flush()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await set_chief_judge(session, running_contest, None, admin_user)
+
+    assert exc_info.value.status_code == 400
+    assert running_contest.chief_judge_id == judge_user.id
+
+
+async def test_set_chief_judge_clears_assignment_when_no_judge_is_left(
+    session: AsyncSession,
+    running_contest,
+    admin_user: User,
+) -> None:
+    # A contest with no JUDGE user may hold a stale chief judge (legacy data): clearing it
+    # is the only way back to the invariant, so it stays allowed.
+    running_contest.owner_user_id = admin_user.id
+    running_contest.chief_judge_id = admin_user.id
     await session.flush()
 
     updated = await set_chief_judge(session, running_contest, None, admin_user)
@@ -226,7 +246,7 @@ async def test_set_chief_judge_rejects_non_owner_non_uberadmin(
     assert exc_info.value.status_code == 403
 
 
-async def test_remove_chief_judge_succeeds_without_override_history(
+async def test_remove_chief_judge_blocked_while_the_contest_has_judges(
     session: AsyncSession,
     running_contest,
     admin_user: User,
@@ -234,6 +254,22 @@ async def test_remove_chief_judge_succeeds_without_override_history(
 ) -> None:
     running_contest.owner_user_id = admin_user.id
     running_contest.chief_judge_id = judge_user.id
+    await session.flush()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await remove_chief_judge(session, running_contest, admin_user)
+
+    assert exc_info.value.status_code == 400
+    assert running_contest.chief_judge_id == judge_user.id
+
+
+async def test_remove_chief_judge_succeeds_without_override_history_and_without_judges(
+    session: AsyncSession,
+    running_contest,
+    admin_user: User,
+) -> None:
+    running_contest.owner_user_id = admin_user.id
+    running_contest.chief_judge_id = admin_user.id
     await session.flush()
 
     updated = await remove_chief_judge(session, running_contest, admin_user)
@@ -304,7 +340,9 @@ async def test_get_chief_judge_admin_panel_reports_current_and_removability(
     assert panel.current_chief_judge is not None
     assert panel.current_chief_judge.id == judge_user.id
     assert any(judge.id == judge_user.id for judge in panel.judges)
-    assert panel.can_remove is True
+    # The contest has a judge, so the invariant forbids removing the chief judge: the role
+    # can only be handed over to another judge.
+    assert panel.can_remove is False
 
 
 async def test_get_chief_judge_admin_panel_eager_loads_judge_sites(
@@ -1395,6 +1433,185 @@ async def test_queue_limit_change_batch_rejudges_requires_admin_scope(
             running_contest,
             judge_user,
             None,
+        )
+
+    assert exc_info.value.status_code == 403
+
+
+async def test_rejudge_submission_allows_chief_judge_and_admin_but_not_a_plain_judge(
+    session: AsyncSession,
+    running_contest,
+    judge_user: User,
+    admin_user: User,
+    team_user: User,
+    contest_problem: Problem,
+    uberadmin: UberAdmin,
+) -> None:
+    language = await _make_language(session)
+
+    submission, _judgment = await _make_submission_with_judgment(
+        session,
+        problem=contest_problem,
+        team=team_user,
+        language=language,
+        status=JudgmentStatus.DONE,
+        autojudge_verdict=Verdict.WA,
+        final_verdict=Verdict.WA,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await rejudge_submission(session, submission.id, judge_user, running_contest, _LOCK_CLIENT)
+    assert exc_info.value.status_code == 403
+
+    admin_judgment = await rejudge_submission(session, submission.id, admin_user, running_contest, _LOCK_CLIENT)
+    assert admin_judgment.status == JudgmentStatus.QUEUED
+
+    chief_judge = await _make_user(
+        session,
+        running_contest,
+        uberadmin,
+        "rejudge_chief",
+        "Rejudge Chief",
+        RoleEnum.JUDGE,
+    )
+    running_contest.chief_judge_id = chief_judge.id
+    await session.flush()
+
+    other_submission, _other_judgment = await _make_submission_with_judgment(
+        session,
+        problem=contest_problem,
+        team=team_user,
+        language=language,
+        status=JudgmentStatus.DONE,
+        autojudge_verdict=Verdict.WA,
+        final_verdict=Verdict.WA,
+    )
+
+    chief_new_judgment = await rejudge_submission(
+        session,
+        other_submission.id,
+        chief_judge,
+        running_contest,
+        _LOCK_CLIENT,
+    )
+    assert chief_new_judgment.status == JudgmentStatus.QUEUED
+
+
+async def test_admin_confirmation_is_decisive_and_finalizes_the_verdict(
+    session: AsyncSession,
+    running_contest,
+    team_user: User,
+    admin_user: User,
+    contest_problem: Problem,
+) -> None:
+    """An admin carries chief authority: one confirmation settles the final verdict."""
+    running_contest.autojudge_only = False
+    await session.flush()
+    language = await _make_language(session)
+    submission, judgment = await _make_submission_with_judgment(
+        session,
+        problem=contest_problem,
+        team=team_user,
+        language=language,
+        status=JudgmentStatus.DONE,
+        autojudge_verdict=Verdict.WA,
+    )
+
+    await acquire_submission_review(session, judgment, admin_user, running_contest)
+    confirmation = await confirm_verdict(session, submission.id, Verdict.AC, admin_user, running_contest)
+
+    assert confirmation.is_chief_confirmation is True
+    assert judgment.final_verdict == Verdict.AC
+
+
+async def test_admin_cannot_add_a_second_decisive_confirmation(
+    session: AsyncSession,
+    running_contest,
+    team_user: User,
+    judge_user: User,
+    admin_user: User,
+    contest_problem: Problem,
+) -> None:
+    """The chief judge already settled it; the admin's decisive confirmation is refused."""
+    running_contest.autojudge_only = False
+    running_contest.chief_judge_id = judge_user.id
+    await session.flush()
+    language = await _make_language(session)
+    submission, judgment = await _make_submission_with_judgment(
+        session,
+        problem=contest_problem,
+        team=team_user,
+        language=language,
+        status=JudgmentStatus.DONE,
+        autojudge_verdict=Verdict.WA,
+    )
+
+    await acquire_submission_review(session, judgment, judge_user, running_contest)
+    await confirm_verdict(session, submission.id, Verdict.WA, judge_user, running_contest)
+
+    with pytest.raises(DecisiveConfirmationExistsError):
+        await confirm_verdict(session, submission.id, Verdict.AC, admin_user, running_contest)
+
+    assert judgment.final_verdict == Verdict.WA
+
+
+async def test_admin_can_override_a_final_verdict(
+    session: AsyncSession,
+    running_contest,
+    team_user: User,
+    admin_user: User,
+    contest_problem: Problem,
+) -> None:
+    language = await _make_language(session)
+    submission, judgment = await _make_submission_with_judgment(
+        session,
+        problem=contest_problem,
+        team=team_user,
+        language=language,
+        status=JudgmentStatus.DONE,
+        autojudge_verdict=Verdict.WA,
+        final_verdict=Verdict.WA,
+    )
+
+    override = await override_verdict(
+        session,
+        submission.id,
+        Verdict.AC,
+        "The checker was too strict for this problem.",
+        admin_user,
+        running_contest,
+    )
+
+    assert override.overridden_by == admin_user.id
+    assert judgment.final_verdict == Verdict.AC
+
+
+async def test_plain_judge_cannot_override_a_final_verdict(
+    session: AsyncSession,
+    running_contest,
+    team_user: User,
+    judge_user: User,
+    contest_problem: Problem,
+) -> None:
+    language = await _make_language(session)
+    submission, _judgment = await _make_submission_with_judgment(
+        session,
+        problem=contest_problem,
+        team=team_user,
+        language=language,
+        status=JudgmentStatus.DONE,
+        autojudge_verdict=Verdict.WA,
+        final_verdict=Verdict.WA,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await override_verdict(
+            session,
+            submission.id,
+            Verdict.AC,
+            "I disagree with this verdict entirely.",
+            judge_user,
+            running_contest,
         )
 
     assert exc_info.value.status_code == 403

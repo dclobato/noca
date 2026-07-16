@@ -60,6 +60,7 @@ _COMMON_KWARGS: dict[str, object] = {
     "api_key": "sk-test-key",
     "model": "gpt-5.4-mini",
     "max_output_tokens": 500,
+    "reasoning_effort": "medium",
 }
 
 
@@ -181,6 +182,30 @@ async def test_submit_batch_review_jsonl_contains_input_file_blocks() -> None:
     content = record["body"]["input"][0]["content"]
     file_blocks = [c for c in content if c["type"] == "input_file"]
     assert len(file_blocks) == 2
+
+
+@pytest.mark.asyncio
+async def test_submit_batch_review_jsonl_includes_reasoning_effort() -> None:
+    """The JSONL body carries the reasoning effort passed to submit_ai_batch_review."""
+    mock = _make_mock_client()
+    jsonl_bytes: list[bytes] = []
+
+    async def capturing_create(file: object, purpose: str) -> MagicMock:
+        import io
+
+        if isinstance(file, (io.RawIOBase, io.BufferedIOBase)):
+            jsonl_bytes.append(file.read())
+            file.seek(0)
+        fid = ["file-code", "file-stmt", "file-jsonl"][mock.files.create.call_count - 1]
+        return _make_file(fid)
+
+    mock.files.create = AsyncMock(side_effect=capturing_create)
+
+    with patch("aiassistant.batch_reviewer.AsyncOpenAI", return_value=mock):
+        await submit_ai_batch_review(**{**_COMMON_KWARGS, "reasoning_effort": "high"})  # type: ignore[arg-type]
+
+    record = json.loads(jsonl_bytes[2].decode("utf-8").strip())
+    assert record["body"]["reasoning"] == {"effort": "high"}
 
 
 @pytest.mark.asyncio

@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     DB_NAME: str
 
     APP_NAME: str = Field(default="noca", validation_alias="NOCA_WEB_APP_NAME")
+    BRAND_NAME: str = Field(
+        default="NOCA Contest",
+        validation_alias="NOCA_WEB_BRAND_NAME",
+        description="Public brand name shown in the UI, page titles, and email templates.",
+    )
     WEB_URL_BASE: str | None = Field(
         default=None,
         description=(
@@ -47,6 +52,13 @@ class Settings(BaseSettings):
             "Comma-separated list of trusted reverse proxy IPs/CIDRs used to accept "
             "X-Forwarded-* headers (e.g. 127.0.0.1,10.0.0.0/8). Use '*' only in trusted "
             "private networks where requests cannot come directly from untrusted clients."
+        ),
+    )
+    SOURCE_PORT_HEADER: str = Field(
+        default="",
+        description=(
+            "Optional trusted reverse-proxy header carrying the original client source port. "
+            "The proxy must strip client-supplied values before setting it."
         ),
     )
     JWT_SECRET_KEY: str
@@ -79,6 +91,36 @@ class Settings(BaseSettings):
     EMAIL_MBOX_LOG_DIR: str | None = Field(
         default=None,
         description="Directory for the mbox audit log of sent emails; empty disables logging",
+    )
+    HEALTHMON_URL: str = Field(
+        default="",
+        validation_alias="NOCA_HEALTHMON_URL",
+        description=(
+            "Public URL of the health monitor status page (e.g. https://status.example.com). "
+            "Shown as the footer 'Status' link; the link is hidden when empty."
+        ),
+    )
+    WORKER_ID: str = Field(
+        default="",
+        validation_alias="NOCA_WEB_WORKER_ID",
+        description="Stable worker ID; defaults to '<fqdn>:<pid>' when empty.",
+    )
+    WORKER_PRESENCE_INTERVAL_SECONDS: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=300.0,
+        validation_alias="NOCA_WEB_WORKER_PRESENCE_INTERVAL_SECONDS",
+        description="Seconds between Valkey worker-presence heartbeats.",
+    )
+    WORKER_PRESENCE_TTL_SECONDS: int = Field(
+        default=60,
+        ge=2,
+        le=3600,
+        validation_alias="NOCA_WEB_WORKER_PRESENCE_TTL_SECONDS",
+        description=(
+            "TTL for the Valkey worker-presence live marker. "
+            "Must be greater than NOCA_WEB_WORKER_PRESENCE_INTERVAL_SECONDS."
+        ),
     )
     ENABLE_CLARIFICATION_REAPER: bool = Field(
         default=False,
@@ -423,6 +465,15 @@ class Settings(BaseSettings):
         """Validate production security settings."""
         if self.ENVIRONMENT == Environment.PRODUCTION and not self.COOKIE_SECURE:
             raise ValueError("NOCA_COOKIE_SECURE must be true when NOCA_ENVIRONMENT=production.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_worker_presence_settings(self) -> Settings:
+        """Require the live-marker TTL to exceed the heartbeat interval."""
+        if self.WORKER_PRESENCE_TTL_SECONDS <= self.WORKER_PRESENCE_INTERVAL_SECONDS:
+            raise ValueError(
+                "NOCA_WEB_WORKER_PRESENCE_TTL_SECONDS must be greater than NOCA_WEB_WORKER_PRESENCE_INTERVAL_SECONDS."
+            )
         return self
 
     @field_validator("PROBLEM_STATEMENT_DIR", "PROBLEM_TESTCASE_DIR_ROOT", mode="after")

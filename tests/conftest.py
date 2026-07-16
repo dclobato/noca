@@ -115,7 +115,7 @@ from web.database import Base  # noqa: E402
 if settings.VALKEY_DB != 15:
     raise RuntimeError(f"Tests must use Valkey DB 15, got DB {settings.VALKEY_DB}")
 from web.models.contest import Contest  # noqa: E402
-from web.models.problem import Problem  # noqa: E402
+from web.models.problem import Problem, ProblemTestCase  # noqa: E402
 from web.models.users import UberAdmin, User  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -310,6 +310,22 @@ async def contest_problem(session: AsyncSession, running_contest: Contest) -> Pr
     session.add(problem)
     await session.flush()
     return problem
+
+
+@pytest_asyncio.fixture
+async def judgeable_contest_problem(session: AsyncSession, contest_problem: Problem) -> Problem:
+    """A contest problem carrying the one test case a submission now requires."""
+    session.add(
+        ProblemTestCase(
+            problem_id=contest_problem.id,
+            ordinal=1,
+            is_sample=True,
+            input_size_bytes=2,
+            output_size_bytes=2,
+        )
+    )
+    await session.flush()
+    return contest_problem
 
 
 @pytest_asyncio.fixture

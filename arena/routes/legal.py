@@ -9,8 +9,11 @@
 from pathlib import Path
 from typing import Any, cast
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
+
+from arena.dependencies.auth import get_current_arena_user
+from arena.models.arena_users import ArenaUser
 
 router = APIRouter(prefix="/legal", tags=["arena-legal"])
 
@@ -40,7 +43,11 @@ def _read_legal_document(filename: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _legal_response(request: Request, document_key: str) -> HTMLResponse:
+def _legal_response(
+    request: Request,
+    document_key: str,
+    current_user: ArenaUser | None,
+) -> HTMLResponse:
     """Render a legal markdown document."""
     document = _LEGAL_DOCUMENTS[document_key]
     templates = request.app.state.arena_templates
@@ -49,6 +56,7 @@ def _legal_response(request: Request, document_key: str) -> HTMLResponse:
             request,
             "legal/document.html",
             {
+                "current_user": current_user,
                 "title": document["title"],
                 "markdown_content": _read_legal_document(document["filename"]),
             },
@@ -57,12 +65,18 @@ def _legal_response(request: Request, document_key: str) -> HTMLResponse:
 
 
 @router.get("/terms", response_class=HTMLResponse, name="arena_terms_of_service")
-async def arena_terms_of_service(request: Request) -> HTMLResponse:
+async def arena_terms_of_service(
+    request: Request,
+    current_user: ArenaUser | None = Depends(get_current_arena_user),
+) -> HTMLResponse:
     """Render the Arena Terms of Service."""
-    return _legal_response(request, "terms")
+    return _legal_response(request, "terms", current_user)
 
 
 @router.get("/privacy", response_class=HTMLResponse, name="arena_privacy_policy")
-async def arena_privacy_policy(request: Request) -> HTMLResponse:
+async def arena_privacy_policy(
+    request: Request,
+    current_user: ArenaUser | None = Depends(get_current_arena_user),
+) -> HTMLResponse:
     """Render the Arena Privacy Policy."""
-    return _legal_response(request, "privacy")
+    return _legal_response(request, "privacy", current_user)

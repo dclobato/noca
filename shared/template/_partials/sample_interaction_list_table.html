@@ -1,0 +1,92 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Shared sample-interaction list table, rendered by both the Web (contest admin)
+  and Arena modules. Mirrors testcase_list_table.html so the same shared JS
+  (tc-reorder-sortable.js, tc-pending-remove.js) drives both lists. Context:
+    interaction_rows  list[shared.services.sample_interactions.SampleInteractionRowView]
+    is_edit_allowed   bool
+    si_reorder_target DOM id the move endpoint re-renders (defaults to "si-list")
+  All per-row URLs are pre-built in the view model so this partial never resolves
+  module-specific url_for names.
+#}
+{% from "_macros.html" import render_icon with context %}
+{% set si_reorder_target = si_reorder_target | default("si-list") %}
+<div id="si-list">
+    {% if interaction_rows %}
+        <div class="table-responsive mb-3">
+            <table class="table table-sm align-top">
+                <thead class="table-light">
+                    <tr>
+                        <th class="noca-tc-order-col">Order</th>
+                        <th>#</th>
+                        <th>First lines</th>
+                        <th>Total lines</th>
+                        <th>Explanation?</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody data-reorder-sortable="true"
+                       data-reorder-target="{{ si_reorder_target }}"
+                       data-reorder-disabled="{{ 'false' if is_edit_allowed else 'true' }}">
+                    {% for si in interaction_rows %}
+                        <tr id="si-{{ si.id }}"
+                            class="tc-row"
+                            data-id="si-{{ si.id }}"
+                            data-ordinal="{{ si.ordinal }}"
+                            data-move-url="{{ si.move_url }}">
+                            <td>
+                                <span class="btn btn-sm btn-outline-secondary p-1 noca-icon-btn noca-drag-handle {% if not is_edit_allowed %}disabled{% endif %}"
+                                      role="button"
+                                      tabindex="{% if is_edit_allowed %} 0 {% else %} -1 {% endif %}"
+                                      aria-label="Drag to reorder sample interaction"
+                                      title="{% if is_edit_allowed %} Drag to reorder {% else %} Not editable {% endif %}">{{ render_icon(icon="drag_indicator") }}</span>
+                            </td>
+                            <td>{{ si.ordinal }}</td>
+                            <td>
+                                <pre class="tc-preview noca-tc-preview-cell">{{ si.preview }}</pre>
+                            </td>
+                            <td>
+                                <span class="badge bg-light text-dark border">{{ si.line_count }}</span>
+                            </td>
+                            <td class="text-center">
+                                {% if si.has_explanation %}{{ render_icon(icon="check") }}{% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group btn-group-sm noca-icon-btn-group"
+                                     role="group"
+                                     aria-label="Sample interaction actions">
+                                    <a href="{{ si.edit_url }}"
+                                       class="btn btn-outline-secondary noca-icon-btn"
+                                       title="{{ 'Edit' if is_edit_allowed else 'View' }}">
+                                        {{ render_icon(icon="edit" if is_edit_allowed else "visibility") }}
+                                    </a>
+                                    {% if is_edit_allowed %}
+                                        <button type="button"
+                                                class="btn btn-outline-danger noca-icon-btn si-remove-btn"
+                                                title="Remove"
+                                                data-row-id="{{ si.id }}"
+                                                data-row-ordinal="{{ si.ordinal }}">
+                                            {{ render_icon(icon="delete") }}
+                                        </button>
+                                        <button type="button"
+                                                class="btn btn-outline-secondary noca-icon-btn si-undo-btn d-none"
+                                                title="Undo removal"
+                                                data-row-id="{{ si.id }}">{{ render_icon(icon="undo") }}</button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div id="si-remove-warning" class="alert alert-warning d-none mt-2 small"></div>
+    {% else %}
+        <p class="text-muted small">No sample interactions yet.</p>
+    {% endif %}
+</div>

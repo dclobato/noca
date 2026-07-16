@@ -96,7 +96,7 @@ It owns:
 - **Task queue management**: BALLOON, PRINT, and SOS tasks with staff acquisition and processing
 - **Submission lifecycle**: Upload, queue to autojudge, review-lock acquisition, human confirmations, rejudging, and manual overrides
 - **Scoreboard**: Live, frozen, and released-final scoreboards with Valkey-backed caching
-- **Chief judge workflow**: Special role for verdict overrides and final decisions
+- **Chief judge workflow**: Special role for verdict overrides and final decisions (shared with ADMIN — see [ROUTES.md § Permission Model](../web/docs/ROUTES.md#permission-model))
 
 ### `autojudge/` (~23 Python files)
 
@@ -369,6 +369,29 @@ store results immediately. Platform-key jobs use `NOCA_AI_OPENAI_API_KEY`, creat
 a durable `arena_ai_batch_jobs` row, remove the queue item from inflight, and
 let the batch poller store results after OpenAI reaches a terminal state.
 
+### `healthmonitor/`
+
+The healthmonitor module is a standalone FastAPI server (port 8002) with a
+Valkey connection only — no database, no JWT, no session handling. Both of its
+pages are public. Structure:
+
+- `main.py`: FastAPI app, lifespan (Valkey runtime, templates, background
+  loops), static mounts, `noca-healthmonitor` entrypoint
+- `routes/status.py`, `routes/dashboard.py`, `routes/health.py`: the public
+  status page, the uptime dashboard, and the runtime health endpoint
+- `services/service_registry.py`: the ordered list of monitored services
+- `services/presence_probe.py`: live up/down reads from the shared
+  worker-presence keys (Valkey outage reports every service as unknown)
+- `services/uptime_stats.py`: per-slot `up`/`total` counters under
+  `noca:healthmon:stats:{service}:{slot_epoch}` (12-hour UTC slots, 60-slot
+  window, retention TTL plus explicit reaping)
+- `services/loops.py`: the prober and reaper background loops
+
+The `web` and `arena` HTTP servers publish worker presence from their lifespans
+(`WorkerClass.WEB` / `WorkerClass.ARENA`) so the monitor can probe them the same
+way it probes the workers; those classes are presence-only and are excluded from
+the Arena admin dashboard and pause machinery.
+
 ## 2. Communication model between `web` and `autojudge`
 
 ### PostgreSQL
@@ -563,10 +586,15 @@ Important RBAC characteristics:
 Examples:
 
 - only `TEAM` users can submit runs
-- only judges can acquire and answer clarifications
-- only the contest chief judge may override a verdict
+- judges and admins may acquire and answer clarifications
+- the chief judge or an admin may override a verdict
 - only the contest owner or an uberadmin may assign the chief judge
 - non-uberadmin access to user assets is limited to the same contest
+
+The full permission model — who may answer, confirm, override, and handle tasks, plus the
+uberadmin attribution boundary — lives in one place:
+[web/docs/ROUTES.md § Permission Model](../web/docs/ROUTES.md#permission-model). Do not
+restate role rules here; link to it.
 - language availability for submissions is contest-scoped via the `contest_languages` junction table; `get_contest_languages(session, contest)` is the authoritative query for any contest-scoped language list
 
 This combination of contest scoping plus role checks is a central part of the app architecture, not just a UI concern.
@@ -770,13 +798,14 @@ expiration is retryable. After two such attempts, an Arena validator becomes
 removed from Valkey, and its owner receives one idempotent notification. Clean
 exit codes never trigger containment.
 
-In short, NOCA is a five-process contest platform:
+In short, NOCA is a six-process contest platform:
 
 - `web` manages contest and business workflows (port 8000)
 - `autojudge` manages sandboxed compilation and execution
 - `arena` manages the public Arena participant platform (port 8001)
 - `rating` manages the single-replica Arena rating recomputation cycles
 - `aiassistant` manages Arena AI code review execution and OpenAI batch polling
+- `healthmonitor` manages the public availability dashboards (port 8002)
 - `shared` defines the common contract between them
 
 The runtime architecture is built around a strong separation of concerns, a shared

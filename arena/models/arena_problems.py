@@ -28,6 +28,7 @@ from shared.db_schema.arena import arena_problem_category_map as arena_problem_c
 from shared.db_schema.arena import arena_problem_custom_validators as arena_problem_custom_validators_table
 from shared.db_schema.arena import arena_problem_ratings as arena_problem_ratings_table
 from shared.db_schema.arena import arena_problems as arena_problems_table
+from shared.db_schema.arena import arena_sample_interactions as arena_sample_interactions_table
 from shared.db_schema.arena import arena_test_cases as arena_test_cases_table
 from shared.enumerations import CustomValidatorActiveState, CustomValidatorCandidateState
 from shared.services.arena_rating import CONFIDENCE_SCALE
@@ -114,6 +115,33 @@ class ArenaProblem(ArenaBase):
         back_populates="problem",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+    sample_interactions: Mapped[list[ArenaSampleInteraction]] = relationship(
+        "ArenaSampleInteraction",
+        back_populates="problem",
+        order_by="ArenaSampleInteraction.ordinal",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+
+
+class ArenaSampleInteraction(ArenaBase):
+    """An author-written sample conversation shown for an interactive problem."""
+
+    __table__ = arena_sample_interactions_table
+
+    id: Mapped[str]
+    problem_id: Mapped[str]
+    ordinal: Mapped[int]
+    transcript: Mapped[dict[str, object]]
+    explanation: Mapped[str | None]
+    hidden_at: Mapped[datetime | None]
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+    problem: Mapped[ArenaProblem] = relationship(
+        "ArenaProblem",
+        back_populates="sample_interactions",
     )
 
 

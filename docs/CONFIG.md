@@ -14,6 +14,7 @@ Every variable is prefixed to make its scope explicit:
 | `NOCA_JUDGE_` | Autojudge worker only (`autojudge/config.py`) |
 | `NOCA_AI_` | AI assistant worker only (`aiassistant/config.py`) |
 | `NOCA_RATING_` | Rating worker only (`rating/config.py`) |
+| `NOCA_HEALTHMON_` | Health monitor only (`healthmonitor/config.py`) |
 
 The sections below are grouped the same way: **Common**, **Shared between Web and
 Arena**, then one section per module.
@@ -126,6 +127,12 @@ The generated file is written with `600` permissions and contains
 
 These variables are read by both the web and arena modules.
 
+### Health monitor link
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOCA_HEALTHMON_URL` | *(empty)* | Public URL of the health monitor status page (e.g. `https://status.example.com` or `http://192.168.1.10:8002`). Rendered as the "Status" link in the Web and Arena footers; the link is hidden when empty. |
+
 ### Reverse proxy
 
 > **Set this when a reverse proxy (Caddy, nginx, Traefik, …) terminates TLS in
@@ -144,6 +151,14 @@ These variables are read by both the web and arena modules.
 >   rate limiting buckets all users together (one lockout affects everyone) and
 >   the `security_events` audit log records the proxy IP instead of the real
 >   client.
+> - `request.client.port` is usually the proxy-to-app connection port, not the
+>   user's original source port. If you need source-port retention behind a
+>   proxy, configure the proxy to strip client-supplied source-port headers and
+>   set the trusted header named by `NOCA_SOURCE_PORT_HEADER`.
+> - The sample Caddyfile overwrites `X-Request-ID` with Caddy's
+>   `{http.request.uuid}`, sends it to Web/Arena, returns it in responses, and
+>   appends it to Caddy access logs as `request_id`. Web/Arena persist that
+>   value in `security_events.request_id` for correlation.
 >
 > **Fix:** set `NOCA_FORWARDED_ALLOW_IPS` to the proxy's source network, then
 > restart Web/Arena. For a proxy on the same Docker network with no published app
@@ -156,6 +171,7 @@ These variables are read by both the web and arena modules.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOCA_FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Comma-separated trusted reverse proxy IPs/CIDRs used to accept `X-Forwarded-*` headers in Uvicorn/FastAPI. Example: `127.0.0.1,10.0.0.0/8`. Use `*` only in trusted private networks where clients cannot reach the app directly (e.g. a proxy on the same Docker network while the app publishes no ports). Loopback-only default silently drops forwarded headers from a containerized proxy — see the warning above. |
+| `NOCA_SOURCE_PORT_HEADER` | *(empty)* | Optional trusted reverse-proxy header carrying the original client source port for login history and `security_events`. Leave empty for direct ASGI `request.client.port`. When set, the reverse proxy must remove any inbound client-supplied value and set its own sanitized integer port value. |
 
 ### JWT
 
@@ -232,6 +248,7 @@ Sliding-session notes:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOCA_WEB_APP_NAME` | `noca` | Web application name used in titles and generated content |
+| `NOCA_WEB_BRAND_NAME` | `NOCA Contest` | Public brand name shown in the UI (page titles, footer, nav), and in credential email subjects/bodies. Injected into templates as the `brand_name` global. |
 | `NOCA_WEB_URL_BASE` | *(empty)* | Public base URL used to build absolute links in credential emails and downloadable reports (e.g. `https://contest.example.com` or `http://192.168.1.10:8000`). Must include scheme and host; trailing slash is stripped. When not set, links are derived from the incoming HTTP request — this may produce incorrect URLs behind a reverse proxy that does not forward `X-Forwarded-*` headers. |
 
 ### Problem storage
@@ -279,6 +296,18 @@ The web container's entrypoint runs `scripts/web/create_uberadmin.py` only when 
 | `NOCA_WEB_UBERADMIN_EMAIL` | *(empty)* | Email address for the bootstrap UberAdmin account |
 | `NOCA_WEB_UBERADMIN_PASSWORD` | *(empty)* | Password for the bootstrap UberAdmin account |
 
+### Worker presence
+
+The web server publishes a worker-presence heartbeat to Valkey so the health
+monitor can probe it like the background workers. Web never appears in the
+Arena admin dashboard or pause UI.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOCA_WEB_WORKER_ID` | *(empty)* | Stable identity for the presence keys. Defaults to `<fqdn>:<pid>` when empty. |
+| `NOCA_WEB_WORKER_PRESENCE_INTERVAL_SECONDS` | `30` | Seconds between worker-presence updates in Valkey (1–300 s). |
+| `NOCA_WEB_WORKER_PRESENCE_TTL_SECONDS` | `60` | TTL for the live worker marker (2–3600 s). Must exceed `NOCA_WEB_WORKER_PRESENCE_INTERVAL_SECONDS`. |
+
 ---
 
 ## Arena module
@@ -286,6 +315,7 @@ The web container's entrypoint runs `scripts/web/create_uberadmin.py` only when 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOCA_ARENA_APP_NAME` | `noca-arena` | Arena application name used in titles, generated content, and JWT issuer claims. |
+| `NOCA_ARENA_BRAND_NAME` | `NOCA Arena` | Public brand name shown in the UI (page titles, footer, nav), the 2FA/TOTP issuer, and email subjects/bodies. Injected into templates as the `brand_name` global and into Arena emails by `arena/services/email_rendering.py`. |
 | `NOCA_ARENA_URL_BASE` | *(empty)* | Public base URL used to build absolute links in Arena emails (e.g. `https://arena.example.com`). Must include scheme and host; trailing slash is stripped. When not set, links are derived from the incoming HTTP request — this may produce incorrect URLs behind a reverse proxy that does not forward `X-Forwarded-*` headers. |
 | `NOCA_ARENA_PASSWORD_MAX_AGE` | `0` | Maximum password age in days before a warning flash is shown at Arena login. `0` disables the check. Does not block login or enforce a password change. |
 
@@ -327,6 +357,19 @@ The arena container's entrypoint runs `scripts/arena/create_arena_admin.py` only
 | `NOCA_ARENA_ADMIN_FULLNAME` | *(empty)* | Full name for the bootstrap Arena admin account. |
 | `NOCA_ARENA_ADMIN_EMAIL` | *(empty)* | Email address for the bootstrap Arena admin account. Setting this variable triggers the bootstrap on container startup. |
 | `NOCA_ARENA_ADMIN_PASSWORD` | *(empty)* | Password for the bootstrap Arena admin account. |
+
+### Worker presence
+
+The arena server publishes a worker-presence heartbeat to Valkey so the health
+monitor can probe it like the background workers. This is process presence,
+distinct from the user online-presence settings above. Arena never appears in
+its own admin dashboard worker cards or pause UI.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOCA_ARENA_WORKER_ID` | *(empty)* | Stable identity for the presence keys. Defaults to `<fqdn>:<pid>` when empty. |
+| `NOCA_ARENA_WORKER_PRESENCE_INTERVAL_SECONDS` | `30` | Seconds between worker-presence updates in Valkey (1–300 s). |
+| `NOCA_ARENA_WORKER_PRESENCE_TTL_SECONDS` | `60` | TTL for the live worker marker (2–3600 s). Must exceed `NOCA_ARENA_WORKER_PRESENCE_INTERVAL_SECONDS`. |
 
 ---
 
@@ -376,6 +419,7 @@ in `_ai_review_cost` as integer microdollars.
 | `NOCA_AI_OPENAI_API_KEY` | *(empty)* | Platform fallback OpenAI API key. Used when the Arena user has no personal key. Cost is recorded against the submission only when this key is used. Leave empty to disable AI review for users without a personal key. |
 | `NOCA_AI_OPENAI_MODEL` | `gpt-5.4-mini` | OpenAI model identifier passed to the Responses API. Change to use a different model (e.g. `gpt-4o-mini`). |
 | `NOCA_AI_OPENAI_MAX_OUTPUT_TOKENS` | `500` | Maximum number of output tokens the AI may generate per review. Controls response length and limits cost. |
+| `NOCA_AI_OPENAI_REASONING_EFFORT` | `medium` | Reasoning effort passed to the OpenAI Responses API (both the online and batch review paths). Lower effort favors speed and lower token usage; higher effort yields more complete reasoning and higher-quality reviews. Models reason adaptively, using fewer tokens for simpler tasks. One of: `none`, `low`, `medium`, `high`, `xhigh`. |
 | `NOCA_AI_OPENAI_INPUT_TOKEN_PRICE` | `0.75` | Price per 1 million input tokens in USD. Used to compute cost when the platform key is active. Update when the model's pricing changes. |
 | `NOCA_AI_OPENAI_OUTPUT_TOKEN_PRICE` | `4.50` | Price per 1 million output tokens in USD. Used to compute cost when the platform key is active. Update when the model's pricing changes. |
 | `NOCA_AI_OPENAI_BATCH_INPUT_TOKEN_PRICE` | *(half of `NOCA_AI_OPENAI_INPUT_TOKEN_PRICE`)* | Batch input token price in USD per 1 million tokens. Leave empty to use the default 50% batch discount calculation. |
@@ -409,6 +453,25 @@ and requeues them up to a configurable limit.
 | `NOCA_AI_RECONCILER_INTERVAL_SECONDS` | `120.0` | How often the reconciler sweeps PostgreSQL for AI review jobs lost after commit (jobs flagged `submit_to_ai` with no Valkey queue presence), in seconds (minimum 10 s). |
 | `NOCA_AI_RECONCILER_GRACE_SECONDS` | `120.0` | Minimum age in seconds since a submission was flagged before the reconciler will re-enqueue it, so it does not race a fresh request whose Valkey enqueue is still in flight (minimum 10 s). |
 | `NOCA_AI_RECONCILER_BATCH_SIZE` | `100` | Maximum number of lost AI review jobs re-enqueued per reconciler sweep (1–1000). |
+
+---
+
+## Health monitor
+
+These variables are consumed by the standalone **`noca-healthmonitor`** server
+(port 8002), which renders the public environment status page and uptime
+dashboard. The module reads only Valkey (common `NOCA_VALKEY_*` variables plus
+`NOCA_ENVIRONMENT`, `NOCA_LOG_LEVEL`, and `NOCA_STARTUP_TIMEOUT_SECONDS`); it
+has no database or JWT configuration. The related `NOCA_HEALTHMON_URL` variable
+is consumed by Web and Arena (footer "Status" link), not by this module — see
+"Shared between Web and Arena".
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOCA_HEALTHMON_PROBE_INTERVAL` | `300` | Seconds between up/down probes of the monitored services (30 s – 1 h). Each probe increments the current 12-hour heatmap slot's `up`/`total` counters in Valkey. |
+| `NOCA_HEALTHMON_REAPER_INTERVAL` | `43200` | Seconds between cleanup passes that delete uptime slots older than the retention window (1 h – 1 week). Must be greater than or equal to `NOCA_HEALTHMON_PROBE_INTERVAL`. |
+| `NOCA_HEALTHMON_RETENTION_DAYS` | `30` | Days of per-slot uptime history kept for the heatmap (7–90). Slot keys also carry a TTL one day longer than this window as a safety net. |
+| `NOCA_HEALTHMON_BRAND_NAME` | `NOCA` | Brand name shown on the monitor pages. |
 
 ---
 

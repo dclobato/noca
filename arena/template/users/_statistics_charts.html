@@ -1,0 +1,44 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Verdict and language distribution doughnut charts for one Arena user.
+
+  Requires:
+    - stats_url: JSON endpoint returning {verdicts, languages, total_submissions, computed_at}.
+
+  The page must load echarts and arena-user-statistics.js. Only one instance
+  per page is supported (the script binds by fixed element ids).
+#}
+{% from "_macros.html" import render_icon %}
+<div class="row g-3"
+     data-arena-user-stats
+     data-stats-url="{{ stats_url }}">
+    <div class="col-12 col-md-6">
+        <div class="arena-card h-100">
+            <h2 class="h6 mb-2">Verdict distribution</h2>
+            <div id="public-user-stats-verdicts"
+                 class="arena-stats-chart arena-stats-chart--pie"></div>
+        </div>
+    </div>
+    <div class="col-12 col-md-6">
+        <div class="arena-card h-100">
+            <h2 class="h6 mb-2">Language distribution</h2>
+            <div id="public-user-stats-languages"
+                 class="arena-stats-chart arena-stats-chart--pie"></div>
+        </div>
+    </div>
+    <div class="col-12">
+        <p class="text-arena-muted small mb-1">
+            {{ render_icon(icon="info") }}
+            These charts count every judged submission this user made, including
+            submissions on problems they authored themselves. That is why they can
+            show activity even when <em>Solved problems</em> is zero &mdash; the solved
+            count and rating deliberately exclude a user's own problems.
+        </p>
+        <p class="text-muted small mb-0" data-stats-computed-at></p>
+    </div>
+</div>

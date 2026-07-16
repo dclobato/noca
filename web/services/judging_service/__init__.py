@@ -16,6 +16,7 @@ from .chief_judge import (
 from .errors import (
     AlreadyConfirmedError,
     ChiefJudgeRemovalBlockedError,
+    DecisiveConfirmationExistsError,
     JudgingServiceError,
     JudgmentNotDoneError,
     JudgmentNotReadyError,
@@ -27,6 +28,12 @@ from .errors import (
     SameVerdictError,
 )
 from .history import get_judging_history
+from .permissions import (
+    can_confirm_verdict,
+    can_override_verdict,
+    confirmation_is_decisive,
+    is_chief_judge,
+)
 from .rejudge import (
     create_balloon_task_if_needed,
     queue_limit_change_batch_rejudges,
@@ -44,6 +51,7 @@ from .verdicts import override_verdict
 
 __all__ = [
     "AlreadyConfirmedError",
+    "DecisiveConfirmationExistsError",
     "ChiefJudgeAdminPanel",
     "ChiefJudgeRemovalBlockedError",
     "ContestSetChiefJudgeRequest",
@@ -61,6 +69,10 @@ __all__ = [
     "VerdictOverrideRequest",
     "VerdictOverrideResponse",
     "acquire_submission_review",
+    "can_confirm_verdict",
+    "can_override_verdict",
+    "confirmation_is_decisive",
+    "is_chief_judge",
     "confirm_verdict",
     "create_balloon_task_if_needed",
     "get_chief_judge_admin_panel",

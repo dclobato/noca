@@ -26,7 +26,7 @@
 {% set pre_class = package_pre_class | default("small mb-3") %}
 {# Field rows: (name, type, required, domains). `domains` is "all", "arena" or "contest".
    Adding a package field means adding one row here — both import pages pick it up. #}
-{% set package_fields = [("title", "string", true, "all"), ("author", "string (maximum 80 characters)", false, "all"), ("time_limit_ms", "integer ≥ 1", true, "all"), ("memory_limit_kb", "integer ≥ 1", true, "all"), ("pids_limit", "integer ≥ 1", true, "all"), ("output_limit_in_bytes", "integer or null", false, "all"), ("categories", "array of strings", false, "all"), ("notes", "string or null", false, "all"), ("custom_validator", "object — see below", false, "all"), ("test_case_visibility", 'string ("sample")', false, "all"), ("image", "filename string or null", false, "all"), ("image_caption", "string or null", false, "all"), ("source", "string or null", false, "arena"), ("hide_author_show_source", "boolean", false, "arena"), ("license", "string (maximum 256 characters) or null", false, "arena"), ("color", "hex string e.g. #ff0000", false, "contest"), ("language_limits", "object — see below", false, "contest")] %}
+{% set package_fields = [("title", "string", true, "all"), ("author", "string (maximum 80 characters)", false, "all"), ("time_limit_ms", "integer ≥ 1", true, "all"), ("memory_limit_kb", "integer ≥ 1", true, "all"), ("pids_limit", "integer ≥ 1", true, "all"), ("output_limit_in_bytes", "integer or null", false, "all"), ("categories", "array of strings", false, "all"), ("notes", "string or null", false, "all"), ("custom_validator", "object — see below", false, "all"), ("image", "filename string or null", false, "all"), ("image_caption", "string or null", false, "all"), ("source", "string or null", false, "arena"), ("hide_author_show_source", "boolean", false, "arena"), ("license", "string (maximum 256 characters) or null", false, "arena"), ("color", "hex string e.g. #ff0000", false, "contest"), ("language_limits", "object — see below", false, "contest")] %}
 {% if package_sample_url %}
 <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
 <a href="{{ package_sample_url }}" class="btn btn-outline-primary btn-sm">Download sample package</a>
@@ -129,13 +129,12 @@ A package may ship a custom interactive validator: put its UTF-8 source at
 <pre class="{{ pre_class }}">"custom_validator": {
   "language_id": "cpp20",
   "source_file": "validator/source.txt"
-},
-"test_case_visibility": "sample"</pre>
+}</pre>
 <ul class="small mb-3">
 <li>
-A validator package must also declare <code>"test_case_visibility": "sample"</code>, and every
-packaged test case is imported as a <strong>public sample</strong> — interactive judging never
-reads test-case files, so there are no secrets to protect.
+An interactive package ships its test cases as <code>in/NNN.in</code> files
+<strong>only</strong>: a case has no expected output, it holds the data that parametrizes the
+validator for one round. Any <code>out/NNN.out</code> in the archive is ignored.
 </li>
 <li>
 The imported validator is staged as a candidate and compiled asynchronously. The problem cannot

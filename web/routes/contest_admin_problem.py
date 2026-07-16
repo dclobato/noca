@@ -276,7 +276,7 @@ async def new_problem_submit(
         except (ImageProcessingError, ValueError) as exc:
             errors.append(f"Problem image: {exc}")
 
-    tc_list: list[tuple[bytes, bytes, bool, str | None]] = []
+    tc_list: list[tuple[bytes, bytes | None, bool, str | None]] = []
 
     validator_source: str | None = None
     validator_language_id = validator_language_id.strip()
@@ -289,10 +289,14 @@ async def new_problem_submit(
         except ValueError as exc:
             errors.append(str(exc))
 
+    # An interactive problem's cases carry input only: the input parametrizes the
+    # validator, which decides the verdict instead of an expected-output file.
+    interactive = validator_source is not None
+
     if testcases_zip and testcases_zip.filename:
         zip_bytes_data = await testcases_zip.read()
         try:
-            parsed = parse_testcases_zip(zip_bytes_data)
+            parsed = parse_testcases_zip(zip_bytes_data, require_output=not interactive)
             for source_ordinal, (in_b, out_b) in sorted(parsed.pairs.items()):
                 tc_list.append((in_b, out_b, False, parsed.explanations.get(source_ordinal)))
         except ValueError as exc:
@@ -310,7 +314,8 @@ async def new_problem_submit(
         out_val = str(form.get(f"tc_out_{i}", ""))
         is_sample = bool(form.get(f"tc_is_sample_{i}"))
         raw_explanation = str(form.get(f"tc_explanation_{i}", "")).strip()
-        tc_list.append((in_val.encode(), out_val.encode(), is_sample, raw_explanation or None))
+        out_bytes = None if interactive else out_val.encode()
+        tc_list.append((in_val.encode(), out_bytes, is_sample, raw_explanation or None))
 
     zip_indices = sorted(
         {
@@ -327,24 +332,20 @@ async def new_problem_submit(
         if not zip_data:
             continue
         try:
-            single = parse_single_testcase_zip(zip_data)
+            single = parse_single_testcase_zip(zip_data, require_output=not interactive)
         except ValueError as exc:
             errors.append(f"Test case ZIP #{i + 1} error: {exc}")
             continue
         is_sample = bool(form.get(f"tc_zip_is_sample_{i}"))
         tc_list.append((single.input_bytes, single.output_bytes, is_sample, single.explanation))
 
-    # Interactive judgments never read test-case files, so a validator problem
-    # may legitimately ship no test cases at all.
-    if not tc_list and validator_source is None:
+    if not tc_list:
         errors.append("At least one test case is required.")
 
     languages = await get_contest_languages(ctx.session, ctx.contest)
     validator_languages = await get_active_languages(ctx.session)
     if validator_language_id and validator_language_id not in {language.id for language in validator_languages}:
         errors.append("Validator language is not active.")
-    if validator_source is not None and any(not is_sample for _, _, is_sample, _ in tc_list):
-        errors.append("Custom-validator test cases must all be public samples.")
     errors.extend(_validate_language_limit_inputs(languages, form))
 
     if errors:
@@ -411,6 +412,30 @@ async def new_problem_submit(
     )
     await append_problem(ctx.session, ctx.contest, problem)
 
+    statement_dir = settings.PROBLEM_STATEMENT_DIR
+    if pdf_bytes is not None:
+        await anyio.to_thread.run_sync(_run_sync0(_save_problem_statement_for(problem.id, pdf_bytes, statement_dir)))
+    elif md_text is not None:
+        await anyio.to_thread.run_sync(_run_sync0(_save_md_statement_for(problem.id, md_text, statement_dir)))
+
+    # The test cases land before the validator is staged, so the problem's cases are
+    # already durable and already forced secret by the time anything can observe it
+    # as interactive. Staging first would leave a window in which a reader sees a
+    # validator-configured problem whose cases are still public or absent.
+    testcase_dir = settings.PROBLEM_TESTCASE_DIR
+    for in_b, out_b, is_sample, explanation in tc_list:
+        # An interactive problem shows sample interactions, never sample cases, so
+        # a sample flag checked on the create form is discarded here.
+        tc = ProblemTestCase(is_sample=not interactive and is_sample, explanation=explanation)
+        await append_test_case(ctx.session, problem, tc)
+        ordinal = tc.ordinal
+        in_size, out_size = await anyio.to_thread.run_sync(
+            _run_sync0(_save_testcase_files_for(problem.id, ordinal, in_b, out_b, testcase_dir))
+        )
+        tc.input_size_bytes = in_size
+        tc.output_size_bytes = out_size
+    await ctx.session.flush()
+
     candidate_token: str | None = None
     if validator_source is not None:
         validator = ProblemCustomValidator(problem_id=problem.id)
@@ -420,21 +445,6 @@ async def new_problem_submit(
             source=validator_source,
         )
         ctx.session.add(validator)
-
-    statement_dir = settings.PROBLEM_STATEMENT_DIR
-    if pdf_bytes is not None:
-        await anyio.to_thread.run_sync(_run_sync0(_save_problem_statement_for(problem.id, pdf_bytes, statement_dir)))
-    elif md_text is not None:
-        await anyio.to_thread.run_sync(_run_sync0(_save_md_statement_for(problem.id, md_text, statement_dir)))
-
-    testcase_dir = settings.PROBLEM_TESTCASE_DIR
-    for in_b, out_b, is_sample, explanation in tc_list:
-        tc = ProblemTestCase(is_sample=is_sample, explanation=explanation)
-        await append_test_case(ctx.session, problem, tc)
-        ordinal = tc.ordinal
-        await anyio.to_thread.run_sync(
-            _run_sync0(_save_testcase_files_for(problem.id, ordinal, in_b, out_b, testcase_dir))
-        )
 
     cat_names = [n.strip() for n in category_names.split(",") if n.strip()]
     if cat_names:

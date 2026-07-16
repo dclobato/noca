@@ -18,7 +18,7 @@ from sqlalchemy.orm import selectinload
 from shared.enumerations import RoleEnum
 from web.models import Contest, Problem, Submission, User, VerdictOverride
 from web.models.users import UberAdmin
-from web.services.contest_service import validate_chief_judge_assignment
+from web.services.contest_service import list_contest_judge_ids, validate_chief_judge_assignment
 
 
 class ChiefJudgeAdminPanel(NamedTuple):
@@ -40,6 +40,18 @@ async def list_contest_judges(session: AsyncSession, contest: Contest) -> list[U
     return list(result.scalars().all())
 
 
+async def _ensure_contest_has_no_judges(session: AsyncSession, contest: Contest) -> None:
+    """Ensure the chief judge may be cleared: a contest with judges must keep one."""
+    if await list_contest_judge_ids(session, contest):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "A contest with judges must have a chief judge. "
+                "Hand the role over to another judge instead of clearing it."
+            ),
+        )
+
+
 async def get_chief_judge_admin_panel(session: AsyncSession, contest: Contest) -> ChiefJudgeAdminPanel:
     """Build the chief-judge admin panel model."""
     judges = await list_contest_judges(session, contest)
@@ -54,7 +66,7 @@ async def get_chief_judge_admin_panel(session: AsyncSession, contest: Contest) -
         ).scalar_one_or_none()
 
     can_remove = False
-    if current_chief_judge is not None:
+    if current_chief_judge is not None and not judges:
         has_override = (
             await session.execute(
                 select(VerdictOverride.id)
@@ -86,6 +98,7 @@ async def set_chief_judge(
     if not isinstance(requesting_user, UberAdmin) and requesting_user.id != contest.owner_user_id:
         raise HTTPException(status_code=403)
     if judge_id is None or not judge_id.strip():
+        await _ensure_contest_has_no_judges(session, contest)
         contest.chief_judge_id = None
         await session.flush()
         return contest
@@ -127,6 +140,8 @@ async def remove_chief_judge(
     ).scalar_one_or_none()
     if has_override is not None:
         raise ChiefJudgeRemovalBlockedError
+
+    await _ensure_contest_has_no_judges(session, contest)
 
     contest.chief_judge_id = None
     await session.flush()

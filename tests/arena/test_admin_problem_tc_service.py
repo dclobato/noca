@@ -8,7 +8,7 @@
 
 import io
 import zipfile
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,10 +17,11 @@ import arena.models.arena_problems  # noqa: F401
 import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
 from arena.config import settings
-from arena.models.arena_problems import ArenaProblem
+from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_service, admin_problem_tc_service
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, CustomValidatorActiveState
+from shared.services.custom_validator import remove_validator
 from shared.services.testcase_files import read_testcase_full
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
 
@@ -314,3 +315,71 @@ async def test_zip_replace_normalizes_crlf(session: AsyncSession) -> None:
 
     assert _full(problem.id, 1) == ("P\n", "YES\n")
     assert _full(problem.id, 2) == ("Q\n", "NO\n")
+
+
+# ── has_custom_validator / testcase_readiness_error after removal ────────────
+
+
+async def _add_validator(session: AsyncSession, problem: ArenaProblem) -> ArenaProblemCustomValidator:
+    """Attach a compiled, active validator to ``problem``."""
+    validator = ArenaProblemCustomValidator(
+        problem_id=problem.id,
+        active_language_id="python3",
+        active_source="print('validator')\n",
+        active_state=CustomValidatorActiveState.VALID,
+        active_validated_at=datetime.now(UTC),
+    )
+    session.add(validator)
+    await session.flush()
+    return validator
+
+
+@pytest.mark.asyncio
+async def test_has_custom_validator_is_false_once_the_row_is_cleared(session: AsyncSession) -> None:
+    """A cleared-but-still-present row must not read as interactive.
+
+    ``remove_validator()`` only nulls the source/state columns; the caller
+    decides separately whether to delete the row. Both states must report the
+    same answer, since a future caller could plausibly leave the row behind.
+    """
+    author = await _make_user(session)
+    problem = await _make_problem(session, author.id)
+    validator = await _add_validator(session, problem)
+
+    assert await admin_problem_tc_service.has_custom_validator(session, problem.id) is True
+
+    remove_validator(validator)
+    await session.flush()
+
+    assert await admin_problem_tc_service.has_custom_validator(session, problem.id) is False
+
+
+@pytest.mark.asyncio
+async def test_readiness_error_reappears_once_a_validator_is_removed(session: AsyncSession) -> None:
+    """A case that only ever held input must block enabling once it goes plain.
+
+    While the validator is configured such a case is exactly what it is meant to
+    look like: it parametrizes the validator instead of carrying an expected
+    output. Once the problem stops being interactive, the same case is unusable
+    for a token-based compare, so the readiness check must start rejecting it.
+    """
+    author = await _make_user(session)
+    problem = await _make_problem(session, author.id)
+    validator = await _add_validator(session, problem)
+
+    tc, write_files = await admin_problem_tc_service.create_testcase(
+        session, problem, input_content="7\n", output_content="ignored", is_sample=True, testcase_dir=_TC_DIR
+    )
+    await session.flush()
+    write_files()
+    assert tc.output_size_bytes is None
+
+    assert await admin_problem_tc_service.testcase_readiness_error(session, problem.id) is None
+
+    remove_validator(validator)
+    await session.delete(validator)
+    await session.flush()
+
+    error = await admin_problem_tc_service.testcase_readiness_error(session, problem.id)
+    assert error is not None
+    assert "expected output" in error

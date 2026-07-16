@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arena.config import settings
 from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_users import ArenaUser
@@ -91,7 +92,7 @@ async def arena_2fa_setup(
     qr_b64 = qrcode_service.generate_totp_qrcode(
         secret=current_user.otp_secret or "",
         user=current_user.email,
-        issuer="NOCA Arena",
+        issuer=settings.BRAND_NAME,
         as_bytes=False,
     )
     formatted_secret = user_2fa_service.otp_secret_formatado(current_user)

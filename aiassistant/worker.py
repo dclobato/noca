@@ -34,6 +34,7 @@ from aiassistant.db.batch_queries import (
     get_batch_job_for_submission,
     insert_staged_batch_job,
 )
+from aiassistant.db.interactive_queries import InteractiveContext, get_interactive_context
 from aiassistant.db.queries import (
     ProblemData,
     clear_submit_to_ai_flag,
@@ -45,6 +46,7 @@ from aiassistant.db.queries import (
     store_ai_review_failed_notification,
     store_ai_review_result,
 )
+from aiassistant.interactive_context import build_interactive_note
 from aiassistant.reaper import run_reaper_loop
 from aiassistant.reconciler import run_reconciler_loop
 from aiassistant.reviewer import ReviewResult, call_ai_review
@@ -205,6 +207,8 @@ async def _process_job(
             valkey_runtime,
         )
     else:
+        async with db_engine.connect() as conn:
+            interactive_ctx = await get_interactive_context(conn, submission_id)
         await _process_job_online(
             submission_id,
             api_key,
@@ -213,6 +217,7 @@ async def _process_job(
             db_engine,
             valkey_runtime,
             prefered_language,
+            interactive_ctx,
         )
 
 
@@ -224,6 +229,7 @@ async def _process_job_online(
     db_engine: object,
     valkey_runtime: ValkeyRuntime,
     prefered_language: str,
+    interactive_ctx: InteractiveContext | None,
 ) -> None:
     """Handle an AI review job using the synchronous (online) Responses API path.
 
@@ -238,6 +244,7 @@ async def _process_job_online(
         db_engine: Async SQLAlchemy engine for database access.
         valkey_runtime: Connected Valkey runtime for terminal job cleanup.
         prefered_language: User locale for AI review responses.
+        interactive_ctx: Interactive-problem context, or None for batch problems.
     """
     from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -245,6 +252,8 @@ async def _process_job_online(
 
     db: AsyncEngine = db_engine  # type: ignore[assignment]
     submission: SubmissionForReview = sub  # type: ignore[assignment]
+
+    interactive_note = build_interactive_note(interactive_ctx) if interactive_ctx is not None else None
 
     try:
         result: ReviewResult = await call_ai_review(
@@ -257,10 +266,12 @@ async def _process_job_online(
             input_price=settings.OPENAI_INPUT_TOKEN_PRICE,
             output_price=settings.OPENAI_OUTPUT_TOKEN_PRICE,
             is_platform_key=False,
+            reasoning_effort=settings.OPENAI_REASONING_EFFORT,
             extra_task_instructions=_prefered_language_instruction(prefered_language),
             image_base64=problem.image_base64,
             image_mime=problem.image_mime,
             image_caption=problem.image_caption,
+            interactive_note=interactive_note or None,
         )
     except (AuthenticationError, PermissionDeniedError) as exc:
         logger.error(

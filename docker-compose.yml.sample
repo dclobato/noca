@@ -6,13 +6,17 @@ services:
         condition: service_started
       arena:
         condition: service_started
+      healthmonitor:
+        condition: service_started
     ports:
       - "80:80"
       - "81:81"
+      - "82:82"
       # To enable automatic TLS later, also publish 443:443 and update
-      # containers/Caddyfile to use real hostnames instead of :80 and :81.
+      # containers/Caddyfile to use real hostnames instead of :80, :81 and :82.
     volumes:
       - ./containers/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${NOCA_DATA_ROOT:-./.docker}/caddy_logs:/var/log/caddy
     networks:
       - noca-network
     restart: unless-stopped
@@ -41,6 +45,7 @@ services:
       NOCA_VALKEY_USER: ${NOCA_VALKEY_USER:-}
       NOCA_VALKEY_PASSWORD: ${NOCA_VALKEY_PASSWORD:-}
       NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS: ${NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS:-5}
+      NOCA_HEALTHMON_URL: ${NOCA_HEALTHMON_URL:-}
       NOCA_WEB_PROBLEM_STATEMENT_DIR: /data/problem_statements
       NOCA_WEB_PROBLEM_TESTCASE_DIR: /data/problem_test_cases
       NOCA_WEB_UBERADMIN_USERNAME: ${NOCA_WEB_UBERADMIN_USERNAME:-}
@@ -96,6 +101,7 @@ services:
       NOCA_VALKEY_USER: ${NOCA_VALKEY_USER:-}
       NOCA_VALKEY_PASSWORD: ${NOCA_VALKEY_PASSWORD:-}
       NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS: ${NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS:-5}
+      NOCA_HEALTHMON_URL: ${NOCA_HEALTHMON_URL:-}
       NOCA_JWT_SECRET_KEY: ${NOCA_JWT_SECRET_KEY:?NOCA_JWT_SECRET_KEY is required}
       NOCA_JWT_ALGORITHM: ${NOCA_JWT_ALGORITHM:-HS256}
       NOCA_JWT_EXPIRE_SECONDS: ${NOCA_JWT_EXPIRE_SECONDS:-3600}
@@ -260,6 +266,44 @@ services:
         condition: service_healthy
     volumes:
       - ./.env.crypto:/app/.env.crypto:ro
+    networks:
+      - noca-network
+    restart: unless-stopped
+
+  healthmonitor:
+    image: noca/healthmonitor
+    build:
+      context: .
+      dockerfile: containers/healthmonitor/Dockerfile
+    env_file:
+      - .env
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-100}
+      NOCA_ENVIRONMENT: ${NOCA_ENVIRONMENT:-production}
+      NOCA_VALKEY_SERVER: ${NOCA_VALKEY_SERVER:-valkey}
+      NOCA_VALKEY_PORT: ${NOCA_VALKEY_PORT:-6379}
+      NOCA_VALKEY_DB: ${NOCA_VALKEY_DB:-0}
+      NOCA_VALKEY_USER: ${NOCA_VALKEY_USER:-}
+      NOCA_VALKEY_PASSWORD: ${NOCA_VALKEY_PASSWORD:-}
+      NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS: ${NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS:-5}
+      NOCA_HEALTHMON_BRAND_NAME: ${NOCA_HEALTHMON_BRAND_NAME:-NOCA}
+      NOCA_HEALTHMON_PROBE_INTERVAL: ${NOCA_HEALTHMON_PROBE_INTERVAL:-300}
+      NOCA_HEALTHMON_REAPER_INTERVAL: ${NOCA_HEALTHMON_REAPER_INTERVAL:-43200}
+      NOCA_HEALTHMON_RETENTION_DAYS: ${NOCA_HEALTHMON_RETENTION_DAYS:-30}
+    depends_on:
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://localhost:8002/health >/dev/null",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - noca-network
     restart: unless-stopped

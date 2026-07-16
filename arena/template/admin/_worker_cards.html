@@ -50,8 +50,8 @@
                         <tbody>
                             {% for worker in card.workers %}
                                 <tr>
-                                    <td class="text-nowrap">
-                                        <div class="d-inline-flex align-items-center gap-2">
+                                    <td>
+                                        <div class="d-flex flex-wrap align-items-center gap-2">
                                             {% if worker.online %}
                                                 <span class="text-success" title="Online" aria-label="Online">{{ render_icon(icon="check_circle") }}</span>
                                             {% else %}

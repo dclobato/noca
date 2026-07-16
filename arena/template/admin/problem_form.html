@@ -303,15 +303,26 @@
                         {{ render_icon(icon="download") }}
                         Download validator source
                     </a>
-                    <form method="post"
-                          action="{{ request.url_for('arena_admin_problem_validator_remove', problem_id=problem.id) }}">
-                        <button class="btn btn-outline-danger btn-sm arena-icon-button" type="submit">
-                            {{ render_icon(icon="delete") }}
-                            Remove validator
-                        </button>
-                    </form>
+                    <a class="btn btn-outline-secondary btn-sm arena-icon-button"
+                       href="{{ request.url_for('arena_admin_problem_validator_source_view', problem_id=problem.id) }}"
+                       target="_blank"
+                       rel="noopener noreferrer">
+                        {{ render_icon(icon="visibility") }}
+                        View source
+                    </a>
+                    <button class="btn btn-outline-danger btn-sm arena-icon-button"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#validator-remove-modal">
+                        {{ render_icon(icon="delete") }}
+                        Remove validator
+                    </button>
                 </div>
                 <div class="form-text">Remove the current validator to upload a different one.</div>
+                {% with validator_remove_url=request.url_for('arena_admin_problem_validator_remove', problem_id=problem.id) | string,
+                    interaction_count=interaction_rows | default([]) | length %}
+                    {% include "_partials/validator_remove_modal.html" %}
+                {% endwith %}
             {% else %}
                 <div class="row g-2 align-items-end {% if mode == 'edit' %}mt-1{% endif %}">
                     <div class="col-md-5">
@@ -334,8 +345,9 @@
                     </div>
                 </div>
                 <div class="form-text">
-                    All test cases must be samples. Compilation is queued after you click
-                    <strong>Save</strong>, and runs asynchronously.
+                    The validator is replayed once per test case, with that case's input fed to its
+                    standard input; test cases carry no expected output. Compilation is queued after
+                    you click <strong>Save</strong>, and runs asynchronously.
                 </div>
             {% endif %}
         </div>
@@ -344,8 +356,8 @@
                    id="tc_remove_ids"
                    name="tc_remove_ids"
                    value=""
-                   data-allow-empty="{{ 'true' if validator_status and validator_status.configured else 'false' }}"
                    form="edit-form">
+            {% include "_partials/problem_si_list.html" %}
             {% include "_partials/problem_tc_list.html" %}
         {% endif %}
         <div class="d-flex flex-wrap gap-2 mb-3">
@@ -543,6 +555,7 @@
     <script src="{{ request.url_for('static_vendor', path='easymde.min.js') }}"></script>
     {% if mode == 'edit' %}
         <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+        <script src="{{ request.url_for('static_shared_js', path='noca-echarts-theme.js') }}?v={{ app_version }}"></script>
         <script src="{{ request.url_for('arena_static_js', path='arena-rating-history-chart.js') }}?v={{ app_version }}"></script>
     {% endif %}
     <script src="{{ request.url_for('static_shared_js', path='problem-statement-editor-core.js') }}?v={{ app_version }}"></script>
@@ -553,6 +566,9 @@
         <script src="{{ request.url_for('static_vendor', path='Sortable.min.js') }}"></script>
         <script src="{{ request.url_for('static_shared_js', path='tc-reorder-sortable.js') }}?v={{ app_version }}"></script>
         <script src="{{ request.url_for('static_shared_js', path='tc-add-row.js') }}?v={{ app_version }}"></script>
+        {% if validator_status.configured %}
+            <script src="{{ request.url_for('static_shared_js', path='si-add-row.js') }}?v={{ app_version }}"></script>
+        {% endif %}
         <script src="{{ request.url_for('static_shared_js', path='tc-pending-remove.js') }}?v={{ app_version }}"></script>
         <script src="{{ request.url_for('static_shared_js', path='tc-replace-row.js') }}?v={{ app_version }}"></script>
         <script src="{{ request.url_for('static_shared_js', path='problem-edit-unsaved-guard.js') }}?v={{ app_version }}"></script>

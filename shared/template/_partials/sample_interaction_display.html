@@ -1,0 +1,21 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Renders one author-written sample interaction on a problem detail page, using
+  the same conversation table the judge's recorded attempts use on the submission
+  detail page. Expects `interaction` (ordinal, transcript, explanation) and
+  `explanation_class` (the module's markdown-rendering hook class).
+#}
+<div class="mb-4">
+    <h3 class="h6">Sample interaction {{ interaction.ordinal }}</h3>
+    {% with transcript = interaction.transcript %}
+        {% include "_partials/transcript_table.html" %}
+    {% endwith %}
+    {% if interaction.explanation %}
+        <div class="{{ explanation_class }} mt-2" data-tc-explanation>{{ interaction.explanation }}</div>
+    {% endif %}
+</div>

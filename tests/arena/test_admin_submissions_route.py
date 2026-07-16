@@ -502,6 +502,104 @@ async def test_reenqueue_missing_submission_returns_none(session: AsyncSession) 
 
 
 # ---------------------------------------------------------------------------
+# force_rejudge_arena_submission service tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_force_rejudge_supersedes_done_and_queues_new(session: AsyncSession) -> None:
+    """A DONE judgment is superseded and a fresh QUEUED judgment is created."""
+    user = await _make_user(session)
+    lang = await _make_language(session)
+    prob = await _make_problem(session, user.id)
+    sub_id = await _insert_submission(session, user.id, prob.id, lang.id)
+    await _insert_judgment(session, sub_id, final_verdict="WA", status=JudgmentStatus.DONE.value)
+    await session.flush()
+
+    job = await admin_submission_service.force_rejudge_arena_submission(session, submission_id=sub_id)
+
+    assert job is not None
+    assert job.submission_id == sub_id
+    assert job.user_id == user.id
+    assert job.problem_id == prob.id
+    assert job.language_id == lang.id
+    assert job.requeue_count == 0
+
+    statuses = (
+        await session.execute(
+            select(arena_submission_judgments.c.id, arena_submission_judgments.c.status).where(
+                arena_submission_judgments.c.submission_id == sub_id
+            )
+        )
+    ).all()
+    by_status = {row.status for row in statuses}
+    assert by_status == {JudgmentStatus.SUPERSEDED.value, JudgmentStatus.QUEUED.value}
+    # The returned job points at the newly created QUEUED judgment.
+    new_status = next(row.status for row in statuses if row.id == job.judgment_id)
+    assert new_status == JudgmentStatus.QUEUED.value
+
+
+@pytest.mark.asyncio
+async def test_force_rejudge_ignores_superseded_when_selecting_active(session: AsyncSession) -> None:
+    """Only the most recent non-superseded judgment is superseded."""
+    user = await _make_user(session)
+    lang = await _make_language(session)
+    prob = await _make_problem(session, user.id)
+    sub_id = await _insert_submission(session, user.id, prob.id, lang.id)
+    # An already-superseded older judgment plus the current active one.
+    await session.execute(
+        insert(arena_submission_judgments).values(
+            id=str(uuid.uuid4()),
+            submission_id=sub_id,
+            status=JudgmentStatus.SUPERSEDED.value,
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    )
+    await _insert_judgment(session, sub_id, final_verdict="AC", status=JudgmentStatus.DONE.value)
+    await session.flush()
+
+    job = await admin_submission_service.force_rejudge_arena_submission(session, submission_id=sub_id)
+    assert job is not None
+
+    counts = (
+        await session.execute(
+            select(arena_submission_judgments.c.status).where(arena_submission_judgments.c.submission_id == sub_id)
+        )
+    ).all()
+    statuses = [row.status for row in counts]
+    assert statuses.count(JudgmentStatus.SUPERSEDED.value) == 2
+    assert statuses.count(JudgmentStatus.QUEUED.value) == 1
+
+
+@pytest.mark.asyncio
+async def test_force_rejudge_missing_submission_returns_none(session: AsyncSession) -> None:
+    """An unknown submission id yields None."""
+    job = await admin_submission_service.force_rejudge_arena_submission(session, submission_id=str(uuid.uuid4()))
+    assert job is None
+
+
+@pytest.mark.asyncio
+async def test_force_rejudge_no_judgment_returns_none(session: AsyncSession) -> None:
+    """A submission with no non-superseded judgment cannot be rejudged."""
+    user = await _make_user(session)
+    lang = await _make_language(session)
+    prob = await _make_problem(session, user.id)
+    sub_id = await _insert_submission(session, user.id, prob.id, lang.id)
+    await session.execute(
+        insert(arena_submission_judgments).values(
+            id=str(uuid.uuid4()),
+            submission_id=sub_id,
+            status=JudgmentStatus.SUPERSEDED.value,
+            created_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
+
+    job = await admin_submission_service.force_rejudge_arena_submission(session, submission_id=sub_id)
+    assert job is None
+
+
+# ---------------------------------------------------------------------------
 # Route integration tests
 # ---------------------------------------------------------------------------
 
@@ -544,6 +642,7 @@ def _build_app(session: Any, *, authorized: bool = True) -> FastAPI:
         ("/ranking", "arena_ranking_index"),
         ("/ranking/users", "arena_ranking_users"),
         ("/ranking/affiliations", "arena_ranking_affiliations"),
+        ("/help", "arena_help_index"),
         ("/help/rating", "arena_help_rating"),
         ("/help/languages", "arena_help_languages"),
         ("/admin/problems", "arena_admin_problem_list"),

@@ -58,7 +58,6 @@ async def apply_pending_testcases(
     form_data: Mapping[str, Any],
     *,
     testcase_dir: Path,
-    allow_empty: bool,
 ) -> PostCommitCallbacks:
     """Apply the removals and additions the edit form deferred to Save.
 
@@ -71,26 +70,29 @@ async def apply_pending_testcases(
         problem: The problem being saved.
         form_data: Raw submitted form.
         testcase_dir: Root of the Arena test-case storage.
-        allow_empty: Whether the problem may end up with no test cases at all.
-            True for problems with a custom validator, whose interactive
-            judgments never read test-case files.
 
     Returns:
         ``(file_cleanups, file_writes)`` — callables to run after the commit.
 
     Raises:
-        ValueError: If the save would leave a non-validator problem with no test
-            cases, or if an added row fails test-case validation.
+        ValueError: If an added row fails test-case validation, or if the save's
+            net outcome would leave an interactive problem with no secret case.
     """
     to_remove_ids = removal_ids(form_data)
     add_indices = [index for index in _add_indices(form_data) if _row_is_filled(form_data, index)]
 
     cleanups: list[Callable[[], None]] = []
-    if to_remove_ids:
-        existing = await admin_problem_tc_service.list_testcases(session, problem.id)
-        to_remove = [tc for tc in existing if tc.id in to_remove_ids]
-        if len(existing) - len(to_remove) == 0 and not add_indices and not allow_empty:
-            raise ValueError("At least one test case must remain.")
+    existing = await admin_problem_tc_service.list_testcases(session, problem.id)
+    to_remove = [tc for tc in existing if tc.id in to_remove_ids]
+
+    # Judge the invariant on the save's net outcome: removing every existing case
+    # while adding replacements in the same submit is legitimate.
+    if len(existing) - len(to_remove) + len(add_indices) < 1 and await admin_problem_tc_service.has_custom_validator(
+        session, problem.id
+    ):
+        raise ValueError("An interactive problem needs at least one secret test case.")
+
+    if to_remove:
         for tc in sorted(to_remove, key=lambda item: item.ordinal, reverse=True):
             cleanups.append(await admin_problem_tc_service.delete_testcase(session, tc, testcase_dir=testcase_dir))
 

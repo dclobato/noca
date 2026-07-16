@@ -131,8 +131,9 @@ async def upload_testcase_zip(
         return _redirect(edit_url)
 
     zip_bytes = await testcases_zip.read()
+    interactive = status_view(problem.custom_validator).configured
     try:
-        parsed = parse_testcases_zip(zip_bytes)
+        parsed = parse_testcases_zip(zip_bytes, require_output=not interactive)
     except ValueError as exc:
         flash(str(exc), FlashCategory.DANGER)
         return _redirect(edit_url)
@@ -148,17 +149,16 @@ async def upload_testcase_zip(
     await ctx.session.refresh(problem, attribute_names=["test_cases"])
 
     # DB: insert new rows with sizes computed in memory (no file I/O yet).
-    new_file_data: list[tuple[int, bytes, bytes]] = []
-    validator_configured = status_view(problem.custom_validator).configured
+    new_file_data: list[tuple[int, bytes, bytes | None]] = []
     for source_ordinal, (in_b, out_b) in sorted(parsed.pairs.items()):
         tc = ProblemTestCase(
-            is_sample=validator_configured,
+            is_sample=False,
             explanation=parsed.explanations.get(source_ordinal),
         )
         await append_test_case(ctx.session, problem, tc)
         ordinal = tc.ordinal
         tc.input_size_bytes = len(normalize_testcase_bytes(in_b))
-        tc.output_size_bytes = len(normalize_testcase_bytes(out_b))
+        tc.output_size_bytes = None if out_b is None else len(normalize_testcase_bytes(out_b))
         new_file_data.append((ordinal, in_b, out_b))
 
     await ctx.session.commit()
@@ -206,6 +206,7 @@ async def new_test_case_form(
                 "contest": ctx.contest,
                 "problem": problem,
                 "tc": None,
+                "interactive": status_view(problem.custom_validator).configured,
                 "form_data": {},
                 "errors": [],
                 "is_edit_allowed": _is_edit_allowed(ctx.contest),
@@ -235,9 +236,12 @@ async def edit_test_case_form(
         raise Exception("Test case not found")
 
     testcase_dir = settings.PROBLEM_TESTCASE_DIR
+    interactive = status_view(problem.custom_validator).configured
     in_size: int = tc.input_size_bytes or 0
     out_size: int = tc.output_size_bytes or 0
-    if tc.input_size_bytes is None or tc.output_size_bytes is None:
+    # An interactive case has no expected output, so a null output size is the
+    # normal state there rather than a pre-backfill row to read off disk.
+    if tc.input_size_bytes is None or (tc.output_size_bytes is None and not interactive):
         in_size, out_size = await anyio.to_thread.run_sync(read_testcase_sizes, problem.id, tc.ordinal, testcase_dir)
     offline = in_size > MAX_INLINE_TESTCASE_BYTES or out_size > MAX_INLINE_TESTCASE_BYTES
 
@@ -254,6 +258,7 @@ async def edit_test_case_form(
                 "contest": ctx.contest,
                 "problem": problem,
                 "tc": tc,
+                "interactive": status_view(problem.custom_validator).configured,
                 "offline": offline,
                 "input_size_bytes": in_size,
                 "output_size_bytes": out_size,
@@ -316,18 +321,15 @@ async def add_test_case(
         flash("Problem not found.", FlashCategory.DANGER)
         return _redirect(edit_url)
 
-    validator_configured = status_view(problem.custom_validator).configured
-    if validator_configured and is_sample is None:
-        flash("Custom-validator test cases must be public samples.", FlashCategory.DANGER)
-        return _redirect(edit_url)
-    tc = ProblemTestCase(is_sample=is_sample is not None, explanation=explanation_value)
+    interactive = status_view(problem.custom_validator).configured
+    tc = ProblemTestCase(is_sample=not interactive and is_sample is not None, explanation=explanation_value)
     await append_test_case(ctx.session, problem, tc)
     ordinal = tc.ordinal
     testcase_dir = settings.PROBLEM_TESTCASE_DIR
     in_bytes = tc_in.encode()
-    out_bytes = tc_out.encode()
+    out_bytes = None if interactive else tc_out.encode()
     tc.input_size_bytes = len(normalize_testcase_bytes(in_bytes))
-    tc.output_size_bytes = len(normalize_testcase_bytes(out_bytes))
+    tc.output_size_bytes = None if out_bytes is None else len(normalize_testcase_bytes(out_bytes))
     await ctx.session.commit()
     await anyio.to_thread.run_sync(
         _run_sync0(_save_testcase_files_for(problem.id, ordinal, in_bytes, out_bytes, testcase_dir))
@@ -367,21 +369,19 @@ async def add_test_case_zip(
         return _redirect(edit_url)
 
     zip_bytes = await zip_file.read()
+    interactive = status_view(problem.custom_validator).configured
     try:
-        single = parse_single_testcase_zip(zip_bytes)
+        single = parse_single_testcase_zip(zip_bytes, require_output=not interactive)
     except ValueError as exc:
         flash(str(exc), FlashCategory.DANGER)
         return _redirect(edit_url)
 
-    tc = ProblemTestCase(
-        is_sample=status_view(problem.custom_validator).configured,
-        explanation=single.explanation,
-    )
+    tc = ProblemTestCase(is_sample=False, explanation=single.explanation)
     await append_test_case(ctx.session, problem, tc)
     ordinal = tc.ordinal
     testcase_dir = settings.PROBLEM_TESTCASE_DIR
     tc.input_size_bytes = len(single.input_bytes)
-    tc.output_size_bytes = len(single.output_bytes)
+    tc.output_size_bytes = None if single.output_bytes is None else len(single.output_bytes)
     await ctx.session.commit()
     await anyio.to_thread.run_sync(
         _run_sync0(_save_testcase_files_for(problem.id, ordinal, single.input_bytes, single.output_bytes, testcase_dir))
@@ -427,17 +427,15 @@ async def edit_test_case(
         flash("Test case not found.", FlashCategory.DANGER)
         return _redirect(edit_url)
 
-    if status_view(problem.custom_validator).configured and is_sample is None:
-        flash("Custom-validator test cases must remain public samples.", FlashCategory.DANGER)
-        return _redirect(edit_url)
-    tc.is_sample = is_sample is not None
+    interactive = status_view(problem.custom_validator).configured
+    tc.is_sample = not interactive and is_sample is not None
     tc.explanation = explanation_value
     ordinal = tc.ordinal
     testcase_dir = settings.PROBLEM_TESTCASE_DIR
     in_bytes = tc_in.encode()
-    out_bytes = tc_out.encode()
+    out_bytes = None if interactive else tc_out.encode()
     tc.input_size_bytes = len(normalize_testcase_bytes(in_bytes))
-    tc.output_size_bytes = len(normalize_testcase_bytes(out_bytes))
+    tc.output_size_bytes = None if out_bytes is None else len(normalize_testcase_bytes(out_bytes))
     await ctx.session.commit()
     await anyio.to_thread.run_sync(
         _run_sync0(_save_testcase_files_for(problem.id, ordinal, in_bytes, out_bytes, testcase_dir))
@@ -469,16 +467,14 @@ async def remove_test_case_route(
         flash("Test case not found.", FlashCategory.DANGER)
         return _redirect(edit_url)
 
-    # Interactive judgments never read test-case files, so a validator problem
-    # may legitimately end up with no test cases at all.
-    if len(problem.test_cases) <= 1 and not status_view(problem.custom_validator).configured:
-        flash("Cannot remove the only remaining test case.", FlashCategory.DANGER)
-        return RedirectResponse(url=edit_url, status_code=303)
-
     removed_ordinal = tc.ordinal
     total = len(problem.test_cases)
     pid = problem.id
     testcase_dir = settings.PROBLEM_TESTCASE_DIR
+
+    if total <= 1 and status_view(problem.custom_validator).configured:
+        flash("An interactive problem needs at least one secret test case.", FlashCategory.DANGER)
+        return _redirect(edit_url)
 
     await remove_test_case_and_resequence(ctx.session, problem, tc)
     await ctx.session.commit()
@@ -516,9 +512,13 @@ async def toggle_test_case_sample(
         flash("Test case not found.", FlashCategory.DANGER)
         return _redirect(edit_url)
 
-    if status_view(problem.custom_validator).configured and tc.is_sample:
-        flash("Custom-validator test cases cannot be made secret.", FlashCategory.DANGER)
-        return _redirect(edit_url)
+    if status_view(problem.custom_validator).configured:
+        flash(
+            "Interactive problems present sample interactions instead of sample test cases.",
+            FlashCategory.DANGER,
+        )
+        return _redirect(_testcase_edit_return_url(request, ctx.contest.login_slug, problem_id, tc_id))
+
     tc.is_sample = not tc.is_sample
     await ctx.session.commit()
     kind = "sample" if tc.is_sample else "secret"
@@ -590,6 +590,7 @@ async def move_test_case_route(
                 "problem": problem,
                 "rows": build_testcase_row_views(request, ctx.contest, list(problem.test_cases), testcase_previews),
                 "is_edit_allowed": _is_edit_allowed(ctx.contest),
+                "validator_status": status_view(problem.custom_validator),
             },
         )
     )
@@ -618,7 +619,12 @@ async def download_test_case(
     tc_in, tc_out = await anyio.to_thread.run_sync(
         read_testcase_full, problem.id, tc.ordinal, settings.PROBLEM_TESTCASE_DIR
     )
-    zip_bytes = build_single_testcase_zip(tc_in.encode("utf-8"), tc_out.encode("utf-8"), tc.explanation)
+    interactive = status_view(problem.custom_validator).configured
+    zip_bytes = build_single_testcase_zip(
+        tc_in.encode("utf-8"),
+        None if interactive else tc_out.encode("utf-8"),
+        tc.explanation,
+    )
     return Response(
         content=zip_bytes,
         media_type="application/zip",
@@ -653,8 +659,9 @@ async def replace_test_case(
         return _redirect(tc_edit_url)
 
     zip_bytes = await zip_file.read()
+    interactive = status_view(problem.custom_validator).configured
     try:
-        single = parse_single_testcase_zip(zip_bytes)
+        single = parse_single_testcase_zip(zip_bytes, require_output=not interactive)
     except ValueError as exc:
         flash(str(exc), FlashCategory.DANGER)
         return _redirect(tc_edit_url)
@@ -665,7 +672,7 @@ async def replace_test_case(
     in_bytes = single.input_bytes
     out_bytes = single.output_bytes
     tc.input_size_bytes = len(normalize_testcase_bytes(in_bytes))
-    tc.output_size_bytes = len(normalize_testcase_bytes(out_bytes))
+    tc.output_size_bytes = None if out_bytes is None else len(normalize_testcase_bytes(out_bytes))
     if single.explanation is not None:
         tc.explanation = single.explanation
     await ctx.session.commit()

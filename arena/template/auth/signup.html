@@ -12,12 +12,12 @@
         <div class="row justify-content-center">
             <div class="col-12 col-lg-10 col-xl-9">
                 <div class="text-center mb-4 pt-4">
-                    <h1 class="arena-auth-logo">Noca Arena</h1>
+                    <h1 class="arena-auth-logo">{{ brand_name }}</h1>
                     <p class="arena-auth-tagline">Competitive Judge</p>
                 </div>
                 <div class="arena-auth-card">
                     <h2 class="arena-auth-title">Create Account</h2>
-                    <p class="arena-auth-subtitle">Join the Noca Arena competitive programming platform</p>
+                    <p class="arena-auth-subtitle">Join the {{ brand_name }} competitive programming platform</p>
                     <form method="post"
                           action="{{ request.url_for("arena_signup_submit") }}"
                           novalidate

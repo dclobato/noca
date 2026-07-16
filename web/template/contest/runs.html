@@ -164,6 +164,8 @@
     {% if current_user.role != RoleEnum.TEAM.value and not access_blocked %}
         <script src="{{ request.url_for('static_js', path='runs-filter.js') }}?v={{ app_version }}"
                 defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='row-href.js') }}?v={{ app_version }}"
+                defer></script>
     {% endif %}
     {% if current_user.role == RoleEnum.TEAM.value and contest.is_running %}
         <script src="{{ request.url_for('static_js', path='runs-submit-confirm.js') }}?v={{ app_version }}"

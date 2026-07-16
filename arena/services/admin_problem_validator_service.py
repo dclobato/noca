@@ -18,15 +18,14 @@ so a delayed worker never sees a token that was rolled back.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
 
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator
 from arena.routes.admin_problem_common import validator_languages
+from arena.services import admin_problem_interaction_service
 from shared.queue_schema import CustomValidatorValidationJob
 from shared.services.custom_validator import (
     build_validation_job,
@@ -36,12 +35,6 @@ from shared.services.custom_validator import (
 )
 
 _BOTH_REQUIRED = "Choose a validator language and source file together."
-
-
-class SampleFlagged(Protocol):
-    """Anything carrying the ``is_sample`` flag of a test case."""
-
-    is_sample: bool
 
 
 @dataclass(frozen=True)
@@ -83,43 +76,46 @@ async def parse_validator_upload(
     return ValidatorUpload(language_id=language_id, source=parse_validator_source(await source_file.read()))
 
 
-def stage_candidate_revision(
+async def stage_candidate_revision(
     session: AsyncSession,
     problem: ArenaProblem,
     upload: ValidatorUpload,
-    *,
-    test_cases: Sequence[SampleFlagged] | None = None,
 ) -> CustomValidatorValidationJob:
     """Stage ``upload`` as ``problem``'s candidate validator revision.
+
+    This is the one choke point every Arena staging path goes through, so it also
+    settles what becoming interactive means for the problem's samples: its public
+    test cases turn secret (an interactive problem shows sample interactions
+    instead), and any interactions hidden by an earlier validator removal
+    resurface.
+
+    A problem may legitimately have no test cases here — Arena creation stages a
+    validator on a brand-new disabled draft — so the "at least one secret case"
+    rule is enforced at enablement and submission, not on this write.
 
     Args:
         session: Open Arena session; the candidate is staged but not committed.
         problem: Persisted problem receiving the validator.
         upload: Result of :func:`parse_validator_upload`.
-        test_cases: Test cases to check the all-samples rule against. Defaults to
-            the problem's currently loaded ones; the edit form passes the set it
-            is about to leave behind instead, since a row added or removed in the
-            same Save changes the answer.
 
     Returns:
         The validation job to enqueue after the caller commits.
 
     Raises:
-        ValueError: If a validator is already configured, or any test case is not
-            a public sample.
+        ValueError: If a validator is already configured.
     """
     validator = problem.custom_validator
     if status_view(validator).configured:
         raise ValueError("Remove the current validator before uploading a different one.")
 
-    cases = problem.test_cases if test_cases is None else test_cases
-    if any(not test_case.is_sample for test_case in cases):
-        raise ValueError("All test cases must be samples before configuring a validator.")
-
     if validator is None:
         validator = ArenaProblemCustomValidator(problem_id=problem.id)
         session.add(validator)
     token = stage_candidate(validator, language_id=upload.language_id, source=upload.source)
+
+    await admin_problem_interaction_service.convert_sample_testcases_to_secret(session, problem.id)
+    await admin_problem_interaction_service.unhide_interactions(session, problem.id)
+
     return build_validation_job(domain="arena", problem_id=problem.id, candidate_token=token)
 
 
@@ -134,4 +130,4 @@ async def stage_validator_source(
     upload = await parse_validator_upload(session, language_id=language_id, source_file=source_file)
     if upload is None:
         return None
-    return stage_candidate_revision(session, problem, upload)
+    return await stage_candidate_revision(session, problem, upload)

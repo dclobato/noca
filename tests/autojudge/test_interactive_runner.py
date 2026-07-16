@@ -16,7 +16,7 @@ from autojudge.interactive_runner import (
     run_interaction,
 )
 from autojudge.interactive_transcript import InteractiveTranscript, TranscriptLine
-from autojudge.interactive_verdict import InteractiveVerdict
+from autojudge.interactive_verdict import FinishedFirst, InteractiveVerdict
 from autojudge.types import IsolateMeta
 from shared.enumerations import CustomValidatorCrashReason, Verdict
 
@@ -72,6 +72,59 @@ async def test_bridge_is_full_duplex_and_propagates_eof() -> None:
     assert contestant.received == b"answer\n"
     assert contestant.stdin_closed and validator.stdin_closed
     assert result.classification.verdict == Verdict.AC
+
+
+@pytest.mark.asyncio
+async def test_test_case_input_parametrizes_the_validator_before_the_conversation() -> None:
+    contestant = endpoint(b"question\n")
+    validator = endpoint(b"answer\n", exit_code=0)
+
+    result = await run_interaction(
+        contestant,
+        validator,
+        testcase_input=b"7 42\n",
+        output_limit_bytes=100,
+        watchdog_seconds=1,
+    )
+
+    # The case's input reaches the validator ahead of the contestant's first line.
+    assert validator.received == b"7 42\nquestion\n"
+    assert contestant.received == b"answer\n"
+    assert result.classification.verdict == Verdict.AC
+
+
+@pytest.mark.asyncio
+async def test_test_case_input_is_not_recorded_in_the_transcript() -> None:
+    contestant = endpoint(b"question\n")
+    validator = endpoint(b"answer\n", exit_code=0)
+
+    result = await run_interaction(
+        contestant,
+        validator,
+        testcase_input=b"7 42\n",
+        output_limit_bytes=100,
+        watchdog_seconds=1,
+    )
+
+    # The input is the problem's own data, not part of the conversation.
+    assert _entries(result) == [("user", "question"), ("validator", "answer")]
+
+
+@pytest.mark.asyncio
+async def test_test_case_input_does_not_count_against_the_contestant_output_limit() -> None:
+    contestant = endpoint(b"hi\n")
+    validator = endpoint(b"ok\n", exit_code=0)
+
+    result = await run_interaction(
+        contestant,
+        validator,
+        testcase_input=b"0123456789" * 10,
+        output_limit_bytes=20,
+        watchdog_seconds=1,
+    )
+
+    assert result.classification.verdict == Verdict.AC
+    assert result.contestant_output_bytes == len(b"hi\n")
 
 
 @pytest.mark.asyncio
@@ -209,7 +262,10 @@ def _meta(
 
 
 def _bridge(
-    *, verdict: Verdict | None = Verdict.AC, crash: CustomValidatorCrashReason | None = None
+    *,
+    verdict: Verdict | None = Verdict.AC,
+    crash: CustomValidatorCrashReason | None = None,
+    finished_first: FinishedFirst | None = None,
 ) -> InteractiveAttemptResult:
     return InteractiveAttemptResult(
         classification=InteractiveVerdict(verdict, verdict is None),
@@ -225,6 +281,7 @@ def _bridge(
         validator_stderr_excerpt=b"",
         contestant_output_bytes=10,
         crash_reason=crash,
+        finished_first=finished_first,
     )
 
 
@@ -254,8 +311,30 @@ def test_metadata_contestant_oom_precedes_missing_validator_exit() -> None:
     assert result.crash_reason is None
 
 
-def test_metadata_contestant_error_precedes_clean_validator_verdict() -> None:
-    result = finalize_interactive_metadata(_bridge(), _meta(exit_code=7), _meta(exit_code=0))
+def test_metadata_preserves_validator_first_precedence() -> None:
+    result = finalize_interactive_metadata(
+        _bridge(verdict=Verdict.TLE, finished_first="validator"),
+        _meta(exit_code=1),
+        _meta(exit_code=2),
+    )
+    assert result.classification == InteractiveVerdict(Verdict.TLE, False)
+
+
+def test_metadata_clean_contestant_first_keeps_the_validator_verdict() -> None:
+    result = finalize_interactive_metadata(
+        _bridge(finished_first="contestant"),
+        _meta(exit_code=0),
+        _meta(exit_code=2),
+    )
+    assert result.classification == InteractiveVerdict(Verdict.TLE, False)
+
+
+def test_metadata_contestant_crashing_first_is_runtime_error() -> None:
+    result = finalize_interactive_metadata(
+        _bridge(finished_first="contestant"),
+        _meta(exit_code=None, exit_signal=11),
+        _meta(exit_code=1),
+    )
     assert result.classification == InteractiveVerdict(Verdict.RE, False)
 
 

@@ -180,6 +180,12 @@ submission_interactive_attempts = Table(
         "judgment_id", String(36), ForeignKey("submission_judgments.id", ondelete="CASCADE"), nullable=False, index=True
     ),
     Column("attempt_number", Integer, nullable=False),
+    Column(
+        "test_case_ordinal",
+        Integer,
+        nullable=True,
+        comment="1-based ordinal of the test case that parametrized this attempt; NULL for legacy rows.",
+    ),
     Column("contestant_exit_code", Integer, nullable=True),
     Column("contestant_signal", Integer, nullable=True),
     Column("validator_exit_code", Integer, nullable=True),
@@ -205,6 +211,10 @@ submission_interactive_attempts = Table(
     Column("created_at", DateTime(timezone=True), default=_utcnow, nullable=False),
     UniqueConstraint("judgment_id", "attempt_number", name="uq_submission_interactive_attempt"),
     CheckConstraint("attempt_number IN (1, 2)", name="ck_submission_interactive_attempt_number"),
+    CheckConstraint(
+        "test_case_ordinal IS NULL OR test_case_ordinal >= 1",
+        name="ck_submission_interactive_test_case_ordinal",
+    ),
     CheckConstraint(
         "NOT (validator_verdict IS NOT NULL AND crash_reason IS NOT NULL)",
         name="ck_submission_interactive_outcome_exclusive",

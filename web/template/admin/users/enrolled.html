@@ -231,6 +231,7 @@
                 <div class="card shadow-sm border-0 h-100">
                     <div class="card-header fw-semibold">Chief Judge</div>
                     <div class="card-body">
+                        {% set other_judges = judges | rejectattr('id', 'equalto', current_chief_judge.id if current_chief_judge else none) | list %}
                         {% if current_chief_judge %}
                             <div class="d-flex flex-column flex-md-row align-items-md-end gap-3">
                                 <div class="flex-grow-1">
@@ -243,30 +244,47 @@
                                               aria-label="Chief judge">&#9733;</span>
                                     </div>
                                     <div class="text-muted small">{{ current_chief_judge.username }}</div>
-                                    {% if not can_remove_chief_judge %}
-                                        <div class="form-text text-danger">
-                                            This chief judge cannot be removed because they have already executed a verdict override.
-                                        </div>
-                                    {% endif %}
                                 </div>
-                                <form method="post"
-                                      action="{{ request.url_for('contest_admin_set_chief_judge', slug=contest.login_slug) }}">
-                                    <input type="hidden" name="action" value="remove">
-                                    <button type="submit"
-                                            class="btn btn-outline-danger"
-                                            {% if not can_remove_chief_judge %}disabled{% endif %}>
-                                        Remove Chief Judge
-                                    </button>
-                                </form>
+                                {% if can_remove_chief_judge %}
+                                    <form method="post"
+                                          action="{{ request.url_for('contest_admin_set_chief_judge', slug=contest.login_slug) }}">
+                                        <input type="hidden" name="action" value="remove">
+                                        <button type="submit" class="btn btn-outline-danger">Remove Chief Judge</button>
+                                    </form>
+                                {% endif %}
                             </div>
-                        {% else %}
+                            {% if other_judges %}
+                                <form method="post"
+                                      class="mt-3"
+                                      action="{{ request.url_for('contest_admin_set_chief_judge', slug=contest.login_slug) }}">
+                                    <div class="d-flex gap-2 align-items-end">
+                                        <div class="flex-grow-1">
+                                            <label for="judge_id" class="form-label">Hand the role over to</label>
+                                            <select class="form-select" id="judge_id" name="judge_id" required>
+                                                {% for judge in other_judges %}
+                                                    <option value="{{ judge.id }}">
+                                                        {{ format_site_identity(judge.site.sitename if judge.site else none,
+                                                                                                                judge.fullname or judge.username,) }} ({{ judge.username }})
+                                                    </option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                        <div class="flex-shrink-0">
+                                            <button type="submit" class="btn btn-primary">Save Chief Judge</button>
+                                        </div>
+                                    </div>
+                                    <div class="form-text">
+                                        A contest with judges always has a chief judge, so the role can only be handed over to another judge.
+                                    </div>
+                                </form>
+                            {% endif %}
+                        {% elif judges %}
                             <form method="post"
                                   action="{{ request.url_for('contest_admin_set_chief_judge', slug=contest.login_slug) }}">
                                 <div class="d-flex gap-2 align-items-end">
                                     <div class="flex-grow-1">
                                         <label for="judge_id" class="form-label">Assigned judge</label>
-                                        <select class="form-select" id="judge_id" name="judge_id">
-                                            <option value="">-- no chief judge --</option>
+                                        <select class="form-select" id="judge_id" name="judge_id" required>
                                             {% for judge in judges %}
                                                 <option value="{{ judge.id }}">
                                                     {{ format_site_identity(judge.site.sitename if judge.site else none,
@@ -279,8 +297,10 @@
                                         <button type="submit" class="btn btn-primary">Save Chief Judge</button>
                                     </div>
                                 </div>
-                                <div class="form-text">Leave blank to keep the contest without a chief judge.</div>
+                                <div class="form-text">A contest with judges must have a chief judge.</div>
                             </form>
+                        {% else %}
+                            <p class="text-muted small mb-0">This contest has no judges, so it has no chief judge.</p>
                         {% endif %}
                     </div>
                 </div>

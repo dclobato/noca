@@ -106,12 +106,22 @@ Async functions for the full TOTP 2FA lifecycle.
 
 Result types: `TwoFASetupResult`, `TwoFAValidationResult`.
 
+### `email_rendering.py`
+
+Shared renderer for Arena plain-text email templates. Owns the cached
+`StrictUndefined` Jinja2 environment over `arena/template/emails/` and a single
+`render_email(template_name, **context)` that **always injects `brand_name`** from
+`settings.BRAND_NAME` (email templates render through a standalone environment, so
+the request-time `brand_name` template global is not otherwise available to them).
+The registration, password, security-notification, and class email services all
+render through this helper instead of each defining its own environment.
+
 ### `arena_class_email_service.py`
 
 Best-effort email notifications for Arena class membership and registration events. All helpers
 send email only after the caller has committed the database change. Delivery failures are caught
 and logged; they never roll back or raise to the caller. Templates are plain-text Jinja2 files
-in `arena/template/emails/` rendered with `StrictUndefined`.
+in `arena/template/emails/` rendered through `email_rendering.render_email` (`StrictUndefined`).
 
 | Function | Recipient | Trigger |
 |----------|-----------|---------|
@@ -214,9 +224,9 @@ Async functions for authentication and intermediate flow tokens.
 
 | Function | Description |
 |----------|-------------|
-| `efetuar_login(email, password, session, ip_address, user_agent, mode, geo_service)` | Verify credentials and record password-only login history |
+| `efetuar_login(email, password, session, ip_address, source_port, user_agent, mode, geo_service)` | Verify credentials and record password-only login history |
 | `efetuar_logout(token, jwt_service)` | Revoke session JWT |
-| `registrar_login_concluido(usuario, session, ip_address, user_agent, mode, geo_service)` | Record completed login history after final authentication |
+| `registrar_login_concluido(usuario, session, ip_address, source_port, user_agent, mode, geo_service)` | Record completed login history after final authentication |
 | `set_pending_2fa_token(usuario, jwt_service, remember_me, next_page, session_started_at)` | Issue `PENDING_2FA` token (sync) |
 | `get_pending_2fa_token_data(token, session, jwt_service)` | Validate `PENDING_2FA` token, return user |
 | `set_pending_password_change_token(usuario, jwt_service, remember_me, next_page, session_started_at)` | Issue `PENDING_PASSWORD_CHANGE` token (sync) |
@@ -379,6 +389,10 @@ exclusive upper). User columns appear at indices 14 (nome) and 15 (user id).
 
 Resets the submission's most recent judgment from the terminal `FAILED` state back to `QUEUED` — clearing `autojudge_verdict`, `final_verdict`, `compile_log`, `error_message`, `worker_id`, `started_at`, `finished_at`, `max_wall_time_ms`, `max_memory_kb` — and returns a fresh `ArenaSubmissionJob` (requeue_count 0) to enqueue. Resets the existing judgment in place (no supersede) because `FAILED` produced no verdict or test results, so no orphan judgment is left. Returns `None`, leaving the session unchanged, when the submission is missing or its latest judgment is not `FAILED`. The caller owns the transaction: commit first, then call `enqueue_arena_submission_job`.
 
+**`force_rejudge_arena_submission(session, *, submission_id) → ArenaSubmissionJob | None`**
+
+Forces a fresh judgment for a submission in any active state (used by the ARENA_ADMIN "Force rejudgment" action). Marks the active (most recent non-superseded) judgment `SUPERSEDED` and inserts a new `QUEUED` judgment, then returns a fresh `ArenaSubmissionJob` (requeue_count 0) to enqueue. Unlike `reenqueue_failed_submission`, it supersedes rather than resetting in place, so it works on a `DONE` submission that already produced a verdict while preserving the previous judgment's history; the Arena detail page shows the most recent non-superseded judgment, so the new queued judgment becomes the displayed one. Returns `None`, leaving the session unchanged, when the submission is missing or has no non-superseded judgment. The caller owns the transaction: commit first, then call `enqueue_arena_submission_job`.
+
 ---
 
 ### `admin_user_service.py`
@@ -508,6 +522,35 @@ scoped to `caller_id`; judges may only see and mutate their own problems.
 
 ---
 
+### `admin_problem_interaction_service.py`
+
+Admin/judge service for Arena **sample interactions** — the worked conversations an
+interactive problem shows instead of sample test cases. Unlike test cases they live only in
+the database, so nothing here returns a post-commit filesystem callback. All parsing and
+format rules come from `shared.services.sample_interactions`; this module owns only the SQL.
+
+**Public API:**
+
+| Function | Description |
+|---|---|
+| `list_interactions(session, problem_id, *, include_hidden=False)` | Interactions ordered by `ordinal`. Hidden ones are excluded unless asked for. |
+| `count_interactions(session, problem_id)` | Count every interaction, hidden ones included (this is what the cap is judged against). |
+| `create_interaction(session, problem, *, transcript, explanation=None)` | Append at the next ordinal. Raises `ValueError` past `MAX_SAMPLE_INTERACTIONS`. |
+| `update_interaction(session, interaction, *, transcript, explanation=None)` | Replace transcript and explanation in place. |
+| `delete_interaction(session, interaction)` | Delete one and close the ordinal gap. |
+| `move_interaction(session, interaction, new_ordinal)` | Move to a clamped 1-based ordinal, rewriting the order densely. |
+| `hide_interactions(session, problem_id)` / `unhide_interactions(session, problem_id)` | Set / clear `hidden_at` for the whole set. Hiding is what "keep" does when a validator is removed; staging a validator again un-hides. |
+| `delete_all_interactions(session, problem_id)` | Permanently drop the whole set, hidden ones included. |
+| `convert_sample_testcases_to_secret(session, problem_id)` | Demote the problem's public test cases to secret. Called whenever a validator is staged. |
+| `interactive_testcase_error(session, problem_id)` | Why an interactive problem's test cases are invalid (a public case, or no secret case at all), else `None`. Used by the enable gate. |
+
+### `admin_problem_interaction_pending.py`
+
+Turns the problem edit form's deferred sample-interaction edits into service calls, mirroring
+`admin_problem_tc_pending.py`. `parse_pending_interactions(form_data)` is split from
+`apply_pending_interactions(...)` so a malformed transcript is rejected **before** the save
+mutates anything.
+
 ### `admin_problem_tc_service.py`
 
 Admin/judge service for Arena test-case management. Test-case content lives on the shared filesystem
@@ -519,7 +562,10 @@ take a `testcase_dir` (the Arena root, `settings.PROBLEM_TESTCASE_DIR`).
 
 - ordinals are 1-based and contiguous per problem; deletes and moves renumber both rows and files in lockstep
 - inline create/edit is gated: a normalized side larger than `MAX_INLINE_TESTCASE_BYTES` (10 KB) raises `ValueError`; large cases use the offline single-case ZIP download/replace path (no cap)
-- ZIP replace deletes all existing rows and files and rebuilds the set from parsed archive pairs (no cap)
+- ZIP replace deletes all existing rows and files and rebuilds the set from the parsed archive (no cap)
+- on an **interactive** (custom-validator) problem a case carries **input only**: any submitted
+  expected output is discarded, no `.out` file is written, and `output_size_bytes` is stored null.
+  The service decides this itself from `has_custom_validator()`, so routes never have to
 - file helpers delegate to `shared.services.testcase_files`, which validates
   UUID/slug-like problem ids and verifies resolved paths stay under the Arena
   test-case root
@@ -531,13 +577,15 @@ take a `testcase_dir` (the Arena root, `settings.PROBLEM_TESTCASE_DIR`).
 | `list_testcases(session, problem_id)` | Return all test cases for one problem ordered by `ordinal`. |
 | `list_testcase_views(session, problem_id, testcase_dir)` | Lightweight per-case views (`id`, `ordinal`, `is_sample`, `has_explanation`, `input_preview`, `output_preview`, `input_size_bytes`, `output_size_bytes`, `is_large`) — previews read from disk, no full-content load. |
 | `get_testcase(session, tc_id, *, problem_id)` | Fetch one test case scoped to its parent problem. |
-| `create_testcase(session, problem, *, input_content, output_content, is_sample, explanation=None, testcase_dir)` | Append a new test case (next ordinal); write files + sizes. Raises `ValueError` if either normalized side exceeds `MAX_INLINE_TESTCASE_BYTES`. |
-| `update_testcase(session, tc, *, input_content, output_content, is_sample, explanation=None, testcase_dir)` | Overwrite files + sizes, sample flag, explanation. Same inline size gate. |
-| `replace_single_testcase(session, tc, *, input_bytes, output_bytes, explanation, testcase_dir)` | Replace one case's content from an offline upload (no size cap). |
-| `toggle_sample(session, tc)` | Flip the sample/secret flag without touching content and bump `updated_at`. |
+| `has_custom_validator(session, problem_id)` | Whether the problem is interactive, so its cases carry no expected output. |
+| `testcase_readiness_error(session, problem_id)` | Why the problem's test cases cannot judge yet (no cases at all; or a plain problem whose case lost its expected output), else `None`. Used by the enable gate. |
+| `create_testcase(session, problem, *, input_content, output_content, is_sample, explanation=None, testcase_dir)` | Append a new test case (next ordinal); write files + sizes. On an interactive problem the output is discarded **and `is_sample` is forced false**. Raises `ValueError` if a normalized side exceeds `MAX_INLINE_TESTCASE_BYTES`. |
+| `update_testcase(session, tc, *, input_content, output_content, is_sample, explanation=None, testcase_dir)` | Overwrite files + sizes, sample flag, explanation. Same interactive rule and inline size gate. |
+| `replace_single_testcase(session, tc, *, input_bytes, output_bytes, explanation, testcase_dir)` | Replace one case's content from an offline upload (no size cap). `output_bytes=None` for an interactive problem. |
+| `toggle_sample(session, tc)` | Flip the sample/secret flag without touching content and bump `updated_at`. Raises `ValueError` on an **interactive** problem: such a problem shows sample interactions, so none of its cases may be public. |
 | `delete_testcase(session, tc, *, testcase_dir)` | Delete one test case + files, then renumber remaining rows and files contiguously. |
 | `move_testcase(session, tc, new_ordinal, *, testcase_dir)` | Move one test case to a clamped 1-based ordinal; reorder rows and files. |
-| `replace_all_from_zip(session, problem, zip_bytes, *, default_is_sample=False, testcase_dir)` | Replace the full set from a ZIP parsed by `shared.tc_zip.parse_testcases_zip`; writes files + sizes (no cap). |
+| `replace_all_from_zip(session, problem, zip_bytes, *, default_is_sample=False, testcase_dir)` | Replace the full set from a ZIP parsed by `shared.tc_zip.parse_testcases_zip` (with `require_output=False` on an interactive problem); writes files + sizes (no cap). |
 
 ---
 
@@ -551,7 +599,7 @@ so a rolled-back save never deletes a live test-case file nor orphans a new one.
 | Function | Purpose |
 |----------|---------|
 | `removal_ids(form_data)` | The test-case ids the user marked for removal. |
-| `apply_pending_testcases(session, problem, form_data, *, testcase_dir, allow_empty)` | Apply removals (descending ordinal, so renumbering churns fewest files) then the inline add-rows. Returns `(file_cleanups, file_writes)` to run post-commit. Raises `ValueError` if the save would leave a non-validator problem with no test cases, or if a row fails validation. `allow_empty` is true for validator problems, whose interactive judgments never read test-case files. |
+| `apply_pending_testcases(session, problem, form_data, *, testcase_dir)` | Apply removals (descending ordinal, so renumbering churns fewest files) then the inline add-rows. Returns `(file_cleanups, file_writes)` to run post-commit. Raises `ValueError` if the save would leave the problem with no test cases — every problem needs one, interactive or not — or if a row fails validation. |
 
 ---
 
@@ -565,7 +613,7 @@ enqueue *after* the commit, so a delayed worker never sees a token that was roll
 | Function | Purpose |
 |----------|---------|
 | `parse_validator_upload(session, *, language_id, source_file)` | Read and check the upload without touching the database. Returns a `ValidatorUpload`, or `None` when neither field was supplied. Raises `ValueError` if only one of language/file is given, the language is not globally active, or the source is not valid UTF-8. |
-| `stage_candidate_revision(session, problem, upload, *, test_cases=None)` | Stage the parsed upload as the problem's candidate revision and return its `CustomValidatorValidationJob`. Raises `ValueError` if a validator is already configured or any test case is not a public sample. `test_cases` lets the edit form check that rule against the cases the save leaves behind rather than the ones it started with. |
+| `stage_candidate_revision(session, problem, upload)` | Stage the parsed upload as the problem's candidate revision and return its `CustomValidatorValidationJob`. Raises `ValueError` if a validator is already configured. A validator's test cases parametrize it, so they may be secret like any other problem's — there is no all-samples rule. |
 | `stage_validator_source(session, problem, *, language_id, source_file)` | Parse and stage in one step, for callers that have a persisted problem already. |
 
 ---
@@ -648,11 +696,6 @@ cards:
   the authoritative paused flag + `paused_by` actor read from
   `arena_worker_pause_state`. `pause_enabled` reflects whether a command secret
   is configured.
-- **`admin_worker_service.aggregate_worker_statuses()`** — Reduce the detailed
-  cards to one status per worker class for `/status`. A class is available when
-  any worker is online and unpaused, and unavailable otherwise.
-- **`admin_worker_service.unknown_worker_statuses()`** — Return unknown states
-  for all classes when the status page cannot retrieve worker data.
 - **`admin_worker_service.remove_worker_from_dashboard()`** — Remove one
   worker's durable and live presence records until its next heartbeat.
 - **`admin_worker_service.pause_worker()` / `resume_worker()`** — Implement the

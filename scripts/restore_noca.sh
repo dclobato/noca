@@ -194,7 +194,7 @@ service_exists postgres || die "Backed-up Compose file has no 'postgres' service
 service_exists valkey || die "Backed-up Compose file has no 'valkey' service"
 
 APPLICATION_SERVICES=()
-for service in web arena autojudge rating aiassistant; do
+for service in web arena autojudge rating aiassistant healthmonitor; do
     if service_exists "$service"; then
         APPLICATION_SERVICES+=("$service")
     fi

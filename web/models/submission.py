@@ -287,8 +287,8 @@ def _validate_confirmation(session: Session, confirmation: HumanSubmissionConfir
     if judgment is None or judge is None:
         return
 
-    if judge.role != RoleEnum.JUDGE:
-        raise ValueError("Only users with JUDGE role can confirm a submission judgment.")
+    if judge.role not in (RoleEnum.JUDGE, RoleEnum.ADMIN):
+        raise ValueError("Only users with JUDGE or ADMIN role can confirm a submission judgment.")
 
     if judgment.status != JudgmentStatus.DONE:
         raise ValueError("Human confirmations are only allowed after the judgment is DONE.")
@@ -416,14 +416,20 @@ def _maintain_submission_model_invariants(
         elif isinstance(obj, VerdictOverride):
             from web.models.contest import Contest
             from web.models.problem import Problem
+            from web.models.users import User
 
             submission = obj.submission or session.get(Submission, obj.submission_id)
             if submission is not None:
                 problem = submission.problem or session.get(Problem, submission.problem_id)
                 if problem is not None:
                     contest = session.get(Contest, problem.contest_id)
-                    if contest is not None and contest.chief_judge_id != obj.overridden_by:
-                        raise ValueError("Only the contest chief judge may create a VerdictOverride.")
+                    if contest is not None:
+                        overrider = session.get(User, obj.overridden_by)
+                        is_admin = overrider is not None and overrider.role == RoleEnum.ADMIN
+                        if not is_admin and contest.chief_judge_id != obj.overridden_by:
+                            raise ValueError(
+                                "Only the contest chief judge or a contest admin may create a VerdictOverride."
+                            )
 
             judgment = obj.judgment if obj.judgment is not None else session.get(SubmissionJudgment, obj.judgment_id)
             if judgment is not None:

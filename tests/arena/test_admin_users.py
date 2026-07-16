@@ -36,7 +36,7 @@ from arena.models.arena_badges import ArenaUserBadge
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_categories import router as arena_admin_categories_router
 from arena.routes.admin_user_route_support import NavState
-from arena.routes.admin_users import admin_user_profile, admin_user_rating_history
+from arena.routes.admin_users import admin_user_profile, admin_user_rating_history, admin_user_statistics
 from arena.routes.admin_users import router as arena_admin_users_router
 from arena.routes.admin_users_actions import admin_user_topup_credits
 from arena.routes.admin_users_actions import router as arena_admin_users_actions_router
@@ -46,6 +46,7 @@ from arena.services import admin_login_history_service
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
 from arena.services.user_timezone_service import format_user_datetime
+from shared.db_schema.arena import arena_user_statistics
 from shared.db_schema.arena.arena_rating_history import arena_user_rating_history
 from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_LABELS, ArenaBadge, ArenaRole
 from shared.services.email_service import EmailConfig, EmailService
@@ -76,7 +77,7 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
             send_email=False,
             provider_type="mock",
             default_from_email="noreply@test.example",
-            default_from_name="Noca Arena",
+            default_from_name="NOCA Arena",
             smtp_server=None,
             smtp_port=587,
             smtp_username=None,
@@ -133,6 +134,34 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
     @app.get("/user/avatar/{user_id}", name="arena_user_avatar_by_id")
     async def _avatar(user_id: str) -> Response:
         return Response("avatar", media_type="image/svg+xml")
+
+    @app.get("/admin/dashboard/service-status", name="arena_admin_dashboard_service_status")
+    async def _dash_service_status() -> Response:
+        return Response("stub")
+
+    @app.get("/admin/dashboard/security-events", name="arena_admin_dashboard_security_events")
+    async def _dash_security_events() -> Response:
+        return Response("stub")
+
+    @app.get("/admin/dashboard/login-history", name="arena_admin_dashboard_login_history")
+    async def _dash_login_history() -> Response:
+        return Response("stub")
+
+    @app.get("/admin/dashboard/submissions", name="arena_admin_dashboard_submissions")
+    async def _dash_submissions() -> Response:
+        return Response("stub")
+
+    @app.get("/admin/dashboard/ai-usage", name="arena_admin_dashboard_ai_usage")
+    async def _dash_ai_usage() -> Response:
+        return Response("stub")
+
+    @app.get("/admin/categories", name="arena_admin_category_list")
+    async def _category_list() -> Response:
+        return Response("stub")
+
+    @app.get("/help", name="arena_help_index")
+    async def _help_index() -> Response:
+        return Response("help")
 
     @app.get("/help/rating", name="arena_help_rating")
     async def _help_rating() -> Response:
@@ -229,6 +258,7 @@ async def _create_login(
     user: ArenaUser,
     logged_at: datetime,
     ip_address: str | None = "203.0.113.10",
+    source_port: int | None = 54321,
     country_code: str | None = "BR",
     subdivision_code: str | None = "BR-SP",
     city: str | None = "São Paulo",
@@ -239,6 +269,7 @@ async def _create_login(
         arena_user_id=user.id,
         dta_login=logged_at,
         ip_address=ip_address,
+        source_port=source_port,
         country_code=country_code,
         subdivision_code=subdivision_code,
         city=city,
@@ -558,6 +589,7 @@ async def test_admin_user_profile_login_history_tab_renders_records_and_filters(
         user=target,
         logged_at=datetime(2026, 6, 10, 12, tzinfo=UTC),
         ip_address="198.51.100.25",
+        source_port=54321,
         country_code="PT",
         subdivision_code=None,
         city="Lisbon",
@@ -597,6 +629,7 @@ async def test_admin_user_profile_login_history_tab_renders_records_and_filters(
     assert 'name="login_date_to"' in response.text
     assert 'name="login_per_page"' in response.text
     assert "198.51.100.25" in response.text
+    assert "54321" in response.text
     assert "Portugal" in response.text
     assert "Lisbon" in response.text
     assert "Example Browser/5.0" in response.text
@@ -935,6 +968,56 @@ async def test_admin_user_rating_history_returns_target_history(session: AsyncSe
     assert payload["history"][0]["rating"] == 1234
     assert "ts" in payload["history"][0]
     assert "ts_display" in payload["history"][0]
+
+
+@pytest.mark.asyncio
+async def test_admin_user_statistics_returns_target_snapshot(session: AsyncSession) -> None:
+    """The admin statistics endpoint returns the target user's stored snapshot."""
+    admin = await _create_arena_user(session, name="Admin", email="admin@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _create_arena_user(session, name="Target User", email="target@test.example")
+    await session.execute(
+        arena_user_statistics.insert().values(
+            user_id=target.id,
+            data={
+                "total_submissions": 8,
+                "verdicts": [{"verdict": "AC", "count": 8}],
+                "languages": [{"language_id": "py", "name": "Python", "count": 8}],
+            },
+            computed_at=datetime(2026, 6, 1, 12, 0, tzinfo=UTC),
+        )
+    )
+    await session.commit()
+
+    response = await admin_user_statistics(target.id, admin=admin, session=session)
+
+    assert response.status_code == 200
+    import json
+
+    payload = json.loads(bytes(response.body))
+    assert payload["total_submissions"] == 8
+    assert payload["computed_at"].startswith("2026-06-01T12:00:00")
+
+
+@pytest.mark.asyncio
+async def test_admin_user_profile_statistics_tab_activates(session: AsyncSession) -> None:
+    """The admin profile statistics tab resolves as the active tab."""
+    app = _build_admin_app(session)
+    admin = await _create_arena_user(session, name="Admin", email="admin@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _create_arena_user(session, name="Target User", email="target@test.example")
+    request = _make_request(app, f"/admin/users/{target.id}", query="tab=statistics")
+    flashes: list[tuple[str, object]] = []
+
+    response = await admin_user_profile(
+        request,
+        target.id,
+        lambda message, category: flashes.append((message, category)),
+        tab="statistics",
+        admin=admin,
+        session=session,
+    )
+
+    assert response.status_code == 200
+    assert response.context["active_tab"] == "statistics"
 
 
 def test_profile_tab_nav_preserves_non_tab_query_parameters() -> None:

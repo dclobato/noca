@@ -46,6 +46,7 @@ from arena.routes.admin_categories import router as arena_admin_categories_route
 from arena.routes.admin_dashboard import router as arena_admin_dashboard_router
 from arena.routes.admin_dashboard_history import router as arena_admin_dashboard_history_router
 from arena.routes.admin_problem_api import router as arena_admin_problem_api_router
+from arena.routes.admin_problem_interaction import router as arena_admin_problem_interaction_router
 from arena.routes.admin_problem_io import router as arena_admin_problem_io_router
 from arena.routes.admin_problem_tc import router as arena_admin_problem_tc_router
 from arena.routes.admin_problem_validator import router as arena_admin_problem_validator_router
@@ -73,7 +74,6 @@ from arena.routes.problem_sets_report import router as arena_problem_sets_report
 from arena.routes.problems import router as arena_problems_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.routes.root import router as arena_root_router
-from arena.routes.status import router as arena_status_router
 from arena.routes.student_problem_sets import router as arena_student_problem_sets_router
 from arena.routes.submissions import router as arena_submissions_router
 from arena.routes.user_public_profile import router as arena_user_public_profile_router
@@ -110,6 +110,12 @@ from shared.services.security_headers import SecurityHeaderSettings, SecurityHea
 from shared.services.startup_wait import wait_for_db, wait_for_valkey
 from shared.services.token_revocation import ValkeyRevocationStore
 from shared.services.user_presence import count_online_users
+from shared.services.valkey_service import (
+    WorkerClass,
+    mark_worker_offline,
+    resolve_worker_id,
+    worker_presence_loop,
+)
 from shared.static_files import ShortCacheStaticFiles
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
 from shared.timing import format_compact_duration
@@ -322,6 +328,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     engine = create_engine(settings.db_url)
     app.state.arena_db_engine = engine
     app.state.arena_db_session = create_session_factory(engine)
+    app.state.source_port_header = settings.SOURCE_PORT_HEADER.strip() or None
     logger.info("- Database connection pool opened")
 
     await ensure_sem_afiliacao(app.state.arena_db_session)
@@ -420,6 +427,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     arena_templates.env.globals["format_compact_duration"] = format_compact_duration
     arena_templates.env.globals["arena_user_timezone_name"] = timezone_name_for_user
     arena_templates.env.globals["app_version"] = APP_VERSION
+    arena_templates.env.globals["brand_name"] = settings.BRAND_NAME
+    arena_templates.env.globals["healthmon_url"] = settings.HEALTHMON_URL
     arena_templates.env.globals["presence_enabled"] = settings.PRESENCE_ENABLED
     arena_templates.env.globals["presence_heartbeat_seconds"] = settings.PRESENCE_HEARTBEAT_SECONDS
     arena_templates.env.globals["arena_online_user_count"] = _arena_online_user_count
@@ -458,6 +467,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             name="online-users-count-poller",
         )
         logger.info("- Online-users count poller started")
+
+    worker_presence_stop = asyncio.Event()
+    app.state.worker_presence_stop = worker_presence_stop
+    app.state.worker_id = resolve_worker_id(settings.WORKER_ID)
+    app.state.worker_presence_task = asyncio.create_task(
+        worker_presence_loop(
+            valkey_runtime,
+            worker_class=WorkerClass.ARENA,
+            worker_id=app.state.worker_id,
+            started_at=datetime.now(UTC),
+            interval_seconds=settings.WORKER_PRESENCE_INTERVAL_SECONDS,
+            ttl_seconds=settings.WORKER_PRESENCE_TTL_SECONDS,
+            stop_event=worker_presence_stop,
+        ),
+        name="worker-presence-loop",
+    )
+    logger.info(
+        "- Worker-presence heartbeat started (class=%s, worker_id=%s, interval=%ss, ttl=%ss)",
+        WorkerClass.ARENA.value,
+        app.state.worker_id,
+        settings.WORKER_PRESENCE_INTERVAL_SECONDS,
+        settings.WORKER_PRESENCE_TTL_SECONDS,
+    )
 
     app.state.security_events_reaper_stop = asyncio.Event()
     app.state.security_events_reaper_task = None
@@ -500,6 +532,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.security_events_reaper_stop.set()
         await asyncio.gather(app.state.security_events_reaper_task, return_exceptions=True)
         logger.info("Security-events reaper stopped")
+
+    app.state.worker_presence_stop.set()
+    await asyncio.gather(app.state.worker_presence_task, return_exceptions=True)
+    with contextlib.suppress(Exception):
+        await mark_worker_offline(
+            app.state.valkey_runtime,
+            worker_class=WorkerClass.ARENA,
+            worker_id=app.state.worker_id,
+        )
+    logger.info("Worker-presence heartbeat stopped")
 
     app.state.revocation_store.close()
     logger.info("ValkeyRevocationStore closed")
@@ -590,7 +632,6 @@ app.mount(
 # Main routes
 app.include_router(arena_root_router)
 app.include_router(arena_health_router)
-app.include_router(arena_status_router)
 app.include_router(arena_live_router)
 app.include_router(arena_auth_router)
 app.include_router(arena_auth_signup_router)
@@ -624,6 +665,7 @@ app.include_router(arena_admin_users_actions_router)
 app.include_router(arena_admin_problems_router)
 app.include_router(arena_admin_problem_io_router)
 app.include_router(arena_admin_problem_tc_router)
+app.include_router(arena_admin_problem_interaction_router)
 app.include_router(arena_admin_problem_validator_router)
 app.include_router(arena_admin_problem_api_router)
 

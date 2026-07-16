@@ -1,0 +1,50 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— Sample Interaction {{ interaction.ordinal }}{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('manage_problems', slug=contest.login_slug) }}">Problems</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('edit_problem_form', slug=contest.login_slug, problem_id=problem.id) }}">{{ problem.title }}</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Sample Interaction {{ interaction.ordinal }}</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5 noca-container-problem-tc-edit">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Edit Sample Interaction {{ interaction.ordinal }}</h1>
+            <p class="text-muted mb-0">{{ problem.title }} — {{ contest.contest_name }}</p>
+        </div>
+        {% if not is_edit_allowed %}
+            <div class="alert alert-warning py-2 small">
+                {{ render_icon(icon="lock", classes="me-1") }}Contest is running — this sample interaction is view-only.
+            </div>
+        {% endif %}
+        {% include "_partials/sample_interaction_edit_form.html" %}
+    </div>
+{% endblock %}

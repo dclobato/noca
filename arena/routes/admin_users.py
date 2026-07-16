@@ -43,6 +43,7 @@ from arena.services.submission_list_service import (
     SubmissionListRow,
     get_user_submissions,
 )
+from arena.services.user_stats_service import get_user_statistics
 from arena.services.user_timezone_service import format_user_datetime, timezone_name_for_user
 from shared.db_schema.arena.arena_heatmap import arena_user_submission_heatmap
 from shared.db_schema.arena.arena_rating_history import arena_user_rating_history
@@ -153,6 +154,7 @@ async def admin_user_profile(
         "notifications",
         "submissions",
         "login-history",
+        "statistics",
     }
     if credits_page is not None:
         active_tab = "credits"
@@ -326,6 +328,23 @@ async def admin_user_rating_history(
             ]
         }
     )
+
+
+@router.get(
+    "/users/{user_id}/statistics",
+    name="arena_admin_user_statistics",
+)
+async def admin_user_statistics(
+    user_id: str,
+    admin: ArenaUser = Depends(require_arena_admin),
+    session: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Return a given Arena user's precomputed verdict and language distributions."""
+    target = await _get_target_or_404(user_id, session)
+    payload = await get_user_statistics(session, target.id)
+    if payload is None:
+        return JSONResponse({"total_submissions": 0, "verdicts": [], "languages": [], "computed_at": None})
+    return JSONResponse(payload)
 
 
 @router.get(

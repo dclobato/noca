@@ -70,6 +70,8 @@
                                     <th scope="col">User</th>
                                     <th scope="col">Severity</th>
                                     <th scope="col">IP</th>
+                                    <th scope="col">Source port</th>
+                                    <th scope="col">Request ID</th>
                                     <th scope="col">Metadata</th>
                                 </tr>
                             </thead>
@@ -94,6 +96,20 @@
                                         <td>
                                             {% if event.client_ip %}
                                                 {{ event.client_ip }}
+                                            {% else %}
+                                                <span class="text-muted">—</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if event.source_port %}
+                                                {{ event.source_port }}
+                                            {% else %}
+                                                <span class="text-muted">—</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="small text-break">
+                                            {% if event.request_id %}
+                                                {{ event.request_id }}
                                             {% else %}
                                                 <span class="text-muted">—</span>
                                             {% endif %}

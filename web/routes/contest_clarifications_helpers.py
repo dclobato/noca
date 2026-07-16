@@ -20,6 +20,7 @@ from web.services.assorted_utils import format_site_identity
 
 _ALLOWED = (RoleEnum.UBERADMIN, RoleEnum.ADMIN, RoleEnum.JUDGE, RoleEnum.TEAM)
 _JUDGE_ONLY = (RoleEnum.JUDGE,)
+_ANSWER_ALLOWED = (RoleEnum.JUDGE, RoleEnum.ADMIN)
 _ADMIN_ONLY = (RoleEnum.UBERADMIN, RoleEnum.ADMIN)
 
 

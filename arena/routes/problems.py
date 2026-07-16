@@ -15,6 +15,7 @@ requires a logged-in user via ``require_arena_user``.
 Routes:
   GET  /problems                                        arena_problem_list
   GET  /problems/{arena_number}                         arena_problem_detail
+  GET  /problems/{arena_number}/print                   arena_problem_print
   GET  /problems/{arena_number}/rating-history          arena_problem_rating_history_public
   GET  /problems/{arena_number}/statistics              arena_problem_statistics
   GET  /problems/{arena_number}/statistics.json         arena_problem_statistics_data
@@ -43,6 +44,7 @@ from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user, require_arena_user
 from arena.models.arena_users import ArenaUser
 from arena.services import (
+    admin_problem_interaction_service,
     arena_favorite_service,
     problem_browse_service,
     problem_stats_service,
@@ -326,6 +328,9 @@ async def arena_problem_detail(
             }
         )
 
+    # An interactive problem's public examples are conversations, not test cases.
+    sample_interactions = await admin_problem_interaction_service.list_interactions(session, problem.id)
+
     lang_result = await session.execute(
         select(languages_table)
         .where(languages_table.c.active == True)  # noqa: E712
@@ -412,6 +417,7 @@ async def arena_problem_detail(
                 "problem": problem,
                 "author_info": author_info,
                 "sample_test_cases": sample_test_cases,
+                "sample_interactions": sample_interactions,
                 "active_languages": active_languages,
                 "ace_modes": ace_modes,
                 "language_stubs": language_stubs,
@@ -429,6 +435,68 @@ async def arena_problem_detail(
                 "next_problem_url": next_problem_url,
                 "prev_problem_number": prev_number,
                 "next_problem_number": next_number,
+            },
+        )
+    )
+
+
+@router.get("/problems/{arena_number:int}/print", response_class=HTMLResponse, name="arena_problem_print")
+async def arena_problem_print(
+    request: Request,
+    arena_number: int,
+    current_user: ArenaUser = Depends(require_arena_user),
+    session: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    """Render a standalone, print-friendly view of a problem.
+
+    Shows the problem statement, samples (test cases or sample interactions), and
+    resource limits without the surrounding chrome, so the user can print it from
+    the browser.
+
+    Args:
+        request: The current HTTP request.
+        arena_number: Public arena number of the problem.
+        current_user: The authenticated Arena user (login required).
+        session: Async database session.
+    """
+    result = await problem_browse_service.get_enabled_problem_by_number(session, arena_number)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Problem not found")
+    problem, author_info = result
+
+    raw_sample_tcs = sorted([tc for tc in problem.test_cases if tc.is_sample], key=lambda tc: tc.ordinal)
+    tc_dir = settings.PROBLEM_TESTCASE_DIR
+    sample_test_cases = []
+    for tc in raw_sample_tcs:
+
+        def _read(ordinal: int = tc.ordinal) -> tuple[str, str]:
+            return read_testcase_full(problem.id, ordinal, tc_dir)
+
+        in_content, out_content = await anyio.to_thread.run_sync(_read)
+        sample_test_cases.append(
+            {
+                "input_content": in_content,
+                "output_content": out_content,
+                "explanation": tc.explanation,
+                "ordinal": tc.ordinal,
+            }
+        )
+
+    # An interactive problem's public examples are conversations, not test cases.
+    sample_interactions = await admin_problem_interaction_service.list_interactions(session, problem.id)
+
+    templates = request.app.state.arena_templates
+    return _html(
+        templates.TemplateResponse(
+            request,
+            "problems/problem_print.html",
+            {
+                "current_user": current_user,
+                "problem": problem,
+                "author_info": author_info,
+                "sample_test_cases": sample_test_cases,
+                "sample_interactions": sample_interactions,
+                "has_custom_validator": status_view(problem.custom_validator).configured,
             },
         )
     )
@@ -585,7 +653,10 @@ async def arena_problem_sample_testcases_zip(
 
     zip_bytes = await anyio.to_thread.run_sync(
         lambda: problem_tc_export_service.build_sample_testcases_zip(
-            problem.id, sample_tcs, settings.PROBLEM_TESTCASE_DIR
+            problem.id,
+            sample_tcs,
+            settings.PROBLEM_TESTCASE_DIR,
+            has_custom_validator=status_view(problem.custom_validator).configured,
         )
     )
     filename = f"sample-testcases-{arena_number}.zip"

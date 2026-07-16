@@ -1337,6 +1337,65 @@ async def test_public_profile_unconfirmed_but_active_account_is_accessible(
 
 
 @pytest.mark.asyncio
+async def test_profile_statistics_endpoint_requires_authentication(session: AsyncSession) -> None:
+    """The self-profile statistics JSON endpoint rejects guests."""
+    app = _build_arena_app(session)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/user/profile/statistics")
+
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_profile_statistics_endpoint_returns_own_snapshot(session: AsyncSession) -> None:
+    """The self-profile statistics endpoint returns the logged-in user's snapshot."""
+    user = await _create_arena_user(session)
+    computed_at = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
+    await session.execute(
+        arena_user_statistics.insert().values(
+            user_id=user.id,
+            data={
+                "total_submissions": 5,
+                "verdicts": [{"verdict": "AC", "count": 5}],
+                "languages": [{"language_id": "py", "name": "Python", "count": 5}],
+            },
+            computed_at=computed_at,
+        )
+    )
+    await session.commit()
+    app = _build_arena_app(session)
+    token = _login_token(app, user)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/user/profile/statistics")
+
+    assert response.status_code == 200
+    assert response.json()["total_submissions"] == 5
+    assert response.json()["computed_at"].startswith("2026-06-22T12:00:00")
+
+
+@pytest.mark.asyncio
+async def test_profile_statistics_tab_renders_chart_containers(session: AsyncSession) -> None:
+    """The profile Statistics tab renders the doughnut chart containers and note."""
+    user = await _create_arena_user(session)
+    app = _build_arena_app(session)
+    token = _login_token(app, user)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/user/profile?tab=statistics")
+
+    assert response.status_code == 200
+    assert 'id="statistics-tab-pane"' in response.text
+    assert "public-user-stats-verdicts" in response.text
+    assert "public-user-stats-languages" in response.text
+    assert "/user/profile/statistics" in response.text
+    assert "arena-user-statistics.js" in response.text
+
+
+@pytest.mark.asyncio
 async def test_public_profile_admin_bypasses_visibility_and_account_eligibility(
     session: AsyncSession,
 ) -> None:

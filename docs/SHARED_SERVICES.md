@@ -1,7 +1,7 @@
 # NOCA Shared Service Reference
 
 This document lists service modules under `shared/services/` that are used by more than one runtime
-module (`web`, `arena`, `autojudge`, `rating`, or `aiassistant`).
+module (`web`, `arena`, `autojudge`, `rating`, `aiassistant`, or `healthmonitor`).
 
 For web-specific services see [web/docs/SERVICES.md](../web/docs/SERVICES.md).
 For arena-specific services see [arena/docs/SERVICES.md](../arena/docs/SERVICES.md).
@@ -539,6 +539,7 @@ Main entrypoints on `NetworkService`:
 - `sanitize_headers(headers) -> dict[str, str] | None`
 - `build_safe_request_kwargs(...) -> tuple[str, dict[str, Any], int]`
 - `get_ip_from_request(request) -> str | None`
+- `get_trusted_source_port_from_request(request) -> int | None`
 - `is_private_network(hostname) -> bool`
 
 Reuse this module when:
@@ -953,7 +954,12 @@ Main entrypoints:
 - Queue key constants: `QUEUE_PENDING_KEY`, `QUEUE_PRIORITY_KEY`, `QUEUE_INFLIGHT_KEY`, `QUEUE_INFLIGHT_TIMES_KEY`, `QUEUE_JOB_HASH_PREFIX`, `QUEUE_RESULTS_CHANNEL`
 
 Worker presence:
-- `WorkerClass` defines `autojudge`, `rating`, and `aiassistant`.
+- `WorkerClass` defines `autojudge`, `rating`, `aiassistant`, `web`, and
+  `arena`. The first three are worker classes shown on the Arena admin
+  dashboard; `web` and `arena` are presence-only HTTP server classes published
+  from each server's lifespan and read by the health monitor. They never
+  appear in the Arena dashboard worker cards or pause UI (the dashboard
+  iterates an explicit class tuple, and `_resolve_class` rejects them).
 - `noca:worker-presence:<class>:seen` is a durable hash from worker ID to JSON
   containing the latest process start and heartbeat timestamps. Readers also
   accept the earlier start-timestamp-only value during upgrades.
@@ -1173,9 +1179,11 @@ Canonical location:
 Key types and functions:
 - `record_security_event(...)` — insert a security event from a session or
   connection; accepts `actor_user_id` (opaque id) and `actor_label` (human-readable
-  login, e.g. email/username) snapshotted at event time
+  login, e.g. email/username) snapshotted at event time, plus optional
+  `request_id`
 - `record_request_security_event(...)` — insert an event with request IP and
-  user-agent metadata; also forwards `actor_user_id` and `actor_label`
+  user-agent metadata; also forwards `actor_user_id`, `actor_label`, and
+  `X-Request-ID`
 - `list_recent_security_events(session, limit=50, module=None, event_type=None)`
   — return recent events for callers that need a bounded list
 - `list_security_events_paginated(session, page=..., per_page=..., module=None,
@@ -1198,6 +1206,12 @@ Notes:
 - callers record auth lockouts, repeated auth failures, existing-account signup
   attempts, AI response redactions, suspicious token/session mismatches, and
   admin actions (via `admin_audit.py`)
+- rows store `client_ip` and nullable `source_port`; the port comes from the
+  ASGI client port or from the trusted header configured by
+  `NOCA_SOURCE_PORT_HEADER`
+- rows store nullable `request_id` from `X-Request-ID`; the bundled Caddyfile
+  overwrites that header with Caddy's request UUID and appends the same value to
+  the Caddy access log
 - viewers are scoped to the owning runtime's modules (same split as the
   reaper): Arena `/admin/dashboard/security-events` shows
   `module in (arena, aiassistant)`; Web `/uberadmin/security-events` shows
@@ -1273,15 +1287,16 @@ Key functions / constants:
 - `get_problem_testcase_dir(problem_id, testcase_dir)` — validate a problem id
   and resolve its guarded storage directory
 - `get_testcase_path(problem_id, ordinal, ext, testcase_dir)` — resolve `<testcase_dir>/<problem_id>/NNN.in|out`
-- `save_testcase_files(...) -> (in_size, out_size)` — normalize to LF and write a pair, returning on-disk byte sizes
+- `save_testcase_files(problem_id, ordinal, in_bytes, out_bytes, testcase_dir) -> (in_size, out_size | None)` — normalize to LF and write a case, returning on-disk byte sizes
 - `read_testcase_preview`, `read_testcase_full`, `read_testcase_sizes`
 - `delete_testcase_files`, `delete_all_testcase_files`, `renumber_testcase_files`, `reorder_testcase_files`
 
 Notes:
 - callers pass the domain-specific root (`settings.PROBLEM_TESTCASE_DIR`, already resolved to `<root>/contest` for Web and `<root>/arena` for Arena); the helper is domain-agnostic
+- an **interactive** (custom-validator) problem's cases have no expected output: pass `out_bytes=None`, which writes the `.in` only, removes any stale `.out`, and reports an output size of `None` (stored as a null `output_size_bytes`). The other helpers already tolerate a missing `.out`
 - problem ids must be UUID/slug-like path segments; resolved paths must remain
   under the configured test-case root before read, write, rename, or delete
-- the single-source-of-truth inline-edit threshold `MAX_INLINE_TESTCASE_BYTES` (10 KB) and the single-case ZIP helpers (`parse_single_testcase_zip`, `build_single_testcase_zip`, `SingleTestCase`) live in `shared/tc_zip.py`
+- the single-source-of-truth inline-edit threshold `MAX_INLINE_TESTCASE_BYTES` (10 KB) and the single-case ZIP helpers (`parse_single_testcase_zip`, `build_single_testcase_zip`, `SingleTestCase`) live in `shared/tc_zip.py`; the ZIP parsers take `require_output=False` for an interactive problem, where the archive carries `input.txt` / `in/NNN.in` alone
 
 ---
 
@@ -1455,11 +1470,47 @@ Notes:
 `shared.services.custom_validator` validates the 256 KiB UTF-8 upload contract,
 creates candidate tokens and queue payloads, promotes matching candidates,
 retains bounded compilation failures, clears revisions, parses package
-metadata, and supplies a domain-neutral status view for both frontends.
+metadata, and supplies domain-neutral status and current-source views for both
+frontends.
+
+`current_validator_source(record)` returns the source authors can inspect or
+download: the active revision when present, otherwise the staged candidate. It
+returns `None` when no complete source/language pair exists.
 
 `shared.services.valkey_service.enqueue_custom_validator_validation_job`
 stores validation job metadata and pushes the validation identifier onto the
 profiling-priority queue after the owning database transaction commits.
+# Sample interactions
+
+`shared.services.sample_interactions` owns everything about the worked examples an
+**interactive** problem shows instead of sample test cases: a transcript of the
+conversation a correct program has with the validator. The module is domain-neutral
+(no ORM imports); the Web and Arena services own only the SQL.
+
+Transcripts are stored in the same JSON shape the judge records for a real
+interactive attempt (`submission_interactive_attempts.transcript`), so one renderer
+serves both — the shared `_partials/transcript_table.html`.
+
+| Function | Description |
+|---|---|
+| `parse_interaction_text(text)` | Parse the authoring plain-text format into transcript JSON. Every line must start with the exact two-character prefix `"> "` (validator → contestant) or `"< "` (contestant → validator); everything after the prefix is preserved verbatim. CRLF/CR are normalized first. Bare `>` / `<`, leading whitespace, and blank lines raise `InteractionParseError` naming the 1-based line number. |
+| `transcript_to_text(transcript)` | The inverse, used to pre-fill the edit textarea. |
+| `transcript_preview(transcript, *, limit=60)` / `transcript_line_count(transcript)` | Admin list-row summaries. |
+| `validate_transcript_json(obj)` | Structural validation of a transcript read from a package. |
+| `parse_packaged_interactions(*, archive_names, read_file)` | Read `interaction/NNN.interaction` + optional `interaction/NNN.explain` members, remap ordinals contiguously from 1, and enforce the cap. |
+| `build_interaction_files(interactions)` | Build the `interaction/` archive members for an export, numbered sequentially in display order. |
+| `interactive_testcase_violation(*, total_cases, sample_cases)` | The invariant for a problem with a configured validator: **zero public test cases and at least one secret one**. Returns a message or `None`. |
+| `SampleInteractionRowView` | Template-safe row model for the shared admin list partial, mirroring `TestCaseRowView`. |
+
+`MAX_SAMPLE_INTERACTIONS = 5` caps how many a problem may hold. Hidden interactions
+(kept through a validator removal) count towards the cap, so a later un-hide can
+never exceed it.
+
+The cap is judged against the row count a save *produces*, not the one it starts
+from: the per-domain pending appliers apply removals before additions and validate
+`existing − removed + added` up front, so a full problem can swap an interaction in
+one edit, and a save that would still overflow fails before mutating anything.
+
 # Sample problem package
 
 `shared.services.sample_problem_package.build_sample_problem_package()` builds the

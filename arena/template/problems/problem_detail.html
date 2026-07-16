@@ -99,6 +99,12 @@
                     </button>
                 </div>
             {% endif %}
+            <div class="arena-problem-header-stat">
+                <a href="{{ request.url_for('arena_problem_print', arena_number=problem.arena_number) }}"
+                   class="btn btn-outline-secondary btn-sm"
+                   target="_blank"
+                   title="Open a printable view of this problem">{{ render_icon(icon="print") }}</a>
+            </div>
         {% endif %}
     </div>
 </div>
@@ -143,10 +149,14 @@
                 {% endif %}
             </div>
             {% if has_custom_validator %}
-                <div class="alert alert-info d-flex align-items-center gap-2 mb-3"
+                <div class="alert alert-info d-flex align-items-start gap-2 mb-3 small"
                      role="alert">
-                    {{ render_icon(icon="published_with_changes") }}
-                    <span>This problem uses a custom validator.</span>
+                    {{ render_icon(icon="published_with_changes", classes="flex-shrink-0 mt-1") }}
+                    <span>
+                        This is an <strong>interactive</strong> problem: instead of printing an answer for a
+                        fixed input, your program exchanges messages with a validator, once per test case.
+                        <a href="{{ request.url_for("arena_help_languages") }}#interactive">Read how interactive problems work.</a>
+                    </span>
                 </div>
             {% endif %}
             <h1 class="h4 mb-1">#{{ problem.arena_number }} — {{ problem.title }}</h1>
@@ -200,8 +210,34 @@
             {# Markdown statement #}
             <div id="md-statement-rendered" class="mb-3 mt-5"></div>
             <script id="md-statement-src" type="text/plain">{{ problem.problem_statement | e }}</script>
-            {# Sample test cases #}
-            {% if sample_test_cases %}
+            {# An interactive problem's public examples are conversations, not test
+               cases: its cases are all secret and carry no expected output. #}
+            {% if has_custom_validator %}
+                {% if sample_interactions %}
+                    <h2 class="h6 mt-4 mb-2">Sample Interactions</h2>
+                    <p class="text-muted small">
+                        This problem is interactive. Your program talks to a validator instead of
+                        reading a fixed input file; the conversations below are examples of how a
+                        correct solution behaves.
+                    </p>
+                    {% for interaction in sample_interactions %}
+                        <div class="card shadow-sm mb-3">
+                            <div class="card-body">
+                                {% with explanation_class="arena-tc-explanation" %}
+                                    {% include "_partials/sample_interaction_display.html" %}
+                                {% endwith %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted small">No sample interactions for this problem.</p>
+                {% endif %}
+                {% if problem.license %}
+                    <p class="small">
+                        <span class="fw-semibold">License:</span> {{ problem.license | e }}
+                    </p>
+                {% endif %}
+            {% elif sample_test_cases %}
                 <h2 class="h6 mt-4 mb-2">Sample Test Cases</h2>
                 {% for tc in sample_test_cases %}
                     <div class="card shadow-sm mb-3">
@@ -524,6 +560,7 @@
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='noca-echarts-theme.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-rating-history-chart.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
             defer></script>

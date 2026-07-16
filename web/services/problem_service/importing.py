@@ -22,8 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.services.custom_validator import parse_packaged_validator, stage_candidate
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.problem_image import load_packaged_image
+from shared.services.sample_interactions import parse_packaged_interactions
 from web.models.contest import Contest
-from web.models.problem import Problem, ProblemCustomValidator, ProblemTestCase
+from web.models.problem import Problem, ProblemCustomValidator, ProblemSampleInteraction, ProblemTestCase
 from web.services.category_service import get_or_create_categories, replace_problem_categories
 
 from .files import (
@@ -132,14 +133,21 @@ async def import_problem_from_zip(
     else:
         raise ValueError("statement.pdf or statement.md is required in the ZIP.")
 
-    parsed = parse_testcases_zip(zip_bytes)
     packaged_validator = parse_packaged_validator(
         meta.get("custom_validator"),
         read_file=archive.read,
         archive_names=set(archive.namelist()),
     )
-    if packaged_validator is not None and meta.get("test_case_visibility") != "sample":
-        raise ValueError("Validator packages must declare test_case_visibility: 'sample'.")
+    # Sample interactions only mean anything alongside a validator, so a package
+    # without one has its interaction/ members dropped rather than imported.
+    packaged_interactions = (
+        parse_packaged_interactions(archive_names=set(archive.namelist()), read_file=archive.read)
+        if packaged_validator is not None
+        else []
+    )
+    # A validator package's cases carry input only: the input parametrizes the
+    # validator, which decides the verdict instead of an expected-output file.
+    parsed = parse_testcases_zip(zip_bytes, require_output=packaged_validator is None)
 
     image_b64, image_mime = load_packaged_image(cast(dict[str, Any], meta), archive, archive.namelist(), image_service)
     raw_caption = meta.get("image_caption")
@@ -169,12 +177,12 @@ async def import_problem_from_zip(
         statement_text = statement_bytes.decode("utf-8")
         await anyio.to_thread.run_sync(lambda: save_md_statement(problem.id, statement_text, statement_dir))
 
-    def write_imported_test_case(in_bytes: bytes, out_bytes: bytes, ordinal: int) -> tuple[int, int]:
+    def write_imported_test_case(in_bytes: bytes, out_bytes: bytes | None, ordinal: int) -> tuple[int, int | None]:
         return save_testcase_files(problem.id, ordinal, in_bytes, out_bytes, testcase_dir)
 
     for source_ordinal, (in_bytes, out_bytes) in sorted(parsed.pairs.items()):
         test_case = ProblemTestCase(
-            is_sample=packaged_validator is not None,
+            is_sample=False,
             explanation=parsed.explanations.get(source_ordinal),
         )
         await append_test_case(session, problem, test_case)
@@ -216,9 +224,20 @@ async def import_problem_from_zip(
         )
         session.add(validator)
 
+    for ordinal, packaged in enumerate(packaged_interactions, start=1):
+        session.add(
+            ProblemSampleInteraction(
+                problem_id=problem.id,
+                ordinal=ordinal,
+                transcript=packaged.transcript,
+                explanation=packaged.explanation,
+            )
+        )
+
     await session.commit()
     return ProblemImportResult(
         problem=problem,
         skipped_language_ids=sorted(skipped_language_ids),
         validator_candidate_token=validator_candidate_token,
+        imported_interaction_count=len(packaged_interactions),
     )

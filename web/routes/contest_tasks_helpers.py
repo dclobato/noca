@@ -12,28 +12,45 @@ import datetime
 from collections.abc import Sequence
 from typing import cast
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from shared.enumerations import RoleEnum
-from web.dependencies import ContestContext
+from web.dependencies import ContestContext, ensure_allowed_role
 from web.models.contest import Contest
 from web.models.problem import Problem
 from web.models.users import UberAdmin, User
 from web.routes.contest_admin_problem_helpers import _label
 from web.services.assorted_utils import format_site_identity
-from web.services.task_service import TaskView, list_tasks
+from web.services.task_service import (
+    TaskView,
+    can_force_release_tasks,
+    can_handle_tasks,
+    can_view_tasks,
+    list_tasks,
+)
 
-_ALLOWED = (RoleEnum.UBERADMIN, RoleEnum.ADMIN, RoleEnum.STAFF, RoleEnum.TEAM)
-_STAFF_ONLY = (RoleEnum.STAFF,)
-_RELEASE_ALLOWED = (RoleEnum.UBERADMIN, RoleEnum.ADMIN, RoleEnum.STAFF)
-_SOURCE_ALLOWED = (RoleEnum.UBERADMIN, RoleEnum.ADMIN, RoleEnum.STAFF)
+_ALLOWED = (RoleEnum.UBERADMIN, RoleEnum.ADMIN, RoleEnum.JUDGE, RoleEnum.STAFF, RoleEnum.TEAM)
+_HANDLE_ALLOWED = (RoleEnum.ADMIN, RoleEnum.JUDGE, RoleEnum.STAFF)
+_RELEASE_ALLOWED = (RoleEnum.UBERADMIN, RoleEnum.ADMIN, RoleEnum.JUDGE, RoleEnum.STAFF)
+_SOURCE_ALLOWED = (RoleEnum.UBERADMIN, RoleEnum.ADMIN, RoleEnum.JUDGE, RoleEnum.STAFF)
+
+
+def _ensure_task_access(actor: UberAdmin | User, contest: Contest) -> None:
+    """Raise `403` unless the actor may work with this contest's tasks.
+
+    `_ALLOWED` lets the JUDGE role through so the chief judge can reach the page;
+    every other judge is rejected here.
+    """
+    ensure_allowed_role(actor, _ALLOWED)
+    if not can_view_tasks(actor, contest):
+        raise HTTPException(status_code=403)
 
 
 def _access_blocked(actor: UberAdmin | User, contest: Contest) -> bool:
-    """ADMIN and UBERADMIN always have access; STAFF and TEAM only after the contest starts."""
+    """ADMIN and UBERADMIN always have access; the others only after the contest starts."""
     if isinstance(actor, UberAdmin) or actor.role in (RoleEnum.ADMIN,):
         return False
     return not (contest.is_running or contest.is_past)
@@ -98,6 +115,8 @@ async def _build_template_context(ctx: ContestContext, request: Request) -> dict
         return {
             "tasks": tasks,
             "lock_service_available": lock_service_available,
+            "can_handle_tasks": False,
+            "can_force_release": False,
             "problems": problems,
             "problem_map": problem_map,
             "problem_color_map": problem_color_map,
@@ -131,6 +150,8 @@ async def _build_template_context(ctx: ContestContext, request: Request) -> dict
     ctx_data: dict[str, object] = {
         "tasks": tasks,
         "lock_service_available": lock_service_available,
+        "can_handle_tasks": can_handle_tasks(ctx.actor, ctx.contest),
+        "can_force_release": can_force_release_tasks(ctx.actor),
         "team_map": team_map,
         "staff_map": staff_map,
         "team_location_map": team_location_map,

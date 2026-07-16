@@ -99,6 +99,30 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
     async def _avatar(user_id: str) -> Response:
         return Response("avatar", media_type="image/svg+xml")
 
+    @app.get("/admin/dashboard/service-status", name="arena_admin_dashboard_service_status")
+    async def _dash_service_status() -> Response:
+        return Response("stub")
+
+    @app.get("/admin/dashboard/security-events", name="arena_admin_dashboard_security_events")
+    async def _dash_security_events() -> Response:
+        return Response("stub")
+
+    @app.get("/admin/dashboard/login-history", name="arena_admin_dashboard_login_history")
+    async def _dash_login_history() -> Response:
+        return Response("stub")
+
+    @app.get("/admin/dashboard/submissions", name="arena_admin_dashboard_submissions")
+    async def _dash_submissions() -> Response:
+        return Response("stub")
+
+    @app.get("/admin/dashboard/ai-usage", name="arena_admin_dashboard_ai_usage")
+    async def _dash_ai_usage() -> Response:
+        return Response("stub")
+
+    @app.get("/help", name="arena_help_index")
+    async def _help_index() -> Response:
+        return Response("help")
+
     @app.get("/help/rating", name="arena_help_rating")
     async def _help_rating() -> Response:
         return Response("help")

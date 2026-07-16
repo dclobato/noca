@@ -27,6 +27,10 @@ class AlreadyConfirmedError(JudgingServiceError):
     """Raised when the judge already confirmed this judgment."""
 
 
+class DecisiveConfirmationExistsError(JudgingServiceError):
+    """Raised when a decisive (chief) confirmation already settled this judgment."""
+
+
 class JudgmentNotReadyError(JudgingServiceError):
     """Raised when a judgment is not ready for review."""
 

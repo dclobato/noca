@@ -27,6 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     set("login-detail-date",     btn.dataset.loginDate);
     set("login-detail-ip",       btn.dataset.loginIp);
+    set("login-detail-source-port", btn.dataset.loginSourcePort);
     set("login-detail-location", btn.dataset.loginLocation);
     set("login-detail-asn",      btn.dataset.loginAsn);
     set("login-detail-ua",       btn.dataset.loginUa);

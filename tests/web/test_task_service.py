@@ -351,6 +351,40 @@ async def test_list_tasks_applies_role_visibility_and_acquired_by_me(
         await list_tasks(session, running_contest, public_user)
 
 
+async def test_list_tasks_hides_everything_from_a_plain_judge(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    uberadmin: UberAdmin,
+) -> None:
+    plain_judge = await _make_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="listing_plain_judge",
+        fullname="Plain Judge",
+        role=RoleEnum.JUDGE,
+    )
+    chief_judge = await _make_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="listing_chief_judge",
+        fullname="Chief Judge",
+        role=RoleEnum.JUDGE,
+    )
+    task = await create_sos_task(session, running_contest, team_user)
+
+    with pytest.raises(ForbiddenTaskActionError):
+        await list_tasks(session, running_contest, plain_judge)
+
+    running_contest.chief_judge_id = chief_judge.id
+    await session.flush()
+
+    chief_views = await list_tasks(session, running_contest, chief_judge)
+    assert [view.id for view in chief_views] == [task.id]
+
+
 async def test_staff_can_acquire_task(
     session: AsyncSession,
     running_contest: Contest,
@@ -632,7 +666,31 @@ async def test_finish_keeps_finisher_identity_on_success(
     )
 
 
-async def test_non_staff_cannot_acquire_or_finish_task(
+async def test_team_and_plain_judge_cannot_acquire_or_finish_task(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    uberadmin: UberAdmin,
+) -> None:
+    judge_user = await _make_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="plain_judge",
+        fullname="Plain Judge",
+        role=RoleEnum.JUDGE,
+    )
+    task = await create_sos_task(session, running_contest, team_user)
+
+    for actor in (team_user, judge_user):
+        with pytest.raises(ForbiddenTaskActionError):
+            await acquire_task(session, running_contest, actor, task)
+
+        with pytest.raises(ForbiddenTaskActionError):
+            await finish_task(session, running_contest, actor, task)
+
+
+async def test_admin_can_acquire_and_finish_task(
     session: AsyncSession,
     running_contest: Contest,
     team_user: User,
@@ -640,8 +698,33 @@ async def test_non_staff_cannot_acquire_or_finish_task(
 ) -> None:
     task = await create_sos_task(session, running_contest, team_user)
 
-    with pytest.raises(ForbiddenTaskActionError):
-        await acquire_task(session, running_contest, admin_user, task)
+    await acquire_task(session, running_contest, admin_user, task)
+    await finish_task(session, running_contest, admin_user, task)
 
-    with pytest.raises(ForbiddenTaskActionError):
-        await finish_task(session, running_contest, admin_user, task)
+    assert task.staff_id == admin_user.id
+    assert task.finished_at is not None
+
+
+async def test_chief_judge_can_acquire_and_finish_task(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    uberadmin: UberAdmin,
+) -> None:
+    chief_judge = await _make_user(
+        session,
+        running_contest,
+        uberadmin,
+        username="chief_judge_tasks",
+        fullname="Chief Judge",
+        role=RoleEnum.JUDGE,
+    )
+    running_contest.chief_judge_id = chief_judge.id
+    await session.flush()
+    task = await create_sos_task(session, running_contest, team_user)
+
+    await acquire_task(session, running_contest, chief_judge, task)
+    await finish_task(session, running_contest, chief_judge, task)
+
+    assert task.staff_id == chief_judge.id
+    assert task.finished_at is not None

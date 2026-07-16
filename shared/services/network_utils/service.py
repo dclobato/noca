@@ -19,6 +19,8 @@ from .errors import NetworkServiceError
 from .validation import (
     build_safe_request_kwargs,
     get_ip_from_request,
+    get_source_port_from_request,
+    get_trusted_source_port_from_request,
     is_private_network,
     sanitize_headers,
     sanitize_params,
@@ -39,6 +41,8 @@ class NetworkService:
 
     _validate_not_private_network = staticmethod(validate_not_private_network)
     get_ip_from_request = staticmethod(get_ip_from_request)
+    get_source_port_from_request = staticmethod(get_source_port_from_request)
+    get_trusted_source_port_from_request = staticmethod(get_trusted_source_port_from_request)
     validate_and_parse_url = staticmethod(validate_and_parse_url)
     sanitize_params = staticmethod(sanitize_params)
     is_private_network = staticmethod(is_private_network)

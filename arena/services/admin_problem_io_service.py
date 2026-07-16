@@ -32,6 +32,7 @@ import uuid
 import zipfile
 from base64 import b64decode
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -43,18 +44,41 @@ from arena.models.arena_problems import (
     ArenaCategory,
     ArenaProblem,
     ArenaProblemCustomValidator,
+    ArenaSampleInteraction,
     ArenaTestCase,
 )
 from arena.services import admin_problem_service
 from arena.services.admin_category_service import normalize_slug
 from shared.problem_statement_markdown import validate_md_content
-from shared.services.custom_validator import parse_packaged_validator, stage_candidate
+from shared.services.custom_validator import (
+    packaged_validator_member,
+    parse_packaged_validator,
+    stage_candidate,
+)
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.problem_image import export_image_filename, load_packaged_image
+from shared.services.sample_interactions import build_interaction_files, parse_packaged_interactions
 from shared.services.testcase_files import get_testcase_path, save_testcase_files
 from shared.tc_zip import ParsedTestCases, normalize_testcase_bytes, parse_testcases_zip
 
 _DEFAULT_OUTPUT_LIMIT_BYTES = 65536
+
+
+@dataclass(frozen=True)
+class ArenaProblemImportResult:
+    """What an imported package produced, so the route can report it.
+
+    Attributes:
+        problem: The newly created, committed problem.
+        has_custom_validator: Whether the package staged a validator.
+        imported_interaction_count: Sample interactions read from ``interaction/``.
+            Always 0 when the package had no validator, since such a package's
+            interaction members are dropped.
+    """
+
+    problem: ArenaProblem
+    has_custom_validator: bool
+    imported_interaction_count: int
 
 
 def build_export_zip(problem: ArenaProblem, owner_name: str, testcase_dir: Path) -> bytes:
@@ -74,6 +98,7 @@ def build_export_zip(problem: ArenaProblem, owner_name: str, testcase_dir: Path)
     """
     buffer = io.BytesIO()
     image_filename: str | None = None
+    has_custom_validator = _problem_has_custom_validator(problem)
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("statement.md", problem.problem_statement or "")
 
@@ -81,9 +106,24 @@ def build_export_zip(problem: ArenaProblem, owner_name: str, testcase_dir: Path)
             in_path = get_testcase_path(problem.id, test_case.ordinal, "in", testcase_dir)
             out_path = get_testcase_path(problem.id, test_case.ordinal, "out", testcase_dir)
             archive.writestr(f"in/{test_case.ordinal:03d}.in", in_path.read_bytes() if in_path.exists() else b"")
-            archive.writestr(f"out/{test_case.ordinal:03d}.out", out_path.read_bytes() if out_path.exists() else b"")
+            # An interactive problem's cases have no expected output at all, so the
+            # package ships inputs only rather than a misleading empty .out.
+            if not has_custom_validator and out_path.exists():
+                archive.writestr(f"out/{test_case.ordinal:03d}.out", out_path.read_bytes())
             if test_case.explanation:
                 archive.writestr(f"explanation/{test_case.ordinal:03d}.txt", test_case.explanation)
+
+        # An interactive problem's public examples are its sample interactions.
+        # Hidden ones (kept through a validator removal) stay out of the package, and
+        # the survivors are renumbered so the export has no ordinal gaps.
+        if has_custom_validator:
+            visible = [
+                (interaction.transcript, interaction.explanation)
+                for interaction in sorted(problem.sample_interactions, key=lambda item: item.ordinal)
+                if interaction.hidden_at is None
+            ]
+            for name, content in build_interaction_files(visible):
+                archive.writestr(name, content)
 
         if problem.problem_image_base64:
             image_filename = export_image_filename(problem.problem_image_mime)
@@ -117,15 +157,21 @@ def build_export_zip(problem: ArenaProblem, owner_name: str, testcase_dir: Path)
                 validator_source = validator.candidate_source
                 validator_language_id = validator.candidate_language_id
         if validator_source is not None and validator_language_id is not None:
+            validator_member = packaged_validator_member(validator_language_id)
             problem_json["custom_validator"] = {
                 "language_id": validator_language_id,
-                "source_file": "validator/source.txt",
+                "source_file": validator_member,
             }
-            problem_json["test_case_visibility"] = "sample"
-            archive.writestr("validator/source.txt", validator_source.encode("utf-8"))
+            archive.writestr(validator_member, validator_source.encode("utf-8"))
         archive.writestr("problem.json", json.dumps(problem_json, indent=2))
 
     return buffer.getvalue()
+
+
+def _problem_has_custom_validator(problem: ArenaProblem) -> bool:
+    """Return whether a problem currently has an active or candidate validator."""
+    validator = problem.custom_validator
+    return bool(validator and (validator.active_source is not None or validator.candidate_source is not None))
 
 
 async def import_problem_from_zip(
@@ -135,7 +181,7 @@ async def import_problem_from_zip(
     caller_id: str,
     image_service: ImageProcessingService,
     testcase_dir: Path,
-) -> ArenaProblem:
+) -> ArenaProblemImportResult:
     """Import an Arena problem from a ZIP package and persist it.
 
     Args:
@@ -145,7 +191,7 @@ async def import_problem_from_zip(
         image_service: Service used to validate a packaged image, if present.
 
     Returns:
-        ArenaProblem: The newly created, committed problem.
+        ArenaProblemImportResult: The new problem and what the package carried.
 
     Raises:
         ValueError: On any malformed package or validation failure.
@@ -164,16 +210,22 @@ async def import_problem_from_zip(
         raise ValueError("problem.json: 'title' is required.")
 
     statement = _read_statement(archive, names)
-    # parse_testcases_zip owns its own archive handling, pairing checks, and
-    # contiguous ordinal remap, so it re-opens the raw bytes independently.
-    parsed = parse_testcases_zip(zip_bytes)
     packaged_validator = parse_packaged_validator(
         meta.get("custom_validator"),
         read_file=archive.read,
         archive_names=set(names),
     )
-    if packaged_validator is not None and meta.get("test_case_visibility") != "sample":
-        raise ValueError("Validator packages must declare test_case_visibility: 'sample'.")
+    # Sample interactions only mean anything alongside a validator, so a package
+    # without one has its interaction/ members dropped rather than imported.
+    packaged_interactions = (
+        parse_packaged_interactions(archive_names=set(names), read_file=archive.read)
+        if packaged_validator is not None
+        else []
+    )
+    # parse_testcases_zip owns its own archive handling, pairing checks, and
+    # contiguous ordinal remap, so it re-opens the raw bytes independently. A
+    # validator package's cases carry input only.
+    parsed = parse_testcases_zip(zip_bytes, require_output=packaged_validator is None)
     image_b64, image_mime = load_packaged_image(meta, archive, names, image_service)
     category_ids = await _resolve_category_ids(session, meta.get("categories"))
 
@@ -199,13 +251,7 @@ async def import_problem_from_zip(
         category_ids=category_ids,
     )
 
-    write_tc_files = _insert_test_cases(
-        session,
-        problem.id,
-        parsed,
-        testcase_dir,
-        is_sample=packaged_validator is not None,
-    )
+    write_tc_files = _insert_test_cases(session, problem.id, parsed, testcase_dir, is_sample=False)
     if packaged_validator is not None:
         validator = ArenaProblemCustomValidator(problem_id=problem.id)
         stage_candidate(
@@ -214,9 +260,28 @@ async def import_problem_from_zip(
             source=packaged_validator.source,
         )
         session.add(validator)
+
+    now = datetime.now(UTC)
+    for ordinal, packaged in enumerate(packaged_interactions, start=1):
+        session.add(
+            ArenaSampleInteraction(
+                id=str(uuid.uuid4()),
+                problem_id=problem.id,
+                ordinal=ordinal,
+                transcript=packaged.transcript,
+                explanation=packaged.explanation,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
     await session.commit()
     write_tc_files()
-    return problem
+    return ArenaProblemImportResult(
+        problem=problem,
+        has_custom_validator=packaged_validator is not None,
+        imported_interaction_count=len(packaged_interactions),
+    )
 
 
 def _optional_string(meta: dict[str, Any], key: str) -> str | None:
@@ -311,21 +376,24 @@ def _insert_test_cases(
     *,
     is_sample: bool,
 ) -> Callable[[], None]:
-    """Bulk-add parsed test cases using the package's enforced visibility.
+    """Bulk-add parsed test cases from an imported package.
 
     Sizes are computed from in-memory normalization; no files are written here.
     Returns a zero-arg callable that the caller must invoke **after** committing
     the transaction to write the test-case files to disk.  UTF-8 validity is
-    still enforced before the DB rows are added.
+    still enforced before the DB rows are added. A validator package's cases carry
+    input only, so their expected output is ``None`` throughout.
     """
-    pairs_for_disk: list[tuple[int, bytes, bytes]] = []
+    pairs_for_disk: list[tuple[int, bytes, bytes | None]] = []
     now = datetime.now(UTC)
     for ordinal, (in_bytes, out_bytes) in sorted(parsed.pairs.items()):
         # Enforce UTF-8 (binary test cases are unsupported) before writing.
         _decode_test_case(in_bytes, ordinal=ordinal, stream="input")
-        _decode_test_case(out_bytes, ordinal=ordinal, stream="output")
+        out_size = None
+        if out_bytes is not None:
+            _decode_test_case(out_bytes, ordinal=ordinal, stream="output")
+            out_size = len(normalize_testcase_bytes(out_bytes))
         in_norm = normalize_testcase_bytes(in_bytes)
-        out_norm = normalize_testcase_bytes(out_bytes)
         session.add(
             ArenaTestCase(
                 id=str(uuid.uuid4()),
@@ -333,7 +401,7 @@ def _insert_test_cases(
                 ordinal=ordinal,
                 is_sample=is_sample,
                 input_size_bytes=len(in_norm),
-                output_size_bytes=len(out_norm),
+                output_size_bytes=out_size,
                 explanation=parsed.explanations.get(ordinal),
                 created_at=now,
                 updated_at=now,

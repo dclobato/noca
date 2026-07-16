@@ -72,6 +72,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
 
     app.state.arena_templates = templates
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
+    app.state.source_port_header = "X-Client-Source-Port"
     app.state.jwt_service = JWTService(
         config=load_token_config_from_dict(
             {
@@ -245,6 +246,16 @@ async def _login_history_modes(session: AsyncSession, user_id: str) -> list[str 
     return list(result.scalars())
 
 
+async def _login_history_source_ports(session: AsyncSession, user_id: str) -> list[int | None]:
+    """Return recorded login-history source ports for a user in insertion order."""
+    result = await session.execute(
+        select(ArenaLoginHistory.source_port)
+        .where(ArenaLoginHistory.arena_user_id == user_id)
+        .order_by(ArenaLoginHistory.id)
+    )
+    return list(result.scalars())
+
+
 # ---------------------------------------------------------------------------
 # Session-token guards
 # ---------------------------------------------------------------------------
@@ -401,12 +412,18 @@ async def test_2fa_submit_with_valid_code_sets_cookie_and_redirects_to_dashboard
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
             await client.post("/test-set-2fa-token-success")
-            response = await client.post("/auth/2fa", data={"full_code": "123456"}, follow_redirects=False)
+            response = await client.post(
+                "/auth/2fa",
+                headers={"X-Client-Source-Port": "54322"},
+                data={"full_code": "123456"},
+                follow_redirects=False,
+            )
 
     assert response.status_code == 303
     assert "/dashboard" in response.headers["location"]
     assert "arena_access_token" in response.cookies
     assert await _login_history_modes(session, user.id) == ["2fa"]
+    assert await _login_history_source_ports(session, user.id) == [54322]
 
 
 @pytest.mark.asyncio

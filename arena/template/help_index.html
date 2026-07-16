@@ -1,0 +1,46 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Help{% endblock %}
+{% block nav_help %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <h1 class="arena-card-title mb-4">
+                {{ render_icon(icon="help") }}
+                Help
+            </h1>
+            <p class="text-muted mb-4">Choose a help topic to explore.</p>
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_help_rating") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="functions") }}</span>
+                        <div>
+                            <div class="fw-semibold">Difficulty &amp; Rating System</div>
+                            <div class="text-muted small">How difficulty, user score and affiliation ratings are computed</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_help_languages") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="terminal") }}</span>
+                        <div>
+                            <div class="fw-semibold">Languages &amp; Verdicts</div>
+                            <div class="text-muted small">Supported languages and what each judgment verdict means</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

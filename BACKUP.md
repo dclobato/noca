@@ -63,8 +63,9 @@ NOCA_BACKUP_DIR=/srv/noca/backups \
 The script performs these operations without prompting:
 
 1. Acquires an exclusive `.backup.lock` file in the backup root.
-2. Stops only the currently running `web`, `arena`, `autojudge`, `rating`, and
-   `aiassistant` services to prevent application writes during the backup.
+2. Stops only the currently running `web`, `arena`, `autojudge`, `rating`,
+   `aiassistant`, and `healthmonitor` services to prevent application writes
+   during the backup.
 3. Creates a PostgreSQL custom-format dump and a global-role dump.
 4. Requests a consistent RDB snapshot from Valkey.
 5. Archives the bind-mounted data, `.env`, `.env.crypto`, and Compose file.
@@ -242,7 +243,7 @@ production directory:
 ```bash
 docker compose ps
 docker compose logs --since 10m \
-    postgres valkey web arena autojudge rating aiassistant
+    postgres valkey web arena autojudge rating aiassistant healthmonitor
 ```
 
 Confirm that all expected services are running or healthy, then test login,

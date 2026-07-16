@@ -368,8 +368,15 @@ async def admin_dashboard_ai_usage(
 
 
 def _resolve_class(worker_class: str) -> WorkerClass:
-    """Resolve a worker-class string or raise an HTTP 400."""
+    """Resolve a dashboard worker-class string or raise an HTTP 400.
+
+    Presence-only classes (web, arena) parse as ``WorkerClass`` but are not
+    dashboard workers, so they are rejected alongside unknown strings.
+    """
     try:
-        return WorkerClass(worker_class)
+        resolved = WorkerClass(worker_class)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid worker class") from exc
+    if resolved not in admin_worker_service.DASHBOARD_CLASSES:
+        raise HTTPException(status_code=400, detail="Invalid worker class")
+    return resolved

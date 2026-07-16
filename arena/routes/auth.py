@@ -138,6 +138,7 @@ async def arena_login_submit(
     geo_service = request.app.state.geo_service
     remember_me = remember is not None
     ip_address = NetworkService.get_ip_from_request(request)
+    source_port = NetworkService.get_trusted_source_port_from_request(request)
     user_agent = request.headers.get("User-Agent")
     throttle_settings = _auth_rate_limit_settings()
     throttle_identity = build_auth_throttle_identity(
@@ -182,6 +183,7 @@ async def arena_login_submit(
         password=password,
         session=session,
         ip_address=ip_address,
+        source_port=source_port,
         user_agent=user_agent,
         geo_service=geo_service,
     )

@@ -145,8 +145,8 @@
             </div>
         </div>
     {% endif %}
-    {# ── Task detail modal (STAFF / ADMIN / UBERADMIN, outside HTMX-swappable region) ──── #}
-    {% if current_user.role in (RoleEnum.STAFF.value, RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
+    {# ── Task detail modal (task handlers and admins, outside HTMX-swappable region) ────── #}
+    {% if can_handle_tasks or can_force_release %}
         <div class="modal fade"
              id="taskDetailModal"
              tabindex="-1"

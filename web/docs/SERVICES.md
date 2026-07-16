@@ -27,6 +27,7 @@ Internal structure:
 - `views.py` — `ClarificationView` plus lock-merging helpers
 - `queries.py` — contest-scoped reads and role-filtered listing
 - `lifecycle.py` — creation, acquisition, answering, release, announcement, and hide/unhide flows
+- `permissions.py` — who may answer and who may force-release
 
 Main types:
 - `ClarificationView` — role-scoped DTO returned by `list_clarifications`; `judge_id` is `None` for JUDGE and TEAM callers, populated only for ADMIN/UBERADMIN
@@ -44,9 +45,10 @@ Main entrypoints:
 - `create_announcement(session, contest, actor, *, problem_id, announcement) -> Clarification` — ADMIN/JUDGE only; contest must be running; creates a clarification pre-answered with `question="Announcement"`, `is_contest_public=True`; actor is recorded as both team and judge
 - `get_clarification(session, contest, clarification_id) -> Clarification | None` — contest-scoped lookup; no actor; caller is responsible for authorization
 - `list_clarifications(session, contest, actor, lock_client) -> tuple[list[ClarificationView], bool]` — merges PostgreSQL rows with Valkey lock state; bool indicates whether lock coordination is available for the UI
-- `acquire_clarification(session, contest, actor, clarification, lock_client) -> Clarification` — JUDGE only; acquires a Valkey TTL lock keyed by contest and clarification id
+- `acquire_clarification(session, contest, actor, clarification, lock_client) -> Clarification` — JUDGE or ADMIN; acquires a Valkey TTL lock keyed by contest and clarification id
 - `release_clarification(session, contest, actor, clarification, lock_client) -> Clarification` — JUDGE may release own lock; ADMIN/UBERADMIN may force-release any lock through Valkey
-- `answer_clarification(session, contest, actor, clarification, lock_client, *, answer, is_contest_public) -> Clarification` — enforces the Valkey lock when available; in degraded mode the DB remains authoritative for answer validity and judge identity
+- `answer_clarification(session, contest, actor, clarification, lock_client, *, answer, is_contest_public) -> Clarification` — JUDGE or ADMIN; enforces the Valkey lock when available; in degraded mode the DB remains authoritative for answer validity and judge identity
+- `can_answer_clarifications(actor) -> bool` / `can_force_release_clarifications(actor) -> bool` — the single source of truth the routes and templates share; uberadmins may force-release but never answer, since `clarifications.judge_id` is a foreign key into `users`
 - `toggle_hidden_clarification(session, actor, clarification) -> Clarification` — JUDGE/ADMIN/UBERADMIN; sets `hidden_by_judge_id` XOR `hidden_by_admin_id` on hide; clears both on unhide
 
 Reuse this module when:
@@ -171,8 +173,8 @@ Main types:
 - `AuthenticationService`
 
 Main entrypoints on `AuthenticationService`:
-- `uberadmin_login(username, password, session, *, ip_address=None, user_agent=None) -> str`
-- `user_login(username, password, contest_id, session, *, ip_address=None, user_agent=None) -> str`
+- `uberadmin_login(username, password, session, *, ip_address=None, source_port=None, user_agent=None) -> str`
+- `user_login(username, password, contest_id, session, *, ip_address=None, source_port=None, user_agent=None) -> str`
 - `create_access_token(*, sub, audience, extra_data=None, session_started_at=None) -> str`
 - `should_refresh_token(result) -> bool`
 - `is_absolute_session_cap_exceeded(result) -> bool`
@@ -295,7 +297,16 @@ Main entrypoints:
 - `create_contest_with_owner(session, *, creator_username, contest_name, login_slug, metadata, owner_username, owner_fullname, language_ids) -> ContestCreationResult`
 - `ensure_contest_has_sites(session, contest) -> None`
 - `validate_chief_judge_assignment(session, contest, user_id) -> list[str]` — validates that a user is a JUDGE member of the contest; returns errors list (empty = valid)
-- `clear_chief_judge_if_no_longer_judge(contest, user) -> None` — clears `chief_judge_id` if the user's role changed away from JUDGE; call after role changes before commit
+- `list_contest_judge_ids(session, contest, *, exclude_user_id=None) -> list[str]` — ids of the contest JUDGE users, ordered by `fullname, username`
+- `ensure_chief_judge_reassignable(session, contest, user) -> None` — raises `ChiefJudgeInvariantError` (a `ValueError`) when `user` is the current chief judge and two or more other judges remain, so there is no unambiguous successor; call **before** demoting or removing a user
+- `reconcile_chief_judge(session, contest, *, excluded_user_id=None) -> None` — restores the chief-judge invariant after a role change or removal: keeps a still-valid chief judge, promotes the contest's only judge, clears the assignment when no judge is left; call **after** the change, before commit
+
+**Chief-judge invariant**: a contest with at least one JUDGE must have a chief judge, and a
+contest with no judge has none. `contest_user_service.crud` enforces it on every role
+mutation (`create_user`, `update_user`, `remove_user`, and therefore the batch importer), and
+`judging_service.chief_judge` refuses to clear the assignment while the contest has judges —
+the role can only be handed over to another judge. Contests that already violated the
+invariant are not backfilled; they are repaired the next time their users are touched.
 
 Reuse this module when:
 - you need contest metadata rules
@@ -363,17 +374,18 @@ Main types:
 - `ReviewNotHeldByActorError`
 
 Main entrypoints:
-- `acquire_submission_review(session, judgment, actor, contest, lock_client) -> SubmissionJudgment` — JUDGE only; acquires a Valkey TTL lock keyed by contest and judgment id; blocks if actor already confirmed this judgment or if `final_verdict` is already set
+- `acquire_submission_review(session, judgment, actor, contest, lock_client) -> SubmissionJudgment` — JUDGE or ADMIN; acquires a Valkey TTL lock keyed by contest and judgment id; blocks if actor already confirmed this judgment or if `final_verdict` is already set
 - `release_submission_review(session, judgment, actor, contest, lock_client, *, force=False) -> None` — releases the Valkey review lock; `force=True` allows privileged force-release
-- `set_chief_judge(session, contest, judge_id, requesting_user) -> Contest` — owner or UberAdmin only; accepts `None` for no chief judge, otherwise validates the selected user via `validate_chief_judge_assignment`
+- `set_chief_judge(session, contest, judge_id, requesting_user) -> Contest` — owner or UberAdmin only; validates the selected user via `validate_chief_judge_assignment`; a `None` id clears the assignment and is refused with `400` while the contest still has judges (chief-judge invariant)
 - `list_contest_judges(session, contest) -> list[User]` — returns contest judges ordered by full name then username
-- `get_chief_judge_admin_panel(session, contest) -> ChiefJudgeAdminPanel` — returns current chief judge, assignable judges, and whether removal is allowed
-- `remove_chief_judge(session, contest, requesting_user) -> Contest` — owner or UberAdmin only; blocked once the current chief judge has executed any verdict override in the contest
-- `override_verdict(session, submission_id, new_verdict, reason, chief_judge, contest) -> VerdictOverride` — contest-scoped DONE-only override; creates the `VerdictOverride` row and relies on the submission model hook to update `SubmissionJudgment.final_verdict`
+- `get_chief_judge_admin_panel(session, contest) -> ChiefJudgeAdminPanel` — returns current chief judge, assignable judges, and whether removal is allowed (`can_remove` is only true for a judgeless contest with no override history)
+- `remove_chief_judge(session, contest, requesting_user) -> Contest` — owner or UberAdmin only; blocked once the current chief judge has executed any verdict override in the contest, and refused with `400` while the contest still has judges (chief-judge invariant)
+- `override_verdict(session, submission_id, new_verdict, reason, actor, contest) -> VerdictOverride` — chief judge or ADMIN; contest-scoped DONE-only override; creates the `VerdictOverride` row and relies on the submission model hook to update `SubmissionJudgment.final_verdict`
 - `get_judging_history(session, submission_id, requesting_user, contest) -> JudgingHistoryResponse` — assembles audit-derived auto/rejudge rows plus explicit override rows, excluding status-only transitions
-- `rejudge_submission(session, submission_id, chief_judge, contest, lock_client=None) -> SubmissionJudgment` — chief judge only; supersedes the active judgment, force-releases its Valkey review lock when available, and creates a new `QUEUED` judgment
+- `rejudge_submission(session, submission_id, actor, contest, lock_client=None) -> SubmissionJudgment` — chief judge, ADMIN or UBERADMIN; supersedes the active judgment, force-releases its Valkey review lock when available, and creates a new `QUEUED` judgment
 - `queue_limit_change_batch_rejudges(session, batch, contest, actor, lock_client, *, language_id=None) -> list[SubmissionJudgment]` — ADMIN/UBERADMIN only; requeues pending rows from one persisted problem-limit-change batch and marks drifted rows as `STALE`
-- `confirm_verdict(session, submission_id, verdict, judge, contest, lock_client) -> HumanSubmissionConfirmation` — creates a human confirmation for the active `DONE` judgment; requires the judge to hold the review lock when Valkey is available; the submission model hook derives `final_verdict` from confirmations
+- `confirm_verdict(session, submission_id, verdict, judge, contest, lock_client) -> HumanSubmissionConfirmation` — JUDGE or ADMIN; creates a human confirmation for the active `DONE` judgment; requires the caller to hold the review lock when Valkey is available; the submission model hook derives `final_verdict` from confirmations
+- `can_confirm_verdict(actor, contest) -> bool` / `confirmation_is_decisive(actor, contest) -> bool` / `can_override_verdict(actor, contest) -> bool` / `is_chief_judge(actor, contest) -> bool` — the single source of truth the routes and templates share. The chief judge **and contest admins** cast decisive confirmations and may override; uberadmins may do neither, since `human_submission_confirmations.judge_id` and `verdict_overrides.overridden_by` are foreign keys into `users`
 - `create_balloon_task_if_needed(session, submission_id, contest) -> Task | None` — idempotent balloon creation after accepted final verdict; skipped if the scoreboard is frozen or a balloon-like task already exists for the same (team, problem) pair; creates `FIRST_BALLOON` for the earliest accepted submission on the problem and `BALLOON` otherwise
 
 Reuse this module when:
@@ -400,7 +412,8 @@ Notes:
 - `override_verdict` does not publish Valkey events; callers must commit first, then call `publish_verdict(...)`
 - `confirm_verdict` raises `JudgmentNotReadyError` when the active judgment is not `DONE`
 - `confirm_verdict` raises `AlreadyConfirmedError` when the same judge tries to confirm the same judgment twice
-- `confirm_verdict` raises `ReviewNotHeldByActorError` when the judge does not hold the review lock
+- `confirm_verdict` raises `ReviewNotHeldByActorError` when the caller does not hold the review lock
+- `confirm_verdict` raises `DecisiveConfirmationExistsError` when a decisive (chief or admin) confirmation already settled the judgment
 - `remove_chief_judge` raises `ChiefJudgeRemovalBlockedError` when the current chief judge has already executed an override in the contest
 - `rejudge_submission` raises `NoFinalVerdictError` when the active judgment has no final verdict yet
 - `queue_limit_change_batch_rejudges` is intentionally idempotent at the batch-row level: rows are processed once into `QUEUED` or `STALE`
@@ -499,7 +512,7 @@ Main types:
 
 Main entrypoints:
 - `list_submissions(session, contest, actor) -> list[Submission]` — TEAM users see only their own submissions; other allowed roles see all contest submissions with eager-loaded team, team site, judgments, judge confirmations, judge sites, overrides, and reviewer site
-- `create_submission(session, actor, contest, problem_id, language_id, source_code, source_hash, source_size, *, rate_limit_window_seconds=60, rate_limit_max_submissions=3) -> tuple[Submission, SubmissionJudgment]` — checks the per-team rate limit (raises `SubmissionRateLimitError` if exceeded), creates `Submission` plus initial `SubmissionJudgment(status=QUEUED)`, and inserts the explicit WEB audit row
+- `create_submission(session, actor, contest, problem_id, language_id, source_code, source_hash, source_size, *, rate_limit_window_seconds=60, rate_limit_max_submissions=3) -> tuple[Submission, SubmissionJudgment]` — checks the per-team rate limit (raises `SubmissionRateLimitError` if exceeded), refuses the submission with a `ValueError` when the problem cannot be judged (a configured custom validator that has not compiled, or **no test cases at all** — every problem needs at least one, interactive or not), creates `Submission` plus initial `SubmissionJudgment(status=QUEUED)`, and inserts the explicit WEB audit row
 - `build_team_submissions_zip(session, contest, team, *, statement_dir) -> tuple[str, bytes]` — builds a ZIP archive of a team's submissions organized by problem with statement PDFs/MDs, AC/PE solutions in an `AC/` folder, and other submissions in `Other/`; ZIP assembly runs via `anyio.to_thread.run_sync` for request safety
 
 Reuse this module when:
@@ -614,6 +627,7 @@ Internal structure:
 - `views.py` — `TaskView` plus lock-merging helpers
 - `queries.py` — contest-scoped reads and role-filtered listing
 - `lifecycle.py` — creation, acquisition, release, and finish flows
+- `permissions.py` — who may view, handle, and force-release tasks
 
 Main types:
 - `TaskError`
@@ -633,9 +647,10 @@ Main entrypoints:
 - `create_balloon_task(session, *, problem_id, team_id) -> Task` — system-level call with no actor or contest-running requirement
 - `get_task(session, contest, task_id) -> Task | None` — includes SOS tasks (NULL `problem_id`) via LEFT JOIN through team user
 - `list_tasks(session, contest, actor, lock_client) -> tuple[list[TaskView], bool]` — merges PostgreSQL rows with Valkey lock state; bool indicates whether lock coordination is available for the UI
-- `acquire_task(session, contest, actor, task, lock_client) -> Task` — STAFF only; acquires a Valkey TTL lock keyed by contest and task id
-- `release_task(session, contest, actor, task, lock_client) -> Task` — STAFF may release own lock; ADMIN/UBERADMIN may force-release any lock through Valkey
-- `finish_task(session, contest, actor, task, lock_client) -> Task` — enforces the Valkey lock when available; PostgreSQL remains authoritative for finished state and finisher identity
+- `acquire_task(session, contest, actor, task, lock_client) -> Task` — STAFF, ADMIN, or the contest chief judge; acquires a Valkey TTL lock keyed by contest and task id
+- `release_task(session, contest, actor, task, lock_client) -> Task` — STAFF and the chief judge may release own lock; ADMIN/UBERADMIN may force-release any lock through Valkey
+- `finish_task(session, contest, actor, task, lock_client) -> Task` — STAFF, ADMIN, or the chief judge; enforces the Valkey lock when available; PostgreSQL remains authoritative for finished state and finisher identity
+- `can_view_tasks(actor, contest) -> bool` / `can_handle_tasks(actor, contest) -> bool` / `can_force_release_tasks(actor) -> bool` / `is_chief_judge(actor, contest) -> bool` — the single source of truth the routes and templates share; uberadmins may force-release but never handle a task, since `tasks.staff_id` is a foreign key into `users`
 
 Reuse this module when:
 - building any staff/team/admin task workflow
@@ -860,6 +875,8 @@ Purpose:
 Internal structure:
 - `models.py` — shared limit dataclasses and import-result types
 - `ordering.py` — ordered problem and test-case append, move, and removal helpers
+- `interactions.py` — sample-interaction persistence (the worked conversations an interactive
+  problem shows instead of sample test cases) plus the interactive test-case invariant
 - `queries.py` — contest-scoped problem and allowed-language reads
 - `files.py` — statement/test-case file I/O and ZIP export/import parsing helpers
 - `importing.py` — full ZIP import orchestration for `problem.json`, statements, and test cases
@@ -874,6 +891,20 @@ Main entrypoints:
 - `move_test_case(session, problem, test_case, new_ordinal) -> None`
 - `remove_problem_and_resequence(session, contest, problem) -> None`
 - `remove_test_case_and_resequence(session, problem, test_case) -> None`
+
+Sample interactions (`interactions.py`) — an interactive problem has no public test cases; its
+public examples are up to `MAX_SAMPLE_INTERACTIONS` authored transcripts. Parsing and format rules
+live in `shared/services/sample_interactions.py`; this module owns only the SQL:
+- `load_sample_interactions(session, problem_id, *, include_hidden=False) -> list[ProblemSampleInteraction]`
+- `count_sample_interactions(session, problem_id) -> int` — counts hidden ones too; this is what the cap is judged against
+- `append_sample_interaction(session, problem, *, transcript, explanation) -> ProblemSampleInteraction`
+- `update_sample_interaction(interaction, *, transcript, explanation) -> None`
+- `move_sample_interaction(session, problem, interaction, new_ordinal) -> None`
+- `remove_sample_interaction_and_resequence(session, problem, interaction) -> None`
+- `hide_sample_interactions(session, problem_id) -> int` / `unhide_sample_interactions(session, problem_id) -> int` — hiding is what "keep" does when a validator is removed; staging a validator again un-hides
+- `delete_sample_interactions(session, problem_id) -> int` — permanently drop the set
+- `convert_sample_test_cases_to_secret(session, problem_id) -> int` — called whenever a validator is staged
+- `interactive_testcase_error(session, problem_id) -> str | None` — why an interactive problem's cases are invalid (a public case, or no secret case at all)
 
 Additional entrypoints (query helpers):
 - `get_contest_problems(session, contest) -> list[Problem]` — eager-loads categories + test_cases, ordered by ordinal
@@ -1156,6 +1187,7 @@ When adding those features, prefer extending the relevant existing service modul
 ## Custom validators
 
 Contest problem import and export services persist full-package validator
-metadata in `problem.json` and source in `validator/source.txt`. Imports always
+metadata in `problem.json` and source in `validator/validator<ext>` (named for the
+validator's language; the legacy `validator/source.txt` is still accepted on import). Imports always
 stage a fresh `PENDING` candidate and mark every packaged test case as a public
 sample. Public exports omit validator source.

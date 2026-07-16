@@ -203,7 +203,7 @@ trap cleanup EXIT INT TERM HUP
 
 ensure_restic_repository
 
-for service in web arena autojudge rating aiassistant; do
+for service in web arena autojudge rating aiassistant healthmonitor; do
     for running_service in "${RUNNING_SERVICES[@]}"; do
         if [[ "$running_service" == "$service" ]]; then
             STOPPED_SERVICES+=("$service")

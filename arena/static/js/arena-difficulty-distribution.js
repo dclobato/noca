@@ -64,8 +64,8 @@ var ArenaDifficultyDistribution = (function () {
             return;
         }
 
-        var chart = echarts.init(container);
-        chart.showLoading();
+        var mgr = NocaECharts.create(container);
+        mgr.showLoading();
 
         fetch(dataUrl)
             .then(function (response) {
@@ -73,32 +73,32 @@ var ArenaDifficultyDistribution = (function () {
                 return response.json();
             })
             .then(function (payload) {
-                chart.hideLoading();
+                mgr.hideLoading();
                 if (!payload.counts || payload.counts.length === 0 || payload.total_problems === 0) {
-                    chart.setOption({
-                        graphic: [{
-                            type: "text",
-                            left: "center",
-                            top: "middle",
-                            style: {
-                                text: "No difficulty distribution available yet.",
-                                fontSize: 14,
-                                fill: "#999",
-                            },
-                        }],
+                    mgr.render(function (chart) {
+                        chart.setOption({
+                            graphic: [{
+                                type: "text",
+                                left: "center",
+                                top: "middle",
+                                style: {
+                                    text: "No difficulty distribution available yet.",
+                                    fontSize: 14,
+                                    fill: NocaECharts.tokens().emptyText,
+                                },
+                            }],
+                        }, true);
                     });
                     return;
                 }
-                chart.setOption(_buildOption(payload));
+                mgr.render(function (chart) {
+                    chart.setOption(_buildOption(payload));
+                });
             })
             .catch(function (err) {
-                chart.hideLoading();
+                mgr.hideLoading();
                 console.error("ArenaDifficultyDistribution: failed to load data.", err);
             });
-
-        window.addEventListener("resize", function () {
-            chart.resize();
-        });
     }
 
     function initDeclaredCharts() {

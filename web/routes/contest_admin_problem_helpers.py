@@ -78,10 +78,10 @@ def _save_testcase_files_for(
     problem_id: str,
     ordinal: int,
     in_bytes: bytes,
-    out_bytes: bytes,
+    out_bytes: bytes | None,
     testcase_dir: Path,
-) -> Callable[[], tuple[int, int]]:
-    def _save() -> tuple[int, int]:
+) -> Callable[[], tuple[int, int | None]]:
+    def _save() -> tuple[int, int | None]:
         return save_testcase_files(problem_id, ordinal, in_bytes, out_bytes, testcase_dir)
 
     return _save

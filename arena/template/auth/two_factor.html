@@ -7,7 +7,7 @@
             <div class="col-12 col-md-6 col-lg-5 col-xl-4">
                 {# Brand header #}
                 <div class="text-center mb-4 pt-4">
-                    <h1 class="arena-auth-logo">Noca Arena</h1>
+                    <h1 class="arena-auth-logo">{{ brand_name }}</h1>
                     <p class="arena-auth-tagline">Competitive Judge</p>
                 </div>
                 {# 2FA card #}
@@ -17,7 +17,7 @@
                         <h2 class="arena-auth-title mb-0">Two-Factor Authentication</h2>
                     </div>
                     <p class="arena-2fa-help mb-4">
-                        Please enter the 6-digit verification code sent to your registered device to access your Noca Arena account.
+                        Please enter the 6-digit verification code sent to your registered device to access your {{ brand_name }} account.
                     </p>
                     <form action="{{ request.url_for("arena_2fa_submit") }}"
                           method="post"

@@ -7,13 +7,35 @@
 /*
  * Shared styles common to the web (contest) and arena modules. Imported from
  * each module's stylesheet via `@import url('/static/shared-css/common.css')`.
- * Only rules that are byte-identical in both modules belong here; module-specific
- * design tokens (`:root`, `.material-symbols-outlined`, `.live-feed-summary`)
- * stay in the per-module stylesheets.
+ * Only rules that are byte-identical in both modules belong here. The shared
+ * visual identity — design tokens (`:root`) and the base `body`/heading scaffold —
+ * lives in the imported `tokens.css`; other module-specific styling
+ * (`.material-symbols-outlined`, `.live-feed-summary`) stays per-module.
  */
+
+/* Shared design tokens + base scaffold (single source of truth for identity). */
+@import url("/static/shared-css/tokens.css");
 
 /* Online-presence avatar indicator (shared by web + arena). */
 @import url("/static/shared-css/presence.css");
+
+/* Dark-mode overrides for shared third-party components (highlight.js, EasyMDE). */
+@import url("/static/shared-css/components-dark.css");
+
+/* ── Navbar brand ────────────────────────────────────────────────────────────
+   Shared brand wordmark used by both modules' top navigation: same font, size and
+   weight so "NOCA Contest" and "NOCA Arena" render identically. Modules may refine
+   only spacing/colour on top of this — not the type. */
+.noca-navbar-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    line-height: 1;
+    white-space: nowrap;
+    font-family: var(--noca-font-heading);
+    font-size: 1.5rem;
+    font-weight: 900;
+}
 
 /* ── Icon button group ───────────────────────────────────────────────────────
    Pairs with the shared `.noca-icon-btn` segmented button rows. */
@@ -95,6 +117,10 @@
 
 .noca-icon-btn .material-symbols-outlined {
     font-size: 1rem;
+}
+
+.noca-clickable-row {
+    cursor: pointer;
 }
 
 .noca-drag-handle {
@@ -188,6 +214,17 @@
     font-family: var(--bs-body-font-family);
     font-size: 0.75rem;
     color: var(--bs-secondary-color);
+}
+
+/* ── Devicon language icons ──────────────────────────────────────────────── */
+
+/* Some devicon SVGs are pure-black monochrome artwork (e.g. rust-original.svg)
+   and vanish on dark backgrounds. They are embedded via <img>, so page CSS
+   cannot recolor the SVG internals; inverting the image instead turns the
+   black artwork white. Scoped per icon by src suffix — colored icons must not
+   be inverted. */
+[data-bs-theme="dark"] img[src$="/rust-original.svg"] {
+    filter: invert(1);
 }
 
 /* ── Problem illustration image ──────────────────────────────────────────── */

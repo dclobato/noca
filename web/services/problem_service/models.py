@@ -55,6 +55,10 @@ class ProblemImportResult:
     problem: Problem
     skipped_language_ids: list[str]
     validator_candidate_token: str | None = None
+    # Sample interactions read from the package's ``interaction/`` folder. Always 0
+    # when the package had no validator, since such a package's interaction members
+    # are dropped rather than imported.
+    imported_interaction_count: int = 0
 
 
 def problem_meta(raw_meta: object) -> ProblemMeta:

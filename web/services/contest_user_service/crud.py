@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.enumerations import RoleEnum
 from web.models.contest import Contest
 from web.models.users import UberAdmin, User
+from web.services.contest_service import ensure_chief_judge_reassignable, reconcile_chief_judge
 
 from .models import EMAIL_UNSET
 from .permissions import ensure_contest_user_add_or_edit_allowed, ensure_contest_user_remove_allowed
@@ -62,6 +63,9 @@ async def create_user(
 
     session.add(new_user)
     try:
+        await session.flush()
+        if role is RoleEnum.JUDGE:
+            await reconcile_chief_judge(session, contest)
         await session.commit()
     except IntegrityError as exc:
         await session.rollback()
@@ -88,6 +92,8 @@ async def update_user(
     """Update a contest user's profile fields and optional password."""
     ensure_contest_user_add_or_edit_allowed(contest)
     ensure_role_allowed(role)
+    if role is not RoleEnum.JUDGE:
+        await ensure_chief_judge_reassignable(session, contest, user)
     site = await resolve_site_for_user(session, contest, role=role, site_id=site_id)
 
     user.fullname = fullname
@@ -103,6 +109,8 @@ async def update_user(
         actual_password = resolve_password(password)
         user.password = actual_password
 
+    await session.flush()
+    await reconcile_chief_judge(session, contest)
     await session.commit()
     return actual_password
 
@@ -114,5 +122,9 @@ async def remove_user(
 ) -> None:
     """Remove a contest user and persist the deletion."""
     ensure_contest_user_remove_allowed(contest)
+    await ensure_chief_judge_reassignable(session, contest, user)
+    removed_user_id = user.id
     await session.delete(user)
+    await session.flush()
+    await reconcile_chief_judge(session, contest, excluded_user_id=removed_user_id)
     await session.commit()

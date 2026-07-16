@@ -18,7 +18,11 @@ from sqlalchemy import ColumnElement, RowMapping, delete, desc, func, insert, se
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from shared.db_schema import security_events
+from shared.services.network_utils.validation import get_trusted_source_port_from_request
 from shared.services.pagination_service import Pagination, clamp_page
+
+_REQUEST_ID_HEADER = "X-Request-ID"
+_REQUEST_ID_ALLOWED_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:-")
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +38,8 @@ class SecurityEventRow:
     actor_label: str | None
     identifier_hash: str | None
     client_ip: str | None
+    source_port: int | None
+    request_id: str | None
     user_agent: str | None
     metadata: dict[str, Any]
 
@@ -48,6 +54,8 @@ async def record_security_event(
     actor_label: str | None = None,
     identifier_hash: str | None = None,
     client_ip: str | None = None,
+    source_port: int | None = None,
+    request_id: str | None = None,
     user_agent: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> None:
@@ -63,6 +71,8 @@ async def record_security_event(
             snapshotted at event time so it survives account rename or deletion.
         identifier_hash: Hashed unauthenticated account identifier when known.
         client_ip: ASGI client IP address.
+        source_port: Source port associated with the client IP when available.
+        request_id: Trusted reverse-proxy request identifier when available.
         user_agent: Request user-agent string.
         metadata: Optional JSON metadata.
     """
@@ -75,6 +85,8 @@ async def record_security_event(
             actor_label=actor_label,
             identifier_hash=identifier_hash,
             client_ip=client_ip,
+            source_port=source_port,
+            request_id=request_id,
             user_agent=user_agent,
             metadata=metadata or {},
         )
@@ -95,6 +107,8 @@ async def record_request_security_event(
 ) -> None:
     """Insert a security event with request metadata."""
     client_ip = request.client.host if request.client is not None else None
+    source_port = get_trusted_source_port_from_request(request)
+    request_id = _request_id_from_request(request)
     await record_security_event(
         session,
         module=module,
@@ -104,6 +118,8 @@ async def record_request_security_event(
         actor_label=actor_label,
         identifier_hash=identifier_hash,
         client_ip=client_ip,
+        source_port=source_port,
+        request_id=request_id,
         user_agent=request.headers.get("User-Agent"),
         metadata=metadata,
     )
@@ -216,9 +232,24 @@ def _security_event_row_from_mapping(row: RowMapping) -> SecurityEventRow:
         actor_label=row["actor_label"],
         identifier_hash=row["identifier_hash"],
         client_ip=row["client_ip"],
+        source_port=row["source_port"],
+        request_id=row["request_id"],
         user_agent=row["user_agent"],
         metadata=dict(row["metadata"] or {}),
     )
+
+
+def _request_id_from_request(request: Request) -> str | None:
+    """Return a bounded request ID from the trusted proxy header."""
+    value = request.headers.get(_REQUEST_ID_HEADER)
+    if value is None:
+        return None
+    request_id = value.strip()
+    if not 1 <= len(request_id) <= 64:
+        return None
+    if any(char not in _REQUEST_ID_ALLOWED_CHARS for char in request_id):
+        return None
+    return request_id
 
 
 @dataclass(frozen=True, slots=True)

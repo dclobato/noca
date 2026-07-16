@@ -165,6 +165,7 @@ async def test_login_tokens_include_original_session_started_at(
         password="TestPass1!",
         contest_id=running_contest.id,
         session=session,
+        source_port=54321,
     )
 
     result = auth_service.jwt_service.validate(token)
@@ -174,6 +175,7 @@ async def test_login_tokens_include_original_session_started_at(
     assert isinstance(result.extra_data["session_started_at"], int)
     history = (await session.execute(select(Login_History).where(Login_History.user_id == team_user.id))).scalar_one()
     assert isinstance(history.id, int)
+    assert history.source_port == 54321
 
 
 @pytest.mark.asyncio

@@ -112,28 +112,43 @@ the validator first, and then compiles the contestant. Validator compilation or
 infrastructure failure ends as internal `FAILED`; contestant compilation still
 ends as `CE` once a validator artifact exists.
 
-Interactive judging does not read test-case input or expected output and does
-not create test-result rows. It stores one or two interactive-attempt rows with
-both exit codes/signals, contestant resource usage, enforced-limit outcome,
-either the clean validator verdict or a typed crash reason, bounded stderr
-excerpts, and an ordered `transcript` of the conversation.
+Interactive judging reads test-case **input** but never expected output: the
+input parametrizes the validator. One container pair judges the whole submission,
+and the judge replays the conversation once per test case in ordinal order,
+writing that case's input to the validator's stdin before the two sides talk. A
+case that ends `AC` advances to the next; the first case that does not stops the
+iteration and its verdict becomes the submission's, exactly as the first failing
+case does on a non-interactive problem. Reported wall time and memory are the
+worst readings across the cases that ran. A problem with no test cases cannot be
+judged and ends as internal `FAILED`.
+
+Interactive judging creates no test-result rows. It stores one or two
+interactive-attempt rows — for the **last executed test case** only, tagged with
+its `test_case_ordinal` — carrying both exit codes/signals, contestant resource
+usage, enforced-limit outcome, either the clean validator verdict or a typed crash
+reason, bounded stderr excerpts, and an ordered `transcript` of the conversation.
+Starting a new case clears the previous case's rows, so what survives is the round
+that decided the submission.
 
 The `transcript` JSON column is the record of the protocol itself:
 `{"lines": [{"dir": "user" | "validator", "line": ..., "partial"?: true}],
 "truncated": bool}`. The judge relays every byte between the two processes, so
 it records both sides in the order it observed them, split into protocol lines
-(`partial` marks a trailing line that ended without a newline). It is null when
-the bridge never ran (a startup or watchdog failure). Recording is capture-only:
-past a 256 KiB cap the transcript reports itself `truncated` while the bridge
-keeps relaying, so a verdict never depends on it. The Arena submission-detail and
-web submission-review pages render it as the User/Validator conversation.
+(`partial` marks a trailing line that ended without a newline). The test case's
+own input is deliberately excluded — it is the problem's data, not something
+either side said. It is null when the bridge never ran (a startup or watchdog
+failure). Recording is capture-only: past a 256 KiB cap the transcript reports
+itself `truncated` while the bridge keeps relaying, so a verdict never depends on
+it. The Arena submission-detail and web submission-review pages render it as the
+User/Validator conversation, and only for a non-`AC` verdict — an accepted
+submission has no failing round to explain.
 
-Final precedence is `MLE`, `OLE`, unclean validator failure, contestant `RE`,
-then validator exit mapping: `0` to `AC`, `1` to `WA`, `2` to `TLE`, and `4` to
-`PE`. Every other clean validator exit is contestant `RE`. Only an unclean
-validator exit retries once; a second unclean Arena attempt activates crash
-containment. Diagnostics are available only through the existing authorized
-submission-detail/review pages.
+Per case, final precedence is `MLE`, `OLE`, unclean validator failure, contestant
+`RE`, then validator exit mapping: `0` to `AC`, `1` to `WA`, `2` to `TLE`, and `4`
+to `PE`. Every other clean validator exit is contestant `RE`. Only an unclean
+validator exit retries once, on a fresh container pair, for that case; a second
+unclean Arena attempt activates crash containment. Diagnostics are available only
+through the existing authorized submission-detail/review pages.
 
 ## Key Architectural Decisions (Rationale)
 

@@ -199,6 +199,7 @@ async def arena_user_profile(
         "notifications",
         "submissions",
         "credits",
+        "statistics",
     }
     canonical = _tab_aliases.get(tab or "", tab or "")
     active_tab = canonical if canonical in _valid_tabs else "personal-security"

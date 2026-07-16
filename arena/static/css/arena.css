@@ -23,6 +23,7 @@
 @import url('./arena/_help.css');
 @import url('./arena/_submissions.css');
 @import url('./arena/_errors.css');
+@import url('./arena/_dark.css');
 
 .arena-date-input {
     width: 8rem;

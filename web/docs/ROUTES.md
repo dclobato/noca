@@ -93,10 +93,13 @@ All routes require contest-scoped or UberAdmin auth. Invalid or missing auth is 
 
 `always` = accessible regardless of contest state; `after-start` = only when `contest.is_running or contest.is_past`; `—` = no access (not in dashboard).
 
+For *what each role may do* inside a page — answer a clarification, confirm a verdict,
+handle a task — see [Permission Model](#permission-model) below.
+
 | Role | Scoreboard | Problems | Clarifications | Runs | Tasks |
 |------|-----------|----------|----------------|------|-------|
 | **ADMIN / UBERADMIN** | always | always | always | always | always |
-| **JUDGE** | always | always | always | after-start | — |
+| **JUDGE** | always | always | always | after-start | chief judge only, after-start |
 | **STAFF** | after-start | after-start | — | — | after-start |
 | **TEAM** | after-start | after-start | after-start | after-start | after-start |
 | **USER** | after-start | — | — | — | — |
@@ -107,27 +110,31 @@ All routes require contest-scoped or UberAdmin auth. Invalid or missing auth is 
 | `GET` | `/c/{slug}/problems/` | ua, a, j, s, t (after-start for s/t) | `contest_problems.py` |
 | `GET` | `/c/{slug}/problems/{problem_label}` | ua, a, j, s, t (after-start for s/t) | `contest_problems.py` |
 | `GET` | `/c/{slug}/problems/{problem_label}/statement` | ua, a, j, s, t (after-start for s/t) | `contest_problems.py` |
+| `GET` | `/c/{slug}/problems/{problem_label}/print` | ua, a, j, s, t (after-start for s/t) | `contest_problems.py` |
 | `GET` | `/c/{slug}/problems/{problem_label}/export` | ua, a, j, s, t (after-start for s/t) | `contest_problems.py` |
 | `GET` | `/c/{slug}/clarifications/` | ua, a, j, t | `contest_clarifications.py` |
 | `GET` | `/c/{slug}/clarifications/list` | ua, a, j, t | `contest_clarifications.py` |
 | `POST` | `/c/{slug}/clarifications/new` | t | `contest_clarifications_submit.py` |
+| `POST` | `/c/{slug}/clarifications/acquire` | j, a | `contest_clarifications_judge.py` |
+| `GET`/`POST` | `/c/{slug}/clarifications/answer` | j, a | `contest_clarifications_judge.py` |
 | `GET` | `/c/{slug}/runs/` | ua, a, j, t (after-start for j/t) | `contest_runs.py` |
 | `GET` | `/c/{slug}/runs/list` | ua, a, j, t (after-start for j/t) | `contest_runs.py` |
 | `GET` | `/c/{slug}/runs/events` | ua, a, j, t | `contest_runs_events.py` |
 | `POST` | `/c/{slug}/runs/submit` | t | `contest_runs_review.py` |
-| `POST` | `/c/{slug}/runs/{submission_id}/override` | chief judge | `contest_runs_review.py` |
+| `POST` | `/c/{slug}/runs/{submission_id}/override` | chief judge, admin | `contest_runs_review.py` |
 | `GET` | `/c/{slug}/runs/{submission_id}/judging-history` | ua, a, j | `contest_runs_events.py` |
 | `GET` | `/c/{slug}/submissions/{submission_id}/review` | ua, a, j | `contest_submissions.py` |
-| `POST` | `/c/{slug}/submissions/{submission_id}/confirm` | j | `contest_submissions.py` |
-| `POST` | `/c/{slug}/submissions/{submission_id}/rejudge` | chief judge | `contest_submissions.py` |
-| `GET` | `/c/{slug}/tasks/` | ua, a, s, t (after-start for s/t) | `contest_tasks.py` |
-| `GET` | `/c/{slug}/tasks/list` | ua, a, s, t (after-start for s/t) | `contest_tasks.py` |
+| `POST` | `/c/{slug}/submissions/{submission_id}/acquire-review` | j, a | `contest_submissions.py` |
+| `POST` | `/c/{slug}/submissions/{submission_id}/confirm` | j, a | `contest_submissions.py` |
+| `POST` | `/c/{slug}/submissions/{submission_id}/rejudge` | chief judge, admin, uberadmin | `contest_submissions.py` |
+| `GET` | `/c/{slug}/tasks/` | ua, a, cj, s, t (after-start for cj/s/t) | `contest_tasks.py` |
+| `GET` | `/c/{slug}/tasks/list` | ua, a, cj, s, t (after-start for cj/s/t) | `contest_tasks.py` |
 | `POST` | `/c/{slug}/tasks/sos` | t | `contest_tasks.py` |
 | `POST` | `/c/{slug}/tasks/print` | t | `contest_tasks.py` |
-| `POST` | `/c/{slug}/tasks/{task_id}/acquire` | s | `contest_tasks_staff.py` |
-| `POST` | `/c/{slug}/tasks/{task_id}/finish` | s | `contest_tasks_staff.py` |
-| `POST` | `/c/{slug}/tasks/{task_id}/release` | s (own), a, ua | `contest_tasks_staff.py` |
-| `GET` | `/c/{slug}/tasks/{task_id}/source` | s (lock holder), a, ua | `contest_tasks_staff.py` |
+| `POST` | `/c/{slug}/tasks/{task_id}/acquire` | s, a, cj | `contest_tasks_staff.py` |
+| `POST` | `/c/{slug}/tasks/{task_id}/finish` | s, a, cj | `contest_tasks_staff.py` |
+| `POST` | `/c/{slug}/tasks/{task_id}/release` | s, cj (own), a, ua | `contest_tasks_staff.py` |
+| `GET` | `/c/{slug}/tasks/{task_id}/source` | s, cj (lock holder), a, ua | `contest_tasks_staff.py` |
 | `GET` | `/c/{slug}/reports/` | ua, a, j | `contest_reports.py` |
 | `GET` | `/c/{slug}/admin` | ua, a | `contest_admin.py` |
 | `GET` | `/c/{slug}/admin/counters` | ua, a | `contest_admin.py` |
@@ -176,6 +183,7 @@ Contestant-facing problem pages. Access is role- and state-dependent:
 | `GET` | `/c/{slug}/problems/` | Problem list table: label, title (linked to detail), total TC count, public TC count, download icon. |
 | `GET` | `/c/{slug}/problems/{problem_label}` | Problem detail: embedded PDF statement, side-by-side public test cases in monospaced preformatted text, back-to-list link. `problem_label` is case-insensitive (e.g. `A`, `B`, `AA`). Returns 404 if label not found. |
 | `GET` | `/c/{slug}/problems/{problem_label}/statement` | Serves the problem statement PDF inline. Returns 404 if PDF not uploaded yet. |
+| `GET` | `/c/{slug}/problems/{problem_label}/print` | Standalone print-friendly problem page (simple navbar + footer, no sidebar): statement, samples (test cases or sample interactions), and resource limits. PDF-statement problems link to the PDF instead of embedding it. The user prints via the browser (navbar Print button or Ctrl/Cmd+P). |
 | `GET` | `/c/{slug}/problems/{problem_label}/export` | Downloads a ZIP containing `statement.pdf` and public (sample) test cases only. No `problem.json`, no limits, no private test cases. |
 
 ---
@@ -183,8 +191,8 @@ Contestant-facing problem pages. Access is role- and state-dependent:
 ## Contest Clarifications (`web/routes/contest_clarifications*.py`)
 
 Routes require a valid contest-scoped JWT or UberAdmin JWT. TEAM role is enforced at route level for submission. Visibility is role-scoped:
-- `ua`/`a`: all clarifications (including hidden); Team name and Judge name resolved from `user_map`
-- `j`: all clarifications (including hidden); no judge/team identification
+- `ua`/`a`: all clarifications (including hidden); Team name and Judge name resolved from `user_map`. ADMIN may also acquire and answer clarifications, exactly like a judge — but the answer form itself stays blind, so answering is never done with the asker's identity on screen
+- `j`: all clarifications (including hidden); no judge/team identification; acquire and answer workflow
 - `t`: own + public, never hidden; auto-refresh via HTMX every 60 s
 
 Route ownership is split across `contest_clarifications.py`,
@@ -197,23 +205,25 @@ Route ownership is split across `contest_clarifications.py`,
 | `GET` | `/c/{slug}/clarifications/list` | ua, a, j, t | HTMX partial. Returns `#clarifications-list-wrapper` div with the current clarification table. Polled every 60 s by team browsers. |
 | `POST` | `/c/{slug}/clarifications/new` | t | Submit a new clarification. Form fields: `problem_id`, `question` (max 1024 chars). Collects all validation errors at once. On success redirects to `/c/{slug}/clarifications/#{id}` (303). On error flashes all errors and redirects (303). Implemented in `contest_clarifications_submit.py`. |
 | `POST` | `/c/{slug}/clarifications/announcement` | a, j | Create a public announcement. Form fields: `problem_id`, `announcement` (max 1024 chars). Creates a clarification with `question="Announcement"`, `is_contest_public=True`, already answered. Contest must be running. On success flashes and redirects to `/c/{slug}/clarifications/#{id}` (303). On error flashes and redirects (303). Implemented in `contest_clarifications_submit.py`. |
-| `POST` | `/c/{slug}/clarifications/acquire` | j | Acquire a Valkey-backed clarification lock so a judge may answer it. Form field: `clarification_id`. On success redirects to `GET /answer?id={id}` (303). If Valkey is unavailable, flashes a degraded-mode warning and redirects to the answer form anyway. Implemented in `contest_clarifications_judge.py`. |
-| `GET` | `/c/{slug}/clarifications/answer` | j | Render the answer form for the clarification identified by `?id=`. When Valkey is available, flashes and redirects to `/#{id}` if the judge does not hold the lock. In degraded mode, the form remains available and shows a warning banner. Implemented in `contest_clarifications_judge.py`. |
-| `POST` | `/c/{slug}/clarifications/answer` | j | Submit an answer or release a lock. Form fields: `clarification_id`, `answer` (max 1024 chars), `is_contest_public` (checkbox), `action` (`submit`/`release`). On success flashes and redirects to `/#{id}` (303). Validation errors re-render the form (422). Release is available only while the lock service is up. Implemented in `contest_clarifications_judge.py`. |
+| `POST` | `/c/{slug}/clarifications/acquire` | j, a | Acquire a Valkey-backed clarification lock so a judge or admin may answer it. Form field: `clarification_id`. On success redirects to `GET /answer?id={id}` (303). If Valkey is unavailable, flashes a degraded-mode warning and redirects to the answer form anyway. Implemented in `contest_clarifications_judge.py`. |
+| `GET` | `/c/{slug}/clarifications/answer` | j, a | Render the answer form for the clarification identified by `?id=`. The form is blind for every role: it shows the problem label, the question, and the answer field, never the asking team. When Valkey is available, flashes and redirects to `/#{id}` if the caller does not hold the lock. In degraded mode, the form remains available and shows a warning banner. Implemented in `contest_clarifications_judge.py`. |
+| `POST` | `/c/{slug}/clarifications/answer` | j, a | Submit an answer or release a lock. Form fields: `clarification_id`, `answer` (max 1024 chars), `is_contest_public` (checkbox), `action` (`submit`/`release`). On success flashes and redirects to `/#{id}` (303). Validation errors re-render the form (422). Release is available only while the lock service is up. Implemented in `contest_clarifications_judge.py`. |
 | `GET` | `/c/{slug}/clarifications/hide` | j | Render the hide confirmation page for the clarification identified by `?id=`. Implemented in `contest_clarifications_admin.py`. |
 | `POST` | `/c/{slug}/clarifications/hide` | j | Confirm or cancel a hide. Form fields: `clarification_id`, `action` (`confirm`/`cancel`). On `confirm` calls `toggle_hidden_clarification()`, flashes, and redirects to `/#{id}` (303). On `cancel` redirects to `/#{id}` (303). Implemented in `contest_clarifications_admin.py`. |
 | `GET` | `/c/{slug}/clarifications/togglehide` | ua, a | Render the toggle-hide confirmation page for the clarification identified by `?id=`. Shows full question, optional answer, and current hidden status. Implemented in `contest_clarifications_admin.py`. |
 | `POST` | `/c/{slug}/clarifications/togglehide` | ua, a | Confirm or cancel a toggle-hide. Form fields: `clarification_id`, `action` (`confirm`/`cancel`). On `confirm` calls `toggle_hidden_clarification()`, flashes, and redirects to `/#{id}` (303). On `cancel` redirects to `/#{id}` (303). Implemented in `contest_clarifications_admin.py`. |
-| `POST` | `/c/{slug}/clarifications/releaselock` | ua, a | Force-release a judge's acquisition lock on an unanswered clarification. Form field: `clarification_id`. Uses JS confirm dialog for inline confirmation. Calls `release_clarification()` (admin unconditional path). Flashes and redirects to `/#{id}` (303) on success or error. Implemented in `contest_clarifications_admin.py`. |
+| `POST` | `/c/{slug}/clarifications/releaselock` | ua, a | Force-release another holder's acquisition lock on an unanswered clarification. Form field: `clarification_id`. Uses JS confirm dialog for inline confirmation. Calls `release_clarification()` (admin unconditional path). Flashes and redirects to `/#{id}` (303) on success or error. Implemented in `contest_clarifications_admin.py`. |
 
 ---
 
 ## Contest Tasks (`web/routes/contest_tasks*.py`)
 
-Routes require a valid contest-scoped JWT or UberAdmin JWT. JUDGE and USER roles have no access. STAFF and TEAM may only access after the contest starts (`is_running` or `is_past`); ADMIN and UBERADMIN always have access. Visibility is role-scoped:
+Routes require a valid contest-scoped JWT or UberAdmin JWT. The USER role and non-chief JUDGEs have no access. STAFF, TEAM and the chief judge may only access after the contest starts (`is_running` or `is_past`); ADMIN and UBERADMIN always have access. Visibility is role-scoped:
 - `t` (team): own tasks only; SOS button shown while contest is running; PRINT creation appears only when `contest.allow_print_requests` is enabled; auto-refresh via HTMX every 60 s
 - `s` (staff): all tasks; acquire/finish/release workflow; auto-refresh via HTMX every 60 s
-- `a` / `ua` (admin / uberadmin): all tasks with elapsed time column; force-release button for locked tasks; no auto-refresh
+- `cj` (chief judge): same task-handling workflow as staff — the chief judge is the only JUDGE who may open this page
+- `a` (admin): all tasks with elapsed time column; may acquire and finish tasks like staff, and force-release a lock held by someone else
+- `ua` (uberadmin): all tasks with elapsed time column; force-release only — a finished task is attributed through `tasks.staff_id`, a foreign key into `users`, which has no uberadmin row
 
 Task types: `BALLOON` (auto-created by judgment module), `FIRST_BALLOON` (first accepted solve for a problem, rendered with a golden glow), `PRINT` (team uploads source for printing), `SOS` (help request).
 
@@ -224,14 +234,14 @@ Route ownership is split across `contest_tasks.py` and
 
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
-| `GET` | `/c/{slug}/tasks/` | ua, a, s, t | Full page. TEAM sees SOS button and, when contest is running and `contest.allow_print_requests` is true, the Print modal/button, plus their own task list. STAFF sees all tasks with acquire buttons and task detail modal. ADMIN/UA sees all tasks with elapsed column and force-release buttons. Flash messages shown via `get_flashed_messages`. Loads `htmx.min.js`, `refresh-timer.js`, and `tasks.js`. |
-| `GET` | `/c/{slug}/tasks/list` | ua, a, s, t | HTMX partial. Returns `#tasks-list-wrapper` div with the current task table. Polled every 60 s by TEAM and STAFF browsers. |
+| `GET` | `/c/{slug}/tasks/` | ua, a, cj, s, t | Full page. TEAM sees SOS button and, when contest is running and `contest.allow_print_requests` is true, the Print modal/button, plus their own task list. STAFF sees all tasks with acquire buttons and task detail modal. ADMIN/UA sees all tasks with elapsed column and force-release buttons. Flash messages shown via `get_flashed_messages`. Loads `htmx.min.js`, `refresh-timer.js`, and `tasks.js`. |
+| `GET` | `/c/{slug}/tasks/list` | ua, a, cj, s, t | HTMX partial. Returns `#tasks-list-wrapper` div with the current task table. Polled every 60 s by TEAM and STAFF browsers. |
 | `POST` | `/c/{slug}/tasks/sos` | t | Create an SOS help-request task. No form fields. Requires contest to be running. Flashes success or error. Redirects to `GET /tasks/` (303). |
 | `POST` | `/c/{slug}/tasks/print` | t | Create a PRINT task. Form fields: `problem_id`, `source_file` (multipart upload). Validates: contest running, `contest.allow_print_requests=True`, non-empty problem selection, non-empty file, file within `contest.max_problem_file_size_bytes` (0 = unlimited). Blocks duplicate PRINT tasks (same team, problem, source hash while unfinished). Flashes and redirects to `GET /tasks/` (303). |
-| `POST` | `/c/{slug}/tasks/{task_id}/acquire` | s | Acquire a Valkey-backed task lock. On success redirects to `/tasks/?open={task_id}` (303) so `tasks.js` auto-opens the detail modal. If Valkey is unavailable, flashes a degraded-mode warning and opens the task directly. Implemented in `contest_tasks_staff.py`. |
-| `POST` | `/c/{slug}/tasks/{task_id}/finish` | s | Finish a task. When Valkey is available, STAFF must hold the task lock; in degraded mode the finish action remains available and the UI shows a warning banner. Redirects to `/tasks/` (303). Implemented in `contest_tasks_staff.py`. |
-| `POST` | `/c/{slug}/tasks/{task_id}/release` | s (own lock), a, ua | Release a task lock without finishing. STAFF may release only their own lock; ADMIN and UBERADMIN may release any lock. Release is available only while the lock service is up. Redirects to `/tasks/` (303). Implemented in `contest_tasks_staff.py`. |
-| `GET` | `/c/{slug}/tasks/{task_id}/source` | s (lock holder), a, ua | Download the source code for a PRINT task as a plain-text file. STAFF must hold the task lock when Valkey is available; in degraded mode the download remains available so staff can continue working. Returns 302 to `/tasks/` on error. Implemented in `contest_tasks_staff.py`. |
+| `POST` | `/c/{slug}/tasks/{task_id}/acquire` | s, a, cj | Acquire a Valkey-backed task lock. On success redirects to `/tasks/?open={task_id}` (303) so `tasks.js` auto-opens the detail modal. If Valkey is unavailable, flashes a degraded-mode warning and opens the task directly. Implemented in `contest_tasks_staff.py`. |
+| `POST` | `/c/{slug}/tasks/{task_id}/finish` | s, a, cj | Finish a task. When Valkey is available, the handler must hold the task lock; in degraded mode the finish action remains available and the UI shows a warning banner. Redirects to `/tasks/` (303). Implemented in `contest_tasks_staff.py`. |
+| `POST` | `/c/{slug}/tasks/{task_id}/release` | s, cj (own lock), a, ua | Release a task lock without finishing. STAFF and the chief judge may release only their own lock; ADMIN and UBERADMIN may release any lock. Release is available only while the lock service is up. Redirects to `/tasks/` (303). Implemented in `contest_tasks_staff.py`. |
+| `GET` | `/c/{slug}/tasks/{task_id}/source` | s, cj (lock holder), a, ua | Download the source code for a PRINT task as a plain-text file. STAFF and the chief judge must hold the task lock when Valkey is available; in degraded mode the download remains available so staff can continue working. Returns 302 to `/tasks/` on error. Implemented in `contest_tasks_staff.py`. |
 
 ---
 
@@ -251,7 +261,7 @@ and `contest_runs_events.py`.
 | `GET` | `/c/{slug}/runs/language-info` | ua, a, j, t | HTMX partial. Returns compile and run command info for `?language_id=`. Used by the submission form language dropdown. Returns empty fragment for unknown/empty language_id. |
 | `GET` | `/c/{slug}/runs/events` | ua, a, j, t | SSE stream (`text/event-stream`). Subscribes to verdict events and emits contest-scoped payloads plus heartbeat pings. Clients should trigger an HTMX refresh of the runs list on each message. Implemented in `contest_runs_events.py`. |
 | `POST` | `/c/{slug}/runs/submit` | t | Submit a solution. Form fields: `problem_id`, `language_id`, `source_file` (multipart). Validates: contest running, non-empty selections, problem belongs to contest, language is active, non-empty file, file size within `contest.max_problem_file_size_bytes` (0 = unlimited). Computes SHA-256 for duplicate detection. On duplicate flashes "Duplicated submission" (danger). On success creates `Submission` + `SubmissionJudgment` (QUEUED), commits, and asks Valkey runtime to enqueue `JudgeJob`. If Valkey is temporarily unavailable, enqueue is buffered in-memory and replayed after reconnect. Redirects to `GET /runs` (303) with success flash. Implemented in `contest_runs_review.py`. |
-| `POST` | `/c/{slug}/runs/{submission_id}/override` | chief judge | Override the effective final verdict of a DONE submission. Form fields: `new_verdict`, `reason` (10-1000 chars). On success creates a `VerdictOverride`, commits, publishes a `VerdictEvent` to `judge:results`, flashes success, and redirects to the submission review page. Implemented in `contest_runs_review.py`. |
+| `POST` | `/c/{slug}/runs/{submission_id}/override` | chief judge, admin | Override the effective final verdict of a DONE submission. Form fields: `new_verdict`, `reason` (10-1000 chars). On success creates a `VerdictOverride`, commits, publishes a `VerdictEvent` to `judge:results`, flashes success, and redirects to the submission review page. Implemented in `contest_runs_review.py`. |
 | `GET` | `/c/{slug}/runs/{submission_id}/judging-history` | ua, a, j, s | Returns JSON `JudgingHistoryResponse` for one submission. Includes judgment creation and verdict-change audit rows plus explicit override rows; excludes status-only transitions. TEAM users are forbidden. Implemented in `contest_runs_events.py`. |
 
 ---
@@ -312,11 +322,11 @@ helpers live in `contest_submissions_helpers.py`.
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
 | `GET` | `/c/{slug}/submissions/download-all` | t | **Team only.** Downloads a ZIP archive containing all finalized submissions made by the current team during the contest. Only available after the contest has ended and the scoreboard has been released. Returns 403 if the contest is not past or the scoreboard is not released. Implemented in `contest_submissions.py`. |
-| `GET` | `/c/{slug}/submissions/{submission_id}/review` | ua, a, j | Unified submission review page. Left column: source code, compile log, judging history, per-test-case results (ua/a/j only). Right column: verdict confirmation status panel; confirmation form for judges (with chief-judge modal) when the active judgment is `DONE` and the contest is not `autojudge_only`; override form for the chief judge only when a final verdict already exists. Implemented in `contest_submissions.py`. |
-| `POST` | `/c/{slug}/submissions/{submission_id}/acquire-review` | j | **Judge only.** Acquires a Valkey-backed review lock for the submission, allowing the judge to submit a verdict confirmation. Validates that the autojudge has finished (`DONE`), the judge hasn't already confirmed, and no other judge holds the lock. If Valkey is unavailable, flashes a degraded-mode warning and leaves confirmation available from the review page without lock controls. Implemented in `contest_submissions_review.py`. |
+| `GET` | `/c/{slug}/submissions/{submission_id}/review` | ua, a, j | Unified submission review page. Left column: source code, compile log, judging history, per-test-case results (ua/a/j only). Right column: verdict confirmation status panel; confirmation form for judges and admins (with a decisive-confirmation modal for the chief judge and admins) when the active judgment is `DONE` and the contest is not `autojudge_only`; override form for the chief judge and admins once a final verdict exists; rejudge card below the confirmation panel for the chief judge, admins, and uberadmins. See [Permission Model](#permission-model). Implemented in `contest_submissions.py`. |
+| `POST` | `/c/{slug}/submissions/{submission_id}/acquire-review` | j, a | **Judges and admins.** Acquires a Valkey-backed review lock for the submission, allowing the holder to submit a verdict confirmation. Validates that the autojudge has finished (`DONE`), the caller hasn't already confirmed, and nobody else holds the lock. If Valkey is unavailable, flashes a degraded-mode warning and leaves confirmation available from the review page without lock controls. Implemented in `contest_submissions_review.py`. |
 | `POST` | `/c/{slug}/submissions/{submission_id}/release-review` | j (own), a, ua | Releases a review lock without submitting a confirmation. Judges may release only their own lock; ADMIN and UBERADMIN may release any lock. Release is available only while the lock service is up. Implemented in `contest_submissions_review.py`. |
-| `POST` | `/c/{slug}/submissions/{submission_id}/confirm` | j | Submits a human confirmation for the active judgment. Returns 404 for `autojudge_only` contests. When Valkey is available, the judge must hold the review lock; in degraded mode confirmation remains available and the UI warns that coordination locks are off. If the confirmation produces a final verdict, publishes a `VerdictEvent` and invalidates scoreboard cache before redirecting back to the review page. Implemented in `contest_submissions_review.py`. |
-| `POST` | `/c/{slug}/submissions/{submission_id}/rejudge` | chief judge | Supersedes the current active judgment and creates a new `QUEUED` judgment for the same submission. Only available when the submission has a final verdict. Enqueues the new judgment with `is_rejudge=True` and invalidates the scoreboard cache before redirecting back to the review page. Implemented in `contest_submissions_review.py`. |
+| `POST` | `/c/{slug}/submissions/{submission_id}/confirm` | j, a | Submits a human confirmation for the active judgment. A confirmation by the chief judge **or a contest admin** is decisive and sets the final verdict on its own; any other judge's confirmation needs a second, agreeing one. A judgment carries at most one decisive confirmation, so a second one is rejected. Returns 404 for `autojudge_only` contests. When Valkey is available, the caller must hold the review lock; in degraded mode confirmation remains available and the UI warns that coordination locks are off. If the confirmation produces a final verdict, publishes a `VerdictEvent` and invalidates scoreboard cache before redirecting back to the review page. Implemented in `contest_submissions_review.py`. |
+| `POST` | `/c/{slug}/submissions/{submission_id}/rejudge` | chief judge, admin, uberadmin | Supersedes the current active judgment and creates a new `QUEUED` judgment for the same submission. Only available when the submission has a final verdict. Enqueues the new judgment with `is_rejudge=True` and invalidates the scoreboard cache before redirecting back to the review page. Implemented in `contest_submissions_review.py`. |
 | `GET` | `/c/{slug}/submissions/{submission_id}/source` | ua, a, j, t (own only) | Downloads the submitted source code as a plain-text file named after the submission language's source filename. Teams may download only their own submission's source. Implemented in `contest_submissions_files.py`. |
 | `GET` | `/c/{slug}/submissions/{submission_id}/test-cases/{test_case_id}/download?file=input|expected_output|team_output` | ua, a, j | Downloads a plain-text file for a single test case result. `input` and `expected_output` are read from the filesystem; `team_output` is the stored stdout excerpt. Implemented in `contest_submissions_files.py`. |
 | `GET` | `/c/{slug}/submissions/{submission_id}/test-cases/{test_case_id}/detail` | ua, a, j | Renders a 3-column side-by-side page showing input, expected output, and team output for a single test case result. Back button returns to the submission review page. Implemented in `contest_submissions_files.py`. |
@@ -455,12 +465,40 @@ dedicated forms. These routes never save unrelated problem-form fields.
   status partial.
 - `GET /c/{slug}/admin/problems/{problem_id}/validator/source` downloads the
   current source (active revision, falling back to a staged candidate).
+- `GET /c/{slug}/admin/problems/{problem_id}/validator/source/view` renders the
+  current source with syntax highlighting and line numbers.
 - `POST /c/{slug}/admin/problems/{problem_id}/validator/remove` removes active
-  and candidate revisions.
+  and candidate revisions. It requires a `keep_interactions` form field whose
+  value is exactly `"true"` or `"false"` — the edit page posts it from a
+  confirmation modal. `"true"` hides the problem's sample interactions (they
+  resurface if a validator is added again); `"false"` deletes them permanently.
+  The field is a strict string rather than a `bool` on purpose: FastAPI would
+  coerce `1`, `on` and `yes` too, and the choice between hiding data and
+  destroying it must not hinge on a spelling. Any other value, or none, is a 422.
 
-A problem with a configured validator may have zero test cases: the problem form
-drops its "at least one test case" requirement, because interactive judgments
-never read test-case files.
+### Sample interactions
+
+An interactive problem has no public test cases. Its public examples are
+**sample interactions** — up to five author-written transcripts of the
+conversation a correct program has with the validator, rendered on the problem
+page with the same transcript UI that shows a submission's recorded attempts.
+
+- `GET|POST /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/edit`
+  view and save one interaction.
+- `POST /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/move`
+  reorders one interaction (`new_ordinal` query param) and returns the refreshed
+  list partial for the drag-and-drop handler.
+
+Additions and removals are deferred to the problem form's single Save, exactly
+like test cases (`si_transcript_N` / `si_explanation_N` add-rows and a hidden
+`si_remove_ids` field).
+
+A problem with a configured validator must have **zero public test cases and at
+least one secret one**. Staging a validator demotes any existing public case to
+secret, the sample toggle is refused while a validator is configured, and no edit
+path may remove the last secret case. A brand-new *disabled* draft may still have
+no test cases at all; that is only forced to be complete at enablement and at
+submission time.
 
 On `/c/{slug}/submissions/{submission_id}/review`, an interactive problem replaces
 the test-case results table with the per-attempt contestant/validator stdout and
@@ -468,3 +506,141 @@ stderr excerpts (the effective-limits table is kept), followed by a link to
 `GET /c/{slug}/submissions/{submission_id}/validator-source`
 (`submission_validator_source_download`), which serves the active validator source
 to uberadmins, admins, and judges — the same audience that may see test results.
+
+---
+
+## Permission Model
+
+Who can do what, inside the contest module. The per-route `Allowed` columns above restate
+these rules one endpoint at a time; this section is the narrative source of truth. When
+they disagree, fix this one first.
+
+### Actors
+
+Two identity domains (`web/models/users.py`):
+
+- **`UberAdmin`** — global, system-level actor. Lives in its own table, not in `users`.
+- **`User`** — contest-scoped actor tied to one contest, with a role: `ADMIN`, `JUDGE`,
+  `STAFF`, `TEAM`, or `USER`.
+
+The **chief judge** is not a role. It is the single `JUDGE`-role user named by
+`contests.chief_judge_id`. An admin can therefore never *be* the chief judge — which is why
+admin authority is granted explicitly wherever chief-judge authority exists.
+
+### The uberadmin attribution boundary
+
+An uberadmin outranks an admin everywhere except when the database must **record who did
+it**. Four columns attribute work to a person, and all four are foreign keys into `users`:
+`tasks.staff_id` (who finished a task), `clarifications.judge_id` (who answered),
+`human_submission_confirmations.judge_id` (who confirmed), and
+`verdict_overrides.overridden_by` (who overrode).
+
+Uberadmins have no `users` row, so they cannot appear in any of them. An uberadmin may
+therefore **supervise** this work — force-release any lock, rejudge — but not **perform**
+it. Admins are ordinary `users` rows and attribute cleanly. Every "uberadmin cannot" below
+comes from this; changing it means a schema change, not a permission tweak.
+
+### Capability matrix
+
+`✓` = allowed. `—` = denied. `own` = only on a resource the actor holds the lock for.
+
+| Capability | UBERADMIN | ADMIN | CHIEF JUDGE | JUDGE | STAFF | TEAM |
+|------------|:---------:|:-----:|:-----------:|:-----:|:-----:|:----:|
+| **Clarifications** | | | | | | |
+| Ask a clarification | — | — | — | — | — | ✓ |
+| See who asked (list view) | ✓ | ✓ | — | — | — | n/a |
+| Acquire + answer | — | ✓ | ✓ | ✓ | — | — |
+| Force-release another's lock | ✓ | ✓ | — | — | — | — |
+| Hide / unhide | ✓ | ✓ | ✓ | ✓ | — | — |
+| Post an announcement | — | ✓ | ✓ | ✓ | — | — |
+| **Tasks** (balloons, print, SOS) | | | | | | |
+| Create (SOS / print) | — | — | — | — | — | ✓ |
+| See all tasks | ✓ | ✓ | ✓ | — | ✓ | own |
+| Acquire + finish | — | ✓ | ✓ | — | ✓ | — |
+| Download PRINT source | ✓ | ✓ | own | — | own | — |
+| Force-release another's lock | ✓ | ✓ | — | — | — | — |
+| **Verdicts** | | | | | | |
+| Submit a run | — | — | — | — | — | ✓ |
+| See the review page | ✓ | ✓ | ✓ | ✓ | — | — |
+| Acquire review + confirm | — | ✓ | ✓ | ✓ | — | — |
+| Confirmation is *decisive* | — | ✓ | ✓ | — | — | — |
+| Override a final verdict | — | ✓ | ✓ | — | — | — |
+| Rejudge a submission | ✓ | ✓ | ✓ | — | — | — |
+| Force-release a review lock | ✓ | ✓ | ✓ | — | — | — |
+| **Administration** | | | | | | |
+| Contest / problem / user admin | ✓ | ✓ | — | — | — | — |
+| Assign the chief judge | ✓ | ✓ | — | — | — | — |
+| Reports | ✓ | ✓ | ✓ | ✓ | — | — |
+
+The rows that surprise people:
+
+- **A plain judge sees no tasks at all.** The tasks page admits the `JUDGE` role only for
+  the chief judge; every other judge gets a 403, and `list_tasks` refuses them at the
+  service layer too.
+- **A plain judge cannot override a verdict.** Override authority is chief-judge-or-admin.
+- **Contest state gates access separately.** Admins and uberadmins reach every page at any
+  time; staff, teams, the chief judge (tasks) and judges (runs) only once the contest is
+  running or past. That axis is orthogonal to this matrix — see the
+  [Access Matrix](#access-matrix) above.
+
+### Where each rule is enforced
+
+Each domain owns one `permissions.py` that the service, the routes, and the templates all
+read from. Add a capability there, not inline in a route.
+
+| Domain | Module | Predicates |
+|--------|--------|-----------|
+| Tasks | `web/services/task_service/permissions.py` | `can_view_tasks`, `can_handle_tasks`, `can_force_release_tasks`, `is_chief_judge` |
+| Clarifications | `web/services/clarification_service/permissions.py` | `can_answer_clarifications`, `can_force_release_clarifications` |
+| Verdicts | `web/services/judging_service/permissions.py` | `can_confirm_verdict`, `confirmation_is_decisive`, `can_override_verdict`, `is_chief_judge` |
+
+Three layers enforce them, and a capability is only real when all three agree:
+
+1. **Routes** — `ensure_allowed_role(...)` narrows by role, then the predicate applies the
+   contest-aware rule (chief judge, lock holder). A role that passes the first check and
+   fails the second gets a 403.
+2. **Services** — re-check the same predicate rather than trusting the caller. `list_tasks`
+   raises `ForbiddenTaskActionError` on its own, so a future caller cannot leak tasks to a
+   plain judge by forgetting the route guard.
+3. **ORM invariants** — the `before_flush` hook in `web/models/submission.py` independently
+   refuses a confirmation from a non-`JUDGE`/`ADMIN` user, and a `VerdictOverride` from
+   anyone but the chief judge or an admin. **Widening a verdict permission means editing
+   that hook too**; otherwise authorization passes and the commit raises `ValueError`.
+
+Templates gate the *buttons* from the same predicates, passed in as context flags
+(`can_handle_tasks`, `can_answer_clarifications`, `can_acquire_review`, …). A button that
+appears without the matching server-side rule is a bug, not a shortcut.
+
+### Verdict authority
+
+The final verdict is **derived**, never assigned directly (`_derive_final_verdict`,
+`web/models/submission.py`):
+
+- A **decisive** confirmation — from the chief judge *or* an admin, stored as
+  `is_chief_confirmation=True` — settles the verdict on its own.
+- Otherwise **two** non-chief confirmations that agree with the autojudge settle it.
+- An **override** by the chief judge or an admin supersedes whatever the confirmations
+  derived.
+
+A judgment carries **at most one** decisive confirmation — the derivation raises if it ever
+sees two. `confirm_verdict` therefore refuses a second one with
+`DecisiveConfirmationExistsError`, so the chief judge and an admin cannot both settle the
+same judgment: first one wins, the second gets a clean error instead of a crash at flush.
+
+`remove_chief_judge` blocks removal while overrides attributed to the chief judge exist.
+Admin-created overrides are attributed to the admin, so they do not block chief-judge
+removal.
+
+### Deliberate blindness
+
+Two redactions are intentional and must survive any future permission change:
+
+- **The clarification answer page is blind for every role**, admins included. It shows the
+  problem, the question, and the answer field — never the asking team. Answering is never
+  done with the asker's identity on screen, even though admins see that identity in the
+  list view.
+- **A plain judge sees no team identity** in the runs list, and no judge/team identity in
+  the clarification list (`list_clarifications` nulls `judge_id` for judges).
+
+Both exist so that whoever rules on a submission or a question is not influenced by whose
+it is. Treat them as invariants, not UI details.

@@ -14,6 +14,33 @@ var ArenaSubmissionHeatmap = (function () {
     var TOP_MARGIN = 20;
     var DAY_ROWS = 7;
 
+    // The calendar sets every colour in JS, so it cannot follow data-bs-theme via
+    // CSS. Pick a GitHub-style palette per theme; the shared managed wrapper
+    // re-runs the render callback on toggle, so these are re-read automatically.
+    function _palette() {
+        var dark = document.documentElement.getAttribute("data-bs-theme") === "dark";
+        if (dark) {
+            return {
+                label: "#8b949e",
+                emptyCell: "#161b22",
+                cellBorder: "#0d1117",
+                ramp: ["#0e4429", "#006d32", "#26a641", "#39d353"],
+                tooltipBg: "#1e293b",
+                tooltipBorder: "#334155",
+                tooltipText: "#e2e8f0",
+            };
+        }
+        return {
+            label: "#57606a",
+            emptyCell: "#ebedf0",
+            cellBorder: "#ffffff",
+            ramp: ["#9be9a8", "#40c463", "#30a14e", "#216e39"],
+            tooltipBg: "#ffffff",
+            tooltipBorder: "#d0d7de",
+            tooltipText: "#1e293b",
+        };
+    }
+
     function _dispose(containerId) {
         if (_instances[containerId]) {
             _instances[containerId].dispose();
@@ -32,6 +59,17 @@ var ArenaSubmissionHeatmap = (function () {
         return TOP_MARGIN + DAY_ROWS * (CELL_SIZE + 1) + 4;
     }
 
+    function _emptyOption() {
+        return {
+            graphic: [{
+                type: "text",
+                left: "center",
+                top: "middle",
+                style: { text: "No submissions yet.", fontSize: 14, fill: _palette().label },
+            }],
+        };
+    }
+
     function _buildOption(payload) {
         var data = payload.heatmap || [];
         var rangeStart = payload.range_start;
@@ -43,8 +81,13 @@ var ArenaSubmissionHeatmap = (function () {
         }
         if (maxCount < 5) maxCount = 5;
 
+        var pal = _palette();
+
         return {
             tooltip: {
+                backgroundColor: pal.tooltipBg,
+                borderColor: pal.tooltipBorder,
+                textStyle: { color: pal.tooltipText },
                 formatter: function (params) {
                     var count = params.value[1];
                     var label = count === 1 ? "1 submission" : count + " submissions";
@@ -56,6 +99,7 @@ var ArenaSubmissionHeatmap = (function () {
                 max: maxCount,
                 show: false,
                 type: "piecewise",
+                inRange: { color: pal.ramp },
             },
             calendar: {
                 top: TOP_MARGIN,
@@ -63,10 +107,14 @@ var ArenaSubmissionHeatmap = (function () {
                 right: RIGHT_MARGIN,
                 cellSize: [CELL_SIZE, CELL_SIZE],
                 range: [rangeStart, rangeEnd],
-                itemStyle: { borderWidth: 0.5 },
+                itemStyle: {
+                    color: pal.emptyCell,
+                    borderColor: pal.cellBorder,
+                    borderWidth: 0.5,
+                },
                 yearLabel: { show: false },
-                monthLabel: { show: true, fontSize: 10 },
-                dayLabel: { fontSize: 10, firstDay: 0 },
+                monthLabel: { show: true, fontSize: 10, color: pal.label },
+                dayLabel: { fontSize: 10, firstDay: 0, color: pal.label },
                 splitLine: { show: false },
             },
             series: {
@@ -91,10 +139,10 @@ var ArenaSubmissionHeatmap = (function () {
             return;
         }
 
-        var chart = echarts.init(container);
-        _instances[containerId] = chart;
+        var mgr = NocaECharts.create(container);
+        _instances[containerId] = mgr;
 
-        chart.showLoading();
+        mgr.showLoading();
 
         fetch(dataUrl)
             .then(function (response) {
@@ -102,27 +150,20 @@ var ArenaSubmissionHeatmap = (function () {
                 return response.json();
             })
             .then(function (payload) {
-                chart.hideLoading();
+                mgr.hideLoading();
                 if (!payload.heatmap || payload.heatmap.length === 0) {
-                    chart.setOption({
-                        graphic: [{
-                            type: "text",
-                            left: "center",
-                            top: "middle",
-                            style: { text: "No submissions yet.", fontSize: 14, fill: "#999" },
-                        }],
-                    });
+                    mgr.render(function (chart) { chart.setOption(_emptyOption(), true); });
                     return;
                 }
                 var w = _computeContainerWidth(payload.range_start, payload.range_end);
                 var h = _computeContainerHeight();
                 container.style.width = w + "px";
                 container.style.height = h + "px";
-                chart.resize({ width: w, height: h });
-                chart.setOption(_buildOption(payload));
+                mgr.resize({ width: w, height: h });
+                mgr.render(function (chart) { chart.setOption(_buildOption(payload), true); });
             })
             .catch(function (err) {
-                chart.hideLoading();
+                mgr.hideLoading();
                 console.error("ArenaSubmissionHeatmap: failed to load data.", err);
             });
     }

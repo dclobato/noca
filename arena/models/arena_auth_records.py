@@ -72,9 +72,10 @@ class ArenaLoginHistory(LocationMixin, ArenaBase):
     Attributes:
         id: Sequential integer primary key.
         arena_user_id: FK to arena_users.
-        dta_login: Timestamp of the login event.
-        ip_address: Client IP address.
-        country_code: ISO 3166-1 alpha-2 country code resolved from the IP.
+    dta_login: Timestamp of the login event.
+    ip_address: Client IP address.
+    source_port: Client source port associated with the IP address.
+    country_code: ISO 3166-1 alpha-2 country code resolved from the IP.
         subdivision_code: ISO 3166-2 subdivision code resolved from the IP.
         district: District/county name resolved from the IP.
         city: City name resolved from the IP.
@@ -91,6 +92,7 @@ class ArenaLoginHistory(LocationMixin, ArenaBase):
     arena_user_id: Mapped[str]
     dta_login: Mapped[datetime]
     ip_address: Mapped[str | None]
+    source_port: Mapped[int | None]
     country_code: Mapped[str | None]
     subdivision_code: Mapped[str | None]
     district: Mapped[str | None]

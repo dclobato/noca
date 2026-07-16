@@ -1,0 +1,182 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<!DOCTYPE html>
+<html lang="en">
+    {% from "_macros.html" import render_icon with context %}
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>{{ brand_name }} - Problem #{{ problem.arena_number }}: {{ problem.title }}</title>
+        <link rel="icon" type="image/x-icon" href="/favicon.ico">
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='bootstrap.min.css') }}">
+        <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('arena_static_css', path='arena.css') }}?v={{ app_version }}"
+              rel="stylesheet">
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='katex.min.css') }}">
+    </head>
+    <body>
+        <header class="border-bottom bg-body">
+            <div class="container-fluid px-4 py-3">
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <img src="{{ request.url_for('arena_static_img', path='logo-128x128.png') }}"
+                             width="42"
+                             height="42"
+                             alt=""
+                             aria-hidden="true">
+                        <span class="fw-semibold fs-5">{{ brand_name }}</span>
+                    </div>
+                    <div class="vr d-none d-sm-block"></div>
+                    <div class="lh-sm">
+                        <div class="fw-semibold">Problem #{{ problem.arena_number }}: {{ problem.title }}</div>
+                    </div>
+                    <button type="button"
+                            class="btn btn-outline-secondary btn-sm ms-auto d-print-none"
+                            data-print-page>{{ render_icon(icon="print", classes="me-1") }}Print</button>
+                </div>
+            </div>
+        </header>
+        <main class="bg-body-tertiary">
+            <div class="container py-4">
+                <h1 class="h3 mb-1">Problem #{{ problem.arena_number }}: {{ problem.title }}</h1>
+                {# Author / source attribution #}
+                {% if not problem.hide_author_show_source %}
+                    <p class="text-muted small mb-0">
+                        {{ render_icon(icon="person") }}
+                        By {{ author_info.name or '—' }}
+                    </p>
+                    {% if author_info.affiliation_name %}
+                        <p class="text-muted small mb-0">
+                            {{ render_icon(icon="school") }}
+                            From {{ author_info.affiliation_name }}
+                        </p>
+                    {% endif %}
+                    {% if problem.source %}
+                        <p class="text-muted small mb-3">
+                            {{ render_icon(icon="source") }}
+                            {{ problem.source }}
+                        </p>
+                    {% else %}
+                        <div class="mb-3"></div>
+                    {% endif %}
+                {% elif problem.source %}
+                    <p class="text-muted small mb-3">
+                        {{ render_icon(icon="source") }}
+                        {{ problem.source }}
+                    </p>
+                {% else %}
+                    <div class="mb-3"></div>
+                {% endif %}
+                {# Problem image #}
+                {% with image_b64=problem.problem_image_base64, image_mime=problem.problem_image_mime, image_caption=problem.problem_image_caption %}
+                    {% include "_partials/problem_image_figure.html" %}
+                {% endwith %}
+                {# Markdown statement #}
+                <div id="md-statement-rendered" class="mb-4 mt-4"></div>
+                <script id="md-statement-src" type="text/plain">{{ problem.problem_statement | e }}</script>
+                {# Resource limits #}
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header fw-semibold small py-1">Resource Limits</div>
+                    <div class="table-responsive">
+                        <table class="table table-sm mb-0 small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="ps-3 text-nowrap">Time (ms)</th>
+                                    <th class="text-end text-nowrap">Memory (KB)</th>
+                                    <th class="text-end text-nowrap">PIDs</th>
+                                    <th class="text-end text-nowrap pe-3">Output (bytes)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="ps-3 fw-semibold text-nowrap">{{ problem.time_limit_ms }}</td>
+                                    <td class="text-end text-nowrap">{{ problem.memory_limit_kb }}</td>
+                                    <td class="text-end text-nowrap">{{ problem.pids_limit }}</td>
+                                    <td class="text-end text-nowrap pe-3">{{ problem.output_limit_in_bytes }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {# An interactive problem's public examples are conversations, not test cases. #}
+                {% if has_custom_validator %}
+                    <h2 class="h6 mt-4 mb-2">Sample Interactions</h2>
+                    {% if sample_interactions %}
+                        <p class="text-muted small">
+                            This problem is interactive. Your program talks to a validator instead of
+                            reading a fixed input file; the conversations below are examples of how a
+                            correct solution behaves.
+                        </p>
+                        {% for interaction in sample_interactions %}
+                            <div class="card shadow-sm mb-3">
+                                <div class="card-body">
+                                    {% with explanation_class="arena-tc-explanation" %}
+                                        {% include "_partials/sample_interaction_display.html" %}
+                                    {% endwith %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="text-muted small">No sample interactions for this problem.</p>
+                    {% endif %}
+                {% elif sample_test_cases %}
+                    <h2 class="h6 mt-4 mb-2">Sample Test Cases</h2>
+                    {% for tc in sample_test_cases %}
+                        <div class="card shadow-sm mb-3">
+                            <div class="card-header fw-semibold small">Sample {{ loop.index }}</div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <p class="text-muted small fw-semibold mb-1">Input</p>
+                                    <pre class="bg-light p-2 rounded small mb-0 overflow-auto">{{ (tc.input_content or '') | e }}</pre>
+                                </div>
+                                <div>
+                                    <p class="text-muted small fw-semibold mb-1">Output</p>
+                                    <pre class="bg-light p-2 rounded small mb-0 overflow-auto">{{ (tc.output_content or '') | e }}</pre>
+                                </div>
+                                {% if tc.explanation %}
+                                    <div class="text-muted small mt-2">
+                                        <div class="fw-semibold mb-1">Explanation of example #{{ loop.index }}:</div>
+                                        <div class="arena-tc-explanation" data-tc-explanation>{{ tc.explanation | e }}</div>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <h2 class="h6 mt-4 mb-2">Sample Test Cases</h2>
+                    <p class="text-muted small">No public sample test cases for this problem.</p>
+                {% endif %}
+                {% if problem.license %}
+                    <p class="small">
+                        <span class="fw-semibold">License:</span> {{ problem.license | e }}
+                    </p>
+                {% endif %}
+            </div>
+        </main>
+        <script src="{{ request.url_for('static_vendor', path='bootstrap.bundle.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('arena_static_js', path='problem-detail.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='render-tc-explanation.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='print-page.js') }}?v={{ app_version }}"
+                defer></script>
+    </body>
+</html>

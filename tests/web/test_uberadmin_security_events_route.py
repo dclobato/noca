@@ -74,7 +74,13 @@ async def test_viewer_excludes_arena_and_aiassistant_events(
     session: AsyncSession,
     uberadmin,
 ) -> None:
-    await record_security_event(session, module="web", event_type="web_marker_event")
+    await record_security_event(
+        session,
+        module="web",
+        event_type="web_marker_event",
+        source_port=54321,
+        request_id="11111111-2222-3333-4444-555555555555",
+    )
     await record_security_event(session, module="arena", event_type="arena_marker_event")
     await record_security_event(session, module="aiassistant", event_type="ai_marker_event")
     await session.commit()
@@ -88,6 +94,8 @@ async def test_viewer_excludes_arena_and_aiassistant_events(
 
     assert response.status_code == 200
     assert "web_marker_event" in response.text
+    assert "54321" in response.text
+    assert "11111111-2222-3333-4444-555555555555" in response.text
     assert "arena_marker_event" not in response.text
     assert "ai_marker_event" not in response.text
 

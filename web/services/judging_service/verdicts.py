@@ -20,6 +20,7 @@ from web.models._base import _utcnow
 from web.services.judgment_utils import get_active_judgment
 
 from .errors import JudgmentNotDoneError, SameVerdictError
+from .permissions import can_override_verdict
 
 
 async def override_verdict(
@@ -27,10 +28,10 @@ async def override_verdict(
     submission_id: str,
     new_verdict: Verdict,
     reason: str,
-    chief_judge: User,
+    actor: User,
     contest: Contest,
 ) -> VerdictOverride:
-    """Persist a chief-judge verdict override."""
+    """Persist a verdict override by the chief judge or a contest admin."""
     result = await session.execute(
         select(Submission)
         .where(Submission.id == submission_id)
@@ -42,7 +43,7 @@ async def override_verdict(
     submission = result.scalar_one_or_none()
     if submission is None or submission.problem.contest_id != contest.id:
         raise HTTPException(status_code=404)
-    if chief_judge.id != contest.chief_judge_id:
+    if not can_override_verdict(actor, contest):
         raise HTTPException(status_code=403)
 
     active_judgment = get_active_judgment(submission)
@@ -61,7 +62,7 @@ async def override_verdict(
     override = VerdictOverride(
         judgment=active_judgment,
         submission=submission,
-        overridden_by=chief_judge.id,
+        overridden_by=actor.id,
         original_verdict=current_verdict,
         new_verdict=new_verdict,
         reason=reason,

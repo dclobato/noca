@@ -103,11 +103,8 @@ var ArenaContrastCurve = (function () {
         var gainMax = parseFloat(container.dataset.contrastGainMax) || 4;
         var scale = parseFloat(container.dataset.contrastGainScale) || 25;
 
-        var chart = echarts.init(container);
-        chart.setOption(_buildOption(gainMax, scale));
-
-        window.addEventListener("resize", function () {
-            chart.resize();
+        NocaECharts.create(container).render(function (chart) {
+            chart.setOption(_buildOption(gainMax, scale));
         });
     }
 

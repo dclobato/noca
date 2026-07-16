@@ -60,10 +60,12 @@ async def submit_ai_batch_review(
     api_key: str,
     model: str,
     max_output_tokens: int,
+    reasoning_effort: str,
     extra_task_instructions: str | None = None,
     image_base64: str | None = None,
     image_mime: str | None = None,
     image_caption: str | None = None,
+    interactive_note: str | None = None,
 ) -> BatchSubmitResult:
     """Upload files and submit a single-item OpenAI batch for AI code review.
 
@@ -83,6 +85,8 @@ async def submit_ai_batch_review(
         api_key: OpenAI API key to use for this request (platform key).
         model: OpenAI model identifier, e.g. ``'gpt-5.4-mini'``.
         max_output_tokens: Maximum tokens allowed in the AI response.
+        reasoning_effort: Reasoning effort passed to the Responses API (one of
+            ``none``, ``low``, ``medium``, ``high``, ``xhigh``).
         extra_task_instructions: Optional extra instructions appended to the user
             task content.
         image_base64: Optional Base64-encoded problem image sent as an inline
@@ -130,6 +134,7 @@ async def submit_ai_batch_review(
             lang_context="\n".join(lang_info_lines),
             extra_task_instructions=extra_task_instructions,
             image_caption=image_caption,
+            interactive_note=interactive_note,
         )
 
         image_content: list[Any] = []
@@ -149,6 +154,7 @@ async def submit_ai_batch_review(
                 "model": model,
                 "instructions": SYSTEM_PROMPT,
                 "max_output_tokens": max_output_tokens,
+                "reasoning": {"effort": reasoning_effort},
                 "input": [
                     {
                         "role": "user",
@@ -202,6 +208,8 @@ class StagedItem:
         image_base64: Optional Base64-encoded problem image.
         image_mime: MIME type of the image, e.g. ``'image/png'``.
         image_caption: Optional image caption.
+        interactive_note: Optional pre-built ``<interactive_context>`` prompt
+            section for interactive problems.
     """
 
     submission_id: str
@@ -212,6 +220,7 @@ class StagedItem:
     image_base64: str | None
     image_mime: str | None
     image_caption: str | None
+    interactive_note: str | None = None
 
 
 @dataclass
@@ -235,6 +244,7 @@ async def submit_windowed_batch(
     api_key: str,
     model: str,
     max_output_tokens: int,
+    reasoning_effort: str,
 ) -> WindowedBatchResult:
     """Upload per-item files, build one JSONL, and submit a single OpenAI batch.
 
@@ -247,6 +257,8 @@ async def submit_windowed_batch(
         api_key: Platform OpenAI API key.
         model: OpenAI model identifier, e.g. ``'gpt-5.4-mini'``.
         max_output_tokens: Maximum tokens allowed in each AI response.
+        reasoning_effort: Reasoning effort passed to the Responses API for every
+            item (one of ``none``, ``low``, ``medium``, ``high``, ``xhigh``).
 
     Returns:
         ``WindowedBatchResult`` with the shared batch/input file IDs and
@@ -299,6 +311,7 @@ async def submit_windowed_batch(
                 lang_context="\n".join(lang_info_lines),
                 extra_task_instructions=item.extra_task_instructions,
                 image_caption=item.image_caption,
+                interactive_note=item.interactive_note,
             )
 
             image_content: list[Any] = []
@@ -318,6 +331,7 @@ async def submit_windowed_batch(
                     "model": model,
                     "instructions": SYSTEM_PROMPT,
                     "max_output_tokens": max_output_tokens,
+                    "reasoning": {"effort": reasoning_effort},
                     "input": [
                         {
                             "role": "user",

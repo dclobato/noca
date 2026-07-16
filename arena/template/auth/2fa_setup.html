@@ -14,7 +14,7 @@
             <div class="col-12 col-md-8 col-lg-7 col-xl-6">
                 {# Brand header #}
                 <div class="text-center mb-4 pt-4">
-                    <h1 class="arena-auth-logo">Noca Arena</h1>
+                    <h1 class="arena-auth-logo">{{ brand_name }}</h1>
                     <p class="arena-auth-tagline">Competitive Judge</p>
                 </div>
                 {# Setup card #}
@@ -23,7 +23,7 @@
                         {{ render_icon(icon="security", classes="arena-2fa-icon") }}
                         <h2 class="arena-auth-title mb-0">Set up two-factor authentication</h2>
                     </div>
-                    <p class="arena-2fa-help mb-4">Follow the steps below to link your authenticator app with your Noca Arena account.</p>
+                    <p class="arena-2fa-help mb-4">Follow the steps below to link your authenticator app with your {{ brand_name }} account.</p>
                     {# Step 1: QR code #}
                     <div class="mb-4">
                         <p class="arena-auth-section-label mb-2">Step 1 &mdash; Scan with your authenticator app</p>

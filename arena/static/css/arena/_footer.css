@@ -22,6 +22,11 @@
     z-index: 1030;
 }
 
+.arena-validator-source-viewer .arena-footer {
+    margin-top: 0;
+    position: static;
+}
+
 .arena-footer-inner {
     align-items: center;
     display: flex;
@@ -37,6 +42,27 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem 1rem;
+}
+
+.arena-footer-theme-toggle {
+    background: none;
+    border: 0;
+    color: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    line-height: 1;
+    margin-left: 0.35rem;
+    padding: 0;
+    vertical-align: middle;
+}
+
+.arena-footer-theme-toggle:hover,
+.arena-footer-theme-toggle:focus-visible {
+    color: var(--arena-on-surface);
+}
+
+.arena-footer-theme-toggle .material-symbols-outlined {
+    font-size: 1rem;
 }
 
 .arena-footer-rating {

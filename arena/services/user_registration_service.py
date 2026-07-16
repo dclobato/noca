@@ -19,15 +19,14 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import date, datetime
-from functools import lru_cache
-from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arena.config import settings
 from arena.models.arena_users import ArenaUser
+from arena.services.email_rendering import render_email as _render_email_template
 from arena.services.token_service import ArenaTokenAction, JWTService
 from arena.services.user_service import (
     UserOperationStatus,
@@ -41,33 +40,6 @@ from shared.services.email_validation import EmailValidationService
 logger = logging.getLogger(__name__)
 
 _EMAIL_VALIDATION_TIMEOUT = 86_400  # 24 hours in seconds
-_EMAIL_TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "template" / "emails"
-
-
-@lru_cache(maxsize=1)
-def _email_template_environment() -> Environment:
-    """Return a cached Jinja2 environment for plain-text email templates."""
-    return Environment(
-        loader=FileSystemLoader(str(_EMAIL_TEMPLATE_DIR)),
-        autoescape=False,
-        trim_blocks=False,
-        lstrip_blocks=False,
-        undefined=StrictUndefined,
-    )
-
-
-def _render_email_template(template_name: str, **context: str) -> str:
-    """Render a named email template with the given context variables.
-
-    Args:
-        template_name: Filename inside ``arena/template/emails/``.
-        **context: Template variables.
-
-    Returns:
-        Rendered plain-text string.
-    """
-    template = _email_template_environment().get_template(template_name)
-    return template.render(**context).rstrip()
 
 
 def _gerar_token_confirmacao_email(usuario: ArenaUser, jwt_service: JWTService) -> str:
@@ -138,7 +110,7 @@ def _enviar_email_consentimento_responsavel_interno(
     result = email_service.send_email(
         to_email=usuario.email_responsavel_legal,
         to_name="Parent or legal guardian",
-        subject="Consent required for Noca Arena account",
+        subject=f"Consent required for {settings.BRAND_NAME} account",
         text_body=body,
     )
     return result.success
@@ -195,8 +167,8 @@ def enviar_email_conta_existente(
     )
     result = email_service.send_email(
         to_email=email,
-        to_name="Noca Arena user",
-        subject="You already have a Noca Arena account",
+        to_name=f"{settings.BRAND_NAME} user",
+        subject=f"You already have a {settings.BRAND_NAME} account",
         text_body=body,
     )
     return result.success

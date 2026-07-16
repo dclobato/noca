@@ -128,11 +128,13 @@ async def login_post(
             )
         try:
             ip_address = NetworkService.get_ip_from_request(request)
+            source_port = NetworkService.get_trusted_source_port_from_request(request)
             token = await auth_service.uberadmin_login(
                 identifier,
                 password,
                 session,
                 ip_address=ip_address,
+                source_port=source_port,
                 user_agent=request.headers.get("User-Agent"),
             )
         except ValueError:
@@ -245,12 +247,14 @@ async def contest_login_post(
             )
         try:
             ip_address = NetworkService.get_ip_from_request(request)
+            source_port = NetworkService.get_trusted_source_port_from_request(request)
             token = await auth_service.user_login(
                 identifier,
                 password,
                 contest.id,
                 session,
                 ip_address=ip_address,
+                source_port=source_port,
                 user_agent=request.headers.get("User-Agent"),
             )
         except ValueError:

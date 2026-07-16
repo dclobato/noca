@@ -1,0 +1,142 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* Shared identity: design tokens, base scaffold, brand wordmark. */
+@import url('/static/shared-css/common.css');
+
+.material-symbols-outlined {
+    line-height: 1;
+    vertical-align: middle;
+}
+
+/* ── Top bar ─────────────────────────────────────────────────────────────── */
+.healthmon-topbar {
+    background-color: var(--noca-surface-container-lowest);
+    border-bottom: 1px solid var(--noca-outline-variant);
+}
+
+.healthmon-topbar-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0.75rem 1rem;
+}
+
+.healthmon-topbar .noca-navbar-brand {
+    color: var(--noca-on-surface);
+    text-decoration: none;
+}
+
+.healthmon-topbar-nav {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.healthmon-topbar-nav a {
+    color: var(--noca-on-surface-variant);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.healthmon-topbar-nav a:hover {
+    color: var(--noca-on-surface);
+}
+
+.healthmon-main {
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+/* ── Cards (standalone equivalent of the arena-card pattern) ─────────────── */
+.healthmon-card {
+    background-color: var(--noca-surface-container-lowest);
+    border: 1px solid var(--noca-outline-variant);
+    border-radius: 0.5rem;
+    padding: 1rem;
+}
+
+.healthmon-card-title {
+    font-family: var(--noca-font-heading);
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--noca-on-surface);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.healthmon-card-title .material-symbols-outlined {
+    color: var(--noca-brand);
+    font-size: 1.25rem;
+}
+
+section.healthmon-card > .healthmon-card-title {
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.75rem;
+    border-bottom: 1px solid var(--noca-outline-variant);
+}
+
+/* Collapsible card header on the uptime dashboard. */
+.healthmon-card-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    width: 100%;
+    background: none;
+    border: 0;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+}
+
+/* ── Heatmap ─────────────────────────────────────────────────────────────── */
+.healthmon-heatmap {
+    display: grid;
+    grid-template-columns: repeat(20, 1fr);
+    gap: 2px;
+}
+
+.healthmon-slot {
+    display: block;
+    aspect-ratio: 2 / 1;
+    min-height: 14px;
+    border-radius: 3px;
+    /* Painted by heatmap.js from data-uptime; gray until then. */
+    background-color: var(--noca-surface-container-high);
+}
+
+.healthmon-slot--empty {
+    background-color: var(--noca-surface-container-high);
+}
+
+.healthmon-heatmap-legend {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--noca-on-surface-variant);
+}
+
+.healthmon-legend-scale {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.healthmon-slot--legend {
+    width: 24px;
+    min-height: 12px;
+    aspect-ratio: auto;
+}

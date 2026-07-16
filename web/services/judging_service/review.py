@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from shared.enumerations import JudgmentStatus, RoleEnum, Verdict
+from shared.enumerations import JudgmentStatus, Verdict
 from shared.services.lock_service import LockClient, acquire_lock, force_release_lock, get_lock, release_lock
 from shared.timing import compute_timestamp_seconds
 from web.models import Contest, HumanSubmissionConfirmation, Submission, SubmissionJudgment, UberAdmin, User
@@ -22,11 +22,13 @@ from web.services.judgment_utils import get_active_judgment
 
 from .errors import (
     AlreadyConfirmedError,
+    DecisiveConfirmationExistsError,
     JudgmentNotReadyError,
     ReviewAlreadyLockedError,
     ReviewLockUnavailableError,
     ReviewNotHeldByActorError,
 )
+from .permissions import can_confirm_verdict, confirmation_is_decisive
 
 
 async def acquire_submission_review(
@@ -36,8 +38,8 @@ async def acquire_submission_review(
     contest: Contest,
     lock_client: LockClient,
 ) -> SubmissionJudgment:
-    """Acquire a review lock for a human judge."""
-    if actor.role != RoleEnum.JUDGE:
+    """Acquire a review lock for a human judge or a contest admin."""
+    if not can_confirm_verdict(actor, contest):
         raise HTTPException(status_code=403)
     if contest.autojudge_only:
         raise HTTPException(status_code=404)
@@ -113,7 +115,15 @@ async def confirm_verdict(
     contest: Contest,
     lock_client: LockClient,
 ) -> HumanSubmissionConfirmation:
-    """Create a human confirmation for the active judgment of a submission."""
+    """Create a human confirmation for the active judgment of a submission.
+
+    A confirmation by the chief judge or a contest admin is decisive: it settles the
+    final verdict on its own. Any other judge's confirmation needs a second, agreeing
+    one.
+    """
+    if not can_confirm_verdict(judge, contest):
+        raise HTTPException(status_code=403)
+
     result = await session.execute(
         select(Submission)
         .where(Submission.id == submission_id)
@@ -134,13 +144,18 @@ async def confirm_verdict(
     if any(confirmation.judge_id == judge.id for confirmation in active_judgment.confirmations):
         raise AlreadyConfirmedError
 
+    is_chief = confirmation_is_decisive(judge, contest)
+    # A judgment carries at most one decisive confirmation (`_derive_final_verdict`
+    # raises otherwise), so the chief judge and an admin cannot both cast one.
+    if is_chief and any(confirmation.is_chief_confirmation for confirmation in active_judgment.confirmations):
+        raise DecisiveConfirmationExistsError
+
     review_lock = await get_lock(lock_client, kind="review", contest_id=contest.id, resource_id=active_judgment.id)
     if review_lock is not None and review_lock.holder_id != judge.id:
         raise ReviewNotHeldByActorError("You must acquire this review before confirming it.")
     if review_lock is None and getattr(lock_client, "is_available", True):
         raise ReviewNotHeldByActorError("You must acquire this review before confirming it.")
 
-    is_chief = contest.chief_judge_id is not None and judge.id == contest.chief_judge_id
     now = _utcnow()
     confirmation = HumanSubmissionConfirmation(
         judgment=active_judgment,

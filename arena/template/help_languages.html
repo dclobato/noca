@@ -8,6 +8,7 @@
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon %}
 {% block title_suffix %}— Languages &amp; Verdicts{% endblock %}
+{% block nav_help %}active{% endblock %}
 {% block nav_help_languages %}active{% endblock %}
 {% block content %}
     <div class="arena-page-container px-5">
@@ -116,7 +117,7 @@
                         On a regular problem, the judge runs your code against all test cases,
                         compares your output with the expected output, and reports the most severe outcome.
                         Interactive problems are judged differently — see
-                        <a href="#verdicts-custom-validators">Interactive problems</a> below.
+                        <a href="#interactive">Interactive problems</a> below.
                     </p>
                     <div class="table-responsive mt-3">
                         <table class="arena-table">
@@ -138,7 +139,7 @@
                             </tbody>
                         </table>
                     </div>
-                    <h2 class="h5 mt-4" id="verdicts-custom-validators">Interactive problems (custom validators)</h2>
+                    <h2 class="h5 mt-4" id="interactive">Interactive problems (custom validators)</h2>
                     <p>
                         Some problems have no fixed expected output. Instead of comparing your output
                         against a stored answer file, the problem author supplies a program — the
@@ -146,17 +147,32 @@
                         everything your program prints is read by the validator, and everything the
                         validator prints is fed back to your program's input. The two exchange messages
                         until the conversation ends. Problem statements of such problems describe the
-                        protocol you must follow; any test cases they show are illustrative samples only,
-                        and the judge does not use them.
+                        protocol you must follow.
                     </p>
                     <p>
-                        When the conversation ends, the validator decides the outcome of your attempt:
-                        whether your answers were correct, wrong, badly formatted, or whether you took
-                        too many queries or too much time for the budget the problem allows. The
+                        Interactive problems still have <strong>test cases</strong>, and your solution is
+                        run against each of them in turn. A test case does not hold an expected answer —
+                        it holds the data the validator itself is given before it starts talking to you
+                        (the secret number, the hidden graph, the query budget). So each test case is a
+                        different round of the same game, and your program plays it from the start. The
+                        samples on the statement show you that data for the rounds the author chose to
+                        make public; the rest are hidden, just like on any other problem.
+                    </p>
+                    <p>
+                        Each round ends with the validator deciding how it went: whether your answers were
+                        correct, wrong, badly formatted, or whether you took too many queries or too much
+                        time for the budget the problem allows. If a round is accepted, the judge moves on
+                        to the next one; <strong>the first round you do not pass ends the judgment</strong>
+                        and becomes your verdict — you get Accepted only when every round passes. The
                         remaining verdicts still come from the judging environment itself, which enforces
                         compilation, memory, output and process limits and detects a crashing program
                         exactly as it does on regular problems. A crash on your side always wins over
                         whatever the validator was about to report.
+                    </p>
+                    <p>
+                        On a submission that was not accepted, the submission page shows you the
+                        <strong>conversation from the round that failed</strong>, so you can read the
+                        exchange exactly as it happened.
                     </p>
                     <div class="alert alert-warning d-flex align-items-start gap-2 mt-3"
                          role="alert">
@@ -173,4 +189,7 @@
             </div>
         </div>
     </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for("arena_static_js", path="help-languages-tabs.js") }}?v={{ app_version }}"></script>
 {% endblock %}

@@ -17,8 +17,11 @@ from pathlib import Path
 from typing import Any
 
 from shared.problem_statement_markdown import validate_md_content as validate_md_content  # noqa: F401
+from shared.services.custom_validator import packaged_validator_member
 from shared.services.problem_image import export_image_filename
+from shared.services.sample_interactions import build_interaction_files
 from shared.services.testcase_files import get_problem_testcase_dir as _shared_get_problem_testcase_dir
+from shared.services.testcase_files import save_testcase_files as _shared_save_testcase_files
 from shared.tc_zip import normalize_testcase_bytes as normalize_testcase_bytes  # noqa: F401
 from shared.tc_zip import parse_testcases_zip as parse_testcases_zip  # noqa: F401
 from web.models.problem import Problem, ProblemLanguageLimit
@@ -81,23 +84,28 @@ def get_testcase_path(problem_id: str, ordinal: int, ext: str, testcase_dir: Pat
 
 
 def save_testcase_files(
-    problem_id: str, ordinal: int, in_bytes: bytes, out_bytes: bytes, testcase_dir: Path
-) -> tuple[int, int]:
-    """Write one pair of testcase files to disk.
+    problem_id: str, ordinal: int, in_bytes: bytes, out_bytes: bytes | None, testcase_dir: Path
+) -> tuple[int, int | None]:
+    """Write one test case to disk.
 
     Content is normalized to Unix line endings (LF only) before writing.
 
+    Args:
+        out_bytes: Expected output, or ``None`` for a custom-validator case, which
+            has no expected output.
+
     Returns:
-        tuple[int, int]: ``(input_size_bytes, output_size_bytes)`` of the
-        normalized content written to disk.
+        tuple[int, int | None]: ``(input_size_bytes, output_size_bytes)`` of the
+        normalized content written to disk; the output size is ``None`` when the
+        case has no expected output.
     """
-    base = _shared_get_problem_testcase_dir(problem_id, testcase_dir)
-    base.mkdir(parents=True, exist_ok=True)
-    in_norm = normalize_testcase_bytes(in_bytes)
-    out_norm = normalize_testcase_bytes(out_bytes)
-    (base / f"{ordinal:03d}.in").write_bytes(in_norm)
-    (base / f"{ordinal:03d}.out").write_bytes(out_norm)
-    return len(in_norm), len(out_norm)
+    return _shared_save_testcase_files(problem_id, ordinal, in_bytes, out_bytes, testcase_dir)
+
+
+def _problem_has_custom_validator(problem: Problem) -> bool:
+    """Return whether a problem currently has an active or candidate validator."""
+    validator = problem.custom_validator
+    return bool(validator and (validator.active_source is not None or validator.candidate_source is not None))
 
 
 def read_testcase_preview(problem_id: str, ordinal: int, testcase_dir: Path, max_bytes: int = 32) -> tuple[str, str]:
@@ -201,6 +209,7 @@ def build_problem_export_zip(
             image_filename = export_image_filename(problem.problem_image_mime)
             archive.writestr(image_filename, b64decode(problem.problem_image_base64))
 
+        has_custom_validator = _problem_has_custom_validator(problem)
         test_cases = (
             problem.test_cases if include_private_testcases else [tc for tc in problem.test_cases if tc.is_sample]
         )
@@ -208,15 +217,27 @@ def build_problem_export_zip(
             in_path = get_testcase_path(problem.id, test_case.ordinal, "in", testcase_dir)
             out_path = get_testcase_path(problem.id, test_case.ordinal, "out", testcase_dir)
             archive.writestr(f"in/{test_case.ordinal:03d}.in", in_path.read_bytes() if in_path.exists() else b"")
-            archive.writestr(
-                f"out/{test_case.ordinal:03d}.out",
-                out_path.read_bytes() if out_path.exists() else b"",
-            )
+            # An interactive problem's cases have no expected output at all, so the
+            # package ships inputs only rather than a misleading empty .out.
+            if not has_custom_validator and out_path.exists():
+                archive.writestr(f"out/{test_case.ordinal:03d}.out", out_path.read_bytes())
             if test_case.explanation:
                 archive.writestr(
                     f"explanation/{test_case.ordinal:03d}.txt",
                     test_case.explanation.encode("utf-8"),
                 )
+
+        # An interactive problem's public examples are its sample interactions, so
+        # they ship in the public ZIP too. Hidden ones (kept through a validator
+        # removal) stay out, and the survivors are renumbered to close the gaps.
+        if has_custom_validator:
+            visible = [
+                (interaction.transcript, interaction.explanation)
+                for interaction in sorted(problem.sample_interactions, key=lambda item: item.ordinal)
+                if interaction.hidden_at is None
+            ]
+            for name, content in build_interaction_files(visible):
+                archive.writestr(name, content)
 
         if include_problem_json:
             if language_limits is None:
@@ -259,12 +280,12 @@ def build_problem_export_zip(
                     validator_source = validator.candidate_source
                     validator_language_id = validator.candidate_language_id
             if validator_source is not None and validator_language_id is not None:
+                validator_member = packaged_validator_member(validator_language_id)
                 problem_json["custom_validator"] = {
                     "language_id": validator_language_id,
-                    "source_file": "validator/source.txt",
+                    "source_file": validator_member,
                 }
-                problem_json["test_case_visibility"] = "sample"
-                archive.writestr("validator/source.txt", validator_source.encode("utf-8"))
+                archive.writestr(validator_member, validator_source.encode("utf-8"))
             archive.writestr("problem.json", json.dumps(problem_json, indent=2))
 
     return buffer.getvalue()

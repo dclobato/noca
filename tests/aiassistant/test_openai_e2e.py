@@ -62,6 +62,7 @@ async def test_real_online_review_uses_openai_responses_api() -> None:
                 input_price=0.0,
                 output_price=0.0,
                 is_platform_key=False,
+                reasoning_effort="medium",
             ),
             timeout=30,
         )
@@ -91,6 +92,7 @@ async def test_real_batch_review_submits_openai_batch_job() -> None:
                     api_key=api_key,
                     model=_MODEL,
                     max_output_tokens=150,
+                    reasoning_effort="medium",
                 ),
                 timeout=30,
             )

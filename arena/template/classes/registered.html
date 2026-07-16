@@ -122,6 +122,6 @@
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"></script>
-    <script src="{{ request.url_for('arena_static_js', path='arena-row-href.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='row-href.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-classes.js') }}?v={{ app_version }}"></script>
 {% endblock %}

@@ -10,9 +10,13 @@
    Design tokens — Stitch "Competitive Programming Arena" theme
    ============================================================ */
 :root {
-    --arena-primary:                  #2f9e41;
-    --arena-primary-container:        #09872d;
-    --arena-on-primary:               #ffffff;
+    /* Core identity tokens reference the shared --noca-* set (see
+       shared/static/css/tokens.css) so web and arena never drift, and arena
+       inherits dark-theme values automatically. Arena-only extras (secondary,
+       tertiary, difficulty aliases) keep their own literals below. */
+    --arena-primary:                  var(--noca-brand);
+    --arena-primary-container:        var(--noca-brand-container);
+    --arena-on-primary:               var(--noca-on-brand);
     --arena-on-primary-container:     #f7fff1;
 
     --arena-secondary:                #cd191e;
@@ -22,22 +26,22 @@
     --arena-tertiary:                 #a42f59;
     --arena-on-tertiary:              #ffffff;
 
-    --arena-error:                    #ba1a1a;
+    --arena-error:                    var(--noca-danger);
     --arena-on-error:                 #ffffff;
 
-    --arena-surface:                  #f6f9ff;
-    --arena-surface-dim:              #d4dbe3;
-    --arena-surface-bright:           #f6f9ff;
-    --arena-surface-container-lowest: #ffffff;
-    --arena-surface-container-low:    #eef4fd;
-    --arena-surface-container:        #e8eef7;
-    --arena-surface-container-high:   #e2e9f1;
-    --arena-surface-container-highest:#dce3ec;
-    --arena-on-surface:               #151c22;
-    --arena-on-surface-variant:       #3f4a3d;
+    --arena-surface:                  var(--noca-surface);
+    --arena-surface-dim:              var(--noca-surface-container-highest);
+    --arena-surface-bright:           var(--noca-surface);
+    --arena-surface-container-lowest: var(--noca-surface-container-lowest);
+    --arena-surface-container-low:    var(--noca-surface-container-low);
+    --arena-surface-container:        var(--noca-surface-container);
+    --arena-surface-container-high:   var(--noca-surface-container-high);
+    --arena-surface-container-highest:var(--noca-surface-container-highest);
+    --arena-on-surface:               var(--noca-on-surface);
+    --arena-on-surface-variant:       var(--noca-on-surface-variant);
 
-    --arena-outline:                  #6f7a6b;
-    --arena-outline-variant:          #becab9;
+    --arena-outline:                  var(--noca-outline);
+    --arena-outline-variant:          var(--noca-outline-variant);
 
     --arena-inverse-surface:          #2a3138;
     --arena-inverse-on-surface:       #ebf1fa;
@@ -73,12 +77,9 @@
 /* ============================================================
    Page scaffold
    ============================================================ */
+/* Font, size, line-height and colours are inherited from the shared base rule in
+   tokens.css. Only arena's layout scaffold stays here. */
 body {
-    background-color: var(--arena-surface);
-    color: var(--arena-on-surface);
-    font-family: 'Inter', sans-serif;
-    font-size: 1rem;
-    line-height: 1.5;
     min-height: 100vh;
     display: flex;
     flex-direction: column;

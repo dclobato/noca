@@ -16,7 +16,8 @@
                 {{ render_icon(icon="space_dashboard") }}
                 Admin Dashboard
             </h1>
-            <div class="row g-3">
+            <h2 class="h6 text-uppercase text-muted mb-3">Backend</h2>
+            <div class="row g-3 mb-4">
                 <div class="col-12 col-md-6">
                     <a href="{{ request.url_for("arena_admin_dashboard_service_status") }}"
                        class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
@@ -29,12 +30,37 @@
                     </a>
                 </div>
                 <div class="col-12 col-md-6">
-                    <a href="{{ request.url_for("arena_admin_dashboard_ai_usage") }}"
+                    <a href="{{ request.url_for("arena_admin_dashboard_security_events") }}"
                        class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
-                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="credit_card") }}</span>
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="security") }}</span>
                         <div>
-                            <div class="fw-semibold">AI Usage</div>
-                            <div class="text-muted small">AI review requests, status and costs</div>
+                            <div class="fw-semibold">Security Events</div>
+                            <div class="text-muted small">Auth throttles, redactions and token mismatches</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+            </div>
+            <h2 class="h6 text-uppercase text-muted mb-3">Users</h2>
+            <div class="row g-3 mb-4">
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_admin_user_list") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="manage_accounts") }}</span>
+                        <div>
+                            <div class="fw-semibold">Manage users</div>
+                            <div class="text-muted small">Browse, edit roles and manage Arena accounts</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_admin_affiliation_list") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="corporate_fare") }}</span>
+                        <div>
+                            <div class="fw-semibold">Manage affiliations</div>
+                            <div class="text-muted small">Teams and institutions users belong to</div>
                         </div>
                         <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
                     </a>
@@ -62,12 +88,26 @@
                     </a>
                 </div>
                 <div class="col-12 col-md-6">
-                    <a href="{{ request.url_for("arena_admin_dashboard_security_events") }}"
+                    <a href="{{ request.url_for("arena_admin_dashboard_ai_usage") }}"
                        class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
-                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="security") }}</span>
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="credit_card") }}</span>
                         <div>
-                            <div class="fw-semibold">Security Events</div>
-                            <div class="text-muted small">Auth throttles, redactions and token mismatches</div>
+                            <div class="fw-semibold">AI Usage</div>
+                            <div class="text-muted small">AI review requests, status and costs</div>
+                        </div>
+                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
+                    </a>
+                </div>
+            </div>
+            <h2 class="h6 text-uppercase text-muted mb-3">Content</h2>
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    <a href="{{ request.url_for("arena_admin_category_list") }}"
+                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
+                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="category") }}</span>
+                        <div>
+                            <div class="fw-semibold">Manage categories</div>
+                            <div class="text-muted small">Problem categories used across the catalogue</div>
                         </div>
                         <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
                     </a>

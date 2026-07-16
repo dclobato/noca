@@ -108,6 +108,14 @@ async def import_problem_submit(
             f"Problem imported, but skipped per-language limits for disallowed languages: {skipped_languages}.",
             FlashCategory.WARNING,
         )
+    # An interactive problem shows sample interactions instead of sample test cases,
+    # so one imported without any has nothing public to show a contestant.
+    if import_result.validator_candidate_token is not None and import_result.imported_interaction_count == 0:
+        flash(
+            "This package has a custom validator but no sample interactions, so the problem "
+            "shows no examples. Add them on the edit page below.",
+            FlashCategory.WARNING,
+        )
     return _redirect(
         str(request.url_for("edit_problem_form", slug=ctx.contest.login_slug, problem_id=import_result.problem.id))
     )

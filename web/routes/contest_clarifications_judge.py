@@ -11,7 +11,7 @@ from fastapi_flash import FlashCategory, FlashDep
 from shared.services.lock_service import get_lock
 from web.dependencies import ContestContext, ensure_allowed_role, get_contest_context
 from web.models.users import User
-from web.routes.contest_clarifications_helpers import _JUDGE_ONLY, _build_problem_map, _html
+from web.routes.contest_clarifications_helpers import _ANSWER_ALLOWED, _build_problem_map, _html
 from web.services.clarification_service import (
     ClarificationAcquisitionTimeoutError,
     ClarificationAlreadyAcquiredError,
@@ -36,7 +36,7 @@ async def acquire(
     ctx: ContestContext = Depends(get_contest_context),
     clarification_id: str = Form(""),
 ) -> Response:
-    ensure_allowed_role(ctx.actor, _JUDGE_ONLY)
+    ensure_allowed_role(ctx.actor, _ANSWER_ALLOWED)
     assert isinstance(ctx.actor, User)
     slug = ctx.contest.login_slug
 
@@ -94,7 +94,7 @@ async def answer_form(
     id: str = Query(""),
 ) -> Response:
     templates = request.app.state.templates
-    ensure_allowed_role(ctx.actor, _JUDGE_ONLY)
+    ensure_allowed_role(ctx.actor, _ANSWER_ALLOWED)
     slug = ctx.contest.login_slug
 
     clari = await get_clarification(ctx.session, ctx.contest, id)
@@ -142,7 +142,7 @@ async def answer_submit(
     action: str = Form("submit"),
 ) -> Response:
     templates = request.app.state.templates
-    ensure_allowed_role(ctx.actor, _JUDGE_ONLY)
+    ensure_allowed_role(ctx.actor, _ANSWER_ALLOWED)
     assert isinstance(ctx.actor, User)
     slug = ctx.contest.login_slug
 

@@ -95,7 +95,7 @@ async def admin_problem_import_submit(
     zip_bytes = await package.read()
     image_service: ImageProcessingService = request.app.state.image_service
     try:
-        problem = await admin_problem_io_service.import_problem_from_zip(
+        result = await admin_problem_io_service.import_problem_from_zip(
             session,
             zip_bytes=zip_bytes,
             caller_id=current_user.id,
@@ -107,6 +107,7 @@ async def admin_problem_import_submit(
         flash(str(exc), FlashCategory.DANGER)
         return RedirectResponse(url=form_url, status_code=303)
 
+    problem = result.problem
     await session.refresh(problem, attribute_names=["custom_validator"])
     if problem.custom_validator is not None and problem.custom_validator.candidate_token is not None:
         await enqueue_custom_validator_validation_job(
@@ -122,6 +123,14 @@ async def admin_problem_import_submit(
         f"Problem #{problem.arena_number} imported (disabled). Review and complete the details below.",
         FlashCategory.SUCCESS,
     )
+    # An interactive problem shows sample interactions instead of sample test cases,
+    # so one imported without any has nothing public to show a contestant.
+    if result.has_custom_validator and result.imported_interaction_count == 0:
+        flash(
+            "This package has a custom validator but no sample interactions, so the problem "
+            "shows no examples. Add them on the edit page below.",
+            FlashCategory.WARNING,
+        )
     return RedirectResponse(
         url=str(request.url_for("arena_admin_problem_edit", problem_id=problem.id)),
         status_code=303,

@@ -227,10 +227,10 @@ async def test_create_arena_submission_rejects_problem_without_test_cases(sessio
 
 
 @pytest.mark.asyncio
-async def test_create_arena_submission_allows_validator_problem_without_test_cases(
+async def test_create_arena_submission_refuses_validator_problem_without_test_cases(
     session: AsyncSession,
 ) -> None:
-    """Interactive problems never read test-case files, so zero cases is valid."""
+    """The validator is replayed per test case, so it has nothing to play without one."""
     language = await _make_language(session)
     user = await _make_user(session)
     problem = await _make_problem(session, user, with_case=False)
@@ -245,15 +245,37 @@ async def test_create_arena_submission_allows_validator_problem_without_test_cas
     )
     await session.flush()
 
-    result = await create_arena_submission(
-        session=session,
-        user_id=user.id,
-        problem_id=problem.id,
-        language_id=language.id,
-        source_code="print(1)\n",
-    )
+    with pytest.raises(ArenaSubmissionServiceError, match="no test cases"):
+        await create_arena_submission(
+            session=session,
+            user_id=user.id,
+            problem_id=problem.id,
+            language_id=language.id,
+            source_code="print(1)\n",
+        )
 
-    assert result.judgment.status == JudgmentStatus.QUEUED.value
+
+@pytest.mark.asyncio
+async def test_create_arena_submission_refuses_plain_problem_with_output_less_cases(
+    session: AsyncSession,
+) -> None:
+    """A problem that lost its validator keeps cases a token compare cannot judge."""
+    language = await _make_language(session)
+    user = await _make_user(session)
+    problem = await _make_problem(session, user, with_case=False)
+    case = make_arena_test_case(problem.id, 1)
+    case.output_size_bytes = None
+    session.add(case)
+    await session.flush()
+
+    with pytest.raises(ArenaSubmissionServiceError, match="no expected output"):
+        await create_arena_submission(
+            session=session,
+            user_id=user.id,
+            problem_id=problem.id,
+            language_id=language.id,
+            source_code="print(1)\n",
+        )
 
 
 @pytest.mark.asyncio

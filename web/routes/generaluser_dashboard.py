@@ -22,6 +22,7 @@ from web.models.problem import Problem
 from web.models.submission import Submission, SubmissionJudgment
 from web.models.users import User
 from web.services.contest_service import build_contest_clock_payload
+from web.services.task_service import can_view_tasks
 
 router = APIRouter(prefix="/c/{slug}", tags=["contest_dashboard"])
 
@@ -132,7 +133,14 @@ async def dashboard(request: Request, ctx: ContestContext = Depends(get_contest_
 
     return _html(
         templates.TemplateResponse(
-            request, "contest/dashboard.html", {"current_user": actor, "contest": ctx.contest, "counters": counters}
+            request,
+            "contest/dashboard.html",
+            {
+                "current_user": actor,
+                "contest": ctx.contest,
+                "counters": counters,
+                "can_view_tasks": can_view_tasks(actor, ctx.contest),
+            },
         )
     )
 

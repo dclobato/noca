@@ -369,11 +369,19 @@
                                            href="{{ request.url_for('download_problem_custom_validator', slug=contest.login_slug, problem_id=problem.id) }}">
                                             Download validator source
                                         </a>
-                                        <form method="post"
-                                              action="{{ request.url_for('remove_problem_custom_validator', slug=contest.login_slug, problem_id=problem.id) }}">
-                                            <button class="btn btn-outline-danger btn-sm" type="submit">Remove validator</button>
-                                        </form>
+                                        <a class="btn btn-outline-secondary btn-sm"
+                                           href="{{ request.url_for('view_problem_custom_validator_source', slug=contest.login_slug, problem_id=problem.id) }}"
+                                           target="_blank"
+                                           rel="noopener noreferrer">View source</a>
+                                        <button class="btn btn-outline-danger btn-sm"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#validator-remove-modal">Remove validator</button>
                                     </div>
+                                    {% with validator_remove_url=request.url_for('remove_problem_custom_validator', slug=contest.login_slug, problem_id=problem.id) | string,
+                                        interaction_count=interaction_rows | length %}
+                                        {% include "_partials/validator_remove_modal.html" %}
+                                    {% endwith %}
                                 {% else %}
                                     <form method="post"
                                           action="{{ request.url_for('upload_problem_custom_validator', slug=contest.login_slug, problem_id=problem.id) }}"
@@ -431,7 +439,10 @@
                             {% if problem and validator_status.configured %}
                                 <div class="form-text">Remove the current validator to upload a different one.</div>
                             {% else %}
-                                <div class="form-text">All test cases must be public samples. Validation runs asynchronously.</div>
+                                <div class="form-text">
+                                    The validator is replayed once per test case, with that case's input fed to its
+                                    standard input; test cases carry no expected output. Validation runs asynchronously.
+                                </div>
                             {% endif %}
                         </div>
                     </div>
@@ -477,6 +488,7 @@
                             </div>
                         </div>
                     {% else %}
+                        {% include "admin/problems/_sample_interactions_card.html" %}
                         <div class="card shadow-sm mb-4">
                             <div class="card-header fw-semibold">Test Cases</div>
                             <div class="card-body">
@@ -626,7 +638,6 @@
                    name="tc_remove_ids"
                    id="tc_remove_ids"
                    form="edit-form"
-                   data-allow-empty="{{ 'true' if validator_status and validator_status.configured else 'false' }}"
                    value="">
             {% if not problem %}</form>{% endif %}
         <div class="d-flex gap-2 mb-4">
@@ -748,6 +759,10 @@
                 defer></script>
         <script src="{{ request.url_for('static_shared_js', path='tc-add-row.js') }}?v={{ app_version }}"
                 defer></script>
+        {% if validator_status.configured %}
+            <script src="{{ request.url_for('static_shared_js', path='si-add-row.js') }}?v={{ app_version }}"
+                    defer></script>
+        {% endif %}
     {% endif %}
     <script src="{{ request.url_for('static_js', path='admin-problems-edit.js') }}?v={{ app_version }}"
             defer></script>

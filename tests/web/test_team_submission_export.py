@@ -166,6 +166,10 @@ def _build_dashboard_app(ctx: ContestContext) -> FastAPI:
     async def _static_js(path: str) -> dict[str, str]:
         return {"path": path}
 
+    @app.get("/static/shared/js/{path:path}", name="static_shared_js")
+    async def _static_shared_js(path: str) -> dict[str, str]:
+        return {"path": path}
+
     @app.get("/static/img/{path:path}", name="static_img")
     async def _static_img(path: str) -> dict[str, str]:
         return {"path": path}

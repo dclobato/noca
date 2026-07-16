@@ -54,6 +54,26 @@ def test_problem_edit_template_loads_highlight_row_script() -> None:
     assert "highlight-row.js" in template
 
 
+def test_problem_edit_template_links_validator_source_view() -> None:
+    """Configured validators should offer a new-tab highlighted source view."""
+    template = Path("web/template/admin/problems/edit.html").read_text(encoding="utf-8")
+
+    assert "view_problem_custom_validator_source" in template
+    assert 'target="_blank"' in template
+    assert 'rel="noopener noreferrer"' in template
+
+
+def test_validator_source_template_uses_highlight_line_numbers() -> None:
+    """The standalone validator source page should use Highlight.js line numbers."""
+    template = Path("web/template/admin/problems/validator_source.html").read_text(encoding="utf-8")
+
+    assert "{{ brand_name }}" in template
+    assert "data-highlight-line-numbers" in template
+    assert "highlight-code-blocks.js" in template
+    # Standalone source viewer intentionally has no footer (header + body only).
+    assert "_partials/_footer.html" not in template
+
+
 def test_reorder_templates_load_sortable_assets() -> None:
     """Problem admin pages should load local SortableJS and reorder glue."""
     list_template = Path("web/template/admin/problems/list.html").read_text(encoding="utf-8")

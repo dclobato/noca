@@ -105,9 +105,16 @@ Important Valkey keys include:
 ## Security guardrails
 
 AI review input contains untrusted source code, problem statements, optional
-extra instructions, and optional image captions. The worker uses explicit input
-boundaries and output post-processing to reduce the chance that malicious review
-context changes the intended behavior.
+extra instructions, optional image captions, and — for interactive problems —
+the recorded interaction transcript and author sample interactions. The worker
+uses explicit input boundaries and output post-processing to reduce the chance
+that malicious review context changes the intended behavior.
+
+For interactive problems (`VALID` active custom validator), `aiassistant/
+interactive_context.py` builds a bounded `<interactive_context>` prompt section
+from the deciding attempt and public sample interactions; the contestant-controlled
+transcript and stderr are wrapped with `wrap_untrusted_review_artifact()` just like
+the source. See [AIREVIEW_FLOW.md](AIREVIEW_FLOW.md#interactive-problems).
 
 ### Input boundaries
 

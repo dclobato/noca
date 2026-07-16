@@ -62,6 +62,7 @@ def _build_profile_app(session: AsyncSession) -> tuple[FastAPI, AuthenticationSe
     app.mount("/static/vendor", StaticFiles(directory=shared_dir / "static" / "vendor"), name="static_vendor")
     app.mount("/static/css", StaticFiles(directory=web_dir / "static" / "css"), name="static_css")
     app.mount("/static/js", StaticFiles(directory=web_dir / "static" / "js"), name="static_js")
+    app.mount("/static/shared/js", StaticFiles(directory=shared_dir / "static" / "js"), name="static_shared_js")
     app.mount("/static/img", StaticFiles(directory=web_dir / "static" / "img"), name="static_img")
 
     @app.get("/uberadmin", name="uberadmin_dashboard")

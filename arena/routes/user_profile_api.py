@@ -27,6 +27,7 @@ from arena.services.profile_location_service import (
     update_user_affiliation,
     update_user_location,
 )
+from arena.services.user_stats_service import get_user_statistics
 from arena.services.user_timezone_service import format_user_datetime
 from shared.age_check import AgeStatus
 from shared.db_schema import languages as languages_table
@@ -478,6 +479,20 @@ async def arena_user_profile_submission_heatmap(
             "computed_at": row["computed_at"].isoformat() if row["computed_at"] else None,
         }
     )
+
+
+@router.get("/user/profile/statistics", name="arena_user_profile_statistics")
+async def arena_user_profile_statistics(
+    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    session: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Return the logged-in user's precomputed verdict and language distributions."""
+    if current_user is None:
+        return _json_login_required()
+    payload = await get_user_statistics(session, current_user.id)
+    if payload is None:
+        return JSONResponse({"total_submissions": 0, "verdicts": [], "languages": [], "computed_at": None})
+    return JSONResponse(payload)
 
 
 def _get_reverse_geocoder_network_service(request: Request) -> NetworkService:

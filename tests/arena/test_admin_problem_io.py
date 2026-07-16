@@ -23,6 +23,7 @@ from arena.services import admin_problem_io_service, admin_problem_service, admi
 from shared.enumerations import ArenaRole, CustomValidatorCandidateState
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.sample_problem_package import build_sample_problem_package
+from shared.services.testcase_files import get_testcase_path
 from web.models.language import Language
 
 
@@ -77,6 +78,7 @@ def _build_package(*, categories: list[str]) -> bytes:
 
 
 def _build_validator_package() -> bytes:
+    """A validator package: its cases parametrize the validator, so inputs only."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr(
@@ -84,7 +86,6 @@ def _build_validator_package() -> bytes:
             json.dumps(
                 {
                     **_VALID_META,
-                    "test_case_visibility": "sample",
                     "custom_validator": {
                         "language_id": "python3",
                         "source_file": "validator/source.txt",
@@ -92,15 +93,14 @@ def _build_validator_package() -> bytes:
                 }
             ),
         )
-        archive.writestr("statement.md", "# Interactive\n\nExample cases only.\n")
+        archive.writestr("statement.md", "# Interactive\n\nInputs only.\n")
         archive.writestr("validator/source.txt", "print('ready')\n")
         archive.writestr("in/001.in", "example\n")
-        archive.writestr("out/001.out", "example\n")
     return buffer.getvalue()
 
 
 @pytest.mark.asyncio
-async def test_validator_package_import_is_pending_disabled_and_sample_only(session: AsyncSession) -> None:
+async def test_validator_package_import_is_pending_and_disabled(session: AsyncSession) -> None:
     author = await _make_author(session)
     session.add(
         Language(
@@ -120,20 +120,23 @@ async def test_validator_package_import_is_pending_disabled_and_sample_only(sess
     )
     await session.commit()
 
-    problem = await admin_problem_io_service.import_problem_from_zip(
-        session,
-        zip_bytes=_build_validator_package(),
-        caller_id=author.id,
-        image_service=ImageProcessingService(),
-        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
-    )
+    problem = (
+        await admin_problem_io_service.import_problem_from_zip(
+            session,
+            zip_bytes=_build_validator_package(),
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
 
     validator = await session.get(ArenaProblemCustomValidator, problem.id)
     test_cases = await admin_problem_tc_service.list_testcases(session, problem.id)
     assert problem.enabled is False
     assert validator is not None
     assert validator.candidate_state == CustomValidatorCandidateState.PENDING
-    assert test_cases and all(test_case.is_sample for test_case in test_cases)
+    # The case carries input only, and is secret like any other imported case.
+    assert [(tc.ordinal, tc.is_sample, tc.output_size_bytes) for tc in test_cases] == [(1, False, None)]
 
     loaded = await admin_problem_service.get_problem(
         session,
@@ -142,15 +145,19 @@ async def test_validator_package_import_is_pending_disabled_and_sample_only(sess
         is_admin=False,
     )
     assert loaded is not None
+    stale_out = get_testcase_path(problem.id, 1, "out", arena_settings.PROBLEM_TESTCASE_DIR)
+    stale_out.write_bytes(b"stale\n")
     exported = admin_problem_io_service.build_export_zip(
         loaded,
         author.nome,
         arena_settings.PROBLEM_TESTCASE_DIR,
     )
     with zipfile.ZipFile(io.BytesIO(exported)) as archive:
-        metadata = json.loads(archive.read("problem.json"))
-        assert metadata["test_case_visibility"] == "sample"
-        assert archive.read("validator/source.txt") == b"print('ready')\n"
+        assert archive.read("validator/validator.py") == b"print('ready')\n"
+        assert archive.read("in/001.in") == b"example\n"
+        # An interactive problem has no expected output to ship, even if a stale
+        # legacy .out file is still present on disk.
+        assert "out/001.out" not in archive.namelist()
 
 
 @pytest.mark.asyncio
@@ -160,13 +167,15 @@ async def test_import_sets_author_secret_tcs_and_existing_categories(session: As
     await session.commit()
 
     zip_bytes = _build_package(categories=["Graphs", "Does Not Exist"])
-    problem = await admin_problem_io_service.import_problem_from_zip(
-        session,
-        zip_bytes=zip_bytes,
-        caller_id=author.id,
-        image_service=ImageProcessingService(),
-        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
-    )
+    problem = (
+        await admin_problem_io_service.import_problem_from_zip(
+            session,
+            zip_bytes=zip_bytes,
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
 
     assert problem.owner_id == author.id
     assert problem.enabled is False
@@ -192,13 +201,15 @@ async def test_export_round_trips_metadata(session: AsyncSession) -> None:
     session.add(ArenaCategory(name="Graphs", slug="graphs", color="#112233"))
     await session.commit()
 
-    created = await admin_problem_io_service.import_problem_from_zip(
-        session,
-        zip_bytes=_build_package(categories=["Graphs"]),
-        caller_id=author.id,
-        image_service=ImageProcessingService(),
-        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
-    )
+    created = (
+        await admin_problem_io_service.import_problem_from_zip(
+            session,
+            zip_bytes=_build_package(categories=["Graphs"]),
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
     problem = await admin_problem_service.get_problem(session, created.id, caller_id=author.id, is_admin=False)
     assert problem is not None
 
@@ -228,13 +239,15 @@ async def test_import_without_author_uses_owner_name_on_export(session: AsyncSes
         }
     )
 
-    problem = await admin_problem_io_service.import_problem_from_zip(
-        session,
-        zip_bytes=zip_bytes,
-        caller_id=owner.id,
-        image_service=ImageProcessingService(),
-        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
-    )
+    problem = (
+        await admin_problem_io_service.import_problem_from_zip(
+            session,
+            zip_bytes=zip_bytes,
+            caller_id=owner.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
     assert problem.author is None
     assert problem.author_is_owner is True
 
@@ -264,13 +277,15 @@ async def test_import_export_round_trips_explanations(session: AsyncSession) -> 
         archive.writestr("in/002.in", "2\n")
         archive.writestr("out/002.out", "2\n")  # second case has no explanation
 
-    created = await admin_problem_io_service.import_problem_from_zip(
-        session,
-        zip_bytes=buffer.getvalue(),
-        caller_id=author.id,
-        image_service=ImageProcessingService(),
-        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
-    )
+    created = (
+        await admin_problem_io_service.import_problem_from_zip(
+            session,
+            zip_bytes=buffer.getvalue(),
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
 
     test_cases = await admin_problem_tc_service.list_testcases(session, created.id)
     by_ordinal = {tc.ordinal: tc for tc in test_cases}
@@ -442,13 +457,15 @@ async def test_sample_package_imports_cleanly_into_arena(session: AsyncSession) 
     session.add_all([ArenaCategory(name="sample", slug="sample"), ArenaCategory(name="math", slug="math")])
     await session.commit()
 
-    problem = await admin_problem_io_service.import_problem_from_zip(
-        session,
-        zip_bytes=build_sample_problem_package(),
-        caller_id=author.id,
-        image_service=ImageProcessingService(),
-        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
-    )
+    problem = (
+        await admin_problem_io_service.import_problem_from_zip(
+            session,
+            zip_bytes=build_sample_problem_package(),
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
 
     test_cases = await admin_problem_tc_service.list_testcases(session, problem.id)
     await session.refresh(problem, attribute_names=["categories"])

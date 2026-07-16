@@ -27,6 +27,9 @@ async def get_contest_problems(session: AsyncSession, contest: Contest) -> list[
             selectinload(Problem.categories),
             selectinload(Problem.test_cases),
             selectinload(Problem.custom_validator),
+            # The public export builder runs in a worker thread, so every collection
+            # it touches must already be loaded — a lazy load there has no event loop.
+            selectinload(Problem.sample_interactions),
             selectinload(Problem.language_limits).selectinload(ProblemLanguageLimit.language),
             selectinload(Problem.profiling_runs).selectinload(ProfilingRun.case_results),
             selectinload(Problem.profiling_runs).selectinload(ProfilingRun.language),
@@ -45,6 +48,9 @@ async def get_problem_in_contest(session: AsyncSession, contest: Contest, proble
             selectinload(Problem.categories),
             selectinload(Problem.test_cases),
             selectinload(Problem.custom_validator),
+            # The export builders run in a worker thread, so every collection they
+            # touch must already be loaded — a lazy load there has no event loop.
+            selectinload(Problem.sample_interactions),
             selectinload(Problem.language_limits).selectinload(ProblemLanguageLimit.language),
             selectinload(Problem.profiling_runs).selectinload(ProfilingRun.case_results),
             selectinload(Problem.profiling_runs).selectinload(ProfilingRun.language),

@@ -115,6 +115,7 @@
                                             data-bs-target="#login-detail-modal"
                                             data-login-date="{{ arena_format_datetime(login.dta_login, current_user, '%Y-%m-%d %H:%M:%S %Z') }}"
                                             data-login-ip="{{ login.ip_address or '' }}"
+                                            data-login-source-port="{{ login.source_port or '' }}"
                                             data-login-location="{{ login.detailed_location or '' }}"
                                             data-login-asn="{{ login.as_number or '' }}"
                                             data-login-ua="{{ login.user_agent or '' }}"
@@ -158,6 +159,9 @@
                         </dd>
                         <dt>IP address</dt>
                         <dd id="login-detail-ip">
+                        </dd>
+                        <dt>Source port</dt>
+                        <dd id="login-detail-source-port">
                         </dd>
                         <dt>Location</dt>
                         <dd id="login-detail-location">

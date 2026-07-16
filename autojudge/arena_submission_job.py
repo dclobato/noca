@@ -127,12 +127,14 @@ async def process_arena_submission_job(
         contestant_language=language,
         contestant_artifact=compile_result.artifact_data or b"",
         limits=submission.limits,
+        test_cases=[(test_case.ordinal, test_case.input_data) for test_case in submission.test_cases],
         db=db,
         pool_manager=pool_manager,
         language_registry=language_registry,
         docker_client=docker_client,
         executor=executor,
         prepared=prepared_validator,
+        user_language_id=submission.language_id,
     )
     if interactive_result is not None:
         verdict = interactive_result.classification.verdict

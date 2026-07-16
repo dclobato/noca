@@ -234,6 +234,10 @@ def _build_app(session: AsyncSession, *, valkey_runtime: object | None = None) -
     async def _admin_affiliations() -> Response:
         return Response("admin_affiliations")
 
+    @app.get("/help", name="arena_help_index")
+    async def _help_index() -> Response:
+        return Response("help")
+
     @app.get("/help/rating", name="arena_help_rating")
     async def _help_rating() -> Response:
         return Response("help_rating")

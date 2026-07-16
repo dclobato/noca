@@ -26,6 +26,8 @@ def build_sample_testcases_zip(
     problem_id: str,
     test_cases: list[ArenaTestCase],
     testcase_dir: Path,
+    *,
+    has_custom_validator: bool = False,
 ) -> bytes:
     """Build an in-memory ZIP archive of sample test cases (Layout A).
 
@@ -54,7 +56,10 @@ def build_sample_testcases_zip(
             in_path = get_testcase_path(problem_id, tc.ordinal, "in", testcase_dir)
             out_path = get_testcase_path(problem_id, tc.ordinal, "out", testcase_dir)
             zf.writestr(f"in/{name}.in", in_path.read_bytes() if in_path.exists() else b"")
-            zf.writestr(f"out/{name}.out", out_path.read_bytes() if out_path.exists() else b"")
+            # An interactive problem's cases have no expected output at all, so the
+            # archive ships inputs only rather than a misleading empty .out.
+            if not has_custom_validator and out_path.exists():
+                zf.writestr(f"out/{name}.out", out_path.read_bytes())
             if tc.explanation:
                 zf.writestr(f"explanation/{name}.txt", tc.explanation.encode())
     return buf.getvalue()

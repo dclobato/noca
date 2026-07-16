@@ -11,6 +11,7 @@ members = [
     "noca-aiassistant",
     "noca-arena",
     "noca-autojudge",
+    "noca-healthmonitor",
     "noca-rating",
     "noca-shared",
     "noca-web",
@@ -852,6 +853,26 @@ requires-dist = [
 ]
 
 [[package]]
+name = "noca-healthmonitor"
+source = { editable = "healthmonitor" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "jinja2" },
+    { name = "noca-shared" },
+    { name = "python-dotenv" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = "==0.136.3" },
+    { name = "jinja2", specifier = "==3.1.6" },
+    { name = "noca-shared", editable = "shared" },
+    { name = "python-dotenv", specifier = "==1.2.2" },
+    { name = "uvicorn", specifier = "==0.49.0" },
+]
+
+[[package]]
 name = "noca-rating"
 source = { editable = "rating" }
 dependencies = [
@@ -935,7 +956,7 @@ requires-dist = [
 
 [[package]]
 name = "noca-workspace"
-version = "13.3.0"
+version = "14.0.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]

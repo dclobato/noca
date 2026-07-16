@@ -116,6 +116,10 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
     async def _avatar(user_id: str) -> Response:
         return Response("avatar", media_type="image/svg+xml")
 
+    @app.get("/help", name="arena_help_index")
+    async def _help_index() -> Response:
+        return Response("help")
+
     @app.get("/help/rating", name="arena_help_rating")
     async def _help_rating() -> Response:
         return Response("help")
@@ -712,7 +716,17 @@ async def test_toggle_enabled_redirects_to_list(session: AsyncSession) -> None:
         notes=None,
         category_ids=[],
     )
+    # Every problem needs a test case before it can judge, so before it can be enabled.
+    _tc, write_files = await admin_problem_tc_service.create_testcase(
+        session,
+        problem,
+        input_content="1",
+        output_content="1",
+        is_sample=True,
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
     await session.commit()
+    write_files()
 
     token = _login_token(app, judge)
     async with AsyncClient(
@@ -732,6 +746,120 @@ async def test_toggle_enabled_redirects_to_list(session: AsyncSession) -> None:
     # Verify flag changed in DB
     await session.refresh(problem)
     assert problem.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_toggle_enabled_is_refused_without_a_test_case(session: AsyncSession) -> None:
+    """A problem with no test case cannot be judged, so it cannot be enabled."""
+    app = _build_admin_app(session)
+    judge = await _create_user(session, email="j6@test.example", role=ArenaRole.ARENA_JUDGE, can_edit=True)
+    problem = await admin_problem_service.create_problem(
+        session,
+        caller_id=judge.id,
+        title="Empty Problem",
+        source=None,
+        hide_author_show_source=False,
+        time_limit_ms=1000,
+        memory_limit_kb=262144,
+        pids_limit=64,
+        output_limit_in_bytes=65536,
+        problem_statement="stmt",
+        image_b64=None,
+        image_mime=None,
+        image_caption=None,
+        notes=None,
+        category_ids=[],
+    )
+    await session.commit()
+
+    token = _login_token(app, judge)
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        follow_redirects=False,
+        cookies={"arena_access_token": token},
+    ) as client:
+        response = await client.post(f"/admin/problems/{problem.id}/toggle-enabled")
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith(f"/admin/problems/{problem.id}/edit")
+    await session.refresh(problem)
+    assert problem.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_toggle_enabled_is_refused_after_removing_the_validator_of_an_output_less_case(
+    session: AsyncSession,
+) -> None:
+    """A case that only ever carried input cannot judge a plain problem.
+
+    While interactive, an output-less case is exactly what the model expects: it
+    parametrizes the validator. Once the validator is removed through the real
+    route, the problem is a plain token-compare problem again, and that same
+    case has nothing to compare the contestant's output against — enabling must
+    stay blocked until the case gets a real expected output.
+    """
+    app = _build_admin_app(session)
+    judge = await _create_user(session, email="j7@test.example", role=ArenaRole.ARENA_JUDGE, can_edit=True)
+    language = await _create_language(session)
+    problem = await admin_problem_service.create_problem(
+        session,
+        caller_id=judge.id,
+        title="Formerly Interactive Problem",
+        source=None,
+        hide_author_show_source=False,
+        time_limit_ms=1000,
+        memory_limit_kb=262144,
+        pids_limit=64,
+        output_limit_in_bytes=65536,
+        problem_statement="stmt",
+        image_b64=None,
+        image_mime=None,
+        image_caption=None,
+        notes=None,
+        category_ids=[],
+    )
+    session.add(
+        ArenaProblemCustomValidator(
+            problem_id=problem.id,
+            active_language_id=language.id,
+            active_source="print('validator')\n",
+            active_state=CustomValidatorActiveState.VALID,
+            active_validated_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
+    _tc, write_files = await admin_problem_tc_service.create_testcase(
+        session,
+        problem,
+        input_content="7\n",
+        output_content="ignored while interactive",
+        is_sample=True,
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+    await session.commit()
+    write_files()
+
+    token = _login_token(app, judge)
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        follow_redirects=False,
+        cookies={"arena_access_token": token},
+    ) as client:
+        remove_response = await client.post(
+            f"/admin/problems/{problem.id}/validator/remove",
+            data={"keep_interactions": "true"},
+        )
+        assert remove_response.status_code == 303
+
+        enable_response = await client.post(f"/admin/problems/{problem.id}/toggle-enabled")
+
+    assert enable_response.status_code == 303
+    assert enable_response.headers["location"].endswith(f"/admin/problems/{problem.id}/edit")
+    await session.refresh(problem)
+    assert problem.enabled is False
+    assert await session.get(ArenaProblemCustomValidator, problem.id) is None
 
 
 # ── Toggle test-case sample/secret ────────────────────────────────────────────

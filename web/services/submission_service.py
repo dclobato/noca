@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import anyio
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,7 +24,7 @@ from shared.enumerations import CustomValidatorActiveState, JudgmentStatus, Role
 from shared.timing import compute_timestamp_seconds, display_minutes_from_seconds
 from web.models._base import _new_uuid
 from web.models.contest import Contest
-from web.models.problem import Problem
+from web.models.problem import Problem, ProblemTestCase
 from web.models.submission import HumanSubmissionConfirmation, Submission, SubmissionJudgment, SubmissionJudgmentAudit
 from web.models.users import User
 from web.routes.contest_admin_problem_helpers import _label
@@ -288,6 +288,36 @@ async def create_submission(
         and validator.active_state != CustomValidatorActiveState.VALID
     ):
         raise ValueError("The custom validator is not available.")
+
+    validator_configured = validator is not None and (
+        validator.active_source is not None or validator.candidate_source is not None
+    )
+
+    # Every problem needs at least one test case: a plain problem compares each
+    # case's expected output, an interactive one replays its validator once per
+    # case with that case's input. An interactive problem judges only against
+    # secret cases — its public samples are sample interactions — so count those.
+    test_case_count = await session.scalar(
+        select(func.count())
+        .select_from(ProblemTestCase)
+        .where(
+            ProblemTestCase.problem_id == problem_id,
+            *([ProblemTestCase.is_sample.is_(False)] if validator_configured else []),
+        )
+    )
+    if not test_case_count:
+        raise ValueError("This problem has no test cases and cannot be judged yet.")
+    if not validator_configured:
+        missing_output_count = await session.scalar(
+            select(func.count())
+            .select_from(ProblemTestCase)
+            .where(
+                ProblemTestCase.problem_id == problem_id,
+                ProblemTestCase.output_size_bytes.is_(None),
+            )
+        )
+        if missing_output_count:
+            raise ValueError("This problem has test cases with no expected output.")
 
     # Pre-flight duplicate check (fast path; race covered by DB constraint below)
     duplicate = (

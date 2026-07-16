@@ -8,6 +8,7 @@
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon with context %}
 {% block title_suffix %}&mdash; Affiliation Management{% endblock %}
+{% block nav_admin_dashboard %}active{% endblock %}
 {% block nav_admin_affiliations %}active{% endblock %}
 {% block extra_head %}
     <link rel="stylesheet"
@@ -506,6 +507,7 @@
 {% block extra_script %}
     <script src="{{ request.url_for('static_vendor', path='cropper.min.js') }}"></script>
     <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='noca-echarts-theme.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='admin-affiliations.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='admin-affiliations-logo.js') }}?v={{ app_version }}"></script>

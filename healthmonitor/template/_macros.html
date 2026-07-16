@@ -1,0 +1,17 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% macro render_icon(icon=None, filled=False, classes=None, title=None) %}
+    {% if classes is string %}
+        {% set base_classes = classes.split() %}
+    {% else %}
+        {% set base_classes = classes or [] %}
+    {% endif %}
+    {% set final_classes = base_classes + (['material-symbols-filled'] if filled else []) %}
+    <span class="material-symbols-outlined {{ final_classes | join(" ") }}"
+          {% if title %}title="{{ title }}"{% endif %}>{{ icon }}</span>
+{% endmacro %}

@@ -32,7 +32,12 @@ from web.routes.contest_submissions_helpers import (
     _html,
     submission_highlight_assets,
 )
-from web.services.judging_service import get_judging_history
+from web.services.judging_service import (
+    can_confirm_verdict,
+    can_override_verdict,
+    confirmation_is_decisive,
+    get_judging_history,
+)
 from web.services.judgment_utils import get_active_judgment
 from web.services.submission_service import build_team_submissions_zip
 
@@ -162,33 +167,51 @@ async def review_submission(
     )
     can_see_test_results = isinstance(ctx.actor, UberAdmin) or ctx.actor.role in {RoleEnum.JUDGE, RoleEnum.ADMIN}
 
+    can_review = can_confirm_verdict(ctx.actor, ctx.contest)
+    is_decisive = confirmation_is_decisive(ctx.actor, ctx.contest)
+
     has_confirmed = False
-    if is_judge and active_judgment is not None:
-        has_confirmed = any(c.judge_id == ctx.actor.id for c in active_judgment.confirmations)
+    decisive_confirmation_exists = False
+    if active_judgment is not None:
+        if can_review:
+            has_confirmed = any(c.judge_id == getattr(ctx.actor, "id", None) for c in active_judgment.confirmations)
+        decisive_confirmation_exists = any(c.is_chief_confirmation for c in active_judgment.confirmations)
 
     can_confirm = (
         not ctx.contest.autojudge_only
-        and is_judge
+        and can_review
         and not has_confirmed
+        and not (is_decisive and decisive_confirmation_exists)
         and active_judgment is not None
         and active_judgment.status == JudgmentStatus.DONE
         and active_judgment.final_verdict is None
         and (not lock_service_available or (review_lock is not None and review_lock.holder_id == ctx.actor.id))
     )
+    can_acquire_review = (
+        not ctx.contest.autojudge_only
+        and can_review
+        and not has_confirmed
+        and not (is_decisive and decisive_confirmation_exists)
+        and active_judgment is not None
+        and active_judgment.status == JudgmentStatus.DONE
+        and active_judgment.final_verdict is None
+    )
     can_override = (
-        is_chief_judge
+        can_override_verdict(ctx.actor, ctx.contest)
         and active_judgment is not None
         and active_judgment.status == JudgmentStatus.DONE
         and active_judgment.final_verdict is not None
     )
-    can_rejudge = is_chief_judge and active_judgment is not None and active_judgment.final_verdict is not None
+    can_rejudge = is_privileged and active_judgment is not None and active_judgment.final_verdict is not None
 
     panel = _build_confirmation_panel(active_judgment, ctx.actor, has_confirmed, is_chief_judge)
     judging_history = await get_judging_history(ctx.session, submission_id, ctx.actor, ctx.contest)
     problem_label = _label(submission.problem.ordinal)
     test_results = active_judgment.test_results if can_see_test_results and active_judgment is not None else None
     interactive_attempts = []
-    if can_see_test_results and active_judgment is not None:
+    # The judge keeps only the last executed case's attempts, so on an accepted
+    # submission they are just the winning conversation: nothing to explain.
+    if can_see_test_results and active_judgment is not None and active_judgment.final_verdict != Verdict.AC:
         attempts_result = await ctx.session.execute(
             select(submission_interactive_attempts)
             .where(submission_interactive_attempts.c.judgment_id == active_judgment.id)
@@ -232,6 +255,8 @@ async def review_submission(
                 "is_privileged": is_privileged,
                 "has_confirmed": has_confirmed,
                 "can_confirm": can_confirm,
+                "can_acquire_review": can_acquire_review,
+                "is_decisive_confirmer": is_decisive,
                 "can_override": can_override,
                 "can_rejudge": can_rejudge,
                 "can_see_test_results": can_see_test_results,

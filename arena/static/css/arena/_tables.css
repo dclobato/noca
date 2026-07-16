@@ -137,10 +137,10 @@
     line-height: 1.5;
 }
 
-.arena-worker-table .arena-col-worker-status  { width: 5%; }
-.arena-worker-table .arena-col-worker-id      { width: 25%; }
-.arena-worker-table .arena-col-worker-activity{ width: 27%; }
-.arena-worker-table .arena-col-worker-lastjob { width: 25%; }
+.arena-worker-table .arena-col-worker-status  { width: 20%; }
+.arena-worker-table .arena-col-worker-id      { width: 20%; }
+.arena-worker-table .arena-col-worker-activity{ width: 23%; }
+.arena-worker-table .arena-col-worker-lastjob { width: 19%; }
 .arena-worker-table .arena-col-worker-actions { width: 18%; }
 
 .arena-clickable-row {

@@ -88,13 +88,13 @@ Complete these preparations before opening the maintenance window.
 5. Pull or build the release images without starting containers:
 
    ```bash
-   docker compose pull web arena autojudge rating aiassistant
+   docker compose pull web arena autojudge rating aiassistant healthmonitor
    ```
 
    If the deployment builds images locally, run this command instead:
 
    ```bash
-   docker compose build web arena autojudge rating aiassistant
+   docker compose build web arena autojudge rating aiassistant healthmonitor
    ```
 
 ## Define the maintenance variables

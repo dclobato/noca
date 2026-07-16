@@ -14,6 +14,7 @@ from shared.services.custom_validator import (
     MAX_CUSTOM_VALIDATOR_COMPILE_LOG_CHARS,
     MAX_CUSTOM_VALIDATOR_SOURCE_BYTES,
     ValidatorUploadError,
+    current_validator_source,
     parse_packaged_validator,
     parse_validator_source,
     promote_candidate,
@@ -70,6 +71,57 @@ def test_invalid_replacement_retains_active_revision_and_caps_log() -> None:
     assert record.candidate_state == CustomValidatorCandidateState.INVALID
     assert len(record.candidate_compile_log or "") == MAX_CUSTOM_VALIDATOR_COMPILE_LOG_CHARS
     assert status_view(record).usable is True
+
+
+def test_runtime_failed_active_revision_remains_configured_but_unusable() -> None:
+    record = Record(
+        active_language_id="python3",
+        active_source="print('validator')",
+        active_state=CustomValidatorActiveState.RUNTIME_FAILED,
+    )
+
+    view = status_view(record)
+
+    assert view.configured is True
+    assert view.usable is False
+    assert view.active_state == CustomValidatorActiveState.RUNTIME_FAILED
+
+
+def test_current_validator_source_prefers_active_revision() -> None:
+    record = Record(
+        active_language_id="python3",
+        active_source="print('active')\n",
+        candidate_language_id="gcc-cpp23",
+        candidate_source="int main() {}\n",
+    )
+
+    source = current_validator_source(record)
+
+    assert source is not None
+    assert source.language_id == "python3"
+    assert source.source == "print('active')\n"
+
+
+def test_current_validator_source_falls_back_to_candidate_revision() -> None:
+    record = Record(
+        candidate_language_id="gcc-cpp23",
+        candidate_source="int main() {}\n",
+    )
+
+    source = current_validator_source(record)
+
+    assert source is not None
+    assert source.language_id == "gcc-cpp23"
+    assert source.source == "int main() {}\n"
+
+
+def test_current_validator_source_requires_complete_source_pair() -> None:
+    record = Record(
+        active_language_id="python3",
+        candidate_source="print('candidate')\n",
+    )
+
+    assert current_validator_source(record) is None
 
 
 def test_remove_clears_active_and_candidate_revisions() -> None:

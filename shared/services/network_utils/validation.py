@@ -122,6 +122,68 @@ def get_ip_from_request(request: Request) -> str | None:
     return None
 
 
+def get_source_port_from_request(
+    request: Request,
+    *,
+    trusted_header_name: str | None = None,
+) -> int | None:
+    """Extract a validated client source port from a request.
+
+    Args:
+        request: The incoming ASGI request.
+        trusted_header_name: Optional header set by a trusted reverse proxy
+            after stripping any client-supplied value. When empty, only the ASGI
+            client port is used.
+
+    Returns:
+        The source port in the valid TCP/UDP port range, or ``None`` when
+        missing or invalid.
+    """
+    if trusted_header_name:
+        header_value = request.headers.get(trusted_header_name)
+        header_port = _parse_source_port(header_value)
+        if header_port is not None:
+            return header_port
+
+    client = request.client
+    if client is None:
+        return None
+    return _parse_source_port(getattr(client, "port", None))
+
+
+def get_source_port_header_from_request(request: Request) -> str | None:
+    """Return the configured trusted source-port header name for a request."""
+    app = getattr(request, "app", None)
+    state = getattr(app, "state", None)
+    header_name = getattr(state, "source_port_header", None)
+    if isinstance(header_name, str) and header_name:
+        return header_name
+    return None
+
+
+def get_trusted_source_port_from_request(request: Request) -> int | None:
+    """Extract the source port using the app's trusted header configuration."""
+    return get_source_port_from_request(
+        request,
+        trusted_header_name=get_source_port_header_from_request(request),
+    )
+
+
+def _parse_source_port(value: object) -> int | None:
+    """Return a source port when the value is a valid decimal port."""
+    if value is None:
+        return None
+    if isinstance(value, int):
+        port = value
+    elif isinstance(value, str) and value.isdecimal():
+        port = int(value)
+    else:
+        return None
+    if 1 <= port <= 65535:
+        return port
+    return None
+
+
 def validate_and_parse_url(
     url: str | None = None,
     block_private_networks: bool = False,

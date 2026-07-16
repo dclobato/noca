@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+    {% from "_macros.html" import render_icon %}
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>{{ brand_name }} - Problem {{ label }}: {{ problem.title }}</title>
+        <link href="{{ request.url_for('static_vendor', path='bootstrap.min.css') }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('static_css', path='contest.css') }}?v={{ app_version }}-r1"
+              rel="stylesheet">
+        <link href="{{ request.url_for('static_vendor', path='devicon.min.css') }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('static_vendor', path='katex.min.css') }}"
+              rel="stylesheet">
+        <script>
+        (function () {
+            var theme = localStorage.getItem('noca-theme') || 'light';
+            document.documentElement.setAttribute('data-bs-theme', theme);
+        })();
+        </script>
+        <script src="{{ request.url_for('static_shared_js', path='theme-toggle.js') }}?v={{ app_version }}-r1"></script>
+    </head>
+    <body>
+        <header class="border-bottom bg-body">
+            <div class="container-fluid px-4 py-3">
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <img src="{{ request.url_for('balloon', color=problem.color[1:] if problem.color else '888888') }}"
+                             width="32"
+                             height="42"
+                             alt="{{ brand_name }} Balloon">
+                        <span class="fw-semibold fs-5">{{ brand_name }}</span>
+                    </div>
+                    <div class="vr d-none d-sm-block"></div>
+                    <div class="lh-sm">
+                        <div class="fw-semibold">Contest: {{ contest.contest_name }}</div>
+                        <div class="fw-semibold">Problem {{ label }}: {{ problem.title }}</div>
+                    </div>
+                    <button type="button"
+                            class="btn btn-outline-secondary btn-sm ms-auto d-print-none"
+                            data-print-page>{{ render_icon(icon="print", classes="me-1") }}Print</button>
+                </div>
+            </div>
+        </header>
+        <main class="bg-body-tertiary">
+            <div class="container py-4">
+                <h1 class="h3 mb-1">Problem {{ label }}: {{ problem.title }}</h1>
+                {% if problem.author %}
+                    <p class="text-muted small mb-3">{{ render_icon(icon="person", classes="me-1") }}By {{ problem.author }}</p>
+                {% else %}
+                    <div class="mb-3"></div>
+                {% endif %}
+                {# Statement #}
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header fw-semibold">Problem Statement</div>
+                    {% if problem.problem_image_base64 %}
+                        <div class="card-body pb-0">
+                            {% with image_b64=problem.problem_image_base64, image_mime=problem.problem_image_mime, image_caption=problem.problem_image_caption %}
+                                {% include "_partials/problem_image_figure.html" %}
+                            {% endwith %}
+                        </div>
+                    {% endif %}
+                    {% if has_pdf %}
+                        <div class="card-body">
+                            <div class="alert alert-info d-flex align-items-start gap-2 mb-0"
+                                 role="alert">
+                                {{ render_icon(icon="picture_as_pdf", classes=["flex-shrink-0", "mt-1"]) }}
+                                <span>
+                                    The statement for this problem is a PDF document. Open it to view or
+                                    print it directly:
+                                    <br>
+                                    <a href="{{ request.url_for('contest_problem_statement', slug=contest.login_slug, problem_label=label) }}"
+                                       class="btn btn-outline-secondary btn-sm mt-2"
+                                       target="_blank">
+                                        {{ render_icon(icon="open_in_new", classes="me-1") }}Open PDF statement
+                                    </a>
+                                </span>
+                            </div>
+                        </div>
+                    {% elif has_md %}
+                        <div class="card-body">
+                            <div id="md-statement-rendered"></div>
+                            <script id="md-statement-src" type="text/plain">{{ md_content | e }}</script>
+                        </div>
+                    {% else %}
+                        <div class="card-body">
+                            <div class="p-3 text-center text-muted">
+                                {{ render_icon(icon="description_off", classes=["display-6", "d-block", "mb-2"]) }}
+                                No statement available for this problem.
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+                {# Language limits table #}
+                {% if contest.show_limits and language_limits_rows %}
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header fw-semibold">Resource Limits</div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-sm mb-0 small">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th class="ps-3">Language</th>
+                                            <th class="text-end text-nowrap">Time (ms)</th>
+                                            <th class="text-end text-nowrap">Memory (KB)</th>
+                                            <th class="text-end text-nowrap">PIDs</th>
+                                            <th class="text-end text-nowrap pe-3">Output (bytes)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for row in language_limits_rows %}
+                                            <tr>
+                                                <td class="ps-3 fw-semibold text-nowrap">
+                                                    <i class="{{ row.icon }} me-1"></i>{{ row.name }}
+                                                </td>
+                                                <td class="text-end text-nowrap">{{ row.time_limit_ms }}</td>
+                                                <td class="text-end text-nowrap">{{ row.memory_limit_kb }}</td>
+                                                <td class="text-end text-nowrap">{{ row.pids_limit }}</td>
+                                                <td class="text-end text-nowrap pe-3">
+                                                    {% if row.output_limit_in_bytes %}
+                                                        {{ row.output_limit_in_bytes }}
+                                                    {% else %}
+                                                        No limit
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+                {# An interactive problem's public examples are conversations, not test cases. #}
+                {% if has_custom_validator %}
+                    <div class="alert alert-info d-flex align-items-start gap-2 mb-3"
+                         role="alert">
+                        {{ render_icon(icon="published_with_changes", classes=["flex-shrink-0", "mt-1"]) }}
+                        <span>
+                            This is an <strong>interactive</strong> problem: instead of printing an answer for a
+                            fixed input, your program exchanges messages with a validator, once per test case.
+                            The sample interactions below show how a correct solution converses with it.
+                        </span>
+                    </div>
+                    <h2 class="h5 mb-3">Sample Interactions</h2>
+                    {% if sample_interactions %}
+                        {% for interaction in sample_interactions %}
+                            <div class="card shadow-sm mb-3">
+                                <div class="card-body">
+                                    {% with explanation_class="noca-tc-explanation" %}
+                                        {% include "_partials/sample_interaction_display.html" %}
+                                    {% endwith %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="text-muted small">No sample interactions for this problem.</div>
+                    {% endif %}
+                {% else %}
+                    <h2 class="h5 mb-3">Sample Test Cases</h2>
+                    {% if tc_contents %}
+                        {% for ordinal, in_text, out_text, explanation in tc_contents %}
+                            <div class="card shadow-sm mb-3">
+                                <div class="card-header fw-semibold small">Sample {{ loop.index }}</div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <div class="text-muted small fw-semibold mb-1">Input</div>
+                                        <pre class="bg-light p-3 rounded small mb-0 noca-sample-pre">{{ in_text | e }}</pre>
+                                    </div>
+                                    <div>
+                                        <div class="text-muted small fw-semibold mb-1">Output</div>
+                                        <pre class="bg-light p-3 rounded small mb-0 noca-sample-pre">{{ out_text | e }}</pre>
+                                    </div>
+                                    {% if explanation %}
+                                        <div class="text-muted small mt-2">
+                                            <div class="fw-semibold mb-1">Explanation of example #{{ loop.index }}:</div>
+                                            <div class="noca-tc-explanation" data-tc-explanation>{{ explanation | e }}</div>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="text-muted small">No public sample test cases for this problem.</div>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </main>
+        <script src="{{ request.url_for('static_vendor', path='bootstrap.bundle.min.js') }}"></script>
+        {% if has_md or has_tc_explanation %}
+            <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
+                    defer></script>
+            <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
+                    defer></script>
+            <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
+                    defer></script>
+            <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
+                    defer></script>
+        {% endif %}
+        {% if has_md %}
+            <script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"
+                    defer></script>
+            <script src="{{ request.url_for('static_js', path='render-problem-statement.js') }}?v={{ app_version }}r2"
+                    defer></script>
+        {% endif %}
+        {% if has_tc_explanation %}
+            <script src="{{ request.url_for('static_shared_js', path='render-tc-explanation.js') }}?v={{ app_version }}"
+                    defer></script>
+        {% endif %}
+        <script src="{{ request.url_for('static_shared_js', path='print-page.js') }}?v={{ app_version }}"
+                defer></script>
+    </body>
+</html>

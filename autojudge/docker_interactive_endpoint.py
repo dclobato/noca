@@ -50,7 +50,12 @@ class DockerExecEndpoint:
         executor: ThreadPoolExecutor,
         user: str = "root",
     ) -> DockerExecEndpoint:
-        """Create and attach a non-TTY exec with stdin and multiplexed output."""
+        """Create and attach a non-TTY exec with stdin and multiplexed output.
+
+        The exec runs isolate, whose sandboxed child starts with an empty
+        environment, so variables the sandboxed process must read belong on the
+        isolate command line (``--env``), not on the exec.
+        """
         loop = asyncio.get_running_loop()
         created = await loop.run_in_executor(
             executor,

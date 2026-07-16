@@ -14,9 +14,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 
 from shared.enumerations import RoleEnum
+from shared.services.custom_validator import status_view
 from web.config import settings
 from web.dependencies import ContestContext, get_contest_context
 from web.models.contest import Contest
+from web.models.language import Language
 from web.models.problem import Problem
 from web.models.users import UberAdmin, User
 from web.routes.contest_admin_problem_helpers import _label
@@ -25,6 +27,7 @@ from web.services.problem_service import (
     get_active_statement_path,
     get_contest_languages,
     get_contest_problems,
+    load_sample_interactions,
     read_testcase_full,
 )
 
@@ -71,6 +74,78 @@ def _find_problem_by_label(problems: list[Problem], label: str) -> Problem | Non
         if _label(p.ordinal) == label_upper:
             return p
     return None
+
+
+async def _load_problem_view_data(ctx: ContestContext, problem: Problem) -> dict[str, object]:
+    """Load statement type, samples, interactions, and per-language limits for a problem.
+
+    Shared by the problem detail page and the print-friendly view so both render the
+    same statement/samples/limits from a single source of truth.
+
+    Args:
+        ctx: Active contest context (session and contest).
+        problem: The problem whose view data is being assembled.
+
+    Returns:
+        A mapping with statement flags (``has_pdf``/``has_md``/``md_content``), the
+        public sample test cases (``tc_contents``), sample interactions, the custom
+        validator flag, the per-language limits table, and the active language list.
+    """
+    public_tcs = sorted(
+        (tc for tc in problem.test_cases if tc.is_sample),
+        key=lambda t: t.ordinal,
+    )
+    testcase_dir = settings.PROBLEM_TESTCASE_DIR
+    tc_contents: list[tuple[int, str, str, str | None]] = []
+    for tc in public_tcs:
+
+        def _read_tc(ordinal: int = tc.ordinal) -> tuple[str, str]:
+            return read_testcase_full(problem.id, ordinal, testcase_dir)
+
+        in_text, out_text = await anyio.to_thread.run_sync(_read_tc)
+        tc_contents.append((tc.ordinal, in_text, out_text, tc.explanation))
+
+    # An interactive problem's public examples are conversations, not test cases.
+    sample_interactions = await load_sample_interactions(ctx.session, problem.id)
+
+    # Determine statement type for template rendering.
+    stmt_dir = settings.PROBLEM_STATEMENT_DIR
+    active_stmt = await anyio.to_thread.run_sync(lambda: get_active_statement_path(problem.id, stmt_dir))
+    has_pdf = active_stmt is not None and active_stmt.suffix == ".pdf"
+    has_md = active_stmt is not None and active_stmt.suffix == ".md"
+    md_content = ""
+    if has_md and active_stmt is not None:
+        md_content = await anyio.to_thread.run_sync(lambda: active_stmt.read_text(encoding="utf-8"))
+
+    # Build per-language limits table (override or fallback to problem defaults).
+    all_languages = await get_contest_languages(ctx.session, ctx.contest)
+    limit_by_lang = {lim.language_id: lim for lim in problem.language_limits}
+    language_limits_rows: list[dict[str, object]] = []
+    for lang in all_languages:
+        lim = limit_by_lang.get(lang.id)
+        language_limits_rows.append(
+            {
+                "name": lang.name,
+                "icon": lang.icon,
+                "time_limit_ms": lim.time_limit_ms if lim else problem.time_limit_ms,
+                "memory_limit_kb": lim.memory_limit_kb if lim else problem.memory_limit_kb,
+                "pids_limit": lim.pids_limit if lim else problem.pids_limit,
+                "output_limit_in_bytes": lim.output_limit_in_bytes if lim else problem.output_limit_in_bytes,
+                "is_override": lim is not None,
+            }
+        )
+
+    return {
+        "tc_contents": tc_contents,
+        "sample_interactions": sample_interactions,
+        "has_custom_validator": status_view(problem.custom_validator).configured,
+        "has_tc_explanation": any(item[3] for item in tc_contents),
+        "has_pdf": has_pdf,
+        "has_md": has_md,
+        "md_content": md_content,
+        "language_limits_rows": language_limits_rows,
+        "all_languages": all_languages,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -186,46 +261,9 @@ async def problem_detail(
     if problem is None:
         raise HTTPException(status_code=404)
     label = _label(problem.ordinal)
-    public_tcs = sorted(
-        (tc for tc in problem.test_cases if tc.is_sample),
-        key=lambda t: t.ordinal,
-    )
-    testcase_dir = settings.PROBLEM_TESTCASE_DIR
-    tc_contents: list[tuple[int, str, str, str | None]] = []
-    for tc in public_tcs:
-
-        def _read_tc(ordinal: int = tc.ordinal) -> tuple[str, str]:
-            return read_testcase_full(problem.id, ordinal, testcase_dir)
-
-        in_text, out_text = await anyio.to_thread.run_sync(_read_tc)
-        tc_contents.append((tc.ordinal, in_text, out_text, tc.explanation))
-
-    # Determine statement type for template rendering
-    _stmt_dir = settings.PROBLEM_STATEMENT_DIR
-    _active_stmt = await anyio.to_thread.run_sync(lambda: get_active_statement_path(problem.id, _stmt_dir))
-    has_pdf = _active_stmt is not None and _active_stmt.suffix == ".pdf"
-    has_md = _active_stmt is not None and _active_stmt.suffix == ".md"
-    md_content = ""
-    if has_md and _active_stmt is not None:
-        md_content = await anyio.to_thread.run_sync(lambda: _active_stmt.read_text(encoding="utf-8"))
-
-    # Build per-language limits table (override or fallback to problem defaults)
-    all_languages = await get_contest_languages(ctx.session, ctx.contest)
-    limit_by_lang = {lim.language_id: lim for lim in problem.language_limits}
-    language_limits_rows: list[dict[str, object]] = []
-    for lang in all_languages:
-        lim = limit_by_lang.get(lang.id)
-        language_limits_rows.append(
-            {
-                "name": lang.name,
-                "icon": lang.icon,
-                "time_limit_ms": lim.time_limit_ms if lim else problem.time_limit_ms,
-                "memory_limit_kb": lim.memory_limit_kb if lim else problem.memory_limit_kb,
-                "pids_limit": lim.pids_limit if lim else problem.pids_limit,
-                "output_limit_in_bytes": lim.output_limit_in_bytes if lim else problem.output_limit_in_bytes,
-                "is_override": lim is not None,
-            }
-        )
+    view_data = await _load_problem_view_data(ctx, problem)
+    tc_contents = cast("list[tuple[int, str, str, str | None]]", view_data["tc_contents"])
+    all_languages = cast("list[Language]", view_data["all_languages"])
 
     # Quick-submit confirmation modal data, scoped to this single problem.
     lang_map = {lang.id: lang.name for lang in all_languages}
@@ -262,16 +300,55 @@ async def problem_detail(
                 "problem": problem,
                 "label": label,
                 "tc_contents": tc_contents,
-                "has_tc_explanation": any(item[3] for item in tc_contents),
-                "has_pdf": has_pdf,
-                "has_md": has_md,
-                "md_content": md_content,
-                "language_limits_rows": language_limits_rows,
+                "sample_interactions": view_data["sample_interactions"],
+                "has_custom_validator": view_data["has_custom_validator"],
+                "has_tc_explanation": view_data["has_tc_explanation"],
+                "has_pdf": view_data["has_pdf"],
+                "has_md": view_data["has_md"],
+                "md_content": view_data["md_content"],
+                "language_limits_rows": view_data["language_limits_rows"],
                 "lang_map": lang_map,
                 "lang_icon_map": lang_icon_map,
                 "lang_ext_map": lang_ext_map,
                 "problem_labels": problem_labels,
                 "submit_limits": submit_limits,
+            },
+        )
+    )
+
+
+@router.get("/{problem_label}/print", response_class=HTMLResponse, name="contest_problem_print")
+async def problem_print(
+    request: Request,
+    problem_label: str,
+    ctx: ContestContext = Depends(get_contest_context),
+) -> HTMLResponse:
+    """Render a standalone, print-friendly view of a problem (statement, samples, limits)."""
+    templates = request.app.state.templates
+    _check_access(ctx.actor, ctx.contest)
+    problems = await get_contest_problems(ctx.session, ctx.contest)
+    problem = _find_problem_by_label(problems, problem_label)
+    if problem is None:
+        raise HTTPException(status_code=404)
+    label = _label(problem.ordinal)
+    view_data = await _load_problem_view_data(ctx, problem)
+    return _html(
+        templates.TemplateResponse(
+            request,
+            "contest/problem_print.html",
+            {
+                "current_user": ctx.actor,
+                "contest": ctx.contest,
+                "problem": problem,
+                "label": label,
+                "tc_contents": view_data["tc_contents"],
+                "sample_interactions": view_data["sample_interactions"],
+                "has_custom_validator": view_data["has_custom_validator"],
+                "has_tc_explanation": view_data["has_tc_explanation"],
+                "has_pdf": view_data["has_pdf"],
+                "has_md": view_data["has_md"],
+                "md_content": view_data["md_content"],
+                "language_limits_rows": view_data["language_limits_rows"],
             },
         )
     )

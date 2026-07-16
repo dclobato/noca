@@ -165,6 +165,7 @@ def vendor_ace(config: dict[str, str], vendor_dir: Path, ace_modes: list[str]) -
     assets = [
         (f"{base_url}/ace.js", ace_dir / "ace.js"),
         (f"{base_url}/theme-github.js", ace_dir / "theme-github.js"),
+        (f"{base_url}/theme-github_dark.js", ace_dir / "theme-github_dark.js"),
     ]
     required_modes = sorted(set(ace_modes) | {"text"})
     assets.extend((f"{base_url}/mode-{mode}.js", ace_dir / f"mode-{mode}.js") for mode in required_modes)

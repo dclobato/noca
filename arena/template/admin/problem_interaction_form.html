@@ -1,0 +1,29 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; Edit Sample Interaction #{{ interaction.ordinal }}{% endblock %}
+{% block nav_admin_problems %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="arena-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="forum") }}
+                    Edit Sample Interaction #{{ interaction.ordinal }}
+                    <span class="text-muted fs-6 ms-1">&mdash; {{ problem.title }}</span>
+                </h1>
+                <a href="{{ cancel_url }}" class="btn btn-outline-secondary btn-sm">
+                    {{ render_icon(icon="arrow_back") }}
+                    Back to problem
+                </a>
+            </div>
+            {% include "_partials/sample_interaction_edit_form.html" %}
+        </div>
+    </div>
+{% endblock %}

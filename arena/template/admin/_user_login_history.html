@@ -83,6 +83,7 @@
                 <tr>
                     <th>Date / Time</th>
                     <th>IP address</th>
+                    <th>Source port</th>
                     <th>Location</th>
                     <th>User agent</th>
                 </tr>
@@ -94,6 +95,13 @@
                         <td class="text-nowrap">
                             {% if login.ip_address %}
                                 {{ login.ip_address }}
+                            {% else %}
+                                <span class="text-muted">&mdash;</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-nowrap">
+                            {% if login.source_port %}
+                                {{ login.source_port }}
                             {% else %}
                                 <span class="text-muted">&mdash;</span>
                             {% endif %}
@@ -118,7 +126,7 @@
                     </tr>
                 {% else %}
                     <tr>
-                        <td colspan="4" class="text-center text-muted py-3">No login records found.</td>
+                        <td colspan="5" class="text-center text-muted py-3">No login records found.</td>
                     </tr>
                 {% endfor %}
             </tbody>

@@ -4,15 +4,15 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 
-from shared.enumerations import RoleEnum, TaskType
+from shared.enumerations import TaskType
 from shared.services.lock_service import get_lock
 from web.dependencies import ContestContext, ensure_allowed_role, get_contest_context
 from web.models.users import User
-from web.routes.contest_tasks_helpers import _RELEASE_ALLOWED, _SOURCE_ALLOWED, _STAFF_ONLY
+from web.routes.contest_tasks_helpers import _HANDLE_ALLOWED, _RELEASE_ALLOWED, _SOURCE_ALLOWED
 from web.services.task_service import (
     ContestNotRunningError,
     ForbiddenTaskActionError,
@@ -22,6 +22,9 @@ from web.services.task_service import (
     TaskLockUnavailableError,
     TaskNotAcquiredByActorError,
     acquire_task,
+    can_force_release_tasks,
+    can_handle_tasks,
+    can_view_tasks,
     finish_task,
     get_task,
     release_task,
@@ -42,7 +45,9 @@ async def acquire(
     task_id: str,
     ctx: ContestContext = Depends(get_contest_context),
 ) -> Response:
-    ensure_allowed_role(ctx.actor, _STAFF_ONLY)
+    ensure_allowed_role(ctx.actor, _HANDLE_ALLOWED)
+    if not can_handle_tasks(ctx.actor, ctx.contest):
+        raise HTTPException(status_code=403)
     assert isinstance(ctx.actor, User)
     slug = ctx.contest.login_slug
 
@@ -83,7 +88,9 @@ async def finish(
     task_id: str,
     ctx: ContestContext = Depends(get_contest_context),
 ) -> Response:
-    ensure_allowed_role(ctx.actor, _STAFF_ONLY)
+    ensure_allowed_role(ctx.actor, _HANDLE_ALLOWED)
+    if not can_handle_tasks(ctx.actor, ctx.contest):
+        raise HTTPException(status_code=403)
     assert isinstance(ctx.actor, User)
     slug = ctx.contest.login_slug
 
@@ -125,6 +132,8 @@ async def release(
     ctx: ContestContext = Depends(get_contest_context),
 ) -> Response:
     ensure_allowed_role(ctx.actor, _RELEASE_ALLOWED)
+    if not can_view_tasks(ctx.actor, ctx.contest):
+        raise HTTPException(status_code=403)
     slug = ctx.contest.login_slug
 
     task = await get_task(ctx.session, ctx.contest, task_id)
@@ -155,6 +164,8 @@ async def download_source(
     ctx: ContestContext = Depends(get_contest_context),
 ) -> Response:
     ensure_allowed_role(ctx.actor, _SOURCE_ALLOWED)
+    if not can_view_tasks(ctx.actor, ctx.contest):
+        raise HTTPException(status_code=403)
     slug = ctx.contest.login_slug
 
     task = await get_task(ctx.session, ctx.contest, task_id)
@@ -167,7 +178,7 @@ async def download_source(
         return RedirectResponse(url=f"/c/{slug}/tasks/", status_code=303)
 
     actor = ctx.actor
-    if isinstance(actor, User) and actor.role == RoleEnum.STAFF and request.app.state.valkey_runtime.is_available:
+    if isinstance(actor, User) and not can_force_release_tasks(actor) and request.app.state.valkey_runtime.is_available:
         lock = await get_lock(
             request.app.state.valkey_runtime,
             kind="task",

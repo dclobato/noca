@@ -5,9 +5,11 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -38,6 +40,12 @@ from shared.services.security_events_reaper import run_security_events_reaper
 from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
 from shared.services.startup_wait import wait_for_db, wait_for_valkey
 from shared.services.token_revocation import ValkeyRevocationStore
+from shared.services.valkey_service import (
+    WorkerClass,
+    mark_worker_offline,
+    resolve_worker_id,
+    worker_presence_loop,
+)
 from shared.signal_names import describe_signal, signal_name
 from shared.static_files import ShortCacheStaticFiles
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
@@ -54,6 +62,7 @@ from web.routes.contest_admin_metadata import router as contest_admin_metadata_r
 from web.routes.contest_admin_problem import router as contest_admin_problem_router
 from web.routes.contest_admin_problem_categories import router as contest_admin_problem_categories_router
 from web.routes.contest_admin_problem_edit import router as contest_admin_problem_edit_router
+from web.routes.contest_admin_problem_interactions import router as contest_admin_problem_interactions_router
 from web.routes.contest_admin_problem_io import router as contest_admin_problem_io_router
 from web.routes.contest_admin_problem_limits import router as contest_admin_problem_limits_router
 from web.routes.contest_admin_problem_tc import router as contest_admin_problem_tc_router
@@ -133,6 +142,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     engine = create_engine()
     app.state.db_engine = engine
     app.state.db_session = create_session_factory(engine)
+    app.state.source_port_header = settings.SOURCE_PORT_HEADER.strip() or None
     logger.info("- Database connection pool opened")
 
     valkey_runtime = ValkeyRuntime(
@@ -204,6 +214,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         ]
     )
     templates.env.globals["app_version"] = APP_VERSION
+    templates.env.globals["brand_name"] = settings.BRAND_NAME
+    templates.env.globals["healthmon_url"] = settings.HEALTHMON_URL
     templates.env.globals["MAX_INLINE_TESTCASE_BYTES"] = MAX_INLINE_TESTCASE_BYTES
     templates.env.globals["contest_minutes"] = contest_minutes
     templates.env.globals["format_site_identity"] = format_site_identity
@@ -310,6 +322,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     else:
         logger.warning("- Security-events reaper disabled (retention=0)")
 
+    worker_presence_stop = asyncio.Event()
+    app.state.worker_presence_stop = worker_presence_stop
+    app.state.worker_id = resolve_worker_id(settings.WORKER_ID)
+    app.state.worker_presence_task = asyncio.create_task(
+        worker_presence_loop(
+            valkey_runtime,
+            worker_class=WorkerClass.WEB,
+            worker_id=app.state.worker_id,
+            started_at=datetime.now(UTC),
+            interval_seconds=settings.WORKER_PRESENCE_INTERVAL_SECONDS,
+            ttl_seconds=settings.WORKER_PRESENCE_TTL_SECONDS,
+            stop_event=worker_presence_stop,
+        ),
+        name="worker-presence-loop",
+    )
+    logger.info(
+        "- Worker-presence heartbeat started (class=%s, worker_id=%s, interval=%ss, ttl=%ss)",
+        WorkerClass.WEB.value,
+        app.state.worker_id,
+        settings.WORKER_PRESENCE_INTERVAL_SECONDS,
+        settings.WORKER_PRESENCE_TTL_SECONDS,
+    )
+
     # logger.debug("| Registered routes |".center(80, "-"))
     # for route in app.routes:
     #     if hasattr(route, "methods") and hasattr(route, "path"):
@@ -340,6 +375,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.security_events_reaper_stop.set()
         await security_events_reaper_task
         logger.info("Security-events reaper stopped")
+
+    app.state.worker_presence_stop.set()
+    await asyncio.gather(app.state.worker_presence_task, return_exceptions=True)
+    with contextlib.suppress(Exception):
+        await mark_worker_offline(
+            app.state.valkey_runtime,
+            worker_class=WorkerClass.WEB,
+            worker_id=app.state.worker_id,
+        )
+    logger.info("Worker-presence heartbeat stopped")
 
     app.state.revocation_store.close()
     logger.info("ValkeyRevocationStore closed")
@@ -432,6 +477,7 @@ app.include_router(contest_admin_problem_limits_router)
 app.include_router(contest_admin_problem_categories_router)
 app.include_router(contest_admin_problem_io_router)
 app.include_router(contest_admin_problem_tc_router)
+app.include_router(contest_admin_problem_interactions_router)
 app.include_router(contest_admin_user_router)
 app.include_router(contest_admin_user_batch_router)
 app.include_router(contest_admin_user_edit_router)

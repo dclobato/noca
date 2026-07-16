@@ -154,8 +154,9 @@ async def admin_problem_tc_add_from_zip(
     problem = await _get_problem_or_403(problem_id, current_user, session)
     edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
     zip_bytes = await zip_file.read()
+    interactive = status_view(problem.custom_validator).configured
     try:
-        single = parse_single_testcase_zip(zip_bytes)
+        single = parse_single_testcase_zip(zip_bytes, require_output=not interactive)
     except ValueError as exc:
         flash(str(exc), FlashCategory.DANGER)
         return RedirectResponse(url=edit_url, status_code=303)
@@ -164,8 +165,8 @@ async def admin_problem_tc_add_from_zip(
             session,
             problem,
             input_content=single.input_bytes.decode("utf-8"),
-            output_content=single.output_bytes.decode("utf-8"),
-            is_sample=status_view(problem.custom_validator).configured,
+            output_content="" if single.output_bytes is None else single.output_bytes.decode("utf-8"),
+            is_sample=False,
             explanation=single.explanation,
             testcase_dir=settings.PROBLEM_TESTCASE_DIR,
         )
@@ -199,6 +200,7 @@ async def admin_problem_tc_new(
             {
                 "problem": problem,
                 "tc": None,
+                "interactive": status_view(problem.custom_validator).configured,
                 "form": {
                     "input_content": "",
                     "output_content": "",
@@ -250,6 +252,7 @@ async def admin_problem_tc_edit(
             {
                 "problem": problem,
                 "tc": tc,
+                "interactive": status_view(problem.custom_validator).configured,
                 "offline": offline,
                 "input_size_bytes": in_size,
                 "output_size_bytes": out_size,
@@ -338,11 +341,15 @@ async def admin_problem_tc_toggle_sample(
     tc = await admin_problem_tc_service.get_testcase(session, tc_id, problem_id=problem.id)
     if tc is None:
         raise HTTPException(status_code=404, detail="Test case not found")
-    await admin_problem_tc_service.toggle_sample(session, tc)
+    edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
+    try:
+        await admin_problem_tc_service.toggle_sample(session, tc)
+    except ValueError as exc:
+        flash(str(exc), FlashCategory.DANGER)
+        return RedirectResponse(url=f"{edit_url}#tc-{tc_id}", status_code=303)
     await session.commit()
     kind = "sample" if tc.is_sample else "secret"
     flash(f"Test case #{tc.ordinal} is now a {kind} case.", FlashCategory.SUCCESS)
-    edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
     return RedirectResponse(url=f"{edit_url}#tc-{tc_id}", status_code=303)
 
 
@@ -377,6 +384,7 @@ async def admin_problem_tc_move(
             {
                 "rows": rows,
                 "is_edit_allowed": True,
+                "sample_toggle_disabled": status_view(problem.custom_validator).configured,
             },
         )
     )
@@ -440,7 +448,12 @@ async def admin_problem_tc_download(
     input_text, output_text = await anyio.to_thread.run_sync(
         read_testcase_full, problem.id, tc.ordinal, settings.PROBLEM_TESTCASE_DIR
     )
-    zip_bytes = build_single_testcase_zip(input_text.encode("utf-8"), output_text.encode("utf-8"), tc.explanation)
+    interactive = status_view(problem.custom_validator).configured
+    zip_bytes = build_single_testcase_zip(
+        input_text.encode("utf-8"),
+        None if interactive else output_text.encode("utf-8"),
+        tc.explanation,
+    )
     return Response(
         content=zip_bytes,
         media_type="application/zip",
@@ -469,8 +482,9 @@ async def admin_problem_tc_replace(
         raise HTTPException(status_code=404, detail="Test case not found")
 
     zip_bytes = await zip_file.read()
+    interactive = status_view(problem.custom_validator).configured
     try:
-        single = parse_single_testcase_zip(zip_bytes)
+        single = parse_single_testcase_zip(zip_bytes, require_output=not interactive)
     except ValueError as exc:
         flash(str(exc), FlashCategory.DANGER)
         return RedirectResponse(url=tc_edit_url, status_code=303)

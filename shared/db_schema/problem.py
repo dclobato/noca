@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     Column,
@@ -167,6 +168,41 @@ test_cases = Table(
     _updated_at_column(),
     UniqueConstraint("problem_id", "ordinal", name="uq_test_cases_problem_ordinal"),
     CheckConstraint("ordinal >= 1", name="ck_test_cases_ordinal_positive"),
+)
+
+problem_sample_interactions = Table(
+    "problem_sample_interactions",
+    metadata,
+    _id_column(),
+    Column("problem_id", String(36), ForeignKey("problems.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column(
+        "ordinal",
+        Integer,
+        nullable=False,
+        comment="1-based display order among the problem's sample interactions.",
+    ),
+    Column(
+        "transcript",
+        JSON,
+        nullable=False,
+        comment="{'lines': [{'dir': 'user'|'validator', 'line': str}], 'truncated': bool}",
+    ),
+    Column(
+        "explanation",
+        Text,
+        nullable=True,
+        comment="Optional author note explaining this sample interaction.",
+    ),
+    Column(
+        "hidden_at",
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Time when the interaction was hidden after its custom validator was removed.",
+    ),
+    _created_at_column(),
+    _updated_at_column(),
+    UniqueConstraint("problem_id", "ordinal", name="uq_problem_sample_interactions_problem_ordinal"),
+    CheckConstraint("ordinal >= 1", name="ck_problem_sample_interactions_ordinal_positive"),
 )
 
 problem_language_limits = Table(

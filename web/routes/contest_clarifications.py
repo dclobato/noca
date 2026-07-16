@@ -19,7 +19,11 @@ from web.routes.contest_clarifications_helpers import (
     _problem_map_from_list,
     _team_access_blocked,
 )
-from web.services.clarification_service import list_clarifications
+from web.services.clarification_service import (
+    can_answer_clarifications,
+    can_force_release_clarifications,
+    list_clarifications,
+)
 
 router = APIRouter(prefix="/c/{slug}/clarifications", tags=["contest_clarifications"])
 
@@ -42,6 +46,8 @@ async def view(
                 {
                     "current_user": ctx.actor,
                     "contest": ctx.contest,
+                    "can_answer_clarifications": can_answer_clarifications(ctx.actor),
+                    "can_force_release": can_force_release_clarifications(ctx.actor),
                     "access_blocked": True,
                     "clarifications": [],
                     "lock_service_available": request.app.state.valkey_runtime.is_available,
@@ -74,6 +80,8 @@ async def view(
             {
                 "current_user": ctx.actor,
                 "contest": ctx.contest,
+                "can_answer_clarifications": can_answer_clarifications(ctx.actor),
+                "can_force_release": can_force_release_clarifications(ctx.actor),
                 "access_blocked": False,
                 "clarifications": clarifications,
                 "lock_service_available": lock_service_available,
@@ -98,6 +106,8 @@ async def list_partial(request: Request, ctx: ContestContext = Depends(get_conte
                 {
                     "current_user": ctx.actor,
                     "contest": ctx.contest,
+                    "can_answer_clarifications": can_answer_clarifications(ctx.actor),
+                    "can_force_release": can_force_release_clarifications(ctx.actor),
                     "access_blocked": True,
                     "clarifications": [],
                     "lock_service_available": request.app.state.valkey_runtime.is_available,
@@ -122,6 +132,8 @@ async def list_partial(request: Request, ctx: ContestContext = Depends(get_conte
             {
                 "current_user": ctx.actor,
                 "contest": ctx.contest,
+                "can_answer_clarifications": can_answer_clarifications(ctx.actor),
+                "can_force_release": can_force_release_clarifications(ctx.actor),
                 "access_blocked": False,
                 "clarifications": clarifications,
                 "lock_service_available": lock_service_available,

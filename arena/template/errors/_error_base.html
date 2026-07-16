@@ -8,10 +8,17 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Noca Arena —
+        <title>{{ brand_name }} —
             {% block title_suffix %}Error{% endblock %}
         </title>
         <link rel="icon" type="image/x-icon" href="/favicon.ico">
+        {# Set the theme before stylesheets load so there is no light flash. #}
+        <script>
+        (function () {
+            var theme = localStorage.getItem('noca-theme') || 'light';
+            document.documentElement.setAttribute('data-bs-theme', theme);
+        })();
+        </script>
         <link rel="stylesheet"
               href="{{ request.url_for('static_vendor', path='bootstrap.min.css') }}">
         <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"

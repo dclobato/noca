@@ -24,7 +24,7 @@ Related references:
 
 ## 1. High-level design
 
-NOCA is split into five main runtime modules:
+NOCA is split into six main runtime modules:
 
 - `web/`: the FastAPI application that serves HTML pages, handles authentication, enforces authorization, manages contests/problems/users, and creates judging work
 - `autojudge/`: the asynchronous judge worker that consumes queued judgments, compiles and runs submissions inside containers, and writes results back
@@ -33,8 +33,11 @@ NOCA is split into five main runtime modules:
 - `aiassistant/`: the Arena AI review worker that dequeues AI review jobs,
   uses the OpenAI Responses API for user-key reviews, uses the OpenAI Batch API
   for platform-key reviews, and stores feedback in the database
+- `healthmonitor/`: the public health-monitoring FastAPI server that probes the
+  other five modules through their Valkey worker-presence keys and renders an
+  environment status page plus a 30-day uptime heatmap dashboard
 
-Those modules are intentionally separated. The web app owns contest-admin workflows; the autojudge owns untrusted-code execution and verdict production; the arena owns public participant registration and authentication; the rating worker owns periodic rating recomputation cycles so they run exactly once regardless of how many Arena replicas are deployed; the aiassistant worker owns external AI provider calls and cost recording.
+Those modules are intentionally separated. The web app owns contest-admin workflows; the autojudge owns untrusted-code execution and verdict production; the arena owns public participant registration and authentication; the rating worker owns periodic rating recomputation cycles so they run exactly once regardless of how many Arena replicas are deployed; the aiassistant worker owns external AI provider calls and cost recording; the health monitor owns availability observation and uptime history without participating in any business workflow.
 
 Between them there is one important shared module:
 
@@ -79,6 +82,8 @@ Runtime isolation:
 - **aiassistant**: Independent async worker dequeuing AI review jobs from
   Valkey, calling the OpenAI Responses API for online user-key reviews, and
   polling OpenAI Batch API jobs for platform-key reviews
+- **healthmonitor**: FastAPI server with a Valkey connection only (no database),
+  serving the public status and uptime dashboards (port 8002)
 - No Python imports between modules; all communication goes through infrastructure
 
 ## 3. uv workspace and package layout
@@ -92,6 +97,7 @@ It provides shared development tooling and resolves these workspace packages:
 - `noca-autojudge` from `autojudge/`
 - `noca-rating` from `rating/`
 - `noca-aiassistant` from `aiassistant/`
+- `noca-healthmonitor` from `healthmonitor/`
 
 Each runtime module has its own `pyproject.toml`, build metadata, dependency list, and console script. The runtime entrypoints are:
 
@@ -100,11 +106,13 @@ Each runtime module has its own `pyproject.toml`, build metadata, dependency lis
 - `uv run noca-autojudge`
 - `uv run noca-rating`
 - `uv run noca-aiassistant`
+- `uv run noca-healthmonitor`
 
 The module packages use Hatchling `dev-mode-dirs = [".."]` and `packages = ["."]`
 so workspace installs are true live editable installs. Console scripts resolve
-`web`, `arena`, `shared`, `autojudge`, `rating`, and `aiassistant` from the
-repository workspace rather than copied package directories in the virtual environment.
+`web`, `arena`, `shared`, `autojudge`, `rating`, `aiassistant`, and
+`healthmonitor` from the repository workspace rather than copied package
+directories in the virtual environment.
 
 The runtime packages depend on `noca-shared` through the uv workspace source
 mapping. This keeps shared schema and service contracts importable without
@@ -181,8 +189,12 @@ Cross-module security auditing shares a single `security_events` table (owned by
 snapshots both the opaque `actor_user_id` and a human-readable `actor_label` (the
 actor's login, e.g. email/username) captured at event time, so the admin viewers
 can name who originated an `auth_*` / `parental_*` event without a lookup that could
-break on account rename or deletion. Both the
-Web and Arena HTTP processes append to it: authentication failures, throttle
+break on account rename or deletion. Rows also store `client_ip`, `source_port`,
+and `request_id` when the ASGI server or a trusted reverse proxy provides those
+values. The Caddy deployment example overwrites `X-Request-ID` with Caddy's
+per-request UUID so `security_events.request_id` can be correlated with Caddy
+access logs. Both the Web and Arena HTTP processes append to it: authentication
+failures, throttle
 lockouts, existing-account signup attempts, and — through
 `shared.services.admin_audit` (`event_type="admin_action"`) — destructive and
 privilege admin actions, all committed in the same transaction as the mutation
@@ -202,7 +214,11 @@ per-request CSRF tokens; this is a documented accepted risk given the
 server-rendered, same-site POST forms. Session and auth cookies are marked
 `Secure` whenever `NOCA_COOKIE_SECURE` is set (mandatory in production), and the
 trusted client IP for throttling/auditing is taken from the proxy-corrected
-`request.client.host` — raw `X-Forwarded-For` is never trusted.
+`request.client.host` — raw `X-Forwarded-For` is never trusted. The client
+source port comes from `request.client.port` unless `NOCA_SOURCE_PORT_HEADER`
+names a reverse-proxy-managed header. The request identifier comes from
+`X-Request-ID`; deployments must only trust it when the reverse proxy strips
+incoming values and sets its own ID.
 
 ## 5. Module summaries
 
@@ -305,6 +321,29 @@ queue job. The reconciler periodically finds such submissions (flagged, no
 review row, no active batch job, older than a grace window) that have no live
 pending/inflight queue presence and re-enqueues them.
 
+### `healthmonitor/`
+
+The healthmonitor module is a standalone FastAPI server (port 8002) with no
+database access and no authentication — both of its pages are public. It reads
+the Valkey worker-presence keys published by all other runtime modules (the
+`web` and `arena` HTTP servers publish presence from their lifespans exactly
+like the workers do, under the presence-only `WorkerClass.WEB` / `ARENA`
+classes) and serves:
+
+- `/` — the environment status page: one Available/Unavailable/Unknown card per
+  service, read live at request time
+- `/dashboard` — the uptime dashboard: the same live statuses plus a 30-day
+  heatmap per service (60 slots of 12 hours, colored from green at 100% slot
+  uptime to red at 70% or below)
+
+A prober loop records one up/down sample per service every
+`NOCA_HEALTHMON_PROBE_INTERVAL` seconds into per-slot `up`/`total` hashes
+(`noca:healthmon:stats:{service}:{slot_epoch}`), skipping cycles while Valkey
+is unreachable so monitor-side outages never count against the services. A
+reaper loop deletes slots older than `NOCA_HEALTHMON_RETENTION_DAYS`; slot keys
+also carry a TTL as a safety net. The presence-only classes never appear in the
+Arena admin dashboard or pause machinery.
+
 ### `shared/`
 
 The shared module defines cross-runtime contracts: SQLAlchemy Core schema, enums,
@@ -322,24 +361,72 @@ matches.
 
 A successful candidate becomes the active `VALID` revision. A failed
 replacement retains bounded compiler diagnostics and leaves an older active
-revision available. Validator packages expose every test case as a public
-sample because interactive judgments do not read package test-case input or
-expected-output files; such a problem may legitimately have no test cases at all.
+revision available.
+
+The validator is **parametrized by test-case input**: one container pair judges a
+whole submission, and the judge replays the conversation once per test case,
+writing that case's input to the validator's stdin before the two sides talk. The
+first case that does not end `AC` stops the iteration and its verdict is the
+submission's. Consequently an interactive problem's test cases carry **input and
+explanation only** — no expected output — and its packages, ZIPs and downloads
+ship `.in` files alone.
+
+Every test case of an interactive problem is **secret**, because a bare input
+reveals a secret without showing what to do with it. The public examples come from
+**sample interactions** instead (below). The invariant for a problem with a
+configured validator is therefore *zero public test cases and at least one secret
+one*: staging a validator demotes any existing public case, the sample toggle is
+refused while a validator is configured, and no edit path may remove the last
+secret case. The "at least one secret case" half is a gate rather than a write
+barrier — Arena creation legitimately stages a validator on a brand-new disabled
+draft with no cases yet — so it is enforced at the Arena enable gate and at both
+submission paths, where the problem becomes visible or judgeable.
+
+## Sample interactions
+
+A problem with a custom validator cannot show sample test cases meaningfully: what a
+contestant needs to see is the *conversation* their program will have. Such a problem
+therefore carries up to five **sample interactions** (`problem_sample_interactions` /
+`arena_sample_interactions`), each an author-written transcript plus an optional
+explanation, ordered by `ordinal`.
+
+Transcripts are stored in the same JSON shape the judge records for a real interactive
+attempt, so one shared partial (`_partials/transcript_table.html`) renders both the
+authored examples on the problem page and the recorded attempts on the submission page.
+Authors write them as plain text with the strict prefixes `> ` (validator → contestant)
+and `< ` (contestant → validator); `shared/services/sample_interactions.py` owns the
+parser, the package I/O, and the invariant helper, with no ORM dependency.
+
+Removing a validator leaves the interactions with nothing to illustrate, so the removal
+endpoints require an exact `keep_interactions=true|false` — a strict string, not a
+`bool`, so that FastAPI cannot coerce `1`/`on`/`yes` into a choice between hiding data
+and destroying it. `true` sets a nullable `hidden_at` (the same soft-hide pattern
+`clarifications` uses), which keeps the rows out of every UI and out of exports; staging
+a validator again clears it and the interactions resurface. Hidden rows still count
+against the five-interaction cap, so an un-hide can never overflow it.
+
+Packages carry them as `interaction/NNN.interaction` (the raw transcript JSON) and
+`interaction/NNN.explain` (plain text). A package with no validator has its
+`interaction/` members dropped on import; a validator package with none warns the
+importer that the problem shows no examples.
 
 See [CUSTOM_VALIDATOR.md](CUSTOM_VALIDATOR.md) for the authoring workflow, the
 exit-code-to-verdict mapping, and which problem limits are enforced by the judge
 versus by the validator.
 
 Each interactive attempt is recorded in `submission_interactive_attempts` /
-`arena_submission_interactive_attempts`, whose `transcript` JSON column holds the
-ordered, line-split conversation between the contestant and the validator (the
-judge relays every byte, so it observes protocol order). Both frontends render it
-from one shared partial, so the presentation can change without touching the
-judge.
+`arena_submission_interactive_attempts`, tagged with the `test_case_ordinal` it
+belongs to. Its `transcript` JSON column holds the ordered, line-split
+conversation between the contestant and the validator (the judge relays every
+byte, so it observes protocol order); the case's own input is not part of it. A
+judgment retains only the last executed case's attempts, so the surviving rows are
+the conversation that decided the submission. Both frontends render them from one
+shared partial — and only for a non-`AC` verdict, since an accepted submission has
+no failing round to explain.
 
 ## 6. Summary
 
-NOCA is a five-process contest platform:
+NOCA is a six-process contest platform:
 
 - `web` manages contest and business workflows (port 8000)
 - `autojudge` manages sandboxed compilation and execution
@@ -347,6 +434,7 @@ NOCA is a five-process contest platform:
 - `rating` manages the single-replica Arena rating recomputation cycles
 - `aiassistant` manages the Arena AI code review pipeline (OpenAI Responses API
   and Batch API)
+- `healthmonitor` manages the public availability dashboards (port 8002)
 - `shared` defines the common contract between them
 
 The architecture is built around separation of concerns, a shared PostgreSQL schema

@@ -272,7 +272,7 @@ async def send_uberadmin_credentials_email_route(
             login_url=_build_uberadmin_login_url(request),
             username=username,
             password=password,
-            sender_name=email_service.default_from_name or "Noca Contest",
+            sender_name=email_service.default_from_name or settings.BRAND_NAME,
         ),
     )
     await _record_credential_email_event(
@@ -525,7 +525,7 @@ async def send_contest_credentials_email(
             contest_login_url=_build_contest_login_url(request, contest_slug),
             username=username,
             password=password,
-            sender_name=email_service.default_from_name or "Noca Contest",
+            sender_name=email_service.default_from_name or settings.BRAND_NAME,
         ),
     )
     await _record_credential_email_event(

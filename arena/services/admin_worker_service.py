@@ -18,7 +18,6 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import StrEnum
 
 from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,16 +53,13 @@ _CARD_METADATA = {
     WorkerClass.AIASSISTANT: ("AI assistant workers", "smart_toy"),
 }
 
-_STATUS_METADATA = {
-    WorkerClass.AUTOJUDGE: ("AutoJudge", "gavel"),
-    WorkerClass.RATING: ("Rating", "monitoring"),
-    WorkerClass.AIASSISTANT: ("AI Assistant", "smart_toy"),
-}
-
-_STATUS_CLASS_ORDER = (
+# Worker classes shown on the admin dashboard (card display order). The
+# presence-only classes (web, arena) are monitored by healthmonitor and must
+# never gain dashboard cards or pause controls.
+DASHBOARD_CLASSES = (
     WorkerClass.AUTOJUDGE,
-    WorkerClass.RATING,
     WorkerClass.AIASSISTANT,
+    WorkerClass.RATING,
 )
 
 
@@ -105,24 +101,6 @@ class CommandResult:
     generation: int | None
 
 
-class WorkerAggregateState(StrEnum):
-    """Aggregate availability state for one worker class."""
-
-    AVAILABLE = "available"
-    UNAVAILABLE = "unavailable"
-    UNKNOWN = "unknown"
-
-
-@dataclass(frozen=True, slots=True)
-class WorkerClassStatus:
-    """User-facing aggregate status for one worker class."""
-
-    worker_class: WorkerClass
-    title: str
-    icon: str
-    state: WorkerAggregateState
-
-
 async def list_worker_cards(
     session: AsyncSession,
     valkey_runtime: ValkeyRuntime,
@@ -153,7 +131,7 @@ async def list_worker_cards(
     ai_pending_batch_jobs = await _count_pending_batch_jobs(session)
 
     cards: list[WorkerCard] = []
-    for worker_class in WorkerClass:
+    for worker_class in DASHBOARD_CLASSES:
         supports_pause = worker_class in PAUSABLE_CLASSES
         supports_triggers = worker_class in TRIGGER_CLASSES
         rows: list[WorkerRow] = []
@@ -190,48 +168,6 @@ async def _count_pending_batch_jobs(session: AsyncSession) -> int:
         .where(arena_ai_batch_jobs.c.local_status.not_in(ARENA_AI_BATCH_JOB_TERMINAL_STATUSES))
     )
     return (await session.execute(stmt)).scalar() or 0
-
-
-def aggregate_worker_statuses(cards: list[WorkerCard]) -> list[WorkerClassStatus]:
-    """Aggregate detailed worker cards into one availability state per class.
-
-    Args:
-        cards: Reconciled dashboard worker cards.
-
-    Returns:
-        One aggregate status per worker class in dashboard display order.
-    """
-    cards_by_class = {card.worker_class: card for card in cards}
-    statuses: list[WorkerClassStatus] = []
-    for worker_class in _STATUS_CLASS_ORDER:
-        card = cards_by_class.get(worker_class)
-        is_available = card is not None and any(worker.online and not worker.paused for worker in card.workers)
-        statuses.append(
-            _worker_class_status(
-                worker_class,
-                WorkerAggregateState.AVAILABLE if is_available else WorkerAggregateState.UNAVAILABLE,
-            )
-        )
-    return statuses
-
-
-def unknown_worker_statuses() -> list[WorkerClassStatus]:
-    """Return unknown aggregate states for every worker class."""
-    return [_worker_class_status(worker_class, WorkerAggregateState.UNKNOWN) for worker_class in _STATUS_CLASS_ORDER]
-
-
-def _worker_class_status(
-    worker_class: WorkerClass,
-    state: WorkerAggregateState,
-) -> WorkerClassStatus:
-    """Build one aggregate worker-class status."""
-    title, icon = _STATUS_METADATA[worker_class]
-    return WorkerClassStatus(
-        worker_class=worker_class,
-        title=title,
-        icon=icon,
-        state=state,
-    )
 
 
 def _to_row(presence: WorkerPresence, *, paused: bool, paused_by: str | None) -> WorkerRow:

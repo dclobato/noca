@@ -79,34 +79,39 @@ class ParsedTestCases:
 
     Attributes:
         pairs: Mapping of 1-based ordinal to ``(input_bytes, output_bytes)``.
+            The output is ``None`` for an interactive problem's cases, which
+            carry input only.
         explanations: Mapping of 1-based ordinal to the decoded explanation
             string. Only present for ordinals that had an ``explanation/NNN.txt``
             entry; ordinals without one are simply absent.
     """
 
-    pairs: dict[int, tuple[bytes, bytes]]
+    pairs: dict[int, tuple[bytes, bytes | None]]
     explanations: dict[int, str] = field(default_factory=dict)
 
 
-def parse_testcases_zip(zip_bytes: bytes) -> ParsedTestCases:
-    """Parse a ZIP archive into test-case pairs and optional explanations.
+def parse_testcases_zip(zip_bytes: bytes, *, require_output: bool = True) -> ParsedTestCases:
+    """Parse a ZIP archive into test cases and optional explanations.
 
     Ordinals in the result are remapped so they start at 1 and are contiguous,
     regardless of gaps in the source filenames. Explanations follow the same
-    remapping; an explanation file for an ordinal without a matching
-    input/output pair is ignored.
+    remapping; an explanation file for an ordinal without a matching input is
+    ignored.
 
     Args:
         zip_bytes: Raw bytes of the ZIP file to parse.
+        require_output: False for an interactive problem, whose cases carry input
+            only. Output files in the archive are then ignored and every parsed
+            case gets a ``None`` output.
 
     Returns:
-        ParsedTestCases: The remapped pairs and explanations.
+        ParsedTestCases: The remapped cases and explanations.
 
     Raises:
-        ValueError: If the bytes are not a valid ZIP file, if any input file
-            has no matching output (or vice-versa), if no valid pairs are
-            found, if the archive contains more than 1000 test cases, or if an
-            explanation file is not valid UTF-8.
+        ValueError: If the bytes are not a valid ZIP file, if (when outputs are
+            required) any input file has no matching output or vice-versa, if no
+            valid test cases are found, if the archive contains more than 1000
+            test cases, or if an explanation file is not valid UTF-8.
     """
     try:
         archive = zipfile.ZipFile(io.BytesIO(zip_bytes))
@@ -142,28 +147,29 @@ def parse_testcases_zip(zip_bytes: bytes) -> ParsedTestCases:
             ordinal = int(match_exp.group(1))
             explanation_bytes[ordinal] = archive.read(name)
 
-    paired_ordinals = sorted(set(inputs) & set(outputs))
-    unpaired_in = set(inputs) - set(outputs)
-    unpaired_out = set(outputs) - set(inputs)
+    if require_output:
+        kept_ordinals = sorted(set(inputs) & set(outputs))
+        unpaired_in = set(inputs) - set(outputs)
+        unpaired_out = set(outputs) - set(inputs)
+        if unpaired_in:
+            raise ValueError(f"Input files without matching output: ordinals {sorted(unpaired_in)}")
+        if unpaired_out:
+            raise ValueError(f"Output files without matching input: ordinals {sorted(unpaired_out)}")
+    else:
+        kept_ordinals = sorted(inputs)
 
-    if unpaired_in:
-        raise ValueError(f"Input files without matching output: ordinals {sorted(unpaired_in)}")
-    if unpaired_out:
-        raise ValueError(f"Output files without matching input: ordinals {sorted(unpaired_out)}")
-    if not paired_ordinals:
-        raise ValueError("No valid test case pairs found in ZIP.")
-    if len(paired_ordinals) > _MAX_TESTCASES:
-        raise ValueError(f"Too many test cases: {len(paired_ordinals)} (max {_MAX_TESTCASES}).")
+    if not kept_ordinals:
+        raise ValueError("No valid test cases found in ZIP.")
+    if len(kept_ordinals) > _MAX_TESTCASES:
+        raise ValueError(f"Too many test cases: {len(kept_ordinals)} (max {_MAX_TESTCASES}).")
 
-    # Decode/validate explanations only for paired ordinals; orphan explanations
-    # (no matching input/output) are ignored without being decoded or validated.
-    pairs: dict[int, tuple[bytes, bytes]] = {}
+    # Decode/validate explanations only for kept ordinals; orphan explanations
+    # (no matching input) are ignored without being decoded or validated.
+    pairs: dict[int, tuple[bytes, bytes | None]] = {}
     remapped_explanations: dict[int, str] = {}
-    for new_ordinal, old_ordinal in enumerate(paired_ordinals, start=1):
-        pairs[new_ordinal] = (
-            normalize_testcase_bytes(inputs[old_ordinal]),
-            normalize_testcase_bytes(outputs[old_ordinal]),
-        )
+    for new_ordinal, old_ordinal in enumerate(kept_ordinals, start=1):
+        expected_output = normalize_testcase_bytes(outputs[old_ordinal]) if require_output else None
+        pairs[new_ordinal] = (normalize_testcase_bytes(inputs[old_ordinal]), expected_output)
         if old_ordinal in explanation_bytes:
             remapped_explanations[new_ordinal] = _decode_explanation(explanation_bytes[old_ordinal], old_ordinal)
     return ParsedTestCases(pairs=pairs, explanations=remapped_explanations)
@@ -191,40 +197,43 @@ def _decode_explanation(data: bytes, ordinal: int) -> str:
 
 @dataclass
 class SingleTestCase:
-    """A single test-case pair parsed from (or destined for) a one-case ZIP.
+    """A single test case parsed from (or destined for) a one-case ZIP.
 
     Attributes:
         input_bytes: Normalized (LF) UTF-8 input content.
-        output_bytes: Normalized (LF) UTF-8 expected-output content.
+        output_bytes: Normalized (LF) UTF-8 expected-output content, ``None`` for
+            an interactive problem's case.
         explanation: Optional author note, ``None`` when absent.
     """
 
     input_bytes: bytes
-    output_bytes: bytes
+    output_bytes: bytes | None
     explanation: str | None = None
 
 
 _SINGLE_TC_NAMES = {"input.txt": "input", "output.txt": "output", "explanation.txt": "explanation"}
 
 
-def parse_single_testcase_zip(zip_bytes: bytes) -> SingleTestCase:
+def parse_single_testcase_zip(zip_bytes: bytes, *, require_output: bool = True) -> SingleTestCase:
     """Parse a single-case ZIP with ``input.txt`` / ``output.txt`` entries.
 
-    Entry names are matched case-insensitively. ``input.txt`` and ``output.txt``
-    are required; ``explanation.txt`` is optional. Input/output bytes are
-    normalized to LF. There is no size cap — this is the supported offline path
-    for large test cases.
+    Entry names are matched case-insensitively. ``input.txt`` is always required
+    and ``output.txt`` is required unless the problem is interactive;
+    ``explanation.txt`` is optional. Content bytes are normalized to LF. There is
+    no size cap — this is the supported offline path for large test cases.
 
     Args:
         zip_bytes: Raw bytes of the uploaded ZIP file.
+        require_output: False for an interactive problem, whose case carries input
+            only. ``output.txt`` is then ignored if present.
 
     Returns:
-        SingleTestCase: The parsed and normalized pair plus optional explanation.
+        SingleTestCase: The parsed and normalized case plus optional explanation.
 
     Raises:
-        ValueError: If the bytes are not a valid ZIP, if ``input.txt`` or
-            ``output.txt`` is missing, if a side is not valid UTF-8, or if the
-            explanation is not valid UTF-8 or exceeds the character limit.
+        ValueError: If the bytes are not a valid ZIP, if a required entry is
+            missing, if a side is not valid UTF-8, or if the explanation is not
+            valid UTF-8 or exceeds the character limit.
     """
     try:
         archive = zipfile.ZipFile(io.BytesIO(zip_bytes))
@@ -239,10 +248,11 @@ def parse_single_testcase_zip(zip_bytes: bytes) -> SingleTestCase:
 
     if "input" not in found:
         raise ValueError("Single-case ZIP must contain input.txt.")
-    if "output" not in found:
+    if require_output and "output" not in found:
         raise ValueError("Single-case ZIP must contain output.txt.")
 
-    for side in ("input", "output"):
+    sides = ("input", "output") if require_output else ("input",)
+    for side in sides:
         try:
             found[side].decode("utf-8")
         except UnicodeDecodeError as exc:
@@ -255,17 +265,18 @@ def parse_single_testcase_zip(zip_bytes: bytes) -> SingleTestCase:
 
     return SingleTestCase(
         input_bytes=normalize_testcase_bytes(found["input"]),
-        output_bytes=normalize_testcase_bytes(found["output"]),
+        output_bytes=normalize_testcase_bytes(found["output"]) if require_output else None,
         explanation=explanation,
     )
 
 
-def build_single_testcase_zip(input_bytes: bytes, output_bytes: bytes, explanation: str | None) -> bytes:
+def build_single_testcase_zip(input_bytes: bytes, output_bytes: bytes | None, explanation: str | None) -> bytes:
     """Build a single-case download ZIP with clear ``input.txt`` / ``output.txt``.
 
     Args:
         input_bytes: Input content (written as-is).
-        output_bytes: Expected-output content (written as-is).
+        output_bytes: Expected-output content (written as-is), or ``None`` for an
+            interactive problem's case, whose ZIP carries no ``output.txt``.
         explanation: Optional author note; included as ``explanation.txt`` when
             non-empty.
 
@@ -275,7 +286,8 @@ def build_single_testcase_zip(input_bytes: bytes, output_bytes: bytes, explanati
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("input.txt", input_bytes)
-        archive.writestr("output.txt", output_bytes)
+        if output_bytes is not None:
+            archive.writestr("output.txt", output_bytes)
         if explanation:
             archive.writestr("explanation.txt", explanation.encode("utf-8"))
     return buffer.getvalue()

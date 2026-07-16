@@ -1,6 +1,7 @@
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon %}
 {% block title_suffix %}— Difficulty &amp; Rating System{% endblock %}
+{% block nav_help %}active{% endblock %}
 {% block nav_help_rating %}active{% endblock %}
 {% block extra_head %}
     <link rel="stylesheet"
@@ -11,7 +12,7 @@
         <div class="arena-page-header">
             <h1 class="arena-page-title">{{ render_icon(icon="help", classes="me-2") }}Help: Difficulty &amp; Rating System</h1>
             <p class="arena-page-subtitle">
-                How problem difficulty, user ratings, and affiliation ratings are calculated in Noca Arena.
+                How problem difficulty, user ratings, and affiliation ratings are calculated in {{ brand_name }}.
             </p>
         </div>
         {# ── Rating update schedule ── #}
@@ -271,6 +272,7 @@
     <script src="{{ request.url_for('arena_static_js', path='render-katex.js') }}?v={{ app_version }}"
             defer></script>
     <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='noca-echarts-theme.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-contrast-curve.js') }}?v={{ app_version }}"
             defer></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-difficulty-distribution.js') }}?v={{ app_version }}"

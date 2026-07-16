@@ -34,7 +34,7 @@
    ============================================================ */
 .arena-sidebar {
     width: var(--arena-sidebar-width);
-    background-color: #f8f9fa;
+    background-color: var(--arena-surface-container-low);
     border-right: 1px solid var(--arena-outline-variant);
     display: flex;
     flex-direction: column;

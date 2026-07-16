@@ -153,6 +153,7 @@ async def test_help_languages_renders_stdout_flush_hints(session: AsyncSession) 
     assert "`print(..., flush=True)`" not in body
     assert "see the stdout flush detail in the" in body
     assert "Available languages tab" in body
+    assert "/static/js/help-languages-tabs.js?v=test" in body
 
 
 @pytest.mark.asyncio

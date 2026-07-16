@@ -63,7 +63,7 @@ async def test_duplicate_signup_sends_existing_account_email(session: AsyncSessi
     await _post_signup(app)
 
     subjects = _sent_subjects(app)
-    assert "You already have a Noca Arena account" in subjects
+    assert "You already have a NOCA Arena account" in subjects
     # The second attempt must not create a second account.
     count = (
         await session.execute(

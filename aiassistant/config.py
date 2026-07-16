@@ -155,6 +155,15 @@ class Settings(BaseSettings):
         validation_alias="NOCA_AI_OPENAI_OUTPUT_TOKEN_PRICE",
         description="Output token price in USD per 1 million tokens (used when recording cost).",
     )
+    OPENAI_REASONING_EFFORT: str = Field(
+        default="medium",
+        validation_alias="NOCA_AI_OPENAI_REASONING_EFFORT",
+        description=(
+            "Reasoning effort passed to the OpenAI Responses API. Lower effort favors "
+            "speed and lower token usage; higher effort yields more complete reasoning "
+            "and higher-quality reviews. One of: none, low, medium, high, xhigh."
+        ),
+    )
 
     # ------------------------------------------------------------------
     # Secrets Manager
@@ -259,6 +268,16 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Computed properties
     # ------------------------------------------------------------------
+
+    @field_validator("OPENAI_REASONING_EFFORT")
+    @classmethod
+    def validate_reasoning_effort(cls, v: str) -> str:
+        """Validate NOCA_AI_OPENAI_REASONING_EFFORT against the allowed effort levels."""
+        lower = v.strip().lower()
+        allowed = {"none", "low", "medium", "high", "xhigh"}
+        if lower not in allowed:
+            raise ValueError(f"NOCA_AI_OPENAI_REASONING_EFFORT must be one of {sorted(allowed)}, got '{v}'")
+        return lower
 
     @field_validator("LOG_LEVEL")
     @classmethod

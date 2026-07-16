@@ -33,11 +33,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
-from shared.enumerations import RoleEnum
+from shared.enumerations import CustomValidatorActiveState, RoleEnum
 from shared.services.imageprocessing_service import ImageProcessingService
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.models.contest import Contest
-from web.models.problem import Problem
+from web.models.problem import Problem, ProblemCustomValidator
 from web.models.users import UberAdmin
 from web.routes.contest_admin_problem import router as problem_router
 from web.routes.contest_admin_problem_edit import router as problem_edit_router
@@ -101,6 +101,7 @@ def _build_app(session: AsyncSession, contest: Contest, actor: UberAdmin, tmp_pa
         ]
     )
     templates.env.globals["app_version"] = "test"
+    templates.env.globals["brand_name"] = "NOCA Contest"
     templates.env.globals["RoleEnum"] = RoleEnum
     templates.env.globals["role_labels"] = {role.value: role.value.title() for role in RoleEnum}
     templates.env.globals["contest_minutes"] = lambda seconds: None if seconds is None else seconds // 60
@@ -216,6 +217,72 @@ async def _create_problem_with_image(
     assert response.status_code == 303, response.text
     result = await session.scalars(select(Problem).where(Problem.title == "Problem With Image"))
     return result.one()
+
+
+async def _create_problem_with_validator(session: AsyncSession, contest: Contest) -> Problem:
+    """Create a contest problem carrying an active Python validator."""
+    problem = Problem(
+        contest_id=contest.id,
+        title="Validator Problem",
+        ordinal=7,
+        color="#2f9e41",
+    )
+    session.add(problem)
+    await session.flush()
+    session.add(
+        ProblemCustomValidator(
+            problem_id=problem.id,
+            active_language_id="python3",
+            active_source="print('validator')\n",
+            active_state=CustomValidatorActiveState.VALID,
+            active_validated_at=datetime.now(UTC),
+        )
+    )
+    await session.commit()
+    await session.refresh(problem, attribute_names=["custom_validator"])
+    return problem
+
+
+@pytest.mark.asyncio
+async def test_validator_source_view_renders_active_source(
+    client: AsyncClient,
+    session: AsyncSession,
+    upcoming_contest: Contest,
+) -> None:
+    """The contest source view renders the active validator with line numbers."""
+    problem = await _create_problem_with_validator(session, upcoming_contest)
+
+    response = await client.get(f"/c/{upcoming_contest.login_slug}/admin/problems/{problem.id}/validator/source/view")
+
+    assert response.status_code == 200
+    assert "NOCA Contest" in response.text
+    assert "Upcoming Contest" in response.text
+    assert "Problem G: Validator Problem" in response.text
+    assert "Custom validator source code" in response.text
+    assert "print(&#39;validator&#39;)" in response.text
+    assert "language-python" in response.text
+    assert "data-highlight-line-numbers" in response.text
+
+
+@pytest.mark.asyncio
+async def test_validator_source_view_returns_404_without_source(
+    client: AsyncClient,
+    session: AsyncSession,
+    upcoming_contest: Contest,
+) -> None:
+    """The contest source view returns 404 when no validator source exists."""
+    problem = Problem(
+        contest_id=upcoming_contest.id,
+        title="Plain Problem",
+        ordinal=8,
+        color="#2f9e41",
+    )
+    session.add(problem)
+    await session.commit()
+
+    response = await client.get(f"/c/{upcoming_contest.login_slug}/admin/problems/{problem.id}/validator/source/view")
+
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

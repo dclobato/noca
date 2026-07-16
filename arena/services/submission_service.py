@@ -211,14 +211,34 @@ async def _validate_problem_language_and_cases(session: AsyncSession, problem_id
     if validator is not None and validator_configured and validator.active_state != CustomValidatorActiveState.VALID:
         raise ArenaSubmissionServiceError("The custom validator is not available.")
 
-    # Interactive judgments never read test-case files, so a validator problem
-    # may legitimately ship no test cases at all.
-    if not validator_configured:
-        test_case_count = await session.scalar(
-            select(func.count()).select_from(_arena_test_case).where(_arena_test_case.c.problem_id == problem_id)
+    # Every problem needs a test case, interactive or not: a plain problem compares
+    # each case's expected output, and a validator is replayed once per case with
+    # that case's input. An interactive problem judges only against secret cases —
+    # its public samples are sample interactions, never test cases — so count those.
+    test_case_count = await session.scalar(
+        select(func.count())
+        .select_from(_arena_test_case)
+        .where(
+            _arena_test_case.c.problem_id == problem_id,
+            *([_arena_test_case.c.is_sample.is_(False)] if validator_configured else []),
         )
-        if int(test_case_count or 0) == 0:
-            raise ArenaSubmissionServiceError("Arena problem has no test cases.")
+    )
+    if int(test_case_count or 0) == 0:
+        raise ArenaSubmissionServiceError("Arena problem has no test cases.")
+
+    # A problem that lost its validator keeps that validator's output-less cases,
+    # which a token-based comparison has nothing to compare against.
+    if not validator_configured:
+        missing_output = await session.scalar(
+            select(func.count())
+            .select_from(_arena_test_case)
+            .where(
+                _arena_test_case.c.problem_id == problem_id,
+                _arena_test_case.c.output_size_bytes.is_(None),
+            )
+        )
+        if int(missing_output or 0) > 0:
+            raise ArenaSubmissionServiceError("Arena problem has test cases with no expected output.")
 
 
 async def _validate_problem_set_tie(

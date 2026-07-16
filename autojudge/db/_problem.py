@@ -16,6 +16,7 @@ from sqlalchemy import and_, case, func, literal, select
 
 from autojudge.db._base import _DatabaseBase
 from autojudge.types import ProblemLimits
+from shared.db_schema import contest_languages as _contest_language
 from shared.db_schema import problem_language_limits as _problem_language_limit
 from shared.db_schema import problems as _problem
 from shared.db_schema import test_cases as _test_case
@@ -77,6 +78,64 @@ class _ProblemMixin(_DatabaseBase):
             output_limit_in_bytes=result.output_limit_in_bytes,
             repetitions=result.repetitions,
         )
+
+    async def get_problem_effective_limits_by_language(self, problem_id: str) -> dict[str, ProblemLimits]:
+        """
+        Fetch effective resource limits for every language enabled in the contest.
+
+        Args:
+            problem_id: UUID of the problem.
+
+        Returns:
+            Mapping of language ID to effective limits after applying per-language
+            overrides and fallback problem limits.
+
+        Raises:
+            LookupError: If problem_id does not exist.
+        """
+        rows = await self._conn.execute(
+            select(
+                _contest_language.c.language_id,
+                func.coalesce(_problem_language_limit.c.time_limit_ms, _problem.c.time_limit_ms).label("time_limit_ms"),
+                func.coalesce(_problem_language_limit.c.memory_limit_kb, _problem.c.memory_limit_kb).label(
+                    "memory_limit_kb"
+                ),
+                func.coalesce(_problem_language_limit.c.pids_limit, _problem.c.pids_limit).label("pids_limit"),
+                func.coalesce(_problem_language_limit.c.output_limit_in_bytes, _problem.c.output_limit_in_bytes).label(
+                    "output_limit_in_bytes"
+                ),
+                case(
+                    (_problem_language_limit.c.problem_id.isnot(None), _problem_language_limit.c.repetitions),
+                    else_=literal(1),
+                ).label("repetitions"),
+            )
+            .select_from(
+                _problem.join(_contest_language, _contest_language.c.contest_id == _problem.c.contest_id).outerjoin(
+                    _problem_language_limit,
+                    and_(
+                        _problem_language_limit.c.problem_id == _problem.c.id,
+                        _problem_language_limit.c.language_id == _contest_language.c.language_id,
+                    ),
+                )
+            )
+            .where(_problem.c.id == problem_id)
+            .order_by(_contest_language.c.language_id)
+        )
+        result = rows.fetchall()
+        if not result:
+            problem_exists = await self._conn.scalar(select(_problem.c.id).where(_problem.c.id == problem_id))
+            if problem_exists is None:
+                raise LookupError(f"Problem '{problem_id}' not found in database")
+        return {
+            row.language_id: ProblemLimits(
+                time_limit_ms=row.time_limit_ms,
+                memory_limit_kb=row.memory_limit_kb,
+                pids_limit=row.pids_limit,
+                output_limit_in_bytes=row.output_limit_in_bytes,
+                repetitions=row.repetitions,
+            )
+            for row in result
+        }
 
     async def get_test_case_id_map(self, problem_id: str) -> dict[int, str]:
         """

@@ -1154,3 +1154,61 @@ se o template está usando `?v={{ current_user.dta_foto or '0' }}`.
 - **Serviço de perfil:** `web/services/profile_service.py`
 - **Serviço de imagem:** `web/services/imageprocessing_service.py`
 - **Modelo:** `web/models/users.py` (`User.apply_processed_photo`, `User.avatar`, `User.foto`)
+
+---
+
+## Identidade visual compartilhada (tokens e tema)
+
+A identidade visual dos módulos web (Contest) e arena (Arena) é unificada por uma
+única fonte de verdade compartilhada, para que ajustes futuros não divirjam entre
+os módulos.
+
+### Tokens de design (`shared/static/css/tokens.css`)
+
+- Importado primeiro por `shared/static/css/common.css`, que cada módulo carrega
+  logo após o Bootstrap. Define no `:root` a paleta neutra `--noca-*` (superfícies
+  em tons de slate, texto, bordas), o acento da marca (verde do logo,
+  `--noca-brand: #2f9e41`), semânticos (success/danger/warning/info) e a
+  tipografia (`Inter` no corpo, `Public Sans` nos títulos, base `1rem`).
+- Propaga a identidade para o Bootstrap sobrescrevendo tokens `--bs-*`
+  (`--bs-body-font-family`, `--bs-link-color`, etc.), então componentes Bootstrap e
+  as classes de `common.css` herdam fonte/cores sem regra por elemento.
+- Também traz a regra base de `body` e de títulos (mantendo `common.css` sem
+  `:root`/`body`). Os tokens `--arena-*` referenciam os `--noca-*` no seu núcleo, e
+  o web passou a linkar `noca-fonts.css` no `_base.html`.
+- **Não** sobrescreve `--bs-primary` (botões `.btn-primary` são compilados via Sass
+  e não reagem à variável em runtime); acentos usam `--noca-brand` diretamente.
+
+### Modo escuro
+
+- Alternado por `shared/static/js/theme-toggle.js` (compartilhado pelos dois
+  módulos via a rota `static_shared_js`), que grava `noca-theme` no `localStorage` e
+  define `data-bs-theme` no `<html>`. Um script *pre-paint* no `<head>` (antes dos
+  CSS) evita o flash claro.
+- O bloco `[data-bs-theme="dark"]` em `tokens.css` remapeia a rampa `--noca-*` para
+  slate escuro, então os componentes `--arena-*` do Arena escurecem
+  automaticamente; ajustes específicos do Arena ficam em
+  `arena/static/css/arena/_dark.css` e os do web em `web/static/css/contest/_dark.css`.
+- Componentes de terceiros compartilhados que só trazem tema claro têm overrides
+  em `shared/static/css/components-dark.css` (importado por `common.css`):
+  os visualizadores highlight.js (paleta *github-dark*) e o editor Markdown
+  EasyMDE/CodeMirror do formulário de problema.
+- O editor de código Ace (`problem-code-editor.js`) não segue CSS: ele lê
+  `data-bs-theme` e alterna entre os temas `ace/theme/github` e
+  `ace/theme/github_dark` (ambos baixados por `fetch_assets.py`), reagindo ao
+  toggle via `MutationObserver`.
+- Os gráficos ECharts do Arena também definem cor em JS. O helper compartilhado
+  `shared/static/js/noca-echarts-theme.js` registra os temas `noca-light`/
+  `noca-dark` (eixos, legenda, tooltip, dataZoom, paleta) e expõe
+  `NocaECharts.create(el)` — um wrapper que inicializa o gráfico com o tema ativo,
+  re-renderiza no toggle e cuida do resize. Todo gráfico novo deve usar esse
+  wrapper (carregue o helper logo após `echarts.min.js`, antes do script do
+  gráfico); cores por série específicas leem `NocaECharts.tokens()`.
+- O botão de alternância vive no rodapé de cada módulo (`#theme-toggle-btn`).
+
+### Marca (`brand_name`)
+
+O nome público da marca vem de `NOCA_WEB_BRAND_NAME` / `NOCA_ARENA_BRAND_NAME`
+(ver `docs/CONFIG.md`), injetado nos templates como o global `brand_name` e nos
+e-mails do Arena por `arena/services/email_rendering.py`. Use `{{ brand_name }}`
+em vez de escrever "NOCA Arena"/"NOCA Contest" literalmente.

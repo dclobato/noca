@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>{{ brand_name }} - Problem {{ problem_label }} validator source</title>
+        <link rel="icon" type="image/x-icon" href="/favicon.ico">
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='bootstrap.min.css') }}">
+        <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('arena_static_css', path='arena.css') }}?v={{ app_version }}"
+              rel="stylesheet">
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path=highlight_theme_path) }}">
+    </head>
+    <body class="arena-validator-source-viewer">
+        <header class="border-bottom bg-body">
+            <div class="container-fluid px-4 py-3">
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <img src="{{ request.url_for('arena_static_img', path='logo-128x128.png') }}"
+                             width="42"
+                             height="42"
+                             alt=""
+                             aria-hidden="true">
+                        <span class="fw-semibold fs-5">{{ brand_name }}</span>
+                    </div>
+                    <div class="vr d-none d-sm-block"></div>
+                    <div class="lh-sm">
+                        <div class="fw-semibold">Problem {{ problem_label }}: {{ problem.title }}</div>
+                        <div class="text-body-secondary small">Custom validator source code</div>
+                    </div>
+                </div>
+            </div>
+        </header>
+        <main class="bg-body-tertiary">
+            <div class="container-fluid p-0">
+                <pre class="mb-0 arena-source-code-pre"><code class="{{ highlight_language_class }} rounded-0" data-highlight-line-numbers>{{ source_code | e }}</code></pre>
+            </div>
+        </main>
+        <script src="{{ request.url_for('static_vendor', path='bootstrap.bundle.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path=highlight_core_path) }}"></script>
+        {% if highlight_language_path %}
+            <script src="{{ request.url_for('static_vendor', path=highlight_language_path) }}"></script>
+        {% endif %}
+        <script src="{{ request.url_for('static_vendor', path=highlight_line_numbers_path) }}"></script>
+        <script src="{{ request.url_for('arena_static_js', path='highlight-code-blocks.js') }}?v={{ app_version }}"></script>
+    </body>
+</html>

@@ -7,7 +7,6 @@
 """FastAPI dependencies for restricting routes to Arena administrators and judges.
 
 ``require_arena_admin`` restricts to ``ARENA_ADMIN`` only.
-``require_arena_judge_or_admin`` allows both ``ARENA_JUDGE`` and ``ARENA_ADMIN``.
 ``require_arena_problem_editor`` allows ``ARENA_ADMIN`` or any user whose ``can_edit``
 flag is set (the admin-granted privilege to manage the Arena problem base).
 
@@ -48,35 +47,6 @@ async def require_arena_admin(
     if current_user is None:
         raise HTTPException(status_code=401)
     if current_user.role != ArenaRole.ARENA_ADMIN:
-        raise HTTPException(status_code=403)
-    return current_user
-
-
-async def require_arena_judge_or_admin(
-    current_user: ArenaUser | None = Depends(get_current_arena_user),
-) -> ArenaUser:
-    """Enforce that the current request is made by an Arena judge or administrator.
-
-    Allows both ``ARENA_JUDGE`` and ``ARENA_ADMIN`` roles through.  Route
-    handlers that need to differentiate between the two roles (e.g. to restrict
-    judges to their own resources) should inspect ``current_user.role`` after
-    this dependency resolves.
-
-    Args:
-        current_user: The resolved Arena user, or ``None`` if unauthenticated.
-
-    Returns:
-        The authenticated ``ArenaUser`` with ``ARENA_JUDGE`` or ``ARENA_ADMIN``
-        role confirmed.
-
-    Raises:
-        HTTPException: 401 if no authenticated user is present.
-        HTTPException: 403 if the authenticated user holds neither judge nor
-            admin role.
-    """
-    if current_user is None:
-        raise HTTPException(status_code=401)
-    if current_user.role not in (ArenaRole.ARENA_ADMIN, ArenaRole.ARENA_JUDGE):
         raise HTTPException(status_code=403)
     return current_user
 

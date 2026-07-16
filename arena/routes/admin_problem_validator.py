@@ -17,19 +17,22 @@ page no longer renders a form that posts to it while a validator is configured.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_problem_editor
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_problem_common import get_problem_or_403
+from arena.services import admin_problem_interaction_service
 from arena.services.admin_problem_validator_service import stage_validator_source
-from shared.db_schema import languages as languages_table
-from shared.services.custom_validator import remove_validator, status_view
+from shared.language_configs import default_extension_for_language
+from shared.language_registry import highlightjs_language_for_language_id
+from shared.services.custom_validator import current_validator_source, remove_validator, status_view
 from shared.services.valkey_service import enqueue_custom_validator_validation_job
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
@@ -75,25 +78,50 @@ async def arena_admin_problem_validator_download(
 ) -> Response:
     """Download the current validator source (active revision, else candidate)."""
     problem = await get_problem_or_403(problem_id, current_user, session)
-    validator = problem.custom_validator
-    if validator is None:
+    validator_source = current_validator_source(problem.custom_validator)
+    if validator_source is None:
         raise HTTPException(404, "This problem has no custom validator.")
-    source: str | None
-    language_id: str | None
-    if validator.active_source is not None:
-        source, language_id = validator.active_source, validator.active_language_id
-    else:
-        source, language_id = validator.candidate_source, validator.candidate_language_id
-    if source is None or language_id is None:
-        raise HTTPException(404, "This problem has no custom validator.")
-    source_filename = await session.scalar(
-        select(languages_table.c.source_filename).where(languages_table.c.id == language_id)
-    )
-    filename = f"validator-{problem.arena_number}-{source_filename or 'source.txt'}"
+    filename = f"validator-{problem.arena_number}{default_extension_for_language(validator_source.language_id)}"
     return Response(
-        content=source.encode("utf-8"),
+        content=validator_source.source.encode("utf-8"),
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get(
+    "/problems/{problem_id}/validator/source/view",
+    response_class=HTMLResponse,
+    name="arena_admin_problem_validator_source_view",
+)
+async def arena_admin_problem_validator_source_view(
+    request: Request,
+    problem_id: str,
+    current_user: ArenaUser = Depends(require_arena_problem_editor),
+    session: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    """Render the current validator source with syntax highlighting."""
+    problem = await get_problem_or_403(problem_id, current_user, session)
+    validator_source = current_validator_source(problem.custom_validator)
+    if validator_source is None:
+        raise HTTPException(404, "This problem has no custom validator.")
+    highlight_language = highlightjs_language_for_language_id(validator_source.language_id)
+    return HTMLResponse(
+        request.app.state.arena_templates.get_template("admin/validator_source.html").render(
+            request=request,
+            current_user=current_user,
+            problem=problem,
+            problem_label=str(problem.arena_number),
+            source_code=validator_source.source,
+            highlight_language=highlight_language,
+            highlight_language_class=f"language-{highlight_language}",
+            highlight_theme_path="highlight/styles/github.min.css",
+            highlight_core_path="highlight/highlight.min.js",
+            highlight_language_path=(
+                None if highlight_language == "plaintext" else f"highlight/languages/{highlight_language}.min.js"
+            ),
+            highlight_line_numbers_path="highlight/plugins/highlightjs-line-numbers.min.js",
+        )
     )
 
 
@@ -123,13 +151,39 @@ async def arena_admin_problem_validator_status(
 async def arena_admin_problem_validator_remove(
     request: Request,
     problem_id: str,
+    flash: FlashDep,
+    keep_interactions: Literal["true", "false"] = Form(...),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
-    """Remove the active and staged Arena validator revisions."""
+    """Remove the active and staged Arena validator revisions.
+
+    Without its validator the problem's sample interactions have nothing to
+    illustrate, so the caller must state what happens to them. ``keep_interactions``
+    is deliberately an exact ``"true"``/``"false"`` string rather than a ``bool``:
+    FastAPI would coerce ``1``, ``on`` and ``yes`` too, and the choice between
+    hiding data and destroying it must not hinge on a spelling.
+    """
     problem = await get_problem_or_403(problem_id, current_user, session)
-    if problem.custom_validator is not None:
-        remove_validator(problem.custom_validator)
-        await session.delete(problem.custom_validator)
-        await session.commit()
-    return RedirectResponse(request.url_for("arena_admin_problem_edit", problem_id=problem.id), 303)
+    edit_url = request.url_for("arena_admin_problem_edit", problem_id=problem.id)
+    if problem.custom_validator is None:
+        return RedirectResponse(edit_url, 303)
+
+    keep = keep_interactions == "true"
+    affected = (
+        await admin_problem_interaction_service.hide_interactions(session, problem.id)
+        if keep
+        else await admin_problem_interaction_service.delete_all_interactions(session, problem.id)
+    )
+    remove_validator(problem.custom_validator)
+    await session.delete(problem.custom_validator)
+    await session.commit()
+
+    flash("Custom validator removed.", FlashCategory.SUCCESS)
+    if affected:
+        flash(
+            f"{affected} sample interaction(s) were "
+            + ("hidden; they will resurface if you add a validator again." if keep else "permanently deleted."),
+            FlashCategory.INFO if keep else FlashCategory.WARNING,
+        )
+    return RedirectResponse(edit_url, 303)

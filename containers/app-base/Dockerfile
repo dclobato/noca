@@ -7,7 +7,7 @@
 # noca/app-base
 #
 # Internal build artifact — NOT a runtime contract image.
-# Shared base for webapp, arena, autojudge, rating, and aiassistant service images.
+# Shared base for webapp, arena, autojudge, rating, aiassistant, and healthmonitor service images.
 # Holds only package-independent layers; the per-service uv sync
 # and source COPY steps remain in each service Dockerfile.
 #
@@ -36,7 +36,7 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock alembic.ini /app/
 
-RUN mkdir -p /tmp/uv-cache /app/shared /app/web /app/arena /app/autojudge /app/rating /app/aiassistant /app/scripts
+RUN mkdir -p /tmp/uv-cache /app/shared /app/web /app/arena /app/autojudge /app/rating /app/aiassistant /app/healthmonitor /app/scripts
 
 COPY shared/pyproject.toml /app/shared/pyproject.toml
 COPY web/pyproject.toml /app/web/pyproject.toml
@@ -44,3 +44,4 @@ COPY arena/pyproject.toml /app/arena/pyproject.toml
 COPY autojudge/pyproject.toml /app/autojudge/pyproject.toml
 COPY rating/pyproject.toml /app/rating/pyproject.toml
 COPY aiassistant/pyproject.toml /app/aiassistant/pyproject.toml
+COPY healthmonitor/pyproject.toml /app/healthmonitor/pyproject.toml

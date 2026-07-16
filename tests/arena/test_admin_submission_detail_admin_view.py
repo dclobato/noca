@@ -217,6 +217,7 @@ def _build_app(session: AsyncSession, admin_user: ArenaUser) -> FastAPI:
         ("/ranking", "arena_ranking_index"),
         ("/ranking/users", "arena_ranking_users"),
         ("/ranking/affiliations", "arena_ranking_affiliations"),
+        ("/help", "arena_help_index"),
         ("/help/rating", "arena_help_rating"),
         ("/help/languages", "arena_help_languages"),
         ("/admin/problems", "arena_admin_problem_list"),

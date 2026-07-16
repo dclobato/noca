@@ -20,6 +20,7 @@ from web.models.problem import Problem
 from web.models.users import UberAdmin, User
 
 from .errors import ForbiddenTaskActionError
+from .permissions import can_view_tasks
 from .views import TaskView, merge_task_views
 
 
@@ -79,12 +80,13 @@ async def list_tasks(
         .order_by(Task.created_at.asc())
     )
 
-    if isinstance(actor, UberAdmin) or actor.role in (RoleEnum.ADMIN, RoleEnum.JUDGE, RoleEnum.STAFF):
-        stmt = base_stmt
-    elif actor.role == RoleEnum.TEAM:
-        stmt = base_stmt.where(Task.team_id == actor.id)
-    else:
+    if not can_view_tasks(actor, contest):
         raise ForbiddenTaskActionError("Your role does not have permission to list tasks.")
+
+    if isinstance(actor, UberAdmin) or actor.role != RoleEnum.TEAM:
+        stmt = base_stmt
+    else:
+        stmt = base_stmt.where(Task.team_id == actor.id)
 
     result = await session.execute(stmt)
     tasks = list(result.scalars().all())

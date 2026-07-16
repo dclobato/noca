@@ -16,6 +16,7 @@ from shared.db_schema import contest_languages as contest_languages_table
 from shared.enumerations import CustomValidatorCandidateState
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.sample_problem_package import build_sample_problem_package
+from shared.services.testcase_files import get_testcase_path
 from web.config import settings
 from web.models.contest import Contest
 from web.models.language import Language
@@ -167,13 +168,13 @@ def _problem_zip_with_explanation() -> bytes:
     return buffer.getvalue()
 
 
-def _validator_problem_zip(*, visibility: str = "sample") -> bytes:
+def _validator_problem_zip() -> bytes:
+    """A validator package: its cases parametrize the validator, so inputs only."""
     payload = {
         "title": "Interactive Problem",
         "time_limit_ms": 1000,
         "memory_limit_kb": 262144,
         "pids_limit": 64,
-        "test_case_visibility": visibility,
         "custom_validator": {
             "language_id": "python3",
             "source_file": "validator/source.txt",
@@ -185,12 +186,11 @@ def _validator_problem_zip(*, visibility: str = "sample") -> bytes:
         archive.writestr("statement.md", "# Interactive\n\nTalk to the validator.\n")
         archive.writestr("validator/source.txt", "print('ready')\n")
         archive.writestr("in/001.in", "example\n")
-        archive.writestr("out/001.out", "example\n")
     return buffer.getvalue()
 
 
 @pytest.mark.asyncio
-async def test_validator_package_import_stages_candidate_and_samples(
+async def test_validator_package_import_stages_candidate_with_input_only_cases(
     session: AsyncSession,
     uberadmin,
 ) -> None:
@@ -215,24 +215,8 @@ async def test_validator_package_import_stages_candidate_and_samples(
     assert validator.candidate_state == CustomValidatorCandidateState.PENDING
     assert validator.active_source is None
     assert result.validator_candidate_token == validator.candidate_token
-    assert test_cases and all(test_case.is_sample for test_case in test_cases)
-
-
-@pytest.mark.asyncio
-async def test_validator_package_requires_sample_visibility(session: AsyncSession, uberadmin) -> None:
-    await _make_language(session, "python3", "Python 3")
-    contest = await _make_contest(session, created_by_uberadmin_id=uberadmin.id)
-    await session.commit()
-
-    with pytest.raises(ValueError, match="test_case_visibility"):
-        await import_problem_from_zip(
-            session,
-            contest,
-            _validator_problem_zip(visibility="secret"),
-            settings.PROBLEM_TESTCASE_DIR,
-            settings.PROBLEM_STATEMENT_DIR,
-            ImageProcessingService(),
-        )
+    # The case carries input only, and is secret like any other imported case.
+    assert [(tc.ordinal, tc.is_sample, tc.output_size_bytes) for tc in test_cases] == [(1, False, None)]
 
 
 @pytest.mark.asyncio
@@ -253,6 +237,8 @@ async def test_validator_full_export_includes_candidate_but_public_export_omits_
     )
     problem = await get_problem_in_contest(session, contest, imported.problem.id)
     assert problem is not None
+    stale_out = get_testcase_path(problem.id, 1, "out", settings.PROBLEM_TESTCASE_DIR)
+    stale_out.write_bytes(b"stale\n")
 
     full = build_export_zip(
         problem,
@@ -268,10 +254,15 @@ async def test_validator_full_export_includes_candidate_but_public_export_omits_
 
     with zipfile.ZipFile(io.BytesIO(full)) as archive:
         metadata = json.loads(archive.read("problem.json"))
-        assert archive.read("validator/source.txt") == b"print('ready')\n"
-        assert metadata["test_case_visibility"] == "sample"
+        assert archive.read("validator/validator.py") == b"print('ready')\n"
+        assert metadata["custom_validator"]["source_file"] == "validator/validator.py"
         assert metadata["custom_validator"]["language_id"] == "python3"
+        assert archive.read("in/001.in") == b"example\n"
+        # An interactive problem has no expected output to ship, even if a stale
+        # legacy .out file is still present on disk.
+        assert "out/001.out" not in archive.namelist()
     with zipfile.ZipFile(io.BytesIO(public)) as archive:
+        assert "validator/validator.py" not in archive.namelist()
         assert "validator/source.txt" not in archive.namelist()
         assert "problem.json" not in archive.namelist()
 

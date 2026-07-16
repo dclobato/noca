@@ -753,3 +753,74 @@ async def test_judge_identity_redacted_for_non_admin_viewers(
     team_view = await list_clarifications(session, running_contest, team_user)
     team_entry = next(v for v in team_view if v.id == clari.id)
     assert team_entry.judge_id is None
+
+
+async def test_admin_can_acquire_and_answer_a_clarification(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    admin_user: User,
+    contest_problem: Problem,
+) -> None:
+    clari = await create_clarification(
+        session,
+        running_contest,
+        team_user,
+        problem_id=contest_problem.id,
+        question="Is the input sorted?",
+    )
+
+    await acquire_clarification(session, running_contest, admin_user, clari)
+    answered = await answer_clarification(
+        session,
+        running_contest,
+        admin_user,
+        clari,
+        answer="No.",
+        is_contest_public=True,
+    )
+
+    assert answered.judge_id == admin_user.id
+    assert answered.answer == "No."
+    assert answered.answered_at is not None
+
+
+async def test_team_and_staff_cannot_acquire_or_answer_a_clarification(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    uberadmin: UberAdmin,
+    contest_problem: Problem,
+) -> None:
+    staff_user = User(
+        username="clari_staff",
+        fullname="Clarification Staff",
+        role=RoleEnum.STAFF,
+        contest_id=running_contest.id,
+        created_by_uberadmin_id=uberadmin.id,
+    )
+    staff_user.password = "TestPass1!"
+    session.add(staff_user)
+    await session.flush()
+
+    clari = await create_clarification(
+        session,
+        running_contest,
+        team_user,
+        problem_id=contest_problem.id,
+        question="Can I ask myself?",
+    )
+
+    for actor in (team_user, staff_user):
+        with pytest.raises(ForbiddenClarificationActionError):
+            await acquire_clarification(session, running_contest, actor, clari)
+
+        with pytest.raises(ForbiddenClarificationActionError):
+            await answer_clarification(
+                session,
+                running_contest,
+                actor,
+                clari,
+                answer="nope",
+                is_contest_public=False,
+            )

@@ -1,4 +1,4 @@
-# Noca Arena — Favicon Pack
+# NOCA Arena — Favicon Pack
 
 Drop these files into the **root** of your site (or update the paths in `snippet.html`).
 

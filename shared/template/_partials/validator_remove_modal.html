@@ -1,0 +1,69 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Shared confirmation modal for removing a problem's custom validator, used by the
+  Web and Arena problem-edit pages. Without its validator a problem's sample
+  interactions have nothing to illustrate, so the admin must choose what happens
+  to them: the two submit buttons carry `keep_interactions=true|false`, the exact
+  values the remove endpoints accept. Context:
+    validator_remove_url  str  POST target
+    interaction_count     int  non-hidden interactions the problem currently has
+#}
+<div class="modal fade"
+     id="validator-remove-modal"
+     tabindex="-1"
+     aria-labelledby="validator-remove-modal-label"
+     aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="validator-remove-modal-label">Remove custom validator</h5>
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
+            <form method="post" action="{{ validator_remove_url }}">
+                <div class="modal-body">
+                    <p>
+                        Removing the validator makes this problem non-interactive again. Its
+                        test cases stay as they are, but they carry no expected output, so the
+                        problem cannot be judged until you add one to each case.
+                    </p>
+                    {% if interaction_count %}
+                        <p class="mb-0">
+                            This problem has <strong>{{ interaction_count }}</strong> sample interaction{{ 's' if interaction_count != 1 else '' }},
+                            which only make sense with a validator. What should happen to them?
+                        </p>
+                    {% else %}
+                        <p class="text-muted small mb-0">This problem has no sample interactions.</p>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-outline-secondary"
+                            data-bs-dismiss="modal">Cancel</button>
+                    {% if interaction_count %}
+                        <button type="submit"
+                                name="keep_interactions"
+                                value="true"
+                                class="btn btn-outline-primary">Keep them (hidden)</button>
+                        <button type="submit"
+                                name="keep_interactions"
+                                value="false"
+                                class="btn btn-danger">Delete them permanently</button>
+                    {% else %}
+                        <button type="submit"
+                                name="keep_interactions"
+                                value="true"
+                                class="btn btn-danger">Remove validator</button>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

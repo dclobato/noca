@@ -10,6 +10,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from shared.enumerations import RoleEnum
 from shared.services.security_events import record_request_security_event
+from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_user_edit import edit_user_submit, export_users  # noqa: F401
 from web.routes.contest_admin_user_helpers import (
@@ -280,7 +281,7 @@ async def send_single_user_credentials_email(
             contest_login_url=_build_contest_login_url(request, ctx.contest.login_slug),
             username=username,
             password=password,
-            sender_name=email_service.default_from_name or "Noca Contest",
+            sender_name=email_service.default_from_name or settings.BRAND_NAME,
         ),
     )
     await _record_credential_email_event(

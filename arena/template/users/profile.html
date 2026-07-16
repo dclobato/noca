@@ -196,6 +196,18 @@
                     <span>AI Credits</span>
                 </button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link {% if active_tab == 'statistics' %}active{% endif %}"
+                        id="statistics-tab"
+                        data-profile-tab="statistics"
+                        type="button"
+                        role="tab"
+                        aria-controls="statistics-tab-pane"
+                        aria-selected="{{ 'true' if active_tab == 'statistics' else 'false' }}">
+                    {{ render_icon(icon="donut_large") }}
+                    <span>Statistics</span>
+                </button>
+            </li>
         </ul>
         <div class="tab-content arena-profile-tab-content"
              id="profile-tabs-content">
@@ -604,6 +616,19 @@
                     </div>
                 {% endif %}
             </div>
+            <div class="tab-pane fade {% if active_tab == 'statistics' %}show active{% endif %}"
+                 id="statistics-tab-pane"
+                 role="tabpanel"
+                 aria-labelledby="statistics-tab"
+                 tabindex="0">
+                {% if active_tab == 'statistics' %}
+                    <div class="py-4">
+                        {% with stats_url=request.url_for("arena_user_profile_statistics") %}
+                            {% include "users/_statistics_charts.html" %}
+                        {% endwith %}
+                    </div>
+                {% endif %}
+            </div>
         </div>
     </section>
     <div class="modal fade"
@@ -718,8 +743,12 @@
     <script src="{{ request.url_for('arena_static_js', path='profile-tab-nav.js') }}"
             defer></script>
     <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='noca-echarts-theme.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-rating-history-chart.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-submission-heatmap.js') }}?v={{ app_version }}"></script>
+    {% if active_tab == "statistics" %}
+        <script src="{{ request.url_for('arena_static_js', path='arena-user-statistics.js') }}?v={{ app_version }}"></script>
+    {% endif %}
     {% if active_tab == "submissions" %}
         <script src="{{ request.url_for('static_vendor', path='tsparticles.confetti.bundle.min.js') }}"
                 defer></script>

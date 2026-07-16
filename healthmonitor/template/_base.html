@@ -1,0 +1,57 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<!DOCTYPE html>
+{% from "_macros.html" import render_icon with context %}
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>{{ brand_name }} Environment Status
+            {% block title_suffix %}{% endblock %}
+        </title>
+        {# Set the theme before stylesheets load so there is no light flash. #}
+        <script>
+        (function () {
+            var theme = localStorage.getItem('noca-theme') || 'light';
+            document.documentElement.setAttribute('data-bs-theme', theme);
+        })();
+        </script>
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='bootstrap.min.css') }}">
+        <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"
+              rel="stylesheet">
+        {# ── Health monitor CSS (imports shared common.css) ── #}
+        <link href="{{ request.url_for('healthmon_static_css', path='healthmonitor.css') }}?v={{ app_version }}"
+              rel="stylesheet">
+        <script src="{{ request.url_for('static_shared_js', path='theme-toggle.js') }}?v={{ app_version }}"></script>
+        {% block extra_head %}{% endblock %}
+    </head>
+    <body>
+        <header class="healthmon-topbar">
+            <div class="healthmon-topbar-inner">
+                <a class="navbar-brand noca-navbar-brand"
+                   href="{{ request.url_for("healthmon_status") }}">
+                    <span>{{ brand_name }} Environment Status</span>
+                </a>
+                <nav class="healthmon-topbar-nav">
+                    <a href="{{ request.url_for("healthmon_status") }}">Status</a>
+                    <a href="{{ request.url_for("healthmon_dashboard") }}">Uptime</a>
+                    <button type="button"
+                            id="theme-toggle-btn"
+                            class="btn btn-sm btn-outline-secondary healthmon-theme-toggle"
+                            aria-label="Toggle theme"></button>
+                </nav>
+            </div>
+        </header>
+        <main class="healthmon-main">
+            {% block content %}{% endblock %}
+        </main>
+        <script src="{{ request.url_for('static_vendor', path='bootstrap.bundle.min.js') }}"></script>
+        {% block extra_script %}{% endblock %}
+    </body>
+</html>

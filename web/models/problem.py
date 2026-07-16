@@ -19,6 +19,7 @@ from shared.db_schema import problem_language_limits as problem_language_limits_
 from shared.db_schema import problem_limit_change_batch_languages as problem_limit_change_batch_languages_table
 from shared.db_schema import problem_limit_change_batch_submissions as problem_limit_change_batch_submissions_table
 from shared.db_schema import problem_limit_change_batches as problem_limit_change_batches_table
+from shared.db_schema import problem_sample_interactions as problem_sample_interactions_table
 from shared.db_schema import problems as problems_table
 from shared.db_schema import profiling_case_results as profiling_case_results_table
 from shared.db_schema import profiling_runs as profiling_runs_table
@@ -96,6 +97,11 @@ class Problem(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    sample_interactions: Mapped[list[ProblemSampleInteraction]] = relationship(
+        back_populates="problem",
+        order_by="ProblemSampleInteraction.ordinal",
+        cascade="all, delete-orphan",
+    )
 
     @hybrid_property
     def usable(self) -> bool:
@@ -120,6 +126,23 @@ class ProblemTestCase(Base):
     updated_at: Mapped[datetime]
 
     problem: Mapped[Problem] = relationship(back_populates="test_cases")
+
+
+class ProblemSampleInteraction(Base):
+    """An author-written sample conversation shown for an interactive problem."""
+
+    __table__ = problem_sample_interactions_table
+
+    id: Mapped[str]
+    problem_id: Mapped[str]
+    ordinal: Mapped[int]
+    transcript: Mapped[dict[str, object]]
+    explanation: Mapped[str | None]
+    hidden_at: Mapped[datetime | None]
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+    problem: Mapped[Problem] = relationship(back_populates="sample_interactions")
 
 
 class ProblemCustomValidator(Base):

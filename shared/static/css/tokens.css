@@ -1,0 +1,103 @@
+/* NOCA -- Next Online Contest Administrator */
+/* Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org> */
+/* This program is distributed in the hope that it will be useful, */
+/* but WITHOUT ANY WARRANTY; without even the implied warranty of */
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. */
+
+/*
+ * Shared design tokens — the single source of truth for the NOCA visual
+ * identity across the web (contest) and arena modules. Imported first by
+ * shared/static/css/common.css, which each module loads right after Bootstrap.
+ *
+ * Both modules consume these tokens (directly, and through the Bootstrap --bs-*
+ * overrides below), so changing a value here updates web and arena together.
+ * Module-specific extras (arena's --arena-* ramp, web breadcrumb tokens) stay in
+ * their own stylesheets but reference these tokens for their core identity.
+ */
+
+:root {
+    /* ── Typography (font faces come from shared/vendor/noca-fonts.css) ── */
+    --noca-font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --noca-font-heading: 'Public Sans', 'Inter', system-ui, sans-serif;
+    --noca-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --noca-font-size-base: 1rem;
+    --noca-line-height: 1.5;
+    --noca-heading-weight: 600;
+
+    /* ── Neutral slate surface / text ramp ── */
+    --noca-surface: #f8fafc;
+    --noca-surface-container-lowest: #ffffff;
+    --noca-surface-container-low: #f1f5f9;
+    --noca-surface-container: #eef2f6;
+    --noca-surface-container-high: #e2e8f0;
+    --noca-surface-container-highest: #cbd5e1;
+    --noca-on-surface: #1e293b;
+    --noca-on-surface-variant: #64748b;
+    --noca-outline: #94a3b8;
+    --noca-outline-variant: #cbd5e1;
+
+    /* ── Semantic alias ── */
+    --noca-border: var(--noca-outline-variant);
+
+    /* ── Brand accent (NOCA logo green) + semantics ── */
+    --noca-brand: #2f9e41;
+    --noca-brand-container: #09872d;
+    --noca-on-brand: #ffffff;
+    --noca-brand-rgb: 47, 158, 65;
+    --noca-success: #2f9e41;
+    --noca-danger: #dc2626;
+    --noca-warning: #d97706;
+    --noca-info: #0891b2;
+
+    /* ── Propagate to Bootstrap so BOTH modules inherit ── */
+    --bs-body-font-family: var(--noca-font-body);
+    --bs-body-font-size: var(--noca-font-size-base);
+    --bs-body-line-height: var(--noca-line-height);
+    --bs-font-monospace: var(--noca-font-mono);
+    --bs-secondary-color: var(--noca-on-surface-variant);
+    --bs-border-color: var(--noca-outline-variant);
+    --bs-link-color: var(--noca-brand);
+    --bs-link-hover-color: var(--noca-brand-container);
+}
+
+/* Light-scoped surface/text so Bootstrap's dark tokens and the modules' dark
+   overrides keep winning under [data-bs-theme="dark"]. */
+:root,
+[data-bs-theme="light"] {
+    --bs-body-bg: var(--noca-surface);
+    --bs-body-color: var(--noca-on-surface);
+}
+
+/* ── Dark theme: remap the neutral ramp to a dark slate set. Arena's --arena-*
+   tokens reference these, so arena goes dark automatically; web keeps using its
+   own contest/_dark.css component tweaks on top of the --bs-* values. ── */
+[data-bs-theme="dark"] {
+    --noca-surface: #0f172a;
+    --noca-surface-container-lowest: #0b1220;
+    --noca-surface-container-low: #111c30;
+    --noca-surface-container: #1e293b;
+    --noca-surface-container-high: #273449;
+    --noca-surface-container-highest: #334155;
+    --noca-on-surface: #e2e8f0;
+    --noca-on-surface-variant: #94a3b8;
+    --noca-outline: #475569;
+    --noca-outline-variant: #334155;
+    --bs-body-bg: var(--noca-surface);
+    --bs-body-color: var(--noca-on-surface);
+}
+
+/* ── Shared base scaffold. Kept here (not in common.css) so common.css keeps its
+   "no :root / no body rule" invariant while both modules inherit identity. ── */
+body {
+    font-family: var(--noca-font-body);
+    font-size: var(--noca-font-size-base);
+    line-height: var(--noca-line-height);
+    background-color: var(--noca-surface);
+    color: var(--noca-on-surface);
+}
+
+h1, h2, h3, h4, h5, h6,
+.h1, .h2, .h3, .h4, .h5, .h6 {
+    font-family: var(--noca-font-heading);
+    font-weight: var(--noca-heading-weight);
+}

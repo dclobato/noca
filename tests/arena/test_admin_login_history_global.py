@@ -81,6 +81,7 @@ async def _insert_login(
     subdivision_code: str | None = "BR-SP",
     city: str | None = "São Paulo",
     ip_address: str | None = "1.2.3.4",
+    source_port: int | None = 54321,
     mode: str | None = "password",
 ) -> None:
     """Insert a login history record for the given user."""
@@ -89,6 +90,7 @@ async def _insert_login(
             arena_user_id=user_id,
             dta_login=dta_login or datetime.now(UTC),
             ip_address=ip_address,
+            source_port=source_port,
             country_code=country_code,
             subdivision_code=subdivision_code,
             city=city,
@@ -306,6 +308,7 @@ def _build_app(session: Any, *, authorized: bool = True) -> FastAPI:
         ("/ranking", "arena_ranking_index"),
         ("/ranking/users", "arena_ranking_users"),
         ("/ranking/affiliations", "arena_ranking_affiliations"),
+        ("/help", "arena_help_index"),
         ("/help/rating", "arena_help_rating"),
         ("/help/languages", "arena_help_languages"),
         ("/admin/problems", "arena_admin_problem_list"),
@@ -393,6 +396,7 @@ async def test_login_history_route_renders_flag_and_detailed_location(session: A
     assert "img/flags/br.svg" in response.text
     assert "Brazil" in response.text
     assert "São Paulo" in response.text
+    assert 'data-login-source-port="54321"' in response.text
 
 
 @pytest.mark.asyncio

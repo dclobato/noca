@@ -25,6 +25,7 @@ from .lifecycle import (
     release_clarification,
     toggle_hidden_clarification,
 )
+from .permissions import can_answer_clarifications, can_force_release_clarifications
 from .queries import get_clarification, list_clarifications
 from .views import ClarificationView
 
@@ -41,6 +42,8 @@ __all__ = [
     "ForbiddenClarificationActionError",
     "acquire_clarification",
     "answer_clarification",
+    "can_answer_clarifications",
+    "can_force_release_clarifications",
     "create_announcement",
     "create_clarification",
     "get_clarification",

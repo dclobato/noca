@@ -147,6 +147,7 @@ _COMMON_KWARGS: dict[str, object] = {
     "max_output_tokens": 500,
     "input_price": 0.75,
     "output_price": 4.50,
+    "reasoning_effort": "medium",
 }
 
 
@@ -277,6 +278,18 @@ async def test_reviewer_uses_correct_model() -> None:
 
     call_kwargs = mock_client.responses.create.call_args.kwargs
     assert call_kwargs["model"] == "gpt-custom-model"
+
+
+@pytest.mark.asyncio
+async def test_reasoning_effort_forwarded() -> None:
+    """The reasoning_effort passed to call_ai_review is forwarded to responses.create."""
+    mock_client = _make_mock_client()
+
+    with patch("aiassistant.reviewer.AsyncOpenAI", return_value=mock_client):
+        await call_ai_review(**{**_COMMON_KWARGS, "reasoning_effort": "high"}, is_platform_key=False)  # type: ignore[arg-type]
+
+    call_kwargs = mock_client.responses.create.call_args.kwargs
+    assert call_kwargs["reasoning"] == {"effort": "high"}
 
 
 @pytest.mark.asyncio

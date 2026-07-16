@@ -182,6 +182,7 @@ async def arena_2fa_submit(
         usuario,
         session,
         ip_address=NetworkService.get_ip_from_request(request),
+        source_port=NetworkService.get_trusted_source_port_from_request(request),
         user_agent=request.headers.get("User-Agent"),
         mode=login_mode,
         geo_service=request.app.state.geo_service,

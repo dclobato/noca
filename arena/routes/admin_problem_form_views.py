@@ -22,7 +22,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings
-from arena.models.arena_problems import ArenaProblem
+from arena.models.arena_problems import ArenaProblem, ArenaSampleInteraction
 from arena.models.arena_submissions import ArenaSubmission
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_service, admin_problem_tc_service
@@ -30,6 +30,12 @@ from arena.services.admin_problem_tc_service import TestCaseView
 from shared.enumerations import ArenaRole
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.problem_image import process_problem_image_upload
+from shared.services.sample_interactions import (
+    MAX_SAMPLE_INTERACTIONS,
+    SampleInteractionRowView,
+    transcript_line_count,
+    transcript_preview,
+)
 from shared.services.testcase_view import TestCaseRowView
 
 ALLOWED_PER_PAGE = [10, 25, 50, 100, 500]
@@ -81,6 +87,34 @@ def build_testcase_row_views(
             )
         )
     return rows
+
+
+def build_interaction_row_views(
+    request: Request,
+    problem_id: str,
+    interactions: list[ArenaSampleInteraction],
+) -> list[SampleInteractionRowView]:
+    """Adapt Arena sample-interaction rows into shared list-partial view models.
+
+    URLs are pre-built with the Arena route names so the shared template never
+    resolves module-specific ``url_for`` names.
+    """
+    return [
+        SampleInteractionRowView(
+            id=interaction.id,
+            ordinal=interaction.ordinal,
+            preview=transcript_preview(interaction.transcript),
+            line_count=transcript_line_count(interaction.transcript),
+            has_explanation=bool(interaction.explanation),
+            edit_url=str(
+                request.url_for("arena_admin_problem_interaction_edit", problem_id=problem_id, si_id=interaction.id)
+            ),
+            move_url=str(
+                request.url_for("arena_admin_problem_interaction_move", problem_id=problem_id, si_id=interaction.id)
+            ),
+        )
+        for interaction in sorted(interactions, key=lambda item: item.ordinal)
+    ]
 
 
 def effective_per_page(value: str | None) -> int:
@@ -231,6 +265,7 @@ def render_problem_form(
     has_submissions: bool = False,
     validator_status: Any = None,
     validator_languages: list[Any] | None = None,
+    interactions: list[ArenaSampleInteraction] | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
     """Render ``problem_form.html`` with the shared create/edit context.
@@ -243,11 +278,18 @@ def render_problem_form(
         if mode == "edit" and problem is not None
         else []
     )
+    interaction_rows = (
+        build_interaction_row_views(request, problem.id, interactions or [])
+        if mode == "edit" and problem is not None
+        else []
+    )
     context: dict[str, Any] = {
         "mode": mode,
         "problem": problem,
         "test_cases": test_cases or [],
         "rows": rows,
+        "interaction_rows": interaction_rows,
+        "max_interactions": MAX_SAMPLE_INTERACTIONS,
         "is_edit_allowed": True,
         "form": form,
         "selected_cats_data": cats_data,

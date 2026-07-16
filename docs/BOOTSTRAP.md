@@ -516,7 +516,8 @@ version changes):
 ```bash
 uv sync --all-packages --reinstall-package noca-shared --reinstall-package noca-web \
   --reinstall-package noca-arena --reinstall-package noca-autojudge \
-  --reinstall-package noca-rating --reinstall-package noca-aiassistant
+  --reinstall-package noca-rating --reinstall-package noca-aiassistant \
+  --reinstall-package noca-healthmonitor
 ```
 
 ---
@@ -529,6 +530,7 @@ The current bootstrap behavior is defined in:
 - `arena/main.py` for host-run arena startup
 - `rating/worker.py` for host-run rating worker startup
 - `aiassistant/worker.py` for host-run AI assistant startup
+- `healthmonitor/main.py` for host-run health monitor startup
 - `autojudge/worker.py` for host-run autojudge worker startup
 - `containers/webapp/entrypoint.sh` for containerized web bootstrap
 - `containers/arena/entrypoint.sh` for containerized arena bootstrap

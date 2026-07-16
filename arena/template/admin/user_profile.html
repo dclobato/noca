@@ -8,6 +8,7 @@
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon with context %}
 {% block title_suffix %}&mdash; {{ target_user.nome }}{% endblock %}
+{% block nav_admin_dashboard %}active{% endblock %}
 {% block nav_admin_users %}active{% endblock %}
 {% block extra_head %}
     <link rel="stylesheet"
@@ -138,6 +139,18 @@
                             aria-selected="{{ 'true' if active_tab == 'login-history' else 'false' }}">
                         {{ render_icon(icon="history") }}
                         <span>Login History</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'statistics' %}active{% endif %}"
+                            id="ap-statistics-tab"
+                            data-profile-tab="statistics"
+                            type="button"
+                            role="tab"
+                            aria-controls="ap-statistics-pane"
+                            aria-selected="{{ 'true' if active_tab == 'statistics' else 'false' }}">
+                        {{ render_icon(icon="donut_large") }}
+                        <span>Statistics</span>
                     </button>
                 </li>
             </ul>
@@ -545,6 +558,19 @@
                      tabindex="0">
                     {% if active_tab == 'login-history' %}
                         {% include "admin/_user_login_history.html" %}
+                    {% endif %}
+                </div>
+                <div class="tab-pane fade {% if active_tab == 'statistics' %}show active{% endif %}"
+                     id="ap-statistics-pane"
+                     role="tabpanel"
+                     aria-labelledby="ap-statistics-tab"
+                     tabindex="0">
+                    {% if active_tab == 'statistics' %}
+                        <div class="py-4">
+                            {% with stats_url=request.url_for("arena_admin_user_statistics", user_id=target_user.id) %}
+                                {% include "users/_statistics_charts.html" %}
+                            {% endwith %}
+                        </div>
                     {% endif %}
                 </div>
             </div>
@@ -955,8 +981,12 @@
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='noca-echarts-theme.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-submission-heatmap.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-rating-history-chart.js') }}?v={{ app_version }}"></script>
+    {% if active_tab == "statistics" %}
+        <script src="{{ request.url_for('arena_static_js', path='arena-user-statistics.js') }}?v={{ app_version }}"></script>
+    {% endif %}
     <script src="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.js') }}"></script>
     <script src="{{ request.url_for('static_vendor', path='flatpickr/l10n/default.min.js') }}"></script>
     <script src="{{ request.url_for('static_vendor', path='flatpickr/plugins/rangePlugin.min.js') }}"></script>

@@ -6,13 +6,18 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import anyio
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.language_configs import default_extension_for_language
+from shared.language_registry import highlightjs_language_for_language_id
 from shared.services.custom_validator import (
     build_validation_job,
+    current_validator_source,
     parse_validator_source,
     remove_validator,
     stage_candidate,
@@ -20,6 +25,7 @@ from shared.services.custom_validator import (
 )
 from shared.services.imageprocessing_service import ImageProcessingError
 from shared.services.problem_image import process_problem_image_upload
+from shared.services.sample_interactions import MAX_SAMPLE_INTERACTIONS, InteractionParseError
 from shared.services.valkey_service import enqueue_custom_validator_validation_job
 from shared.tc_zip import normalize_testcase_bytes
 from web.config import settings
@@ -33,6 +39,7 @@ from web.routes.contest_admin_problem_helpers import (
     _is_edit_allowed,
     _is_limits_edit_allowed,
     _is_remove_allowed,
+    _label,
     _read_testcase_preview_for,
     _redirect,
     _remove_blocked_reason,
@@ -43,6 +50,11 @@ from web.routes.contest_admin_problem_helpers import (
     _save_testcase_files_for,
     build_testcase_row_views,
 )
+from web.routes.contest_admin_problem_interactions import (
+    apply_pending_interactions,
+    build_interaction_row_views,
+    parse_pending_interactions,
+)
 from web.routes.contest_admin_problem_limits_helpers import (
     _build_profiling_limits_context,
     _validate_language_limit_inputs,
@@ -52,16 +64,21 @@ from web.services.problem_service import (
     BALLOON_COLORS,
     append_test_case,
     changed_effective_limits,
+    convert_sample_test_cases_to_secret,
     create_problem_limit_change_batch,
+    delete_sample_interactions,
     get_active_languages,
     get_contest_languages,
     get_language_limits_map,
     get_md_statement_path,
     get_problem_in_contest,
     get_statement_path,
+    hide_sample_interactions,
+    load_sample_interactions,
     problem_fallback_limits,
     remove_test_case_and_resequence,
     submitted_language_limits,
+    unhide_sample_interactions,
     upsert_language_limits,
     validate_md_content,
 )
@@ -84,9 +101,6 @@ async def upload_problem_custom_validator(
         flash("Problem not found.", FlashCategory.DANGER)
         return RedirectResponse(request.url_for("manage_problems", slug=ctx.contest.login_slug), 303)
     edit_url = request.url_for("edit_problem_form", slug=ctx.contest.login_slug, problem_id=problem.id)
-    if any(not test_case.is_sample for test_case in problem.test_cases):
-        flash("All existing test cases must be samples before configuring a validator.", FlashCategory.DANGER)
-        return RedirectResponse(edit_url, 303)
     active_language_ids = {language.id for language in await get_active_languages(ctx.session)}
     if language_id not in active_language_ids:
         flash("Validator language is not active.", FlashCategory.DANGER)
@@ -101,10 +115,24 @@ async def upload_problem_custom_validator(
         validator = ProblemCustomValidator(problem_id=problem.id)
         ctx.session.add(validator)
     token = stage_candidate(validator, language_id=language_id, source=source)
+
+    # The problem is interactive from now on: it presents sample interactions, so
+    # any public test case becomes secret, and interactions hidden by an earlier
+    # validator removal resurface.
+    demoted = await convert_sample_test_cases_to_secret(ctx.session, problem.id)
+    resurfaced = await unhide_sample_interactions(ctx.session, problem.id)
     await ctx.session.commit()
+
     job = build_validation_job(domain="contest", problem_id=problem.id, candidate_token=token)
     await enqueue_custom_validator_validation_job(request.app.state.valkey_runtime, job)
     flash("Custom validator queued for compilation.", FlashCategory.SUCCESS)
+    if demoted:
+        flash(
+            f"{demoted} sample test case(s) became secret: interactive problems show sample interactions instead.",
+            FlashCategory.WARNING,
+        )
+    if resurfaced:
+        flash(f"{resurfaced} previously hidden sample interaction(s) are visible again.", FlashCategory.INFO)
     return RedirectResponse(edit_url, 303)
 
 
@@ -117,25 +145,55 @@ async def download_problem_custom_validator(
     problem = await get_problem_in_contest(ctx.session, ctx.contest, problem_id)
     if problem is None or problem.custom_validator is None:
         raise HTTPException(404, "This problem has no custom validator.")
-    validator = problem.custom_validator
-    source: str | None
-    language_id: str | None
-    if validator.active_source is not None:
-        source, language_id = validator.active_source, validator.active_language_id
-    else:
-        source, language_id = validator.candidate_source, validator.candidate_language_id
-    if source is None or language_id is None:
+    validator_source = current_validator_source(problem.custom_validator)
+    if validator_source is None:
         raise HTTPException(404, "This problem has no custom validator.")
-    language = next(
-        (item for item in await get_active_languages(ctx.session) if item.id == language_id),
-        None,
-    )
-    source_filename = language.source_filename if language is not None else "source.txt"
-    filename = f"validator-{problem.ordinal}-{source_filename}"
+    filename = f"validator-{problem.ordinal}{default_extension_for_language(validator_source.language_id)}"
     return Response(
-        content=source.encode("utf-8"),
+        content=validator_source.source.encode("utf-8"),
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get(
+    "/{problem_id}/validator/source/view",
+    response_class=HTMLResponse,
+    name="view_problem_custom_validator_source",
+)
+async def view_problem_custom_validator_source(
+    request: Request,
+    problem_id: str,
+    ctx: ContestAdminContext = Depends(get_contest_admin_context),
+) -> HTMLResponse:
+    """Render the current validator source with syntax highlighting."""
+    problem = await get_problem_in_contest(ctx.session, ctx.contest, problem_id)
+    if problem is None or problem.custom_validator is None:
+        raise HTTPException(404, "This problem has no custom validator.")
+    validator_source = current_validator_source(problem.custom_validator)
+    if validator_source is None:
+        raise HTTPException(404, "This problem has no custom validator.")
+    highlight_language = highlightjs_language_for_language_id(validator_source.language_id)
+    return _html(
+        request.app.state.templates.TemplateResponse(
+            request,
+            "admin/problems/validator_source.html",
+            {
+                "current_user": ctx.actor,
+                "contest": ctx.contest,
+                "problem": problem,
+                "problem_label": _label(problem.ordinal),
+                "source_code": validator_source.source,
+                "highlight_language": highlight_language,
+                "highlight_language_class": f"language-{highlight_language}",
+                "highlight_theme_path": "highlight/styles/github.min.css",
+                "highlight_core_path": "highlight/highlight.min.js",
+                "highlight_language_path": (
+                    None if highlight_language == "plaintext" else f"highlight/languages/{highlight_language}.min.js"
+                ),
+                "highlight_line_numbers_path": "highlight/plugins/highlightjs-line-numbers.min.js",
+            },
+        )
     )
 
 
@@ -166,19 +224,43 @@ async def problem_custom_validator_status(
 async def remove_problem_custom_validator_route(
     request: Request,
     problem_id: str,
+    flash: FlashDep,
+    keep_interactions: Literal["true", "false"] = Form(...),
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
 ) -> RedirectResponse:
-    """Clear both revisions; stale queued jobs become token mismatches."""
+    """Clear both revisions; stale queued jobs become token mismatches.
+
+    Without its validator the problem's sample interactions have nothing to
+    illustrate, so the caller must state what happens to them. ``keep_interactions``
+    is deliberately an exact ``"true"``/``"false"`` string rather than a ``bool``:
+    FastAPI would coerce ``1``, ``on`` and ``yes`` too, and the choice between
+    hiding data and destroying it must not hinge on a spelling.
+    """
     problem = await get_problem_in_contest(ctx.session, ctx.contest, problem_id)
     if problem is None:
         raise ValueError("Problem not found")
-    if problem.custom_validator is not None:
-        remove_validator(problem.custom_validator)
-        await ctx.session.delete(problem.custom_validator)
-        await ctx.session.commit()
-    return RedirectResponse(
-        request.url_for("edit_problem_form", slug=ctx.contest.login_slug, problem_id=problem.id), 303
+    edit_url = request.url_for("edit_problem_form", slug=ctx.contest.login_slug, problem_id=problem.id)
+    if problem.custom_validator is None:
+        return RedirectResponse(edit_url, 303)
+
+    keep = keep_interactions == "true"
+    affected = (
+        await hide_sample_interactions(ctx.session, problem.id)
+        if keep
+        else await delete_sample_interactions(ctx.session, problem.id)
     )
+    remove_validator(problem.custom_validator)
+    await ctx.session.delete(problem.custom_validator)
+    await ctx.session.commit()
+
+    flash("Custom validator removed.", FlashCategory.SUCCESS)
+    if affected:
+        flash(
+            f"{affected} sample interaction(s) were "
+            + ("hidden; they will resurface if you add a validator again." if keep else "permanently deleted."),
+            FlashCategory.INFO if keep else FlashCategory.WARNING,
+        )
+    return RedirectResponse(edit_url, 303)
 
 
 @router.get("/{problem_id}/edit", response_class=HTMLResponse, name="edit_problem_form")
@@ -243,6 +325,10 @@ async def edit_problem_form(
                 "balloon_colors": BALLOON_COLORS,
                 "validator_status": status_view(problem.custom_validator),
                 "validator_languages": await get_active_languages(ctx.session),
+                "interaction_rows": build_interaction_row_views(
+                    request, ctx.contest, await load_sample_interactions(ctx.session, problem.id)
+                ),
+                "max_interactions": MAX_SAMPLE_INTERACTIONS,
                 **profiling_limits_context,
             },
         )
@@ -333,6 +419,10 @@ async def edit_problem_submit(
                         "balloon_colors": BALLOON_COLORS,
                         "validator_status": status_view(problem.custom_validator),
                         "validator_languages": await get_active_languages(ctx.session),
+                        "interaction_rows": build_interaction_row_views(
+                            request, ctx.contest, await load_sample_interactions(ctx.session, problem.id)
+                        ),
+                        "max_interactions": MAX_SAMPLE_INTERACTIONS,
                         **profiling_limits_context,
                     },
                     status_code=422,
@@ -456,26 +546,6 @@ async def edit_problem_submit(
         except (ImageProcessingError, ValueError) as exc:
             errors.append(f"Problem image: {exc}")
 
-    tc_ids_to_remove = {value.strip() for value in str(form.get("tc_remove_ids", "") or "").split(",") if value.strip()}
-    tcs_to_remove = [tc for tc in problem.test_cases if tc.id in tc_ids_to_remove]
-    validator_configured = status_view(problem.custom_validator).configured
-    # Interactive judgments never read test-case files, so a validator problem
-    # may legitimately ship no test cases at all.
-    if len(problem.test_cases) - len(tcs_to_remove) == 0 and not validator_configured:
-        errors.append("At least one test case is required.")
-    if validator_configured:
-        pending_indices = {
-            int(key.rsplit("_", 1)[1])
-            for key in form
-            if (key.startswith("tc_in_") or key.startswith("tc_out_")) and key.rsplit("_", 1)[1].isdigit()
-        }
-        if any(
-            (str(form.get(f"tc_in_{index}", "")) or str(form.get(f"tc_out_{index}", "")))
-            and not form.get(f"tc_is_sample_{index}")
-            for index in pending_indices
-        ):
-            errors.append("Custom-validator test cases must be public samples.")
-
     if errors:
         testcase_dir = settings.PROBLEM_TESTCASE_DIR
         preview_map_for_errors: dict[str, tuple[str, str]] = {}
@@ -520,11 +590,47 @@ async def edit_problem_submit(
                     "balloon_colors": BALLOON_COLORS,
                     "validator_status": status_view(problem.custom_validator),
                     "validator_languages": await get_active_languages(ctx.session),
+                    "interaction_rows": build_interaction_row_views(
+                        request, ctx.contest, await load_sample_interactions(ctx.session, problem.id)
+                    ),
+                    "max_interactions": MAX_SAMPLE_INTERACTIONS,
                     **profiling_limits_context,
                 },
                 status_code=422,
             )
         )
+
+    tc_ids_to_remove = {value.strip() for value in str(form.get("tc_remove_ids", "") or "").split(",") if value.strip()}
+    tcs_to_remove = [tc for tc in problem.test_cases if tc.id in tc_ids_to_remove]
+
+    interactive = status_view(problem.custom_validator).configured
+    add_indices = sorted(
+        {
+            int(key.rsplit("_", 1)[1])
+            for key in form
+            if (key.startswith("tc_in_") or key.startswith("tc_out_")) and key.rsplit("_", 1)[1].isdigit()
+        }
+    )
+    filled_add_indices = [i for i in add_indices if str(form.get(f"tc_in_{i}", "")) or str(form.get(f"tc_out_{i}", ""))]
+
+    # Judge the invariant on the save's net outcome: removing every existing case
+    # while adding replacements in the same submit is legitimate.
+    if interactive and len(problem.test_cases) - len(tcs_to_remove) + len(filled_add_indices) < 1:
+        flash("An interactive problem needs at least one secret test case.", FlashCategory.DANGER)
+        return _redirect(str(request.url_for("edit_problem_form", slug=ctx.contest.login_slug, problem_id=problem_id)))
+
+    # Parse the pending sample interactions up front: this route deletes test-case
+    # files before it commits, so a malformed transcript must be rejected while the
+    # problem is still untouched.
+    pending_interactions: list[tuple[dict[str, object], str | None]] = []
+    if interactive:
+        try:
+            pending_interactions = parse_pending_interactions(form)
+        except InteractionParseError as exc:
+            flash(str(exc), FlashCategory.DANGER)
+            return _redirect(
+                str(request.url_for("edit_problem_form", slug=ctx.contest.login_slug, problem_id=problem_id))
+            )
 
     assert tlms is not None
     assert mlkb is not None
@@ -581,28 +687,28 @@ async def edit_problem_submit(
 
     # Append inline add-rows (parity with Arena inline test-case creation). Rows
     # are appended after removals so ordinals stay contiguous; files are written
-    # only once the DB transaction is durable.
-    pending_writes: list[tuple[int, bytes, bytes]] = []
-    add_indices = sorted(
-        {
-            int(key.rsplit("_", 1)[1])
-            for key in form
-            if (key.startswith("tc_in_") or key.startswith("tc_out_")) and key.rsplit("_", 1)[1].isdigit()
-        }
-    )
-    for i in add_indices:
+    # only once the DB transaction is durable. An interactive problem's cases carry
+    # input only, and are never public: it shows sample interactions instead.
+    pending_writes: list[tuple[int, bytes, bytes | None]] = []
+    for i in filled_add_indices:
         in_val = str(form.get(f"tc_in_{i}", ""))
         out_val = str(form.get(f"tc_out_{i}", ""))
-        if not in_val and not out_val:
-            continue
         explanation = str(form.get(f"tc_explanation_{i}", "")).strip() or None
         in_bytes = in_val.encode()
-        out_bytes = out_val.encode()
-        new_tc = ProblemTestCase(is_sample=bool(form.get(f"tc_is_sample_{i}")), explanation=explanation)
+        out_bytes = None if interactive else out_val.encode()
+        new_tc = ProblemTestCase(
+            is_sample=not interactive and bool(form.get(f"tc_is_sample_{i}")),
+            explanation=explanation,
+        )
         await append_test_case(ctx.session, problem, new_tc)
         new_tc.input_size_bytes = len(normalize_testcase_bytes(in_bytes))
-        new_tc.output_size_bytes = len(normalize_testcase_bytes(out_bytes))
+        new_tc.output_size_bytes = None if out_bytes is None else len(normalize_testcase_bytes(out_bytes))
         pending_writes.append((new_tc.ordinal, in_bytes, out_bytes))
+
+    # Sample interactions ride the same Save. Their transcripts were parsed before
+    # any mutation started, so nothing here can fail on malformed input.
+    if interactive:
+        await apply_pending_interactions(ctx.session, problem, form, pending_interactions)
 
     await ctx.session.commit()
     for ordinal, in_bytes, out_bytes in pending_writes:

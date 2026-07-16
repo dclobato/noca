@@ -6,6 +6,7 @@ This repository provides:
 - an `autojudge` worker image under `containers/autojudge/`
 - a `rating` worker image under `containers/rating/`
 - an `aiassistant` worker image under `containers/aiassistant/`
+- a `healthmonitor` server image under `containers/healthmonitor/`
 - language-specific judge images under `containers/languages/`
 
 For contestant-facing runtime/compiler details, see:
@@ -22,7 +23,8 @@ not runtime contract images** — nothing in the application references them at 
 
 ### `noca/app-base`
 
-Shared base for `webapp`, `arena`, `autojudge`, `rating`, and `aiassistant`. Holds the Python + uv
+Shared base for `webapp`, `arena`, `autojudge`, `rating`, `aiassistant`, and
+`healthmonitor`. Holds the Python + uv
 install, the common ENV block, and the workspace `pyproject.toml` copies that drive
 `uv sync`. Each service image inherits this base and adds only its own
 `uv sync --package` and source COPY steps.
@@ -69,8 +71,9 @@ Built from `containers/judge-compile-base/` as context.
 In non-push modes, `build.sh` automatically detects which base
 images are needed and builds them as prerequisites **before** the target loop:
 
-1. `app-base` — when any of `webapp`, `arena`, `autojudge`, `rating`, or `aiassistant` is selected
-2. `assets-base` — when `webapp` or `arena` is selected
+1. `app-base` — when any of `webapp`, `arena`, `autojudge`, `rating`,
+   `aiassistant`, or `healthmonitor` is selected
+2. `assets-base` — when `webapp`, `arena`, or `healthmonitor` is selected
 3. `isolate-base` — when any language with a `run/` directory is selected
 4. `judge-compile-base` — when any of `gcc-c17`, `gcc-cpp23`, `fpc-pascal`, `haskell`, `lua`, `prolog`, or `fortran` is selected
 
@@ -131,9 +134,14 @@ The aiassistant worker image is tagged as:
 - path naming: `<prefix>/aiassistant`
 - flat naming: `<prefix>-aiassistant`
 
+The healthmonitor server image is tagged as:
+- path naming: `<prefix>/healthmonitor`
+- flat naming: `<prefix>-healthmonitor`
+
 ## Runtime UID/GID
 
-The `webapp`, `arena`, `autojudge`, `rating`, and `aiassistant` images honor these runtime environment variables:
+The `webapp`, `arena`, `autojudge`, `rating`, `aiassistant`, and
+`healthmonitor` images honor these runtime environment variables:
 - `PUID` (default: `1000`)
 - `PGID` (default: `100`)
 
@@ -151,6 +159,7 @@ The script supports the following targets:
 - `autojudge`
 - `rating`
 - `aiassistant`
+- `healthmonitor`
 - `bash`
 - `gcc-c17`
 - `gcc-cpp23`
@@ -312,11 +321,11 @@ docker buildx inspect noca-builder   # Platforms line should list linux/arm64, e
 
 Images are tagged as:
 - path naming: `<prefix>/webapp`, `<prefix>/arena`, `<prefix>/autojudge`,
-  `<prefix>/rating`, `<prefix>/aiassistant`, `<prefix>/judge-<language>:compile`,
-  `<prefix>/judge-<language>:run`
+  `<prefix>/rating`, `<prefix>/aiassistant`, `<prefix>/healthmonitor`,
+  `<prefix>/judge-<language>:compile`, `<prefix>/judge-<language>:run`
 - flat naming: `<prefix>-webapp`, `<prefix>-arena`, `<prefix>-autojudge`,
-  `<prefix>-rating`, `<prefix>-aiassistant`, `<prefix>-judge-<language>:compile`,
-  `<prefix>-judge-<language>:run`
+  `<prefix>-rating`, `<prefix>-aiassistant`, `<prefix>-healthmonitor`,
+  `<prefix>-judge-<language>:compile`, `<prefix>-judge-<language>:run`
 
 Prefix configuration, in order:
 1. `--repo`
@@ -528,6 +537,8 @@ docker buildx imagetools inspect <prefix>-judge-gcc-c17:run
 - The `aiassistant` image is built from `containers/aiassistant/Dockerfile`. It owns
   the Arena AI review pipeline (OpenAI Responses API and Batch API). Run one replica
   only to avoid duplicate batch submissions.
+- The `healthmonitor` image is built from `containers/healthmonitor/Dockerfile`.
+  It serves the public status pages and uses Valkey only.
 - Runtime images copy only their target module source plus `shared`; unrelated
   workspace member source is not included. They still copy workspace member
   `pyproject.toml` files for `uv` workspace resolution and migration assets for

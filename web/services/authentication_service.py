@@ -158,6 +158,7 @@ class AuthenticationService:
         user_id: str | None = None,
         uberadmin_id: str | None = None,
         ip_address: str | None = None,
+        source_port: int | None = None,
         user_agent: str | None = None,
     ) -> None:
         """Add a login history entry for a successful authentication event.
@@ -167,6 +168,7 @@ class AuthenticationService:
             user_id: Contest user identifier for user logins.
             uberadmin_id: UberAdmin identifier for UberAdmin logins.
             ip_address: Optional client IP address to persist and geolocate.
+            source_port: Optional client source port to persist with the IP.
             user_agent: Optional client user-agent string to persist.
 
         Returns:
@@ -186,6 +188,7 @@ class AuthenticationService:
             "user_id": user_id,
             "uberadmin_id": uberadmin_id,
             "ip_address": ip_address,
+            "source_port": source_port,
             "user_agent": user_agent,
         }
         details = self._geo.get_details_by_ip(ip_address) if ip_address else None
@@ -206,6 +209,7 @@ class AuthenticationService:
         session: AsyncSession,
         *,
         ip_address: str | None = None,
+        source_port: int | None = None,
         user_agent: str | None = None,
     ) -> str:
         """Authenticate an UberAdmin and return a signed web access token.
@@ -217,6 +221,7 @@ class AuthenticationService:
             session: Database session used to load the UberAdmin and persist login history.
             ip_address: Optional client IP address stored in login history and used
                 for geolocation lookup.
+            source_port: Optional client source port stored in login history.
             user_agent: Optional client user-agent string stored in login history.
 
         Returns:
@@ -248,6 +253,7 @@ class AuthenticationService:
             session,
             uberadmin_id=user.id,
             ip_address=ip_address,
+            source_port=source_port,
             user_agent=user_agent,
         )
         await session.commit()
@@ -261,6 +267,7 @@ class AuthenticationService:
         session: AsyncSession,
         *,
         ip_address: str | None = None,
+        source_port: int | None = None,
         user_agent: str | None = None,
     ) -> str:
         """Authenticate a contest user and return a signed contest-scoped access token.
@@ -273,6 +280,7 @@ class AuthenticationService:
             session: Database session used to load the user and persist login history.
             ip_address: Optional client IP address stored in login history and used
                 for geolocation lookup.
+            source_port: Optional client source port stored in login history.
             user_agent: Optional client user-agent string stored in login history.
 
         Returns:
@@ -305,6 +313,7 @@ class AuthenticationService:
             session,
             user_id=user.id,
             ip_address=ip_address,
+            source_port=source_port,
             user_agent=user_agent,
         )
         await session.commit()

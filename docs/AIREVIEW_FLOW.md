@@ -161,7 +161,7 @@ arena HTTP ──► credit gate passed (user has own API key)
                     │  3. files.create(code, user_data)     │
                     │  4. files.create(stmt, user_data)     │
                     │  5. responses.create(                 │
-                    │       model, instructions,            │
+                    │       model, instructions, reasoning, │
                     │       input=[input_file, input_file,  │
                     │              input_image?, input_text]│
                     │     )                                 │
@@ -190,6 +190,7 @@ arena HTTP ──► credit gate passed (user has own API key)
   "model": "gpt-5.4-mini",
   "instructions": "<SYSTEM_PROMPT>",
   "max_output_tokens": 500,
+  "reasoning": { "effort": "<NOCA_AI_OPENAI_REASONING_EFFORT>" },
   "input": [
     {
       "role": "user",
@@ -197,12 +198,32 @@ arena HTTP ──► credit gate passed (user has own API key)
         { "type": "input_file",  "file_id": "<code_file_id>" },
         { "type": "input_file",  "file_id": "<stmt_file_id>" },
         { "type": "input_image", "image_url": "data:<mime>;base64,..." },  ← only when problem has an image
-        { "type": "input_text",  "text": "Analyze the submitted program…<lang_context>" }
+        { "type": "input_text",  "text": "Analyze the submitted program…<lang_context><interactive_context?>" }
       ]
     }
   ]
 }
 ```
+
+### Interactive problems
+
+When the reviewed submission belongs to a problem with a `VALID` active custom
+validator, both paths inline an `<interactive_context>` section into the
+`input_text` block (never a separate uploaded file, so the batch file-cleanup
+bookkeeping is unchanged). `get_interactive_context()` reads the problem's
+validator state, the latest judgment verdict, the retained deciding attempt
+(`arena_submission_interactive_attempts` — the judge keeps only the last executed
+case's rows), and the public author sample interactions. `build_interactive_note()`
+renders them: a trusted lead-in (verdict + secret case ordinal + judge crash
+reason), the recorded conversation, and up to three author example conversations —
+the last two wrapped in untrusted-data boundaries like the source and statement.
+Transcripts are head/tail-capped (60+60 lines for the recorded attempt, 40+40 per
+sample) on top of the judge's 256 KB cap, and the `truncated` flag is surfaced to
+the model. Non-interactive problems are unaffected: the context query returns
+`None` and the request shape is identical to before. The `SYSTEM_PROMPT` carries a
+matching `# INTERACTIVE PROBLEMS` section teaching the coach to read `> `/`< `
+transcripts and map verdicts (TLE → wrong interaction complexity, WA → wrong final
+answer or protocol violation, RTE → malformed line / premature exit).
 
 **Cost recording:**  
 `cost = (input_tokens / 1_000_000) × OPENAI_INPUT_TOKEN_PRICE + (output_tokens / 1_000_000) × OPENAI_OUTPUT_TOKEN_PRICE`  
@@ -240,7 +261,7 @@ dequeue loop → reads use_platform_key=True from hash
               │       "method": "POST",                              │
               │       "url": "/v1/responses",                        │
               │       "body": { model, instructions,                 │
-              │                 max_output_tokens,                   │
+              │                 max_output_tokens, reasoning,        │
               │                 input: [input_file, input_file,      │
               │                         input_image?, input_text] }} │
               │  6. files.create(jsonl, purpose="batch")             │

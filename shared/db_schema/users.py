@@ -178,6 +178,7 @@ login_history = Table(
     ),
     Column("dta_login", DateTime(timezone=True), nullable=False, default=_utcnow),
     Column("ip_address", String(45), nullable=True),
+    Column("source_port", Integer, nullable=True),
     Column("country_code", String(2), nullable=True, comment="ISO 3166-1 alpha-2 country code from IP"),
     Column("subdivision_code", String(16), nullable=True, comment="ISO 3166-2 subdivision code from IP"),
     Column("district", String(128), nullable=True, comment="District/county name from IP"),

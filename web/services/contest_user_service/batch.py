@@ -8,7 +8,9 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from typing import Any
+
+from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from web.models.contest import Contest
@@ -24,6 +26,22 @@ from .validation import (
     parse_import_role,
     resolve_password_with_detail,
 )
+
+
+async def _reload_after_rollback(
+    session: AsyncSession,
+    contest: Contest,
+    actor: User | UberAdmin,
+) -> None:
+    """Reload the objects a failed row's rollback expired, so the next rows can still read them.
+
+    The async driver cannot refresh an expired attribute implicitly on access, and the
+    remaining rows keep reading the contest and the actor.
+    """
+    instances: tuple[Any, ...] = (contest, actor)
+    for instance in instances:
+        if inspect(instance).persistent:
+            await session.refresh(instance)
 
 
 async def batch_import_users(
@@ -200,6 +218,7 @@ async def batch_import_users(
             updated += 1
         except Exception as exc:  # noqa: BLE001
             await session.rollback()
+            await _reload_after_rollback(session, contest, actor)
             results.append(
                 UserImportResult(
                     username=username,

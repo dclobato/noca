@@ -62,12 +62,11 @@ async def test_lifespan_does_not_start_reaper_when_disabled(monkeypatch: pytest.
     _configure_common_monkeypatches(monkeypatch)
     monkeypatch.setattr(main_module.settings, "ENABLE_CLARIFICATION_REAPER", False)
 
-    created_task = False
+    created_task_names: list[str | None] = []
     original_create_task = main_module.asyncio.create_task
 
     def _spy_create_task(coro, *, name=None):  # type: ignore[no-untyped-def]
-        nonlocal created_task
-        created_task = True
+        created_task_names.append(name)
         return original_create_task(coro, name=name)
 
     monkeypatch.setattr(main_module.asyncio, "create_task", _spy_create_task)
@@ -76,7 +75,8 @@ async def test_lifespan_does_not_start_reaper_when_disabled(monkeypatch: pytest.
         assert main_module.app.state.valkey_runtime.started is True
         assert main_module.app.state.clarification_reaper_task is None
 
-    assert created_task is False
+    # The always-on worker-presence heartbeat is the only task allowed here.
+    assert created_task_names == ["worker-presence-loop"]
     assert main_module.app.state.valkey_runtime.stopped is True
 
 

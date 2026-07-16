@@ -26,6 +26,12 @@ from .lifecycle import (
     finish_task,
     release_task,
 )
+from .permissions import (
+    can_force_release_tasks,
+    can_handle_tasks,
+    can_view_tasks,
+    is_chief_judge,
+)
 from .queries import get_task, list_tasks
 from .views import TaskView
 
@@ -42,11 +48,15 @@ __all__ = [
     "TaskNotAcquiredByActorError",
     "TaskView",
     "acquire_task",
+    "can_force_release_tasks",
+    "can_handle_tasks",
+    "can_view_tasks",
     "create_balloon_task",
     "create_print_task",
     "create_sos_task",
     "finish_task",
     "get_task",
+    "is_chief_judge",
     "list_tasks",
     "release_task",
 ]

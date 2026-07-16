@@ -1,5 +1,76 @@
 # Changelog
 
+## [14.0.0] - 2026-07-16
+
+### ⚠ BREAKING CHANGES
+
+- **validators**: Custom validators are now parametrized by test-case input:
+  one container pair judges a whole submission and the judge replays the
+  conversation once per test case, writing that case's input to the
+  validator's stdin before the two sides talk. Existing validators must be
+  rewritten to read their test-case input from stdin first
+- **validators**: Interactive problems' test cases now carry **input and
+  explanation only** (no expected output) and every case is **secret**;
+  problem packages, ZIPs, and downloads for validator problems ship `.in`
+  files alone. Packages built for the previous format must be regenerated
+- **validators**: A problem with a configured validator must have zero public
+  test cases and at least one secret one; staging a validator demotes public
+  cases and the sample toggle is refused while a validator is configured
+- **validators**: Removing a validator now requires an explicit
+  `keep_interactions=true|false` choice on the removal endpoints
+
+### Features
+
+- **problems**: Add sample interactions for interactive problems:
+  author-written transcripts (up to five per problem) rendered on the problem
+  page, carried in packages as `interaction/NNN.interaction` + `.explain`
+- **problems**: Preview the first 10 lines of a sample interaction
+- **problems**: Add a print-friendly problem view to Arena and Web
+- **validator**: Expose the effective problem limits and submitted language to
+  custom validators as environment variables (`PROBLEM_TIME_LIMIT`,
+  `PROBLEM_OUTPUT_LIMIT`, `PROBLEM_MEMORY_LIMIT`, `PROBLEM_PID_LIMIT`,
+  `USER_LANGUAGE`, plus `PER_LANGUAGE_LIMITS` for Web contests)
+- **validator**: Add a highlighted validator source viewer and name exported
+  validator source files by language
+- **web**: Require a chief judge whenever a contest has judges, and let admins
+  and the chief judge work tasks, clarifications, and verdicts
+- **arena**: Add a statistics tab to self and admin user profiles
+- **arena**: Add admin force-rejudgment on the submission detail page
+- **arena**: Restructure the admin sidebar/dashboard and add a Help menu
+- **aiassistant**: Include interactive context in AI reviews
+- **aiassistant**: Add configurable OpenAI reasoning effort
+- **healthmonitor**: Add the health-monitoring module with public status and
+  30-day uptime dashboards (port 8002)
+- **audit**: Record request correlation metadata (client IP, source port,
+  request ID) on security events
+- **ui**: Unify web/arena identity, add dark mode, and centralize the NOCA
+  brand; replace the arena module icon
+
+### Bug Fixes
+
+- **autojudge**: Stop the interactive exit race from failing correct solutions
+- **validator**: Show runtime-failed validators as configured
+- **arena**: Load language help on the right tab
+- **arena**: Stop highlighting the Problems nav on the dashboard
+- **templates**: Fix the explanation of the validator flow
+- **ui**: Make monochrome devicons visible in dark mode
+
+### Refactoring
+
+- **web,arena**: Share the row-href script and make run rows clickable
+- **arena**: Drop the unused require_arena_judge_or_admin dependency
+
+### Documentation
+
+- **packages**: Add the problem package format specification
+- **custom-validator**: Port the sample validator to every judge language
+- **healthmonitor**: Add the module to reinstall docs, ops scripts, and module
+  lists
+
+### Tests
+
+- **arena**: Lock in readiness checks surviving a removed validator
+
 ## [13.3.0] - 2026-07-13
 
 ### Features

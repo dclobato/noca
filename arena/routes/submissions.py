@@ -11,6 +11,7 @@ Routes:
   POST /submissions/{submission_id}/request-ai-review       arena_submission_request_ai_review
   POST /submissions/{submission_id}/teacher-feedback        arena_submission_teacher_feedback
   POST /submissions/{submission_id}/teacher-feedback/remove arena_submission_teacher_feedback_remove
+  POST /submissions/{submission_id}/force-rejudge           arena_submission_force_rejudge
 """
 
 from __future__ import annotations
@@ -28,8 +29,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.config import settings as arena_settings
 from arena.database import get_db
+from arena.dependencies.admin import require_arena_admin
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_users import ArenaUser
+from arena.services import admin_submission_service
 from arena.services.ai_turnaround_stats_service import get_batch_turnaround_stats
 from arena.services.arena_problem_set_report_service import can_teacher_view_submission
 from arena.services.arena_teacher_feedback_service import delete_teacher_feedback, upsert_teacher_feedback
@@ -50,12 +53,15 @@ from shared.db_schema.arena import (
     arena_test_cases,
     arena_users,
 )
-from shared.enumerations import ArenaNotificationKind, ArenaRole, JudgmentStatus
+from shared.enumerations import ArenaNotificationKind, ArenaRole, JudgmentStatus, Verdict
 from shared.language_registry import highlightjs_language_for_language_id
 from shared.queue_schema import ArenaAIReviewJob
 from shared.services.arena_notification_service import create_arena_notification
 from shared.services.testcase_files import read_testcase_full
-from shared.services.valkey_service.queue_ops import enqueue_arena_ai_review_job
+from shared.services.valkey_service.queue_ops import (
+    enqueue_arena_ai_review_job,
+    enqueue_arena_submission_job,
+)
 from shared.signal_names import describe_signal
 
 router = APIRouter(tags=["arena-submissions"])
@@ -421,12 +427,15 @@ async def arena_submission_detail(
     test_result: TestResultData | None = None
     interactive_attempts: list[Any] = []
     if judgment_row is not None:
-        attempt_rows = await session.execute(
-            select(arena_submission_interactive_attempts)
-            .where(arena_submission_interactive_attempts.c.judgment_id == judgment_row[0])
-            .order_by(arena_submission_interactive_attempts.c.attempt_number)
-        )
-        interactive_attempts = list(attempt_rows.mappings().all())
+        # The judge keeps only the last executed case's attempts, so on an accepted
+        # submission they are just the winning conversation: nothing to explain.
+        if judgment_row[2] != Verdict.AC:
+            attempt_rows = await session.execute(
+                select(arena_submission_interactive_attempts)
+                .where(arena_submission_interactive_attempts.c.judgment_id == judgment_row[0])
+                .order_by(arena_submission_interactive_attempts.c.attempt_number)
+            )
+            interactive_attempts = list(attempt_rows.mappings().all())
         tr_row = (
             await session.execute(
                 select(
@@ -862,4 +871,48 @@ async def arena_submission_teacher_feedback_remove(
         flash("Feedback removed.", FlashCategory.SUCCESS)
     else:
         flash("No feedback to remove.", FlashCategory.WARNING)
+    return RedirectResponse(url=redirect_url, status_code=303)
+
+
+@router.post(
+    "/submissions/{submission_id}/force-rejudge",
+    response_class=HTMLResponse,
+    name="arena_submission_force_rejudge",
+)
+async def arena_submission_force_rejudge(
+    submission_id: str,
+    request: Request,
+    flash: FlashDep,
+    admin: ArenaUser = Depends(require_arena_admin),
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    """Force a fresh judgment for a submission (Arena admin only).
+
+    Supersedes the active judgment and queues a new one, so a submission that
+    already produced a verdict can be judged again — for instance after fixing
+    test data, limits, or the judge itself. See
+    :func:`arena.services.admin_submission_service.force_rejudge_arena_submission`.
+
+    Args:
+        submission_id: UUID of the ``arena_submissions`` row.
+        request: Current HTTP request.
+        flash: Flash-message dependency for user feedback.
+        admin: Authenticated Arena admin (enforced by ``require_arena_admin``).
+        session: Active database session.
+
+    Returns:
+        Response: 303 redirect back to the referring page or the submission
+        detail page.
+    """
+    job = await admin_submission_service.force_rejudge_arena_submission(session, submission_id=submission_id)
+    if job is None:
+        await session.rollback()
+        flash("Submission not found or has no judgment to rejudge.", FlashCategory.DANGER)
+    else:
+        await session.commit()
+        await enqueue_arena_submission_job(request.app.state.valkey_runtime, job)
+        flash("Submission queued for a fresh judgment.", FlashCategory.SUCCESS)
+
+    referer = request.headers.get("referer")
+    redirect_url = referer or str(request.url_for("arena_submission_detail", submission_id=submission_id))
     return RedirectResponse(url=redirect_url, status_code=303)

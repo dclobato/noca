@@ -30,7 +30,9 @@ from aiassistant._loop_helpers import interruptible_sleep
 from aiassistant.batch_reviewer import StagedItem, submit_windowed_batch
 from aiassistant.config import settings
 from aiassistant.db.batch_queries import get_staged_batch_jobs, mark_staged_jobs_submitted
+from aiassistant.db.interactive_queries import get_interactive_context
 from aiassistant.db.queries import get_problem_data, get_submission_for_review, get_user_prefered_language
+from aiassistant.interactive_context import build_interactive_note
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -118,6 +120,8 @@ async def _flush_cycle(engine: AsyncEngine, log: logging.Logger) -> None:
                 continue
             problem = await get_problem_data(conn, sub.problem_id)
             preferred_language = await get_user_prefered_language(conn, sub.user_id)
+            interactive_ctx = await get_interactive_context(conn, row.submission_id)
+            interactive_note = build_interactive_note(interactive_ctx) if interactive_ctx is not None else None
             items.append(
                 StagedItem(
                     submission_id=row.submission_id,
@@ -128,6 +132,7 @@ async def _flush_cycle(engine: AsyncEngine, log: logging.Logger) -> None:
                     image_base64=problem.image_base64,
                     image_mime=problem.image_mime,
                     image_caption=problem.image_caption,
+                    interactive_note=interactive_note or None,
                 )
             )
 
@@ -140,6 +145,7 @@ async def _flush_cycle(engine: AsyncEngine, log: logging.Logger) -> None:
         api_key=api_key,
         model=settings.OPENAI_MODEL,
         max_output_tokens=settings.OPENAI_MAX_OUTPUT_TOKENS,
+        reasoning_effort=settings.OPENAI_REASONING_EFFORT,
     )
 
     submission_ids = [it.submission_id for it in items]

@@ -9,12 +9,36 @@
 	}
 }
 
+(noca-upstream) {
+	# Dynamically names the log file based on the second snippet argument
+	log {
+		output file /var/log/caddy/access-{args[1]}.log {
+			roll_size 100MB
+			roll_keep 20
+			roll_keep_for 185d
+		}
+	}
+
+	log_append request_id {http.request.uuid}
+
+	header {
+		X-Request-ID {http.request.uuid}
+	}
+
+	reverse_proxy {args[0]} {
+		header_up -X-Request-ID
+		header_up X-Request-ID {http.request.uuid}
+	}
+}
+
 :80 {
-    # For TLS, replace :80 with your real domain name. Caddy will provision
-    # certificates automatically once docker-compose also exposes port 443.
-    reverse_proxy web:8000
+	import noca-upstream web:8000 web
 }
 
 :81 {
-    reverse_proxy arena:8001
+	import noca-upstream arena:8001 arena
+}
+
+:82 {
+	import noca-upstream healthmonitor:8002 healthmonitor
 }

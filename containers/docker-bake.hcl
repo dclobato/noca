@@ -43,6 +43,7 @@ group "release" {
     "autojudge",
     "rating",
     "aiassistant",
+    "healthmonitor",
     "judge-bash-compile",
     "judge-bash-run",
     "judge-c-sharp-compile",
@@ -248,6 +249,23 @@ target "aiassistant" {
         "${ALT_REPO}${ALT_NAME_SEPARATOR}aiassistant",
         "${ALT_REPO}${ALT_NAME_SEPARATOR}aiassistant:${VERSION}",
       ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}aiassistant"]
+    ) : [],
+  )
+}
+
+target "healthmonitor" {
+  inherits = ["_app-consumer", "_assets-consumer"]
+  dockerfile = "containers/healthmonitor/Dockerfile"
+  tags = concat(
+    VERSION != "" ? [
+      "${REPO}${NAME_SEPARATOR}healthmonitor",
+      "${REPO}${NAME_SEPARATOR}healthmonitor:${VERSION}",
+    ] : ["${REPO}${NAME_SEPARATOR}healthmonitor"],
+    ALT_REPO != "" ? (
+      VERSION != "" ? [
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}healthmonitor",
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}healthmonitor:${VERSION}",
+      ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}healthmonitor"]
     ) : [],
   )
 }

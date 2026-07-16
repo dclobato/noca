@@ -575,6 +575,10 @@ def _build_app(
     async def _ranking_affiliations() -> Response:
         return Response("ranking affiliations")
 
+    @app.get("/help", name="arena_help_index")
+    async def _help_index() -> Response:
+        return Response("help")
+
     @app.get("/help/rating", name="arena_help_rating")
     async def _help_rating() -> Response:
         return Response("help rating")

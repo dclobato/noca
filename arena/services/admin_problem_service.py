@@ -300,6 +300,9 @@ async def get_problem(
             selectinload(ArenaProblem.categories),
             selectinload(ArenaProblem.test_cases),
             selectinload(ArenaProblem.custom_validator),
+            # The export builder runs in a worker thread, so every collection it
+            # touches must already be loaded — a lazy load there has no event loop.
+            selectinload(ArenaProblem.sample_interactions),
         )
     )
     if not is_admin:

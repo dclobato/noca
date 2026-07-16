@@ -32,10 +32,11 @@ from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidato
 from arena.models.arena_users import ArenaUser
 from arena.routes.legal import router as arena_legal_router
 from arena.routes.problems import router as arena_problems_router
-from arena.services import admin_problem_service, admin_problem_tc_service
+from arena.services import admin_problem_interaction_service, admin_problem_service, admin_problem_tc_service
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
 from shared.enumerations import ArenaRole, CustomValidatorActiveState
+from shared.services.sample_interactions import parse_interaction_text
 from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-problem-detail-tests"
@@ -153,6 +154,10 @@ def _build_problem_detail_app(session: AsyncSession) -> FastAPI:
     @app.get("/ranking", name="arena_ranking_index")
     async def _ranking() -> Response:
         return Response("ranking")
+
+    @app.get("/help", name="arena_help_index")
+    async def _help_index() -> Response:
+        return Response("help")
 
     @app.get("/help/rating", name="arena_help_rating")
     async def _help_rating() -> Response:
@@ -322,10 +327,106 @@ async def test_problem_detail_renders_custom_validator_banner(session: AsyncSess
         plain_response = await client.get(f"/problems/{plain_problem.arena_number}")
 
     assert validator_response.status_code == 200
-    assert "This problem uses a custom validator." in validator_response.text
+    assert "interactive</strong> problem" in validator_response.text
     assert "published_with_changes" in validator_response.text
     assert plain_response.status_code == 200
-    assert "This problem uses a custom validator." not in plain_response.text
+    assert "interactive</strong> problem" not in plain_response.text
+
+
+@pytest.mark.asyncio
+async def test_interactive_problem_renders_sample_interactions_not_test_cases(session: AsyncSession) -> None:
+    """An interactive problem shows authored conversations instead of sample cases."""
+    app = _build_problem_detail_app(session)
+    author = await _create_user(
+        session,
+        name="Sample Author",
+        email="sample-author@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    language = await _create_language(session)
+    problem = await _create_enabled_problem(session, author, title="Guess The Number")
+    session.add(
+        ArenaProblemCustomValidator(
+            problem_id=problem.id,
+            active_language_id=language.id,
+            active_source="print('validator')\n",
+            active_state=CustomValidatorActiveState.VALID,
+            active_validated_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
+
+    # The problem's own cases are secret and output-less; they never reach the page.
+    _tc, write_files = await admin_problem_tc_service.create_testcase(
+        session,
+        problem,
+        input_content="SECRETCASEINPUT\n",
+        output_content="",
+        is_sample=False,
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+    await admin_problem_interaction_service.create_interaction(
+        session,
+        problem,
+        transcript=parse_interaction_text("> 3\n< 5\n> !8"),
+        explanation="The hidden number is 8.",
+    )
+    await session.commit()
+    write_files()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, author)},
+    ) as client:
+        response = await client.get(f"/problems/{problem.arena_number}")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Sample Interactions" in body
+    assert "Sample Test Cases" not in body
+    assert "The hidden number is 8." in body
+    # The conversation renders through the shared transcript table.
+    assert "noca-transcript-validator" in body
+    assert "noca-transcript-user" in body
+    # The secret case's input must not leak onto the public statement. The marker is
+    # deliberately distinctive: a bare number would collide with an arena number or a
+    # UUID fragment elsewhere on the page.
+    assert "SECRETCASEINPUT" not in body
+
+
+@pytest.mark.asyncio
+async def test_interactive_problem_without_interactions_says_so(session: AsyncSession) -> None:
+    """An interactive problem with no authored conversations shows an empty state."""
+    app = _build_problem_detail_app(session)
+    author = await _create_user(
+        session,
+        name="Empty Author",
+        email="empty-author@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    language = await _create_language(session)
+    problem = await _create_enabled_problem(session, author, title="No Samples")
+    session.add(
+        ArenaProblemCustomValidator(
+            problem_id=problem.id,
+            active_language_id=language.id,
+            active_source="print('validator')\n",
+            active_state=CustomValidatorActiveState.VALID,
+            active_validated_at=datetime.now(UTC),
+        )
+    )
+    await session.commit()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, author)},
+    ) as client:
+        response = await client.get(f"/problems/{problem.arena_number}")
+
+    assert response.status_code == 200
+    assert "No sample interactions for this problem." in response.text
 
 
 @pytest.mark.asyncio
@@ -494,3 +595,55 @@ async def test_sidebar_manage_problems_visibility(session: AsyncSession) -> None
     assert await can_see_manage_problems(judge_with_edit) is True
     assert await can_see_manage_problems(judge_no_edit) is False
     assert await can_see_manage_problems(regular_user) is False
+
+
+@pytest.mark.asyncio
+async def test_problem_print_renders_statement_samples_and_limits(session: AsyncSession) -> None:
+    """The print view renders a standalone page with statement, samples, and limits."""
+    app = _build_problem_detail_app(session)
+    author = await _create_user(
+        session,
+        name="Print Author",
+        email="print-author@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    problem = await _create_enabled_problem(session, author, title="Printable Problem")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, author)},
+    ) as client:
+        response = await client.get(f"/problems/{problem.arena_number}/print")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Resource Limits" in body
+    # Author attribution is shown when the problem does not hide it.
+    assert "Print Author" in body
+    assert "md-statement-src" in body
+    assert "data-print-page" in body
+    assert "print-page.js?v=test" in body
+    # Standalone shell: no sidebar / workspace resizer from the detail page.
+    assert "data-problem-workspace-resizer" not in body
+
+
+@pytest.mark.asyncio
+async def test_problem_print_requires_authentication(session: AsyncSession) -> None:
+    """The print view is gated behind login, like the problem detail page."""
+    app = _build_problem_detail_app(session)
+    author = await _create_user(
+        session,
+        name="Print Guard Author",
+        email="print-guard-author@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    problem = await _create_enabled_problem(session, author)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.get(f"/problems/{problem.arena_number}/print", follow_redirects=False)
+
+    assert response.status_code in (302, 303, 307, 401)

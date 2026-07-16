@@ -54,6 +54,47 @@ Valkey_Client = aiovalkey.Valkey
 _TEST_FILE_MAX_BYTES = 256 * 1024 * 1024  # 256 MB
 
 
+def _load_test_case_inputs(problem_id: str, testcase_dir: Path | None = None) -> list[tuple[int, bytes]]:
+    """
+    Load the inputs of every test case, ignoring expected output.
+
+    Interactive (custom-validator) problems have no expected output: each case's
+    input parametrizes the validator instead.
+
+    Args:
+        problem_id: UUID of the problem whose test cases to load.
+        testcase_dir: Domain-specific root containing ``<problem_id>/NNN.in``.
+            Defaults to the Web (contest) root when omitted.
+
+    Returns:
+        List of (ordinal, input_bytes) tuples sorted by ordinal.
+
+    Raises:
+        FileNotFoundError: If the problem directory does not exist.
+        ValueError: If no test cases exist, or a file is not named ``NNN.in``.
+    """
+    root = testcase_dir if testcase_dir is not None else settings.contest_testcase_dir
+    base = Path(root) / problem_id
+
+    if not base.is_dir():
+        raise FileNotFoundError(f"Test case directory not found: {base}. Has this problem been uploaded?")
+
+    input_files = sorted(base.glob("*.in"))
+
+    if not input_files:
+        raise ValueError(f"No test case files (*.in) found in {base}. Has this problem been uploaded?")
+
+    cases: list[tuple[int, bytes]] = []
+    for in_path in input_files:
+        try:
+            ordinal = int(in_path.stem)
+        except ValueError as exc:
+            raise ValueError(f"Test case file is not named NNN.in: {in_path.name}") from exc
+        cases.append((ordinal, normalize_testcase_bytes(in_path.read_bytes()[:_TEST_FILE_MAX_BYTES])))
+
+    return cases
+
+
 def _load_test_cases(problem_id: str, testcase_dir: Path | None = None) -> list[tuple[bytes, bytes]]:
     """
     Load all test cases for a problem from the shared filesystem.
@@ -314,6 +355,16 @@ async def process_submission_job(
 
     await db.set_judgment_judging(judgment_id, contest_start_time=submission.contest_start_time)
 
+    interactive_inputs: list[tuple[int, bytes]] = []
+    per_language_limits: dict[str, ProblemLimits] | None = None
+    if prepared_validator is not None:
+        try:
+            per_language_limits = await db.get_problem_effective_limits_by_language(submission.problem_id)
+            interactive_inputs = _load_test_case_inputs(submission.problem_id)
+        except (FileNotFoundError, LookupError, ValueError) as exc:
+            await db.set_judgment_failed(judgment_id, str(exc), contest_start_time=submission.contest_start_time)
+            return
+
     interactive_result, _ = await run_custom_validator_submission(
         domain="contest",
         judgment_id=judgment_id,
@@ -321,12 +372,15 @@ async def process_submission_job(
         contestant_language=language,
         contestant_artifact=compile_result.artifact_data or b"",
         limits=limits,
+        test_cases=interactive_inputs,
         db=db,
         pool_manager=pool_manager,
         language_registry=language_registry,
         docker_client=docker_client,
         executor=executor,
         prepared=prepared_validator,
+        user_language_id=submission.language_id,
+        per_language_limits=per_language_limits,
     )
     if interactive_result is not None:
         verdict = interactive_result.classification.verdict

@@ -62,7 +62,7 @@ def _build_app(session: AsyncSession) -> FastAPI:
             send_email=False,
             provider_type="mock",
             default_from_email="noreply@test.example",
-            default_from_name="Noca Arena",
+            default_from_name="NOCA Arena",
             smtp_server=None,
             smtp_port=587,
             smtp_username=None,

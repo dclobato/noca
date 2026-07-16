@@ -1,6 +1,6 @@
 [project]
 name = "noca-workspace"
-version = "13.3.0"
+version = "14.0.0"
 description = "We took the core principles of BOCA -- the backbone of Brazilian programming marathons -- and rebuilt it for the modern era. NOCA (Next Online Contest Administrator) introduces a streamlined developer experience using Python and FastAPI, providing a modular, Docker-based infrastructure that makes running a contest easier than ever."
 authors = [
     { name = "Daniel Correa Lobato", email = "daniel@lobato.org" }
@@ -12,7 +12,7 @@ requires-python = ">=3.14"
 package = false
 
 [tool.uv.workspace]
-members = ["shared", "web", "arena", "autojudge", "rating", "aiassistant"]
+members = ["shared", "web", "arena", "autojudge", "rating", "aiassistant", "healthmonitor"]
 
 [tool.uv.sources]
 noca-shared = { workspace = true }
@@ -21,6 +21,7 @@ noca-arena = { workspace = true }
 noca-autojudge = { workspace = true }
 noca-rating = { workspace = true }
 noca-aiassistant = { workspace = true }
+noca-healthmonitor = { workspace = true }
 
 [tool.assets]
 vendor_dir = "shared/static/vendor"
@@ -38,11 +39,11 @@ fontawesome = "7.0.1"
 highlightjs = "11.11.1"
 highlightjs_line_numbers = "2.9.0"
 htmx = "2.0.8"
-inter_weights = "400;700"
+inter_weights = "400;700;800;900"
 katex = "0.16.45"
 marked = "15.0.12"
 mermaid = "11.14.0"
-public_sans_weights = "400;600;700"
+public_sans_weights = "400;600;700;800;900"
 sortablejs = "1.15.7"
 country_flags_sha = "c09927e63705529bbf59ca6684cd9b23225dddad"
 country_flags_sha256 = "fe3e40259e3d26f130e1516d988f5454cb3b47b66bba97ec3b8a17079d0ca183"
@@ -100,7 +101,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["web", "shared", "autojudge", "arena", "rating", "aiassistant"]
+known-first-party = ["web", "shared", "autojudge", "arena", "rating", "aiassistant", "healthmonitor"]
 
 [tool.mypy]
 python_version = "3.14"

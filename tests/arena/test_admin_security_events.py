@@ -29,6 +29,8 @@ async def test_security_events_route_renders_recent_events(session: AsyncSession
         event_type="auth_throttle_lockout",
         severity="warning",
         client_ip="203.0.113.9",
+        source_port=54321,
+        request_id="11111111-2222-3333-4444-555555555555",
         metadata={"action": "login"},
     )
     await session.commit()
@@ -40,6 +42,8 @@ async def test_security_events_route_renders_recent_events(session: AsyncSession
     assert response.status_code == 200
     assert "Security Events" in response.text
     assert "auth_throttle_lockout" in response.text
+    assert "54321" in response.text
+    assert "11111111-2222-3333-4444-555555555555" in response.text
 
 
 @pytest.mark.asyncio

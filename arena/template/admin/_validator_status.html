@@ -13,6 +13,8 @@
     </div>
 {% elif validator_status.usable and validator_status.configured %}
     <span class="badge text-bg-success">Active and validated</span>
+{% elif validator_status.active_state and validator_status.active_state.value == 'RUNTIME_FAILED' %}
+    <span class="badge text-bg-danger">Disabled after runtime failure</span>
 {% else %}
     <span class="badge text-bg-secondary">Not configured</span>
 {% endif %}

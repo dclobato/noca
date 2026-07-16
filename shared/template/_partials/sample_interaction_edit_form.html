@@ -1,0 +1,59 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Shared single sample-interaction edit form body, rendered inside each module's
+  own page chrome. Required context:
+    is_edit            bool  editing an existing interaction (vs creating one)
+    is_edit_allowed    bool  whether inputs are writable
+    post_action_url    str   save/add POST
+    cancel_url         str   back/cancel link
+    transcript_value   str   current transcript in the authoring plain-text format
+    explanation_value  str   current explanation text
+#}
+{% from "_macros.html" import render_icon with context %}
+<form method="post" action="{{ post_action_url }}">
+    <div class="row g-3">
+        <div class="col-12">
+            <label class="form-label" for="si_transcript">Interaction</label>
+            <textarea id="si_transcript"
+                      name="transcript"
+                      rows="14"
+                      class="form-control form-control-sm font-monospace"
+                      placeholder="&gt; 3&#10;&lt; 5&#10;&gt; !8"
+                      {% if not is_edit_allowed %}readonly{% endif %}>{{ transcript_value }}</textarea>
+            <div class="form-text">
+                One message per line. Start a line with <code>&gt;&nbsp;</code> (including the
+                space) for a line the validator sends to the contestant, or
+                <code>&lt;&nbsp;</code> for a line the contestant's program sends back.
+                Every line must carry one of those two prefixes.
+            </div>
+        </div>
+        <div class="col-12">
+            <label class="form-label" for="si_explanation">Explanation (optional)</label>
+            <textarea id="si_explanation"
+                      name="explanation"
+                      rows="3"
+                      class="form-control form-control-sm"
+                      placeholder="Explain what happens in this conversation…"
+                      {% if not is_edit_allowed %}readonly{% endif %}>{{ explanation_value }}</textarea>
+            <div class="form-text">Shown to contestants below the interaction.</div>
+        </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2 mt-3">
+        {% if is_edit_allowed %}
+            <button type="submit" class="btn btn-primary">
+                {{ render_icon(icon="check", classes="me-1") }}
+                {% if is_edit %}
+                    Save Sample Interaction
+                {% else %}
+                    Add Sample Interaction
+                {% endif %}
+            </button>
+        {% endif %}
+        <a href="{{ cancel_url }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+</form>

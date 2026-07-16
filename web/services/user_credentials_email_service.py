@@ -15,6 +15,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from shared.services.email_service import EmailService
+from web.config import settings
 
 _EMAIL_TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "template" / "email"
 
@@ -32,9 +33,11 @@ def _email_template_environment() -> Environment:
 
 
 def _render_template(template_name: str, **context: str) -> str:
-    """Render a named email template with the given context."""
+    """Render a named email template with ``brand_name`` always injected."""
+    render_context: dict[str, str] = {"brand_name": settings.BRAND_NAME}
+    render_context.update(context)
     template = _email_template_environment().get_template(template_name)
-    return template.render(**context).rstrip()
+    return template.render(**render_context).rstrip()
 
 
 @dataclass(frozen=True)
@@ -110,7 +113,7 @@ def build_uberadmin_credentials_email_content(
         A ready-to-send content object.
     """
     return CredentialEmailContent(
-        subject="Your Noca Contest global administrator credentials",
+        subject=f"Your {settings.BRAND_NAME} global administrator credentials",
         text_body=_render_template(
             "send_uberadmin_credentials.jinja2",
             fullname=fullname,
@@ -189,7 +192,7 @@ def send_user_credentials_email(
         contest_login_url=contest_login_url,
         username=username,
         password=password,
-        sender_name=email_service.default_from_name or "Noca Contest",
+        sender_name=email_service.default_from_name or settings.BRAND_NAME,
     )
     return send_credentials_email(
         email_service,

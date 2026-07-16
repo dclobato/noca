@@ -130,6 +130,7 @@ def _build_app(session: AsyncSession) -> FastAPI:
         "arena_classes_open",
         "arena_classes_manage",
         "arena_ranking_index",
+        "arena_help_index",
         "arena_help_rating",
         "arena_help_languages",
         "arena_status",

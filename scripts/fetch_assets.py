@@ -360,6 +360,39 @@ def download_country_flags(vendor_dir: Path, sha: str, expected_sha256: str, fai
         failures.append(f"{url}: extraction failed: {exc}")
 
 
+def _whiten_bash_cube_face(svg_path: Path, failures: list[str]) -> None:
+    """Insert a white backing shape behind the bash devicon cube.
+
+    The upstream ``bash-original.svg`` draws the cube as a single dark path
+    whose interior (the cube face and the ``$`` prompt) is transparent, which
+    makes the icon unreadable on dark backgrounds. This rewrites the
+    downloaded file to place a white copy of the cube's outer hexagon behind
+    the original artwork so the transparent regions render white in every
+    theme.
+
+    Args:
+        svg_path: Path to the downloaded ``bash-original.svg``.
+        failures: Mutable failure list.
+    """
+    if not svg_path.is_file():
+        return  # The download step already recorded its own failure.
+    try:
+        content = svg_path.read_text(encoding="utf-8")
+        path_match = re.search(r'<path[^>]*\bd="([^"]+)"', content)
+        if path_match is None:
+            raise ValueError("no <path d=...> element found")
+        outline_match = re.match(r"[^zZ]*[zZ]", path_match.group(1))
+        if outline_match is None:
+            raise ValueError("cube outline subpath not found")
+        backing = f'<path fill="#fff" d="{outline_match.group(0)}"/>'
+        patched = re.sub(r"(<svg\b[^>]*>)", rf"\g<1>{backing}", content, count=1)
+        if patched == content:
+            raise ValueError("no opening <svg> tag found")
+        svg_path.write_text(patched, encoding="utf-8")
+    except Exception as exc:
+        failures.append(f"{svg_path}: cube-face whitening failed: {exc}")
+
+
 def download_assets() -> None:
     """Download all shared frontend vendor assets."""
     config = _load_asset_config()
@@ -395,6 +428,8 @@ def download_assets() -> None:
     )
     for url, dest in assets:
         _download(url, dest, failures)
+
+    _whiten_bash_cube_face(vendor_dir / "img" / "devicon" / "bash-original.svg", failures)
 
     _write_local_fonts_css(config, vendor_dir, webfonts_dir, failures)
 

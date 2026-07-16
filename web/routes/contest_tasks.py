@@ -11,7 +11,7 @@ from fastapi_flash import FlashCategory, FlashDep
 from shared.enumerations import RoleEnum
 from web.dependencies import ContestContext, ensure_allowed_role, get_contest_context
 from web.models.users import User
-from web.routes.contest_tasks_helpers import _ALLOWED, _access_blocked, _build_template_context, _html
+from web.routes.contest_tasks_helpers import _access_blocked, _build_template_context, _ensure_task_access, _html
 from web.services.task_service import (
     ContestNotRunningError,
     DuplicatePrintTaskError,
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/c/{slug}/tasks", tags=["contest_tasks"])
 
 @router.get("/", response_class=HTMLResponse, name="contest_tasks")
 async def view(request: Request, ctx: ContestContext = Depends(get_contest_context)) -> HTMLResponse:
-    """Main tasks page — role-aware view for TEAM, STAFF, ADMIN, and UBERADMIN.
+    """Main tasks page — role-aware view for TEAM, STAFF, chief judge, ADMIN, and UBERADMIN.
 
     Args:
         request: The incoming HTTP request.
@@ -35,7 +35,7 @@ async def view(request: Request, ctx: ContestContext = Depends(get_contest_conte
         The rendered tasks page.
     """
     templates = request.app.state.templates
-    ensure_allowed_role(ctx.actor, _ALLOWED)
+    _ensure_task_access(ctx.actor, ctx.contest)
     if _access_blocked(ctx.actor, ctx.contest):
         return _html(
             templates.TemplateResponse(
@@ -47,6 +47,8 @@ async def view(request: Request, ctx: ContestContext = Depends(get_contest_conte
                     "access_blocked": True,
                     "tasks": [],
                     "lock_service_available": request.app.state.valkey_runtime.is_available,
+                    "can_handle_tasks": False,
+                    "can_force_release": False,
                     "problems": [],
                     "problem_map": {},
                 },
@@ -76,7 +78,7 @@ async def list_partial(request: Request, ctx: ContestContext = Depends(get_conte
         The rendered tasks_list.html partial.
     """
     templates = request.app.state.templates
-    ensure_allowed_role(ctx.actor, _ALLOWED)
+    _ensure_task_access(ctx.actor, ctx.contest)
     ctx_data = await _build_template_context(ctx, request)
     return _html(
         templates.TemplateResponse(

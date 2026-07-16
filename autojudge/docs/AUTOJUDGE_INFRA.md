@@ -83,29 +83,54 @@ Interactive verdicts use the validator's clean exit code: `0` is `AC`, `1` is
 Signals, startup or communication failures, and watchdog expiration are
 internal failures and are eligible for one retry.
 
+The validator is **parametrized by test-case input**, so the worker iterates the
+problem's cases rather than running one conversation per submission. It loads the
+case inputs (`NNN.in`; no `.out` is read or required), acquires **one** container
+pair for the whole judgment, copies both compiled artifacts in once, and then per
+case resets the run artifacts, re-inits isolate, starts a fresh process on each
+side, and writes that case's input to the validator's stdin before relaying
+anything. A case ending `AC` advances to the next; the first case that does not
+stops the iteration and its verdict is the submission's. Judgment wall time and
+memory are the worst readings across the cases that ran. An empty case list is an
+internal `FAILED`, never a contestant verdict.
+
+Container reuse across cases is safe because a case that ends `AC` ends cleanly —
+the bridge only kills containers on OLE, watchdog, or a communication failure, and
+all of those end the iteration anyway. A retryable failure therefore always
+releases the pair and reacquires a fresh one. Resetting a run clears only stdout,
+stderr and the isolate meta file, so the artifacts copied in at the start survive
+every case.
+
 For each submission, the active validator is compiled again; binaries are never
 cached. Contestant and validator artifacts are ready before run containers are
-acquired. Each attempt acquires two independent run containers from
-`PoolManager`; either may consume a prewarmed container, and the validator does
-not consume another worker slot. Both containers are destroyed afterward.
+acquired. Either container may consume a prewarmed one from `PoolManager`, and the
+validator does not consume another worker slot. Both are destroyed afterward.
 
 The contestant runs through isolate with the problem memory and PID limits but
 without the problem CPU or wall-time limits. The trusted validator is supervised in
 its separate network-disabled container without problem resource limits. Docker
 SDK bidirectional exec sockets carry the full-duplex protocol, including
-half-close/EOF propagation. Contestant stdout alone counts toward OLE; the two
-retained stderr streams are independently excerpt-capped.
+half-close/EOF propagation. Contestant stdout alone counts toward OLE — the
+test-case input written to the validator does not — and the two retained stderr
+streams are independently excerpt-capped. The watchdog and the output-limit counter
+both apply per case.
 
-Because every byte is relayed through the bridge, both stdout streams are
-recorded together as one ordered, line-split `transcript` (the two former
-per-side stdout excerpts are gone). Ordering is *as observed by the judge*: the
-two pumps are separate tasks, so this is not a causal proof, but these protocols
-are strict request/response — neither side can speak until the peer's line has
-been relayed to it — so observed order is protocol order. Recording is
-capture-only and cannot affect a verdict: past its 256 KiB cap the transcript is
-flagged `truncated` and stops growing, while the pump keeps reading, keeps
-relaying, keeps counting contestant output bytes, and still trips the real output
-limit.
+Because every byte the two sides exchange is relayed through the bridge, both
+stdout streams are recorded together as one ordered, line-split `transcript` (the
+two former per-side stdout excerpts are gone). The test-case input fed to the
+validator is deliberately not recorded: it is the problem's data, not part of the
+conversation. Ordering is *as observed by the judge*: the two pumps are separate
+tasks, so this is not a causal proof, but these protocols are strict
+request/response — neither side can speak until the peer's line has been relayed
+to it — so observed order is protocol order. Recording is capture-only and cannot
+affect a verdict: past its 256 KiB cap the transcript is flagged `truncated` and
+stops growing, while the pump keeps reading, keeps relaying, keeps counting
+contestant output bytes, and still trips the real output limit.
+
+Attempt rows are written per case and tagged with `test_case_ordinal`, but a
+judgment retains only the **last executed case's** attempts: starting a case's
+first attempt clears the judgment's earlier rows, so the surviving one or two rows
+are the round that actually decided the submission.
 
 Pending validation jobs are durable database state. Reconciliation recreates a
 missing profiling-queue job, and the reaper requeues stale validation work up
@@ -115,8 +140,8 @@ marks the matching pending candidate `INVALID` with an explanatory compile log
 so the uploader can stage it again. Token matching suppresses results from
 removed or superseded candidates.
 
-Arena crash containment applies only after two attempts without a clean
-validator exit. It marks the active revision `RUNTIME_FAILED`, disables the
-problem, fails and dequeues other queued judgments, and emits one owner
-notification. Clean undocumented exits, contestant failures/limits, and
+Arena crash containment applies only after two attempts at the same test case
+without a clean validator exit. It marks the active revision `RUNTIME_FAILED`,
+disables the problem, fails and dequeues other queued judgments, and emits one
+owner notification. Clean undocumented exits, contestant failures/limits, and
 pre-interaction compilation failures do not create strikes.

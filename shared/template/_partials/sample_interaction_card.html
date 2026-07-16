@@ -1,0 +1,50 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Shared "Sample interactions" card for the Web and Arena problem-edit pages.
+  Rendered only for a problem with a configured custom validator: such a problem
+  has no public test cases, so these transcripts are what contestants see instead.
+  Context:
+    interaction_rows    list[SampleInteractionRowView] (non-hidden only)
+    is_edit_allowed     bool
+    si_form_id          id of the enclosing problem form (defaults to "edit-form")
+    max_interactions    int cap enforced server-side
+#}
+{% set si_form_id = si_form_id | default("edit-form") %}
+<div class="card mb-4">
+    <div class="card-header d-flex flex-wrap gap-2 align-items-center justify-content-between">
+        <span>Sample interactions</span>
+        {% if is_edit_allowed %}
+            <button type="button"
+                    id="si-add-row-btn"
+                    class="btn btn-secondary btn-sm"
+                    data-si-form-id="{{ si_form_id }}"
+                    data-si-max="{{ max_interactions }}">Add sample interaction</button>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        <p class="text-muted small">
+            This problem is interactive, so contestants are shown example conversations
+            instead of sample test cases. Write each one with one line per message,
+            using the exact prefixes <code>&gt;&nbsp;</code> for a line the validator
+            sends and <code>&lt;&nbsp;</code> for a line the contestant's program
+            sends back. In the example below, validator sends <code>3</code> to user's
+            code, that replies with <code>5</code>; finally, validator sends
+            <code>!8</code>. Up to {{ max_interactions }} interactions; drag to reorder.
+        </p>
+        <pre class="noca-tc-preview-cell mb-3">&gt; 3
+&lt; 5
+&gt; !8</pre>
+        {% include "_partials/sample_interaction_list_table.html" %}
+        <div id="si-add-rows"></div>
+        <input type="hidden"
+               id="si_remove_ids"
+               name="si_remove_ids"
+               value=""
+               form="{{ si_form_id }}">
+    </div>
+</div>

@@ -12,12 +12,12 @@
         <div class="row justify-content-center">
             <div class="col-12 col-md-6 col-lg-5 col-xl-4">
                 <div class="text-center mb-4 pt-4">
-                    <h1 class="arena-auth-logo">Noca Arena</h1>
+                    <h1 class="arena-auth-logo">{{ brand_name }}</h1>
                     <p class="arena-auth-tagline">Competitive Judge</p>
                 </div>
                 <div class="arena-auth-card">
                     <h2 class="arena-auth-title">Complete Your Profile</h2>
-                    <p class="arena-auth-subtitle">Add the following information to get the most from Noca Arena:</p>
+                    <p class="arena-auth-subtitle">Add the following information to get the most from {{ brand_name }}:</p>
                     <ul class="mb-4">
                         {% for field in missing_fields %}<li>{{ field }}</li>{% endfor %}
                     </ul>

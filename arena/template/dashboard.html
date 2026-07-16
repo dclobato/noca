@@ -7,8 +7,6 @@
 #}
 {% extends "_base.html" %}
 {% block title_suffix %}&mdash; Dashboard{% endblock %}
-{# Mark Problems as the active nav item #}
-{% block nav_problems %}active{% endblock %}
 {% block content %}
     <div class="row g-3">
         <div class="col-12">{% include "_partials/dashboard/languages_card.html" %}</div>
@@ -17,6 +15,6 @@
     </div>
 {% endblock %}
 {% block extra_script %}
-    <script src="{{ request.url_for('arena_static_js', path='arena-row-href.js') }}?v={{ app_version }}"
+    <script src="{{ request.url_for('static_shared_js', path='row-href.js') }}?v={{ app_version }}"
             defer></script>
 {% endblock %}

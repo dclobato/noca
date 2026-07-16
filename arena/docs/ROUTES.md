@@ -40,6 +40,7 @@ trusted local health-check CIDRs bypass this limit.
 
 | Method | URL | Description |
 |--------|-----|-------------|
+| `GET` | `/help` | Help landing page with links to each help topic (difficulty & rating system, languages & verdicts). No authentication required. |
 | `GET` | `/help/rating` | Rating system help page. Explains how problem difficulty, user score, and affiliation ratings are computed, with the mathematical formulas and the configured rating update interval. No authentication required. |
 | `GET` | `/help/rating/difficulty-distribution` | JSON snapshot of the catalogue-wide problem-difficulty histogram (20 bins over `[0, 10]`), written by the rating worker at the end of each difficulty cycle. Returns an explicit empty shape when no snapshot exists yet. No authentication required. |
 | `GET` | `/help/languages` | Languages and verdicts help page. Lists all active languages (name, version, compile/run commands, and stdout flush hints for custom-validator problems) from the database and explains every possible judgment verdict. No authentication required. |
@@ -60,6 +61,7 @@ logged in their solve/attempt status is shown on the detail page.
 |--------|-----|-------------|
 | `GET` | `/problems` | Paginated public problem list (fixed 25 per page). Supports `search` (number, title, source, author name), `sort_by` (`number_asc` default, `number_desc`, `title_asc`, `title_desc`, `solvers_asc`, `solvers_desc`, `rating_asc`, `rating_desc`), `category_slugs` (AND semantics, repeatable), `page`. |
 | `GET` | `/problems/{arena_number}` | Problem detail page. Shows statement (Markdown + Mermaid + KaTeX), sample test cases, resource limits, language selector with submit form (enabled for authenticated users). Optional query params carry list state back for the "Back to list" button: `back_page`, `back_search`, `back_sort_by`, `back_category_slugs`. If logged in, shows whether the user solved or attempted the problem and a toggleable favorite heart. When the problem belongs to an accepting problem set from a class the user is registered to, shows a banner (naming the set, class, and deadline) and a "submit for the problem set" checkbox bound to the most urgent such set. |
+| `GET` | `/problems/{arena_number}/print` | Standalone print-friendly problem page (simple navbar + footer, no sidebar): statement (Markdown + Mermaid + KaTeX), samples (test cases or sample interactions), and resource limits. Requires authentication. The user prints via the browser (navbar Print button or Ctrl/Cmd+P). |
 | `GET` | `/problems/{arena_number}/rating-history` | JSON endpoint returning the problem's rating history for the last 24 months as `{"history": [{"ts": ISO8601, "rating": float}]}` (display-scale, e.g. `7.3`) in chronological order. Used by the ECharts sparkline on the detail page. |
 | `GET` | `/problems/{arena_number}/statistics` | Public per-problem statistics page. Charts (rating line, verdict + language doughnuts, wall-time distribution stacked bar) and per-language avg±stddev wall-time / peak-memory tables. All data is loaded client-side from the statistics JSON endpoint and the rating-history endpoint. No authentication required. |
 | `GET` | `/problems/{arena_number}/statistics.json` | JSON endpoint returning the precomputed statistics payload (verdicts, languages, time/memory stats, wall-time histogram, `computed_at`). Returns `{}` when statistics have not been computed yet. Snapshots are produced periodically by the rating worker. No authentication required. |
@@ -74,7 +76,6 @@ logged in their solve/attempt status is shown on the detail page.
 |--------|-----|-------------|
 | `GET` | `/` | Redirects (302) to `/dashboard`. |
 | `GET` | `/dashboard` | Public Arena dashboard. Displays a languages card plus two information cards: Latest Problems (10 most recently created or edited) and the rating-backed Leaderboard (top 10 users). No authentication required. |
-| `GET` | `/status` | Authenticated system-status page. Shows aggregate AutoJudge, Rating, and AI Assistant availability. A worker class is available when at least one worker is online and unpaused, unavailable otherwise, and unknown when status retrieval fails. Guests are redirected to login with `next=/status`. |
 | `GET` | `/favicon.ico`, `/favicon-{16,32,48,96,180,192,512}.png`, `/mstile-150x150.png`, `/site.webmanifest`, `/browserconfig.xml` | Root-level favicon assets served from `arena/static/favicon/` via an allowlist with public cache headers (`max-age=86400`). Referenced by the favicon `<link>`/`<meta>` block in the base templates. |
 
 ## Live Feed (`arena/routes/live.py`)
@@ -172,6 +173,7 @@ GET page, such as the submission detail page, as the `next` target.
 | `POST` | `/submissions/{submission_id}/request-ai-review` | Enqueue an AI code-review job for a submission. **Owner-only** — not accessible by admins for other users' submissions. Idempotent: if `submit_to_ai` is already True or a review row already exists, redirects back without double-enqueueing. **Credit gate:** user must have their own AI API key (`ai_api_key`) **or** at least one `ai_backend_credits`. If neither condition is met, redirects back with a flash error. When using platform credits (no personal key), one credit is atomically consumed before enqueueing. The `use_platform_key` decision is frozen in the job payload. On success sets `submit_to_ai=True`, enqueues `ArenaAIReviewJob`, and redirects to the submission detail page. |
 | `POST` | `/submissions/{submission_id}/teacher-feedback` | Create or update teacher feedback on a student's non-AC, set-tied submission. **Manager-only:** the assigned teacher of the submission's problem-set class, or an `ARENA_ADMIN`. Authorization is derived from the submission's persisted `problem_set_id` (never the `back_*` form fields, which are navigation-only). Returns 404 when the submission is missing, not tied to a problem set, AC/unjudged, or the actor is not a manager. Empty/whitespace feedback redirects back with a warning. On success upserts `arena_submission_teacher_feedback` (editing refreshes `feedback_at`) and creates a `TEACHER_FEEDBACK_POSTED` notification for the student with a per-update `source_ref`, so each edit produces a fresh notification while preserving prior ones. Redirects (303) to the detail page, forwarding `back_*` params when present. |
 | `POST` | `/submissions/{submission_id}/teacher-feedback/remove` | Delete existing teacher feedback on a submission. **Manager-only**, same authorization as the write route above. Unlike the write route, the submission's current verdict is not checked — feedback left behind by a later rejudge to AC can still be removed. Flashes success or "No feedback to remove." when there was none, and redirects (303) to the detail page, forwarding `back_*` params when present. |
+| `POST` | `/submissions/{submission_id}/force-rejudge` | Force a fresh judgment for a submission. **`ARENA_ADMIN`-only** (`require_arena_admin`). Supersedes the active (most recent non-superseded) judgment and inserts a new `QUEUED` judgment, then commits and pushes a fresh judging job onto the autojudge pending queue — so a submission that already produced a verdict can be judged again (e.g. after fixing test data, limits, or the judge). No-op (danger flash) when the submission is missing or has no judgment to supersede. Redirects (303) back to the referring page or the submission detail page. |
 
 ## Users (`arena/routes/users.py`)
 
@@ -192,6 +194,7 @@ GET page, such as the submission detail page, as the `next` target.
 | `POST` | `/user/profile/language` | Authenticated JSON endpoint setting or clearing the current user's `preferred_language_id`. (Legacy — superseded by `/user/profile/personal-data`.) |
 | `GET` | `/user/profile/rating-history` | Authenticated JSON endpoint returning the current user's rating history for the last 24 months as `{"history": [{"ts": ISO8601, "rating": int}]}`, ordered chronologically. Used by the profile page rating chart. |
 | `GET` | `/user/profile/submission-heatmap` | Authenticated JSON endpoint returning the current user's precomputed submission heatmap as `{"heatmap": [["YYYY-MM-DD", count], ...], "range_start": "YYYY-MM-DD", "range_end": "YYYY-MM-DD", "computed_at": ISO8601 or null}`. Covers the last 364 days (52 weeks). Computed by the rating worker; returns an empty heatmap until the first cycle runs. |
+| `GET` | `/user/profile/statistics` | Authenticated JSON endpoint returning the current user's precomputed verdict and language distributions as `{"total_submissions": int, "verdicts": [...], "languages": [...], "computed_at": ISO8601 or null}`, driven by `arena_user_statistics`. Counts every judged submission (no owner exclusion). Powers the profile "Statistics" tab doughnut charts; returns an empty payload until the first worker cycle writes a snapshot. |
 | `POST` | `/user/profile/api-key` | Authenticated JSON endpoint to set, replace, or clear the current user's personal AI API key. Accepts `{"api_key": "<value>"}`. An empty or absent value clears the key. The key is encrypted at rest; the plaintext is never returned after this call. Returns `{"ok": true, "cleared": <bool>}`. |
 | `GET` | `/user/{user_id}/photo` | Public diagnostic route returning the stored full-size Arena user photo, or generated SVG fallback when no photo is stored. |
 | `GET` | `/user/{user_id}/avatar` | Public diagnostic route returning the stored resized Arena user avatar, or generated SVG fallback when no photo is stored. |
@@ -267,6 +270,7 @@ All routes require `ArenaRole.ARENA_ADMIN`. Non-admin users receive 403; unauthe
 | `GET` | `/admin/users/{user_id}` | `admin_users.py` | Admin-only profile view for a specific user. Shows Personal & Security, Badges, Notifications, Submissions, AI Credits, and Login History tabs. The Notifications and Submissions tabs are read-only (no mark-read/delete/live polling). Accepts `tab`, `credits_page`, `notifications_page`, submissions params (`submissions_page`, `submissions_search`, `submissions_verdict`), login-history params (`login_page`, `login_per_page`, `login_sort_dir`, `login_date_from`, `login_date_to`), and list-filter params (`search`, `page`, `per_page`, `role`) to reconstruct a "← Back" link. Login dates are inclusive and interpreted in the viewing admin's timezone. |
 | `GET` | `/admin/users/{user_id}/rating-history` | `admin_users.py` | JSON endpoint returning the given user's rating history for the last 24 months as `{"history": [{"ts": ISO8601, "ts_display": "YYYY-MM-DD", "rating": int}, ...]}`. Used by the admin profile page rating-history chart. |
 | `GET` | `/admin/users/{user_id}/submission-heatmap` | `admin_users.py` | JSON endpoint returning the precomputed submission heatmap for the given user. Same shape as the self-profile endpoint: `{"heatmap": [["YYYY-MM-DD", count], ...], "range_start": "YYYY-MM-DD", "range_end": "YYYY-MM-DD", "computed_at": ISO8601 or null}`. Used by the admin profile page heatmap chart. |
+| `GET` | `/admin/users/{user_id}/statistics` | `admin_users.py` | JSON endpoint returning the precomputed verdict and language distributions for the given user. Same shape as the self-profile endpoint: `{"total_submissions": int, "verdicts": [...], "languages": [...], "computed_at": ISO8601 or null}`. Powers the admin profile "Statistics" tab doughnut charts. |
 | `POST` | `/admin/users/{user_id}/role` | `admin_users_actions.py` | Change user role. Form: `new_role` (ArenaRole value). Self-guard and last-admin guard apply. |
 | `POST` | `/admin/users/{user_id}/toggle-active` | `admin_users_actions.py` | Toggle account active/inactive. Deactivation invalidates sessions. Self-guard and last-admin guard apply. |
 | `POST` | `/admin/users/{user_id}/force-password-change` | `admin_users_actions.py` | Toggle the forced password-change flag on/off. Enabling the requirement sends the user a notification email; delivery failure does not roll back the requirement. |
@@ -327,8 +331,8 @@ to their own problems; admins may manage any problem.
 | `GET` | `/admin/problems/new` | Render the create-problem form with owner-backed or free-text authorship, statement editor, limits, optional image upload, category picker, optional validator upload, and optional list-return query state. |
 | `POST` | `/admin/problems/new` | Create a disabled Arena problem owned by the current user. Form fields `author_is_owner` and `author` select the owner's fullname or a required free-text author of at most 80 characters. The route also validates scalar and Markdown fields, processes an optional image, binds categories, optionally stages a custom validator (`validator_language_id` + `validator_source_file`), and redirects to the highlighted problem-list row. |
 | `GET` | `/admin/problems/{problem_id}/edit` | Render the edit form for an existing problem: six cards (Basic Info, Problem statement, Problem illustration, Categories, Custom interactive validator, Test cases) plus a Danger zone. Includes selected categories, the rating-history chart data URL, and optional list-return query state (`page`, `per_page`, `search`, `sort_by`, `owner_id`, `category_slugs`). |
-| `POST` | `/admin/problems/{problem_id}/edit` | The page's single Save. Updates mutable problem fields, including `author_is_owner` and `author`, without transferring ownership; replaces or clears the statement image and category links; applies pending test-case removals (`tc_remove_ids`) and inline add-rows (`tc_in_N` / `tc_out_N` / `tc_explanation_N` / `tc_is_sample_N`); and stages a custom validator when `validator_language_id` + `validator_source_file` are supplied, enqueueing its compile job after the commit. The validator is staged last, so its all-samples rule is judged against the test cases this save leaves behind. Redirects while preserving list-return state. |
-| `POST` | `/admin/problems/{problem_id}/toggle-enabled` | Toggle the problem's `enabled` flag and redirect to the problem list while preserving query state and adding `#problem_id` row highlight. |
+| `POST` | `/admin/problems/{problem_id}/edit` | The page's single Save. Updates mutable problem fields, including `author_is_owner` and `author`, without transferring ownership; replaces or clears the statement image and category links; applies pending test-case removals (`tc_remove_ids`) and inline add-rows (`tc_in_N` / `tc_out_N` / `tc_explanation_N` / `tc_is_sample_N`); and stages a custom validator when `validator_language_id` + `validator_source_file` are supplied, enqueueing its compile job after the commit. The save is refused if it would leave the problem with no test cases — every problem needs at least one, interactive or not. Redirects while preserving list-return state. |
+| `POST` | `/admin/problems/{problem_id}/toggle-enabled` | Toggle the problem's `enabled` flag and redirect to the problem list while preserving query state and adding `#problem_id` row highlight. Enabling is refused (redirect to the edit page with a flash) unless the problem can actually judge: a configured custom validator must have compiled, and the problem must have at least one test case — with an expected output on every case when it is *not* interactive. |
 | `POST` | `/admin/problems/{problem_id}/delete` | Permanently delete the problem and all dependent data (test cases, submissions, judgments, AI reviews, solve/attempt/favourite records). Requires current-password confirmation via form field. Redirects to the problem list on success or back to the edit page on wrong password. |
 | `POST` | `/admin/problems/{problem_id}/rejudge-all` | Create new `QUEUED` judgment rows for every existing submission and enqueue them on the low-priority autojudge queue (`judge:queue:pending`). Requires current-password confirmation. Redirects back to the edit page. |
 
@@ -395,4 +399,37 @@ status endpoint supports HTMX polling while compilation remains pending.
 - `GET /admin/problems/{problem_id}/validator/status` renders current status.
 - `GET /admin/problems/{problem_id}/validator/source` downloads the current
   source (active revision, falling back to a staged candidate).
-- `POST /admin/problems/{problem_id}/validator/remove` clears both revisions.
+- `GET /admin/problems/{problem_id}/validator/source/view` renders the current
+  source with syntax highlighting and line numbers.
+- `POST /admin/problems/{problem_id}/validator/remove` clears both revisions. It
+  requires a `keep_interactions` form field whose value is exactly `"true"` or
+  `"false"` — the edit page posts it from a confirmation modal. `"true"` hides the
+  problem's sample interactions (they resurface if a validator is added again);
+  `"false"` deletes them permanently. The field is a strict string rather than a
+  `bool` on purpose: FastAPI would coerce `1`, `on` and `yes` too, and the choice
+  between hiding data and destroying it must not hinge on a spelling. Any other
+  value, or none, is a 422.
+
+### Sample interactions
+
+An interactive problem has no public test cases. Its public examples are **sample
+interactions** — up to five author-written transcripts of the conversation a
+correct program has with the validator, rendered on the problem page with the same
+transcript UI that shows a submission's recorded attempts.
+
+- `GET|POST /admin/problems/{problem_id}/interactions/{si_id}/edit` view and save
+  one interaction.
+- `POST /admin/problems/{problem_id}/interactions/{si_id}/move` reorders one
+  interaction (`new_ordinal` query param) and returns the refreshed list partial
+  for the drag-and-drop handler.
+
+Additions and removals are deferred to the problem form's single Save, exactly like
+test cases (`si_transcript_N` / `si_explanation_N` add-rows and a hidden
+`si_remove_ids` field).
+
+A problem with a configured validator must have **zero public test cases and at
+least one secret one**. Staging a validator demotes any existing public case to
+secret, the sample toggle is refused while a validator is configured, and no edit
+path may remove the last secret case. Arena problem creation may still stage a
+validator on a brand-new *disabled* draft with no test cases at all; that draft is
+only forced to be complete at `toggle-enabled` and at submission time.

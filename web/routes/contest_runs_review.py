@@ -21,6 +21,7 @@ from web.models.users import User
 from web.services.judging_service import (
     JudgmentNotDoneError,
     SameVerdictError,
+    can_override_verdict,
     create_balloon_task_if_needed,
     override_verdict,
 )
@@ -155,8 +156,8 @@ async def override_submission_verdict(
 
     errors: list[str] = []
     parsed_verdict: Verdict | None = None
-    if not isinstance(ctx.actor, User) or ctx.actor.id != ctx.contest.chief_judge_id:
-        errors.append("Only the contest chief judge may override a verdict.")
+    if not can_override_verdict(ctx.actor, ctx.contest):
+        errors.append("Only the contest chief judge or a contest administrator may override a verdict.")
     try:
         parsed_verdict = Verdict(new_verdict)
     except ValueError:
@@ -191,7 +192,10 @@ async def override_submission_verdict(
         return RedirectResponse(url=review_url, status_code=303)
     except HTTPException as exc:
         if exc.status_code == 403:
-            flash("Only the contest chief judge may override a verdict.", FlashCategory.DANGER)
+            flash(
+                "Only the contest chief judge or a contest administrator may override a verdict.",
+                FlashCategory.DANGER,
+            )
             return RedirectResponse(url=review_url, status_code=303)
         if exc.status_code == 404:
             flash("Submission not found for this contest.", FlashCategory.DANGER)

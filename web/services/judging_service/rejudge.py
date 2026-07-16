@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from shared.enumerations import JudgmentStatus, TaskType
+from shared.enumerations import JudgmentStatus, RoleEnum, TaskType
 from shared.services.lock_service import LockClient, force_release_lock
 from shared.timing import compute_timestamp_seconds
 from web.models import Contest, ProblemLimitChangeBatch, Submission, SubmissionJudgment, UberAdmin, User
@@ -71,12 +71,13 @@ async def queue_rejudge_for_loaded_submission(
 async def rejudge_submission(
     session: AsyncSession,
     submission_id: str,
-    chief_judge: User,
+    actor: User | UberAdmin,
     contest: Contest,
     lock_client: LockClient | None = None,
 ) -> SubmissionJudgment:
-    """Queue a rejudge for one submission."""
-    if chief_judge.id != contest.chief_judge_id:
+    """Queue a rejudge for one submission, requested by the chief judge or a contest admin."""
+    is_chief_judge = isinstance(actor, User) and actor.id == contest.chief_judge_id
+    if not is_chief_judge and actor.role not in (RoleEnum.UBERADMIN, RoleEnum.ADMIN):
         raise HTTPException(status_code=403)
 
     result = await session.execute(

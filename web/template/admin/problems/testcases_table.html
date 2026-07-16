@@ -1,1 +1,3 @@
+{# An interactive problem's cases are all secret, so it offers no sample toggle. #}
+{% set sample_toggle_disabled = validator_status is defined and validator_status.configured %}
 {% include "_partials/testcase_list_table.html" %}

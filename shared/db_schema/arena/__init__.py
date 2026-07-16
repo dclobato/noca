@@ -30,6 +30,7 @@ from .arena_problems import (
     arena_problem_custom_validators,
     arena_problem_ratings,
     arena_problems,
+    arena_sample_interactions,
     arena_test_cases,
 )
 from .arena_rating_cycle_state import arena_rating_cycle_state
@@ -85,6 +86,7 @@ __all__ = [
     "arena_submission_interactive_attempts",
     "arena_submission_teacher_feedback",
     "arena_submission_test_results",
+    "arena_sample_interactions",
     "arena_submissions",
     "arena_test_cases",
     "arena_user_badges",

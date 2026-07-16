@@ -41,10 +41,26 @@ document.addEventListener("DOMContentLoaded", function () {
   ace.config.set("useWorker", false);
 
   const editor = ace.edit(editorEl);
-  editor.setTheme("ace/theme/github");
   editor.setOptions({
     showFoldWidgets: true,
     displayIndentGuides: true,
+  });
+
+  // Track the page theme (data-bs-theme on <html>) so the editor is legible in
+  // dark mode. github/github_dark pair with the shared light/dark palette.
+  const aceThemeForPage = function () {
+    return document.documentElement.getAttribute("data-bs-theme") === "dark"
+      ? "ace/theme/github_dark"
+      : "ace/theme/github";
+  };
+  editor.setTheme(aceThemeForPage());
+  // The footer toggle flips data-bs-theme on <html>; re-theme the editor live.
+  const themeObserver = new MutationObserver(function () {
+    editor.setTheme(aceThemeForPage());
+  });
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-bs-theme"],
   });
 
   const selectedOption = function () {

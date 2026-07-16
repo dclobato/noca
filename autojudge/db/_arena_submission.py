@@ -88,8 +88,13 @@ class _ArenaSubmissionMixin(_DatabaseBase):
                 ),
             )
         )
-        test_cases = [] if validator_configured is not None else await self._get_arena_test_cases(problem_id)
-        if validator_configured is None and not test_cases:
+        # A validator problem's cases carry input only: the input parametrizes the
+        # validator, which decides the verdict instead of an expected-output file.
+        test_cases = await self._get_arena_test_cases(
+            problem_id,
+            require_expected_output=validator_configured is None,
+        )
+        if not test_cases:
             raise LookupError(f"Arena problem '{result['problem_id']}' has no test cases")
 
         return QueuedArenaSubmission(
@@ -270,15 +275,26 @@ class _ArenaSubmissionMixin(_DatabaseBase):
         )
         await self._conn.commit()
 
-    async def _get_arena_test_cases(self, problem_id: str) -> list[ArenaQueuedTestCase]:
+    async def _get_arena_test_cases(
+        self,
+        problem_id: str,
+        *,
+        require_expected_output: bool = True,
+    ) -> list[ArenaQueuedTestCase]:
         """Load Arena test cases: ordinals from the DB, content from the filesystem.
 
         Content lives under ``<root>/arena/<problem_id>/NNN.in|out`` (the Arena
         identity domain). The DB row supplies only the stable ``test_case_id`` and
         ``ordinal``; bytes are read and LF-normalized from disk.
 
+        Args:
+            problem_id: Arena problem whose cases to load.
+            require_expected_output: False for validator problems, whose cases hold
+                input only; their ``expected_output`` comes back empty.
+
         Raises:
-            FileNotFoundError: If a referenced ``.in``/``.out`` file is missing.
+            FileNotFoundError: If a referenced ``.in`` file (or, when required, its
+                ``.out`` file) is missing.
         """
         from autojudge.config import settings
 
@@ -296,16 +312,19 @@ class _ArenaSubmissionMixin(_DatabaseBase):
             ordinal = cast(int, row.ordinal)
             in_path = get_testcase_path(problem_id, ordinal, "in", testcase_dir)
             out_path = get_testcase_path(problem_id, ordinal, "out", testcase_dir)
-            if not in_path.exists() or not out_path.exists():
+            if not in_path.exists() or (require_expected_output and not out_path.exists()):
                 raise FileNotFoundError(
                     f"Missing Arena test case file for problem '{problem_id}' ordinal {ordinal:03d}."
                 )
+            expected_output = b""
+            if require_expected_output:
+                expected_output = normalize_testcase_bytes(out_path.read_bytes()[:_ARENA_TEST_FILE_MAX_BYTES])
             cases.append(
                 ArenaQueuedTestCase(
                     test_case_id=cast(str, row.id),
                     ordinal=ordinal,
                     input_data=normalize_testcase_bytes(in_path.read_bytes()[:_ARENA_TEST_FILE_MAX_BYTES]),
-                    expected_output=normalize_testcase_bytes(out_path.read_bytes()[:_ARENA_TEST_FILE_MAX_BYTES]),
+                    expected_output=expected_output,
                 )
             )
         return cases

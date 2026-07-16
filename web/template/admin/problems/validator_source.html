@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>{{ brand_name }} - Problem {{ problem_label }} validator source</title>
+        <link href="{{ request.url_for('static_vendor', path='bootstrap.min.css') }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('static_css', path='contest.css') }}?v={{ app_version }}-r1"
+              rel="stylesheet">
+        <link href="{{ request.url_for('static_vendor', path='devicon.min.css') }}"
+              rel="stylesheet">
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path=highlight_theme_path) }}">
+        <script>
+        (function () {
+            var theme = localStorage.getItem('noca-theme') || 'light';
+            document.documentElement.setAttribute('data-bs-theme', theme);
+        })();
+        </script>
+        <script src="{{ request.url_for('static_shared_js', path='theme-toggle.js') }}?v={{ app_version }}-r1"></script>
+        <script src="{{ request.url_for('static_vendor', path=highlight_core_path) }}"
+                defer></script>
+        {% if highlight_language_path %}
+            <script src="{{ request.url_for('static_vendor', path=highlight_language_path) }}"
+                    defer></script>
+        {% endif %}
+        <script src="{{ request.url_for('static_vendor', path=highlight_line_numbers_path) }}"
+                defer></script>
+        <script src="{{ request.url_for('static_js', path='highlight-code-blocks.js') }}?v={{ app_version }}"
+                defer></script>
+    </head>
+    <body>
+        <header class="border-bottom bg-body">
+            <div class="container-fluid px-4 py-3">
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <img src="/assets/balloon/2f9e41"
+                             width="32"
+                             height="42"
+                             alt="{{ brand_name }} Balloon">
+                        <span class="fw-semibold fs-5">{{ brand_name }}</span>
+                    </div>
+                    <div class="vr d-none d-sm-block"></div>
+                    <div class="lh-sm">
+                        <div class="fw-semibold">Contest: {{ contest.contest_name }}</div>
+                        <div class="fw-semibold">Problem {{ problem_label }}: {{ problem.title }}</div>
+                        <div class="text-body-secondary small">Custom validator source code</div>
+                    </div>
+                </div>
+            </div>
+        </header>
+        <main class="bg-body-tertiary">
+            <div class="container-fluid p-0">
+                <pre class="mb-0 noca-source-code-pre"><code class="{{ highlight_language_class }}" data-highlight-line-numbers>{{ source_code | e }}</code></pre>
+            </div>
+        </main>
+        <script src="{{ request.url_for('static_vendor', path='bootstrap.bundle.min.js') }}"></script>
+    </body>
+</html>

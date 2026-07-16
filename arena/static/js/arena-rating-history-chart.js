@@ -137,10 +137,10 @@ var ArenaRatingChart = (function () {
 
         var valueKind = container.dataset.ratingChartValueKind || "points";
 
-        var chart = echarts.init(container);
-        _instances[containerId] = chart;
+        var mgr = NocaECharts.create(container);
+        _instances[containerId] = mgr;
 
-        chart.showLoading();
+        mgr.showLoading();
 
         fetch(dataUrl)
             .then(function (response) {
@@ -148,35 +148,35 @@ var ArenaRatingChart = (function () {
                 return response.json();
             })
             .then(function (payload) {
-                chart.hideLoading();
+                mgr.hideLoading();
                 if (!payload.history || payload.history.length === 0) {
-                    chart.setOption({
-                        graphic: [{
-                            type: "text",
-                            left: "center",
-                            top: "middle",
-                            style: {
-                                text:
-                                    mode === "sparkline"
-                                        ? "No " + _valueLabel(valueKind).toLowerCase() + " history"
-                                        : "No " + _valueLabel(valueKind).toLowerCase() + " history available yet.",
-                                fontSize: mode === "sparkline" ? 11 : 14,
-                                fill: "#999",
-                            },
-                        }],
+                    mgr.render(function (chart) {
+                        chart.setOption({
+                            graphic: [{
+                                type: "text",
+                                left: "center",
+                                top: "middle",
+                                style: {
+                                    text:
+                                        mode === "sparkline"
+                                            ? "No " + _valueLabel(valueKind).toLowerCase() + " history"
+                                            : "No " + _valueLabel(valueKind).toLowerCase() + " history available yet.",
+                                    fontSize: mode === "sparkline" ? 11 : 14,
+                                    fill: NocaECharts.tokens().emptyText,
+                                },
+                            }],
+                        }, true);
                     });
                     return;
                 }
-                chart.setOption(_buildOption(payload.history, mode, valueKind));
+                mgr.render(function (chart) {
+                    chart.setOption(_buildOption(payload.history, mode, valueKind));
+                });
             })
             .catch(function (err) {
-                chart.hideLoading();
+                mgr.hideLoading();
                 console.error("ArenaRatingChart: failed to load data.", err);
             });
-
-        window.addEventListener("resize", function () {
-            chart.resize();
-        });
     }
 
     function initDeclaredCharts() {

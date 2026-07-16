@@ -35,6 +35,7 @@ from .errors import (
     ContestNotRunningError,
     ForbiddenClarificationActionError,
 )
+from .permissions import can_answer_clarifications, can_force_release_clarifications
 
 
 async def create_clarification(
@@ -76,11 +77,11 @@ async def acquire_clarification(
     clarification: Clarification,
     lock_client: LockClient,
 ) -> Clarification:
-    """Acquire a clarification lock so a judge may answer it."""
+    """Acquire a clarification lock so a judge or admin may answer it."""
     if not contest.is_running:
         raise ContestNotRunningError("Clarifications can only be acquired while the contest is running.")
-    if actor.role != RoleEnum.JUDGE:
-        raise ForbiddenClarificationActionError("Only judges may acquire clarifications.")
+    if not can_answer_clarifications(actor):
+        raise ForbiddenClarificationActionError("Only judges and admins may acquire clarifications.")
     if clarification.answered_at is not None:
         raise ClarificationAlreadyAnsweredError("This clarification has already been answered.")
     if clarification.hidden:
@@ -111,35 +112,36 @@ async def release_clarification(
     clarification: Clarification,
     lock_client: LockClient,
 ) -> Clarification:
-    """Release a judge's lock on a clarification without answering it."""
+    """Release an answerer's lock on a clarification without answering it."""
+    can_force = can_force_release_clarifications(actor)
+    if not can_force and not can_answer_clarifications(actor):
+        raise ForbiddenClarificationActionError("Only judges and admins may release clarification locks.")
+
     lock = await get_lock(lock_client, kind="clarification", contest_id=contest.id, resource_id=clarification.id)
     if lock is None:
-        if isinstance(actor, UberAdmin) or actor.role == RoleEnum.ADMIN:
+        if can_force:
             return clarification
-        if actor.role != RoleEnum.JUDGE:
-            raise ForbiddenClarificationActionError("Only judges and admins may release clarification locks.")
         raise ClarificationNotAcquiredByActorError("You do not hold the lock on this clarification.")
 
-    if not isinstance(actor, UberAdmin) and actor.role not in (RoleEnum.ADMIN, RoleEnum.JUDGE):
-        raise ForbiddenClarificationActionError("Only judges and admins may release clarification locks.")
-    if not isinstance(actor, UberAdmin) and actor.role == RoleEnum.JUDGE and lock.holder_id != actor.id:
-        raise ClarificationNotAcquiredByActorError("You do not hold the lock on this clarification.")
-
-    if isinstance(actor, UberAdmin) or actor.role == RoleEnum.ADMIN:
+    if can_force:
         await force_release_lock(
             lock_client,
             kind="clarification",
             contest_id=contest.id,
             resource_id=clarification.id,
         )
-    else:
-        await release_lock(
-            lock_client,
-            kind="clarification",
-            contest_id=contest.id,
-            resource_id=clarification.id,
-            holder_id=actor.id,
-        )
+        return clarification
+
+    assert isinstance(actor, User)
+    if lock.holder_id != actor.id:
+        raise ClarificationNotAcquiredByActorError("You do not hold the lock on this clarification.")
+    await release_lock(
+        lock_client,
+        kind="clarification",
+        contest_id=contest.id,
+        resource_id=clarification.id,
+        holder_id=actor.id,
+    )
     return clarification
 
 
@@ -156,8 +158,8 @@ async def answer_clarification(
     """Submit an answer to an acquired clarification."""
     if not contest.is_running:
         raise ContestNotRunningError("Clarifications can only be answered while the contest is running.")
-    if actor.role != RoleEnum.JUDGE:
-        raise ForbiddenClarificationActionError("Only judges may answer clarifications.")
+    if not can_answer_clarifications(actor):
+        raise ForbiddenClarificationActionError("Only judges and admins may answer clarifications.")
     if clarification.hidden:
         raise ClarificationHiddenError("Hidden clarifications cannot be answered.")
     if clarification.answered_at is not None:

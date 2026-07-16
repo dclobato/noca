@@ -99,8 +99,14 @@ class _CustomValidatorMixin(_DatabaseBase):
         judgment_id: str,
         attempt_number: int,
         result: Any,
+        test_case_ordinal: int | None = None,
     ) -> None:
-        """Persist bounded diagnostics for one interactive attempt."""
+        """Persist bounded diagnostics for one interactive attempt.
+
+        Attempt 1 clears every earlier row of the judgment, including the rows of
+        an already-passed test case, so a judgment only ever retains the attempts
+        of the last executed case.
+        """
         table = arena_submission_interactive_attempts if domain == "arena" else submission_interactive_attempts
         delete_where = table.c.judgment_id == judgment_id
         if attempt_number != 1:
@@ -121,6 +127,7 @@ class _CustomValidatorMixin(_DatabaseBase):
                 id=str(uuid.uuid4()),
                 judgment_id=judgment_id,
                 attempt_number=attempt_number,
+                test_case_ordinal=test_case_ordinal,
                 contestant_exit_code=result.contestant_exit_code,
                 contestant_signal=result.contestant_signal,
                 validator_exit_code=result.validator_exit_code,

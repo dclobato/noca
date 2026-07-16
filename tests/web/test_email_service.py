@@ -132,7 +132,7 @@ def test_build_user_credentials_email_content_uses_expected_template() -> None:
     assert content.subject == "Your credentials for contest Contest 2026"
     assert "Yo, Alice Smith!" in content.text_body
     assert (
-        "These are your credentials for connecting on contest Contest 2026 running on Noca Contest."
+        "These are your credentials for connecting on contest Contest 2026 running on NOCA Contest."
         in content.text_body
     )
     assert "Login page: https://example.com/c/contest-2026/login" in content.text_body

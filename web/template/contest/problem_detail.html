@@ -31,6 +31,12 @@
                 </div>
             </div>
             <div class="d-flex gap-2">
+                <a href="{{ request.url_for('contest_problem_print', slug=contest.login_slug, problem_label=label) }}"
+                   class="btn btn-outline-secondary btn-sm"
+                   target="_blank"
+                   title="Open a printable view of this problem">
+                    {{ render_icon(icon="print", classes="me-1") }}Print
+                </a>
                 <a href="{{ request.url_for('contest_problem_export', slug=contest.login_slug, problem_label=label) }}"
                    class="btn btn-outline-secondary btn-sm"
                    title="Download statement and sample test cases">
@@ -217,32 +223,59 @@
                 </div>
             </div>
         {% endif %}
-        {# Sample test cases #}
-        <h2 class="h5 mb-3">Sample Test Cases</h2>
-        {% if tc_contents %}
-            {% for ordinal, in_text, out_text, explanation in tc_contents %}
-                <div class="card shadow-sm mb-3">
-                    <div class="card-header fw-semibold small">Sample {{ loop.index }}</div>
-                    <div class="card-body">
-                        <div class="mb-3">
-                            <div class="text-muted small fw-semibold mb-1">Input</div>
-                            <pre class="bg-light p-3 rounded small mb-0 noca-sample-pre">{{ in_text | e }}</pre>
+        {# An interactive problem's public examples are conversations, not test cases:
+           its cases are all secret and carry no expected output. #}
+        {% if has_custom_validator %}
+            <div class="alert alert-info d-flex align-items-start gap-2 mb-3"
+                 role="alert">
+                {{ render_icon(icon="published_with_changes", classes=["flex-shrink-0", "mt-1"]) }}
+                <span>
+                    This is an <strong>interactive</strong> problem: instead of printing an answer for a
+                    fixed input, your program exchanges messages with a validator, once per test case.
+                    The sample interactions below show how a correct solution converses with it.
+                </span>
+            </div>
+            <h2 class="h5 mb-3">Sample Interactions</h2>
+            {% if sample_interactions %}
+                {% for interaction in sample_interactions %}
+                    <div class="card shadow-sm mb-3">
+                        <div class="card-body">
+                            {% with explanation_class="noca-tc-explanation" %}
+                                {% include "_partials/sample_interaction_display.html" %}
+                            {% endwith %}
                         </div>
-                        <div>
-                            <div class="text-muted small fw-semibold mb-1">Output</div>
-                            <pre class="bg-light p-3 rounded small mb-0 noca-sample-pre">{{ out_text | e }}</pre>
-                        </div>
-                        {% if explanation %}
-                            <div class="text-muted small mt-2">
-                                <div class="fw-semibold mb-1">Explanation of example #{{ loop.index }}:</div>
-                                <div class="noca-tc-explanation" data-tc-explanation>{{ explanation | e }}</div>
-                            </div>
-                        {% endif %}
                     </div>
-                </div>
-            {% endfor %}
+                {% endfor %}
+            {% else %}
+                <div class="text-muted small">No sample interactions for this problem.</div>
+            {% endif %}
         {% else %}
-            <div class="text-muted small">No public sample test cases for this problem.</div>
+            <h2 class="h5 mb-3">Sample Test Cases</h2>
+            {% if tc_contents %}
+                {% for ordinal, in_text, out_text, explanation in tc_contents %}
+                    <div class="card shadow-sm mb-3">
+                        <div class="card-header fw-semibold small">Sample {{ loop.index }}</div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <div class="text-muted small fw-semibold mb-1">Input</div>
+                                <pre class="bg-light p-3 rounded small mb-0 noca-sample-pre">{{ in_text | e }}</pre>
+                            </div>
+                            <div>
+                                <div class="text-muted small fw-semibold mb-1">Output</div>
+                                <pre class="bg-light p-3 rounded small mb-0 noca-sample-pre">{{ out_text | e }}</pre>
+                            </div>
+                            {% if explanation %}
+                                <div class="text-muted small mt-2">
+                                    <div class="fw-semibold mb-1">Explanation of example #{{ loop.index }}:</div>
+                                    <div class="noca-tc-explanation" data-tc-explanation>{{ explanation | e }}</div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="text-muted small">No public sample test cases for this problem.</div>
+            {% endif %}
         {% endif %}
         <div class="mt-4">
             <a href="{{ request.url_for('contest_problems', slug=contest.login_slug) }}"

@@ -9,7 +9,14 @@
 <footer class="arena-footer">
     <div class="arena-footer-inner">
         <div class="arena-footer-meta">
-            <span>&copy; 2026 Noca Arena &mdash; v{{ app_version }}</span>
+            <span>&copy; 2026 {{ brand_name }} &mdash; v{{ app_version }}
+                <button id="theme-toggle-btn"
+                        class="arena-footer-theme-toggle"
+                        aria-label="Toggle theme"
+                        title="Toggle dark mode">
+                    <i class="material-symbols-outlined">dark_mode</i>
+                </button>
+            </span>
             {% if next_rating_update %}
                 <span class="arena-footer-rating">Next difficulty and rating update in {{ next_rating_update }}</span>
             {% endif %}
@@ -31,7 +38,7 @@
                     </span>
                 {% endif %}
             {% endif %}
-            <a href="{{ request.url_for("arena_status") }}">Status</a>
+            {% if healthmon_url %}<a href="{{ healthmon_url }}">Status</a>{% endif %}
             <a href="#">Contact</a>
             <a href="https://www.github.com/dclobato/noca">GitHub</a>
             <a href="{{ request.url_for("arena_terms_of_service") }}">Terms</a>

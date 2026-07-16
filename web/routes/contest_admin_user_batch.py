@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import HTMLResponse, Response
 
 from shared.services.security_events import record_request_security_event
+from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_user_helpers import _build_contest_login_url, _html, _render_download_json
 from web.services.assorted_utils import slugfy
@@ -192,7 +193,7 @@ async def send_batch_credentials_email(
                 contest_login_url=_build_contest_login_url(request, ctx.contest.login_slug),
                 username=username,
                 password=password,
-                sender_name=email_service.default_from_name or "Noca Contest",
+                sender_name=email_service.default_from_name or settings.BRAND_NAME,
             ),
         )
         if send_result.success:

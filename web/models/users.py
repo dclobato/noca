@@ -221,6 +221,7 @@ class Login_History(Base):
     uberadmin_id: Mapped[str | None]
     dta_login: Mapped[datetime]
     ip_address: Mapped[str | None]
+    source_port: Mapped[int | None]
     country_code: Mapped[str | None]
     subdivision_code: Mapped[str | None]
     district: Mapped[str | None]
