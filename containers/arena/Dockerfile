@@ -29,6 +29,7 @@ COPY scripts/arena/seed_arena_user.py /app/scripts/arena/seed_arena_user.py
 COPY scripts/arena/upsert_arena_categories.py /app/scripts/arena/upsert_arena_categories.py
 COPY scripts/bootstrap_languages.py /app/scripts/bootstrap_languages.py
 COPY scripts/run_migrations.py /app/scripts/run_migrations.py
+COPY scripts/secrets_config.py /app/scripts/secrets_config.py
 COPY containers/arena/entrypoint.sh /app/entrypoint.sh
 
 RUN python /app/scripts/arena/copy_legal_docs.py

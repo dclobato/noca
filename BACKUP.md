@@ -31,6 +31,14 @@ cryptographic configuration, and application data. Restrict access to the
 backup directory and Restic repository. Keep S3 and Restic credentials outside
 the repository in a protected scheduler or service-manager environment.
 
+> **Bootstrapping or rotating `.env.crypto`:** this file holds the
+> `SecretsManager` key versions and must exist before the Arena app and AI
+> assistant worker start. To create it on first deploy or rotate the key during
+> normal operation, run `scripts/secrets_config.py` inside the `arena` or
+> `aiassistant` container. See
+> [docs/CONFIG.md](docs/CONFIG.md#in-container-bootstrap-and-rotation) for the
+> in-container procedure.
+
 ## Create a backup
 
 Export the required Restic configuration, then run the backup script from the

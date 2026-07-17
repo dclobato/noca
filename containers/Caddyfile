@@ -26,8 +26,14 @@
 	}
 
 	reverse_proxy {args[0]} {
-		header_up -X-Request-ID
+		# A bare (unprefixed) header_up is a SET, which already replaces any
+		# client-supplied value. Do NOT add a `header_up -X-Request-ID` strip
+		# line: Caddy applies header ops as add -> set -> delete, so a named
+		# delete runs AFTER the set and would wipe the UUID before proxying.
 		header_up X-Request-ID {http.request.uuid}
+		# Trusted client source port for audit correlation; pair with
+		# NOCA_SOURCE_PORT_HEADER=X-Source-Port on the web/arena services.
+		header_up X-Source-Port {remote_port}
 	}
 }
 

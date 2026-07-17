@@ -96,19 +96,29 @@ uv run noca-web
 uv run noca-autojudge
 ```
 
-10. Start the Arena app:
+10. Generate the crypto key file (required before Arena and the AI worker start;
+    encrypts OTP secrets and user-owned API keys):
+
+```bash
+uv run python scripts/secrets_config.py generate
+```
+
+See [CONFIG.md](CONFIG.md#in-container-bootstrap-and-rotation) for the equivalent
+in-container procedure and for key rotation.
+
+11. Start the Arena app:
 
 ```bash
 uv run noca-arena
 ```
 
-11. Start the rating worker:
+12. Start the rating worker:
 
 ```bash
 uv run noca-rating
 ```
 
-12. Start the AI review worker (optional; requires `NOCA_AI_OPENAI_API_KEY` or user-supplied keys):
+13. Start the AI review worker (optional; requires `NOCA_AI_OPENAI_API_KEY` or user-supplied keys):
 
 ```bash
 uv run noca-aiassistant

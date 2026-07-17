@@ -1,5 +1,18 @@
 # Changelog
 
+## [14.0.1] - 2026-07-17
+
+### Bug Fixes
+
+- **deploy**: Stop the Caddy header delete from wiping `X-Request-ID`, so
+  `security_events.request_id` stays correlatable with Caddy access logs
+
+### Documentation
+
+- **crypto**: Ship `scripts/secrets_config.py` in the arena and aiassistant
+  images and document the in-container `.env.crypto` bootstrap/rotation
+  procedure in `CONFIG.md`, with pointers from `BOOTSTRAP.md` and `BACKUP.md`
+
 ## [14.0.0] - 2026-07-16
 
 ### ⚠ BREAKING CHANGES

@@ -121,6 +121,35 @@ The generated file is written with `600` permissions and contains
 `ACTIVE_ENCRYPTION_VERSION`, `ENCRYPTION_KEYS__<version>`,
 `ENCRYPTION_SALT__<version>`, and `ENCRYPTION_SALT_HASH__<version>` entries.
 
+#### In-container bootstrap and rotation
+
+`scripts/secrets_config.py` ships inside both the `arena` and `aiassistant`
+images, so the crypto key can be bootstrapped or rotated without a separate
+tooling image. Run it against a running service container — its `secrets_manager`
+dependency comes in through `noca-shared`, and `.env.crypto` is the file mounted
+into the project directory (path from `NOCA_CRYPTO_ENV_FILE`):
+
+```bash
+# Bootstrap on first deploy (writes .env.crypto with 600 perms)
+docker compose exec arena python scripts/secrets_config.py generate
+
+# Inspect / rotate during normal operation
+docker compose exec arena python scripts/secrets_config.py list
+docker compose exec arena python scripts/secrets_config.py rotate
+docker compose exec arena python scripts/secrets_config.py set-active --latest
+```
+
+Because `.env.crypto` is read at startup, restart the Arena app and the AI
+assistant worker after a `rotate` / `set-active` so both pick up the new active
+version. Either image can run these commands (`docker compose exec aiassistant …`
+works the same way); the file they all read is the single shared `.env.crypto`.
+
+> **Caveat:** the `analyze-column` subcommand falls back to `web`'s database
+> settings when `--database-url` is omitted, and the `web` package is not present
+> in the `arena`/`aiassistant` images. Inside these containers, always pass
+> `--database-url` explicitly for `analyze-column` (the key-management commands
+> above need no database).
+
 ---
 
 ## Shared between Web and Arena
@@ -152,13 +181,24 @@ These variables are read by both the web and arena modules.
 >   the `security_events` audit log records the proxy IP instead of the real
 >   client.
 > - `request.client.port` is usually the proxy-to-app connection port, not the
->   user's original source port. If you need source-port retention behind a
->   proxy, configure the proxy to strip client-supplied source-port headers and
->   set the trusted header named by `NOCA_SOURCE_PORT_HEADER`.
+>   user's original source port (behind Uvicorn's proxy-headers middleware it is
+>   rewritten to `0`, which is rejected and stored as NULL). If you need
+>   source-port retention behind a proxy, configure the proxy to set the trusted
+>   header named by `NOCA_SOURCE_PORT_HEADER` — the sample Caddyfile sends
+>   `X-Source-Port {remote_port}`, so pair it with
+>   `NOCA_SOURCE_PORT_HEADER=X-Source-Port`. Note that the port recorded is the
+>   proxy's peer port: behind a CDN (e.g. Cloudflare) that is the CDN→proxy
+>   connection port, which correlates with proxy access logs but is not the
+>   browser's original source port.
 > - The sample Caddyfile overwrites `X-Request-ID` with Caddy's
 >   `{http.request.uuid}`, sends it to Web/Arena, returns it in responses, and
 >   appends it to Caddy access logs as `request_id`. Web/Arena persist that
 >   value in `security_events.request_id` for correlation.
+> - **Caddy pitfall:** header ops apply as add → set → delete (not in written
+>   order), so `header_up -X-Request-ID` alongside `header_up X-Request-ID …`
+>   deletes the value *after* setting it and the app receives nothing. A bare
+>   `header_up <field> <value>` is a SET that already replaces client-supplied
+>   values — never add a `-` strip line for a header you also set.
 >
 > **Fix:** set `NOCA_FORWARDED_ALLOW_IPS` to the proxy's source network, then
 > restart Web/Arena. For a proxy on the same Docker network with no published app
