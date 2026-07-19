@@ -50,6 +50,7 @@ from .arena_submissions import (
     arena_submission_test_results,
     arena_submissions,
 )
+from .arena_user_reputation import arena_user_reputation
 from .arena_user_statistics import arena_user_statistics
 from .arena_users import arena_affiliations, arena_backup_2fa, arena_login_history, arena_users
 from .arena_worker_control import arena_worker_command_audit, arena_worker_pause_state
@@ -91,6 +92,7 @@ __all__ = [
     "arena_test_cases",
     "arena_user_badges",
     "arena_user_rating_history",
+    "arena_user_reputation",
     "arena_user_submission_heatmap",
     "arena_user_statistics",
     "arena_users",

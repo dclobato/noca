@@ -101,10 +101,12 @@ from shared.services.arena_rating import (
     RATING_INTERVAL_TEXT_KEY,
     format_next_rating_update,
 )
+from shared.services.email_reputation import EmailReputationService
 from shared.services.email_service import EmailConfig, EmailService
 from shared.services.geolocation import GeolocationIP
 from shared.services.imageprocessing_service import ImageProcessingConfig, ImageProcessingService
 from shared.services.network_utils import NetworkService
+from shared.services.network_utils.ip_reputation import IPQualityScoreIPReputationService
 from shared.services.security_events_reaper import run_security_events_reaper
 from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
 from shared.services.startup_wait import wait_for_db, wait_for_valkey
@@ -396,6 +398,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info(
         "- GeolocationIP service initialised (enabled=%s)",
         settings.GEOLOCATION_API_KEY is not None,
+    )
+    app.state.ip_reputation_service = IPQualityScoreIPReputationService(
+        api_key=settings.IPQUALITYSCORE_APIKEY,
+        network_service=NetworkService(logger=logger),
+        logger=logger,
+    )
+    app.state.email_reputation_service = EmailReputationService(
+        api_key=settings.IPQUALITYSCORE_APIKEY,
+        network_service=NetworkService(logger=logger),
+        logger=logger,
+    )
+    logger.info(
+        "- IPQualityScore reputation services initialised (enabled=%s)",
+        settings.IPQUALITYSCORE_APIKEY is not None,
     )
     app.state.reverse_geocoder_network_service = NetworkService(logger=logger)
     app.state.reverse_geocoder_user_agent = (

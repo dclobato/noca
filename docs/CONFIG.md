@@ -258,6 +258,12 @@ Sliding-session notes:
 |----------|---------|-------------|
 | `NOCA_GEOLOCATION_API_KEY` | *(empty)* | API key for the geolocation service (ipgeolocation.io). Required only if geolocation features are enabled. |
 
+### IPQualityScore key
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOCA_IPQUALITYSCORE_APIKEY` | *(empty)* | API key for IPQualityScore services (ipqualityscore.com), including email validation and IP reputation lookups. When empty, IPQualityScore-backed services are disabled and lookups return `None`. |
+
 ### Password Policy
 
 | Variable | Default | Description |

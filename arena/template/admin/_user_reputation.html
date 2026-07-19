@@ -1,0 +1,130 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% macro yes_no(value, danger_when_true=True) %}
+    {% if danger_when_true %}
+        <span class="badge {{ 'bg-danger' if value else 'bg-success' }}">{{ 'Yes' if value else 'No' }}</span>
+    {% else %}
+        <span class="badge {{ 'bg-success' if value else 'bg-secondary' }}">{{ 'Yes' if value else 'No' }}</span>
+    {% endif %}
+{% endmacro %}
+<div class="py-4">
+    {% if reputation is none %}
+        <p class="text-arena-muted mb-0">
+            No reputation data is recorded for this user. Reputation is captured at signup when the
+            IPQualityScore integration is enabled, and can be backfilled for the email side.
+        </p>
+    {% else %}
+        <div class="row g-4">
+            <div class="col-12 col-lg-6">
+                <dl class="arena-profile-details">
+                    <dt>Signup IP</dt>
+                    <dd>
+                        {% if reputation.signup_ip %}
+                            <span class="font-monospace">{{ reputation.signup_ip }}</span>
+                        {% else %}
+                            <span class="text-arena-muted">Not recorded</span>
+                        {% endif %}
+                    </dd>
+                    {% if reputation.ip_report %}
+                        {% set ip = reputation.ip_report %}
+                        <dt>IP fraud score</dt>
+                        <dd>
+                            <span class="fw-semibold">{{ reputation.ip_fraud_score }}</span>
+                            <span class="text-arena-muted">/ 100</span>
+                        </dd>
+                        <dt>Proxy</dt>
+                        <dd>
+                            {{ yes_no(ip.proxy) }}
+                        </dd>
+                        <dt>VPN</dt>
+                        <dd>
+                            {{ yes_no(ip.vpn) }}
+                            {% if ip.active_vpn %}<span class="badge bg-danger ms-1">active</span>{% endif %}
+                        </dd>
+                        <dt>Tor</dt>
+                        <dd>
+                            {{ yes_no(ip.tor) }}
+                            {% if ip.active_tor %}<span class="badge bg-danger ms-1">active</span>{% endif %}
+                        </dd>
+                        <dt>Recent abuse</dt>
+                        <dd>
+                            {{ yes_no(ip.recent_abuse) }}
+                        </dd>
+                        <dt>Crawler</dt>
+                        <dd>
+                            {{ yes_no(ip.is_crawler) }}
+                        </dd>
+                        <dt>Mobile</dt>
+                        <dd>
+                            {{ yes_no(ip.mobile, danger_when_true=False) }}
+                        </dd>
+                        <dt>Checked</dt>
+                        <dd>
+                            {% if reputation.ip_checked_at %}
+                                {{ arena_format_datetime(reputation.ip_checked_at, current_user) }}
+                            {% else %}
+                                <span class="text-arena-muted">Never</span>
+                            {% endif %}
+                        </dd>
+                    {% else %}
+                        <dt>IP reputation</dt>
+                        <dd>
+                            <span class="text-arena-muted">Not available</span>
+                        </dd>
+                    {% endif %}
+                </dl>
+            </div>
+            <div class="col-12 col-lg-6">
+                <dl class="arena-profile-details">
+                    {% if reputation.email_report %}
+                        {% set em = reputation.email_report %}
+                        <dt>Email fraud score</dt>
+                        <dd>
+                            <span class="fw-semibold">{{ reputation.email_fraud_score }}</span>
+                            <span class="text-arena-muted">/ 100</span>
+                        </dd>
+                        <dt>Overall validity score</dt>
+                        <dd>
+                            <span class="fw-semibold">{{ reputation.email_overall_score }}</span>
+                            <span class="text-arena-muted">/ 4</span>
+                        </dd>
+                        <dt>Valid</dt>
+                        <dd>
+                            {{ yes_no(em.valid, danger_when_true=False) }}
+                        </dd>
+                        <dt>Disposable</dt>
+                        <dd>
+                            {{ yes_no(em.disposable) }}
+                        </dd>
+                        <dt>Suspect</dt>
+                        <dd>
+                            {{ yes_no(em.suspect) }}
+                        </dd>
+                        <dt>Common</dt>
+                        <dd>
+                            {{ yes_no(em.common) }}
+                        </dd>
+                        <dt>Checked</dt>
+                        <dd>
+                            {% if reputation.email_checked_at %}
+                                {{ arena_format_datetime(reputation.email_checked_at, current_user) }}
+                            {% else %}
+                                <span class="text-arena-muted">Never</span>
+                            {% endif %}
+                        </dd>
+                    {% else %}
+                        <dt>Email reputation</dt>
+                        <dd>
+                            <span class="text-arena-muted">Not available</span>
+                        </dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+    {% endif %}
+</div>

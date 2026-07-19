@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
 
 from arena.config import settings
 from arena.database import get_db
@@ -27,7 +28,12 @@ from arena.routes.auth_common import (
     _token_failure_message,
     _validate_password_fields,
 )
-from arena.services import user_email_service, user_registration_service, user_service
+from arena.services import (
+    signup_reputation_service,
+    user_email_service,
+    user_registration_service,
+    user_service,
+)
 from arena.services.token_service import ArenaTokenAction
 from shared.age_check import AgeStatus, check_age
 from shared.services.auth_rate_limit import (
@@ -104,6 +110,52 @@ async def _record_email_delivery_event(
         severity="info" if sent else "warning",
         actor_user_id=user_id,
         metadata={"purpose": purpose, "source": source},
+    )
+
+
+async def _run_signup_reputation(
+    request: Request,
+    *,
+    user_id: str,
+    email: str,
+    ip_address: str | None,
+    reputation_enabled: bool,
+) -> None:
+    """Background entry point: record signup reputation in a fresh DB session."""
+    session_factory = request.app.state.arena_db_session
+    async with session_factory() as session:
+        await signup_reputation_service.record_signup_reputation(
+            session,
+            user_id=user_id,
+            email=email,
+            ip_address=ip_address,
+            ip_service=request.app.state.ip_reputation_service,
+            email_reputation_service=request.app.state.email_reputation_service,
+            email_service=request.app.state.email_service,
+            reputation_enabled=reputation_enabled,
+        )
+
+
+def _signup_reputation_task(
+    request: Request,
+    *,
+    user_id: str,
+    email: str,
+) -> BackgroundTask:
+    """Build the post-signup reputation background task.
+
+    The signup IP is always recorded so it can be scored later by the backfill
+    script; the IPQualityScore lookups and admin notification only run when
+    ``NOCA_IPQUALITYSCORE_APIKEY`` is configured.
+    """
+    ip_address = request.client.host if request.client is not None else None
+    return BackgroundTask(
+        _run_signup_reputation,
+        request,
+        user_id=user_id,
+        email=email,
+        ip_address=ip_address,
+        reputation_enabled=bool(settings.IPQUALITYSCORE_APIKEY),
     )
 
 
@@ -437,11 +489,14 @@ async def arena_signup_submit(
             sent=parental_email_sent,
         )
     await session.commit()
+    reputation_task = _signup_reputation_task(request, user_id=result.user.id, email=email)
     if email_sent and parental_email_sent:
         flash(_SIGNUP_SUCCESS_MESSAGE, FlashCategory.SUCCESS)
     else:
         flash(_SIGNUP_SUCCESS_MESSAGE, FlashCategory.WARNING)
-    return _redirect_to(request, "arena_login")
+    response = _redirect_to(request, "arena_login")
+    response.background = reputation_task
+    return response
 
 
 @router.get("/activate", name="arena_activate")

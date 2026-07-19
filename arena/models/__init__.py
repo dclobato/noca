@@ -31,6 +31,7 @@ from .arena_submissions import (
     ArenaUserSolvedProblem,
     ArenaUserTriedProblem,
 )
+from .arena_user_reputation import ArenaUserReputation
 from .arena_users import ArenaUser
 
 __all__ = [
@@ -56,6 +57,7 @@ __all__ = [
     "ArenaTestCase",
     "ArenaUser",
     "ArenaUserBadge",
+    "ArenaUserReputation",
     "ArenaUserSolvedProblem",
     "ArenaUserTriedProblem",
 ]

@@ -17,15 +17,35 @@ transaction, matching PostgreSQL's sequence semantics for single-session
 tests.
 """
 
+import logging
 from collections.abc import Generator
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from sqlalchemy import event, text
 from sqlalchemy.orm.attributes import get_history
 
 import arena.models.arena_problems  # noqa: F401 – register mapper before event.listen
 from arena.models.arena_problems import ArenaProblem
+from shared.services.email_reputation import EmailReputationService
+from shared.services.network_utils import NetworkService
+from shared.services.network_utils.ip_reputation import IPQualityScoreIPReputationService
+
+
+def attach_reputation_services(app: FastAPI) -> None:
+    """Attach disabled IPQualityScore reputation services to a test app.
+
+    The signup route builds a post-signup background task that reads these from
+    ``app.state``; wiring disabled services (no API key) keeps the task inert.
+    """
+    logger = logging.getLogger(__name__)
+    app.state.ip_reputation_service = IPQualityScoreIPReputationService(
+        api_key=None, network_service=NetworkService(logger=logger), logger=logger
+    )
+    app.state.email_reputation_service = EmailReputationService(
+        api_key=None, network_service=NetworkService(logger=logger), logger=logger
+    )
 
 
 @pytest.fixture(autouse=True)

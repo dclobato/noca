@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from arena.models.arena_badges import ArenaUserBadge
     from arena.models.arena_notifications import ArenaNotification
     from arena.models.arena_submissions import ArenaSubmission, ArenaUserSolvedProblem, ArenaUserTriedProblem
+    from arena.models.arena_user_reputation import ArenaUserReputation
 
 _avatar_generator = DeterministicAvatar()
 
@@ -170,6 +171,13 @@ class ArenaUser(LocationMixin, ArenaBase):
         back_populates="user",
         cascade="all, delete-orphan",
         foreign_keys="ArenaUserBadge.user_id",
+    )
+    reputation: Mapped[ArenaUserReputation | None] = relationship(
+        "ArenaUserReputation",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+        foreign_keys="ArenaUserReputation.user_id",
     )
 
     codigos_otp: Mapped[list[ArenaBackup2FA]] = relationship(

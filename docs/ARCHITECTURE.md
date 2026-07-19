@@ -184,6 +184,16 @@ distribution into the singleton `arena_rating_cycle_state` table, read by the
 Arena `/help/rating` page to render a current-distribution chart without an
 aggregate query at request time.
 
+Arena signup reputation adds the `arena_user_reputation` table to the shared schema:
+one row per Arena user (unique `user_id` FK) holding the client IP captured at signup
+plus the IPQualityScore IP and email reputation reports (fraud scores as columns and the
+full signals as JSON). The signup IP is recorded for every account even when the
+IPQualityScore integration is disabled, so `scripts/backfill_email_reputation.py` can
+later score both the email and any recorded signup IP. The Arena HTTP process owns the
+writes (a post-signup background task through `arena.services.signup_reputation_service`,
+which also emails every `ARENA_ADMIN` a report); the Arena admin user profile reads the
+snapshot on its Reputation tab.
+
 Cross-module security auditing shares a single `security_events` table (owned by
 `shared.services.security_events`) rather than per-domain audit tables. Each row
 snapshots both the opaque `actor_user_id` and a human-readable `actor_label` (the

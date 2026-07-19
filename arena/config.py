@@ -161,6 +161,10 @@ class Settings(BaseSettings):
         default=None,
         description="API key for IP geolocation (optional; required for login-location recording)",
     )
+    IPQUALITYSCORE_APIKEY: str | None = Field(
+        default=None,
+        description="API key for IPQualityScore email validation and IP reputation checks (optional).",
+    )
     ARENA_REVERSE_GEOCODER_ENABLED: bool = Field(
         default=True,
         description="Enable browser-coordinate reverse geocoding for Arena profile location detection.",

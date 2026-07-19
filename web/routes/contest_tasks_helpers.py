@@ -107,7 +107,7 @@ async def _build_template_context(ctx: ContestContext, request: Request) -> dict
 
     role = ctx.actor.role if isinstance(ctx.actor, User) else None
     now_aware = datetime.datetime.now(datetime.UTC)
-    now_naive = datetime.datetime.utcnow()
+    now_naive = now_aware.replace(tzinfo=None)
 
     if role == RoleEnum.TEAM:
         problem_map: dict[str, str] = {p.id: f"{_label(p.ordinal)}: {p.title}" for p in problems}

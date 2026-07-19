@@ -525,6 +525,9 @@ Internal structure:
 
 Main types:
 - `NetworkService`
+- `IPQualityScoreIPReputationService`
+- `IPReputation` — frozen dataclass with `is_crawler`, `mobile`, `recent_abuse`,
+  `fraud_score`, `proxy`, `vpn`, `tor`, `active_vpn`, and `active_tor`
 - `NetworkServiceError`
 - `RequestValidationError`
 - `URLValidationError`
@@ -541,11 +544,13 @@ Main entrypoints on `NetworkService`:
 - `get_ip_from_request(request) -> str | None`
 - `get_trusted_source_port_from_request(request) -> int | None`
 - `is_private_network(hostname) -> bool`
+- `IPQualityScoreIPReputationService.check(ip_address) -> IPReputation | None`
 
 Reuse this module when:
 - calling third-party HTTP JSON endpoints from the web or arena layers
 - validating URLs or proxy-forwarded client IPs
 - adding SSRF-safe outbound request behavior
+- evaluating IPQualityScore IP reputation, proxy, VPN, and Tor signals
 
 Do not reimplement:
 - private-network blocking and DNS resolution checks
@@ -556,6 +561,8 @@ Notes:
 - `make_json_request` streams responses and enforces the `MAX_RESPONSE_SIZE` cap before parsing JSON
 - SSRF protection checks both literal IPs and all resolved A/AAAA records for hostnames
 - the package preserves the previous `web.services.network_utils` import surface via `NetworkService`
+- IPQualityScore IP reputation is configured via `NOCA_IPQUALITYSCORE_APIKEY`. When the key is empty, or when
+  a lookup fails, the service returns `None`.
 
 ---
 
@@ -621,6 +628,41 @@ Main entrypoints:
 Notes:
 - backed by the `email-validator` package with `check_deliverability=False`
 - used by `arena/services/user_registration_service.py` and `web` registration flows
+
+---
+
+## `email_reputation.py`
+
+Purpose:
+- assess whether an email address is "good" (real, non-disposable, low-fraud) via the
+  [IPQualityScore](https://www.ipqualityscore.com/) email validation API
+- disabled gracefully when no API key is configured
+
+Canonical location:
+- `shared/services/email_reputation.py`
+
+Main types:
+- `EmailReputationService`
+- `EmailReputation` — frozen dataclass with `valid`, `disposable`, `suspect`,
+  `overall_score`, `common`, `fraud_score`, `sanitized_email`
+
+Constructor:
+- `EmailReputationService(api_key: str | None, network_service: NetworkService, logger=None)`
+  - `api_key`: IPQualityScore API key; when `None` the service is disabled and `check` always returns `None`
+  - `network_service`: a `NetworkService` instance for the outbound HTTP call
+
+Main entrypoints:
+- `check(email: str) -> EmailReputation | None`
+  - Calls `GET https://www.ipqualityscore.com/api/json/email/{key}/{url-encoded email}?timeout=7`
+  - Returns a type-guarded `EmailReputation`, or `None` when disabled, on any network/JSON
+    failure, or when the response body is not `success: true`
+  - Every field is read defensively: booleans default `False`, integers default `0`,
+    `sanitized_email` falls back to the submitted address
+
+Notes:
+- API errors and network failures are logged and return `None` — the caller never raises
+- Configured via `NOCA_IPQUALITYSCORE_APIKEY` in both the `web` and `arena` modules
+- Not yet wired into any signup flow; the service and its tests exist standalone
 
 ---
 

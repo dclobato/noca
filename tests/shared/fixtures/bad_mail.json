@@ -1,0 +1,57 @@
+{
+  "message": "Success.",
+  "success": true,
+  "valid": false,
+  "disposable": true,
+  "smtp_score": 0,
+  "overall_score": 0,
+  "first_name": "Unknown",
+  "generic": false,
+  "common": false,
+  "dns_valid": true,
+  "honeypot": false,
+  "deliverability": "low",
+  "frequent_complainer": false,
+  "spam_trap_score": "none",
+  "catch_all": false,
+  "timed_out": false,
+  "suspect": false,
+  "recent_abuse": true,
+  "fraud_score": 100,
+  "suggested_domain": "N/A",
+  "leaked": false,
+  "domain_age": {
+    "human": "3 months ago",
+    "timestamp": 1776198915,
+    "iso": "2026-04-14T16:35:15-04:00"
+  },
+  "first_seen": {
+    "human": "just now",
+    "timestamp": 1784406138,
+    "iso": "2026-07-18T16:22:18-04:00"
+  },
+  "domain_trust": "Upgraded plan required.",
+  "sanitized_email": "takvaexxaocyufmmoe@jbsze.net",
+  "domain_velocity": "Enterprise Mini or higher required.",
+  "user_activity": "Enterprise L4+ required.",
+  "associated_names": {
+    "status": "Enterprise Plus or higher required.",
+    "names": []
+  },
+  "associated_phone_numbers": {
+    "status": "Enterprise Plus or higher required.",
+    "phone_numbers": []
+  },
+  "risky_tld": false,
+  "spf_record": false,
+  "dmarc_record": false,
+  "mx_records": [
+    "prd-smtp.10minutemail.com"
+  ],
+  "a_records": [
+    "159.25.16.6"
+  ],
+  "result_type": "live",
+  "request_id": "jGMvrYJ8oC",
+  "api_version": 1
+}

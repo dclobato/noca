@@ -191,6 +191,23 @@ and guardian consent links.
 
 ---
 
+### `signup_reputation_service.py`
+
+Post-signup reputation recording and admin notification. Runs as a background task
+after the signup response. The signup IP is **always** persisted to
+`arena_user_reputation` (even when the IPQualityScore integration is disabled) so it
+can be scored later by the backfill script; when `NOCA_IPQUALITYSCORE_APIKEY` is set,
+the blocking IPQualityScore IP and email lookups run in a worker thread, the snapshot
+is updated with fraud scores plus the full JSON reports, and every `ARENA_ADMIN` is
+emailed a report (`new_user_reputation.jinja2`). All failures are logged and swallowed
+so the flow can never affect the already-created account.
+
+| Function | Description |
+|----------|-------------|
+| `record_signup_reputation(session, *, user_id, email, ip_address, ip_service, email_reputation_service, email_service, reputation_enabled)` | Persist the signup IP, optionally look up IP/email reputation, and notify admins when enabled. |
+
+---
+
 ### `user_email_service.py`
 
 Email/consent JWT token validation and revalidation flows. Handles re-sending

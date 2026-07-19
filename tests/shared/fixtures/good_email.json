@@ -1,0 +1,68 @@
+{
+   "message":"Success.",
+   "success":true,
+   "valid":true,
+   "disposable":false,
+   "smtp_score":3,
+   "overall_score":4,
+   "first_name":"Daniel",
+   "generic":false,
+   "common":false,
+   "dns_valid":true,
+   "honeypot":false,
+   "deliverability":"medium",
+   "frequent_complainer":true,
+   "spam_trap_score":"low",
+   "catch_all":false,
+   "timed_out":false,
+   "suspect":false,
+   "recent_abuse":false,
+   "fraud_score":0,
+   "suggested_domain":"N\/A",
+   "leaked":true,
+   "domain_age":{
+      "human":"26 years ago",
+      "timestamp":961168488,
+      "iso":"2000-06-16T11:14:48-04:00"
+   },
+   "first_seen":{
+      "human":"10 years ago",
+      "timestamp":1483250461,
+      "iso":"2017-01-01T01:01:01-05:00"
+   },
+   "domain_trust":"Upgraded plan required.",
+   "sanitized_email":"daniel@lobato.org",
+   "domain_velocity":"Enterprise Mini or higher required.",
+   "user_activity":"Enterprise L4+ required.",
+   "associated_names":{
+      "status":"Enterprise Plus or higher required.",
+      "names":[
+         
+      ]
+   },
+   "associated_phone_numbers":{
+      "status":"Enterprise Plus or higher required.",
+      "phone_numbers":[
+         
+      ]
+   },
+   "risky_tld":false,
+   "spf_record":true,
+   "dmarc_record":true,
+   "mx_records":[
+      "aspmx4.googlemail.com",
+      "aspmx2.googlemail.com",
+      "aspmx.l.google.com",
+      "alt2.aspmx.l.google.com",
+      "aspmx5.googlemail.com",
+      "alt1.aspmx.l.google.com",
+      "aspmx3.googlemail.com"
+   ],
+   "a_records":[
+      "104.21.66.5",
+      "172.67.167.204"
+   ],
+   "result_type":"cached",
+   "request_id":"jGMJmXQfFY",
+   "api_version":1
+}

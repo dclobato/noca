@@ -1,6 +1,6 @@
 [project]
 name = "noca-workspace"
-version = "14.0.1"
+version = "14.1.0"
 description = "We took the core principles of BOCA -- the backbone of Brazilian programming marathons -- and rebuilt it for the modern era. NOCA (Next Online Contest Administrator) introduces a streamlined developer experience using Python and FastAPI, providing a modular, Docker-based infrastructure that makes running a contest easier than ever."
 authors = [
     { name = "Daniel Correa Lobato", email = "daniel@lobato.org" }
@@ -84,6 +84,7 @@ markers = [
     "real_valkey: tests that exercise a real Valkey instance",
     "real_docker: tests that exercise a real Docker daemon",
     "real_openai: tests that exercise the real OpenAI API and require NOCA_AI_OPENAI_API_KEY",
+    "real_ipqualityscore: tests that exercise the real IPQualityScore API and require NOCA_IPQUALITYSCORE_APIKEY",
 ]
 
 [tool.ruff]

@@ -1,5 +1,33 @@
 # Changelog
 
+## [14.1.0] - 2026-07-18
+
+### Features
+
+- **web**: Add bulk language selection controls (select-all / clear-all) to the
+  contest creation and metadata edit templates, backed by a shared static
+  script instead of inline JavaScript
+- **arena**: Record signup IP and email reputation and notify admins — a new
+  `arena_user_reputation` table stores one snapshot per user (signup IP always
+  recorded, plus IP/email fraud scores and full JSON reports), a post-signup
+  background task emails every `ARENA_ADMIN` a report, and admins review it on a
+  new Reputation tab; adds `scripts/backfill_email_reputation.py`
+- **shared**: Add an IPQualityScore IP reputation service returning proxy, VPN,
+  Tor, crawler, mobile, abuse, and fraud-score signals
+- **shared**: Add an IPQualityScore email-reputation service returning
+  validity, disposable, suspect, fraud-score, and sanitized-email signals,
+  gated on `NOCA_IPQUALITYSCORE_APIKEY`
+
+### Bug Fixes
+
+- **arena**: Show the output diff for PE verdicts — the test-result partial
+  gated the output-mismatch comparison on WA only, so PE verdicts rendered as
+  if passing; PE is now treated like WA via a shared `is_output_mismatch` flag
+- **ui**: Keep problem print and sample test-case blocks readable in dark mode,
+  and always render the web problem print view in light mode
+- **web**: Avoid the deprecated `datetime.utcnow` in the queue time helper by
+  deriving naive UTC from the aware timestamp
+
 ## [14.0.1] - 2026-07-17
 
 ### Bug Fixes

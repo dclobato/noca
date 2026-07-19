@@ -265,6 +265,11 @@ class Settings(BaseSettings):
         description="API key for geolocation service (required for geolocation features)",
     )
 
+    IPQUALITYSCORE_APIKEY: str | None = Field(
+        default=None,
+        description="API key for IPQualityScore email validation and IP reputation checks (optional).",
+    )
+
     WORDLIST_FILENAME: str = Field(
         default="wordlist-pt.txt",
         description="Filename of the wordlist used for diceware password generation (resolved relative to shared/)",

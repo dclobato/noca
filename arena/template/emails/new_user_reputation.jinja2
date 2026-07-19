@@ -1,0 +1,33 @@
+A new user has signed up on {{ brand_name }}.
+
+Name:  {{ nome }}
+Email: {{ email }}
+User ID: {{ user_id }}
+Signup IP: {{ signup_ip if signup_ip else 'unknown' }}
+
+IP reputation
+{% if ip %}
+  Fraud score:  {{ ip.fraud_score }}/100
+  Proxy:        {{ 'yes' if ip.proxy else 'no' }}
+  VPN:          {{ 'yes' if ip.vpn else 'no' }} (active: {{ 'yes' if ip.active_vpn else 'no' }})
+  Tor:          {{ 'yes' if ip.tor else 'no' }} (active: {{ 'yes' if ip.active_tor else 'no' }})
+  Recent abuse: {{ 'yes' if ip.recent_abuse else 'no' }}
+  Crawler:      {{ 'yes' if ip.is_crawler else 'no' }}
+  Mobile:       {{ 'yes' if ip.mobile else 'no' }}
+{% else %}
+  Not available.
+{% endif %}
+
+Email reputation
+{% if email_rep %}
+  Fraud score:   {{ email_rep.fraud_score }}/100
+  Overall score: {{ email_rep.overall_score }}/4
+  Valid:         {{ 'yes' if email_rep.valid else 'no' }}
+  Disposable:    {{ 'yes' if email_rep.disposable else 'no' }}
+  Suspect:       {{ 'yes' if email_rep.suspect else 'no' }}
+  Common:        {{ 'yes' if email_rep.common else 'no' }}
+{% else %}
+  Not available.
+{% endif %}
+
+You can review this user in the Arena admin at /admin/users.

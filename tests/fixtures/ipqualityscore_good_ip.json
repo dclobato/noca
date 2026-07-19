@@ -1,0 +1,32 @@
+{
+  "success": true,
+  "message": "Success",
+  "fraud_score": 0,
+  "country_code": "BR",
+  "region": "Sao Paulo",
+  "city": "Sao Jose do Rio Preto",
+  "ISP": "Vivo",
+  "ASN": 27699,
+  "organization": "Vivo",
+  "is_crawler": false,
+  "timezone": "America/Sao_Paulo",
+  "mobile": false,
+  "host": "187-75-20-15.dsl.telesp.net.br",
+  "proxy": false,
+  "vpn": false,
+  "tor": false,
+  "active_vpn": false,
+  "active_tor": false,
+  "recent_abuse": false,
+  "bot_status": false,
+  "connection_type": "Premium required.",
+  "abuse_velocity": "Premium required.",
+  "zip_code": "N/A",
+  "latitude": -20.79999924,
+  "longitude": -49.38000107,
+  "abuse_events": [
+    "Enterprise plan required to view abuse events and active proxy networks"
+  ],
+  "request_id": "jGMbORBZC7",
+  "api_version": 1
+}

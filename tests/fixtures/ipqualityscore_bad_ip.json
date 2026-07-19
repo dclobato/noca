@@ -1,0 +1,32 @@
+{
+  "success": true,
+  "message": "Success",
+  "fraud_score": 75,
+  "country_code": "BR",
+  "region": "Sao Paulo",
+  "city": "Sao Paulo",
+  "ISP": "Oracle Corporation",
+  "ASN": 31898,
+  "organization": "Oracle Corporation",
+  "is_crawler": false,
+  "timezone": "America/Sao_Paulo",
+  "mobile": false,
+  "host": "137.131.144.150",
+  "proxy": true,
+  "vpn": true,
+  "tor": false,
+  "active_vpn": false,
+  "active_tor": false,
+  "recent_abuse": false,
+  "bot_status": false,
+  "connection_type": "Premium required.",
+  "abuse_velocity": "Premium required.",
+  "zip_code": "N/A",
+  "latitude": -23.54999924,
+  "longitude": -46.63000107,
+  "abuse_events": [
+    "Enterprise plan required to view abuse events and active proxy networks"
+  ],
+  "request_id": "jGOZbctFWq",
+  "api_version": 1
+}

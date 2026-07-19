@@ -14,10 +14,13 @@ from .errors import (
     SSRFProtectionError,
     URLValidationError,
 )
+from .ip_reputation import IPQualityScoreIPReputationService, IPReputation
 from .service import NetworkService
 
 __all__ = [
     "HeadersValidationError",
+    "IPQualityScoreIPReputationService",
+    "IPReputation",
     "NetworkService",
     "NetworkServiceError",
     "ParamsValidationError",

@@ -27,6 +27,7 @@ COPY scripts/arena/categories-pt.txt /app/scripts/arena/categories-pt.txt
 COPY scripts/arena/copy_legal_docs.py /app/scripts/arena/copy_legal_docs.py
 COPY scripts/arena/seed_arena_user.py /app/scripts/arena/seed_arena_user.py
 COPY scripts/arena/upsert_arena_categories.py /app/scripts/arena/upsert_arena_categories.py
+COPY scripts/backfill_email_reputation.py /app/scripts/backfill_email_reputation.py
 COPY scripts/bootstrap_languages.py /app/scripts/bootstrap_languages.py
 COPY scripts/run_migrations.py /app/scripts/run_migrations.py
 COPY scripts/secrets_config.py /app/scripts/secrets_config.py

@@ -31,6 +31,7 @@ from arena.routes.users import router as arena_users_router
 from arena.services.token_service import ArenaTokenAction
 from shared.services.email_service import EmailConfig, EmailService
 from shared.services.imageprocessing_service import ImageProcessingConfig, ImageProcessingService
+from tests.arena.conftest import attach_reputation_services
 
 TEST_JWT_SECRET = "test-secret-key-for-arena-image-tests-only-32bytes"
 
@@ -77,6 +78,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
         config=ImageProcessingConfig(avatar_size=16, max_file_size=2 * 1024 * 1024),
         logger=logging.getLogger(__name__),
     )
+    attach_reputation_services(app)
 
     app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
     app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")

@@ -153,6 +153,18 @@
                         <span>Statistics</span>
                     </button>
                 </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'reputation' %}active{% endif %}"
+                            id="ap-reputation-tab"
+                            data-profile-tab="reputation"
+                            type="button"
+                            role="tab"
+                            aria-controls="ap-reputation-pane"
+                            aria-selected="{{ 'true' if active_tab == 'reputation' else 'false' }}">
+                        {{ render_icon(icon="gpp_maybe") }}
+                        <span>Reputation</span>
+                    </button>
+                </li>
             </ul>
             <div class="tab-content arena-profile-tab-content"
                  id="admin-profile-tabs-content">
@@ -571,6 +583,15 @@
                                 {% include "users/_statistics_charts.html" %}
                             {% endwith %}
                         </div>
+                    {% endif %}
+                </div>
+                <div class="tab-pane fade {% if active_tab == 'reputation' %}show active{% endif %}"
+                     id="ap-reputation-pane"
+                     role="tabpanel"
+                     aria-labelledby="ap-reputation-tab"
+                     tabindex="0">
+                    {% if active_tab == 'reputation' %}
+                        {% include "admin/_user_reputation.html" %}
                     {% endif %}
                 </div>
             </div>

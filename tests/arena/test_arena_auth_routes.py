@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
 import arena.models.arena_users  # noqa: F401
+from arena.models.arena_user_reputation import ArenaUserReputation
 from arena.models.arena_users import ArenaUser
 from arena.routes.auth import router as arena_auth_router
 from arena.routes.auth_password import router as arena_auth_password_router
@@ -37,6 +38,7 @@ from arena.services.token_service import ArenaTokenAction
 from shared.db_schema import security_events
 from shared.services.email_service import EmailConfig, EmailService
 from shared.services.imageprocessing_service import ImageProcessingConfig, ImageProcessingService
+from tests.arena.conftest import attach_reputation_services
 
 TEST_JWT_SECRET = "test-secret-key-for-arena-tests-only-32bytes"
 
@@ -83,6 +85,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
         config=ImageProcessingConfig(max_file_size=2 * 1024 * 1024),
         logger=logging.getLogger(__name__),
     )
+    attach_reputation_services(app)
 
     shared_dir = arena_dir.parent / "shared"
     app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
@@ -239,6 +242,39 @@ async def test_signup_creates_user_and_sends_activation_email(session: AsyncSess
         "account_activation_email_sent",
         "account_signup_created",
     }
+
+
+@pytest.mark.asyncio
+async def test_signup_runs_reputation_background_task(session: AsyncSession) -> None:
+    """The signup redirect must attach a background task that records a reputation row.
+
+    The reputation services are disabled (no API key) so the task records only the
+    signup IP and performs no lookups, proving the response's background task ran.
+    """
+    app = _build_arena_app(session)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.post(
+            "/auth/signup",
+            data={
+                "full_name": "Reputation User",
+                "date_of_birth": "2000-01-02",
+                "email": "reputation@test.example",
+                "password": "StrongPass1!",
+                "confirm_password": "StrongPass1!",
+                "terms": "on",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    user = await _user_by_email(session, "reputation@test.example")
+    assert user is not None
+    row = await session.scalar(select(ArenaUserReputation).where(ArenaUserReputation.user_id == user.id))
+    assert row is not None
+    # Integration disabled: no reputation lookups were performed.
+    assert row.ip_report is None
+    assert row.email_report is None
 
 
 @pytest.mark.asyncio

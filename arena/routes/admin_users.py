@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_admin
 from arena.models.arena_badges import ArenaUserBadge
+from arena.models.arena_user_reputation import ArenaUserReputation
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_date_helpers import _effective_per_page, _local_midnight_to_utc, _parse_date_param
 from arena.routes.admin_user_route_support import (
@@ -155,6 +156,7 @@ async def admin_user_profile(
         "submissions",
         "login-history",
         "statistics",
+        "reputation",
     }
     if credits_page is not None:
         active_tab = "credits"
@@ -236,6 +238,10 @@ async def admin_user_profile(
             date_to_utc=date_to_utc,
         )
 
+    reputation = None
+    if active_tab == "reputation":
+        reputation = await session.scalar(select(ArenaUserReputation).where(ArenaUserReputation.user_id == target.id))
+
     # Preserve raw back-navigation params without role normalization so the
     # breadcrumb link returns to exactly the list the admin came from.
     back_search = request.query_params.get("search", "")
@@ -281,6 +287,7 @@ async def admin_user_profile(
                 "login_sort_dir": resolved_login_sort_dir,
                 "login_date_from": login_date_from or "",
                 "login_date_to": login_date_to or "",
+                "reputation": reputation,
                 "active_tab": active_tab,
                 "back_url": back_url,
                 "back_search": back_search,

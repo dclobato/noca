@@ -7,6 +7,8 @@
           href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
     <script src="{{ request.url_for('static_js', path='contest-slug.js') }}"
             defer></script>
+    <script src="{{ request.url_for('static_js', path='language-checkbox-actions.js') }}?v={{ app_version }}"
+            defer></script>
     <script src="{{ request.url_for('static_js', path='contest-create-confirm.js') }}"
             defer></script>
 {% endblock extra_head %}
@@ -363,7 +365,7 @@
                             </div>
                             {# ── LANGUAGES ──────────────────────────────────────────────── #}
                             <p class="noca-section-heading">Languages</p>
-                            <div class="mb-3">
+                            <div class="mb-3" data-language-selection>
                                 <div class="form-text mb-2">
                                     Select which languages teams may use. This selection can still be updated until the contest starts.
                                 </div>
@@ -372,6 +374,18 @@
                                         No active languages are configured. Please add languages in the language registry first.
                                     </div>
                                 {% else %}
+                                    <div class="d-flex flex-wrap gap-2 mb-2">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary btn-sm"
+                                                data-language-selection-action="select-all">
+                                            {{ render_icon("check_box", classes="me-1") }}Select all
+                                        </button>
+                                        <button type="button"
+                                                class="btn btn-outline-secondary btn-sm"
+                                                data-language-selection-action="clear-all">
+                                            {{ render_icon("check_box_outline_blank", classes="me-1") }}Clear all
+                                        </button>
+                                    </div>
                                     <div class="row g-2">
                                         {% for lang in languages %}
                                             <div class="col-6 col-sm-4 col-md-3">
