@@ -20,9 +20,12 @@ from web.services.contest_user_service import (
     list_users_for_export,
     remove_user,
     update_user,
+    update_user_credentials,
+    validate_edit_credentials_form,
     validate_edit_user_form,
 )
 from web.services.profile_service import validate_fullname, validate_new_password
+from web.services.user_media_service import get_user_media
 
 router = APIRouter(prefix="/c/{slug}/admin/users", tags=["contest_admin_users"])
 
@@ -52,6 +55,7 @@ async def edit_user_form(
         raise HTTPException(status_code=404)
     ensure_user_edit_allowed(ctx.actor, edit_user_obj)
     sites = await list_contest_sites_for_form(ctx.session, ctx.contest)
+    user_media = await get_user_media(ctx.session, edit_user_obj.id)
 
     return _html(
         templates.TemplateResponse(
@@ -64,6 +68,7 @@ async def edit_user_form(
                 "can_remove_photo": ctx.actor.id != edit_user_obj.id,
                 "is_locked": ctx.contest.is_past,
                 "sites": sites,
+                "user_media": user_media,
             },
         )
     )
@@ -81,14 +86,47 @@ async def edit_user_submit(
     site_id: str = Form(""),
     location: str = Form(""),
 ) -> Response:
-    cleaned_fullname, normalized_email, errors = validate_edit_user_form(fullname, email)
-    submitted_site_id = site_id.strip() or None
-    submitted_location = location.strip()[:16] or None
     edit_user_obj = await get_user_in_contest(ctx.session, ctx.contest, user_id)
     if edit_user_obj is None:
         raise HTTPException(status_code=404)
     ensure_user_edit_allowed(ctx.actor, edit_user_obj)
     redirect_url = f"/c/{ctx.contest.login_slug}/admin/users/{user_id}/edit"
+
+    # After the contest ends the profile fields stay frozen, but admins may
+    # still update login credentials (email and password) to deliver or reset
+    # access. Only those two fields are read on the credentials-only path.
+    if ctx.contest.is_past:
+        credentials_email, email_errors = validate_edit_credentials_form(email)
+        if email_errors:
+            for error in email_errors:
+                flash(error, FlashCategory.WARNING)
+            return RedirectResponse(url=redirect_url, status_code=303)
+        try:
+            raw_password = (password or "").strip() or None
+            if raw_password:
+                error_msg = validate_new_password(raw_password)
+                if error_msg:
+                    flash(error_msg, FlashCategory.WARNING)
+                    return RedirectResponse(url=redirect_url, status_code=303)
+            actual_password = await update_user_credentials(
+                ctx.session,
+                ctx.contest,
+                edit_user_obj,
+                email=credentials_email,
+                password=raw_password,
+            )
+        except ValueError as exc:
+            await ctx.session.rollback()
+            flash(str(exc), FlashCategory.WARNING)
+            return RedirectResponse(url=redirect_url, status_code=303)
+        flash("Credentials updated successfully.", FlashCategory.SUCCESS)
+        if actual_password is not None:
+            flash(f"Password changed. New password: {actual_password}", FlashCategory.INFO)
+        return RedirectResponse(url=redirect_url, status_code=303)
+
+    cleaned_fullname, normalized_email, errors = validate_edit_user_form(fullname, email)
+    submitted_site_id = site_id.strip() or None
+    submitted_location = location.strip()[:16] or None
 
     if errors:
         for error in errors:
@@ -148,6 +186,7 @@ async def remove_user_route(
         request,
         module="web",
         actor_user_id=ctx.actor.id,
+        actor_label=ctx.actor.username,
         action="delete",
         target_type="contest_user",
         target_id=user_id,

@@ -16,6 +16,7 @@ from .credentials import (
     resolve_password_core,
     resolve_password_with_detail,
     validate_create_user_form,
+    validate_edit_credentials_form,
     validate_edit_user_form,
 )
 from .imports import normalize_batch_users_payload, parse_batch_upload
@@ -23,8 +24,8 @@ from .permissions import (
     ensure_contest_user_add_or_edit_allowed,
     ensure_contest_user_remove_allowed,
     ensure_user_edit_allowed,
-    ensure_user_photo_removal_allowed,
-    ensure_user_photo_upload_allowed,
+    ensure_user_media_removal_allowed,
+    ensure_user_media_upload_allowed,
 )
 from .sites import (
     build_user_export_row,
@@ -40,8 +41,8 @@ __all__ = [
     "ensure_contest_user_remove_allowed",
     "ensure_role_allowed",
     "ensure_user_edit_allowed",
-    "ensure_user_photo_removal_allowed",
-    "ensure_user_photo_upload_allowed",
+    "ensure_user_media_removal_allowed",
+    "ensure_user_media_upload_allowed",
     "normalize_batch_users_payload",
     "normalize_optional_email",
     "normalize_username",
@@ -55,6 +56,7 @@ __all__ = [
     "resolve_site_for_user",
     "role_requires_site",
     "validate_create_user_form",
+    "validate_edit_credentials_form",
     "validate_edit_user_form",
     "validate_role_site_requirement",
 ]

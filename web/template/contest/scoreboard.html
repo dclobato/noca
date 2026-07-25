@@ -17,7 +17,8 @@
     </nav>
 {% endblock %}
 {% block content %}
-    <div class="container-fluid py-4">
+    <div class="container-fluid py-4"
+         {% if current_user.role == RoleEnum.TEAM.value %}data-own-team-id="{{ current_user.id }}"{% endif %}>
         <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
             <div>
                 <h1 class="h3 mb-0">Scoreboard</h1>
@@ -54,10 +55,48 @@
                     </span>
                 </div>
             {% endif %}
+            {% if show_site_filter %}
+                {% if assigned_site %}
+                    <div class="btn-group mb-3"
+                         role="group"
+                         aria-label="Scoreboard site filter">
+                        <a href="{{ all_sites_url }}"
+                           class="btn btn-sm {{ 'btn-secondary active' if not selected_site_id else 'btn-outline-secondary' }}"
+                           {% if not selected_site_id %}aria-current="page"{% endif %}>All sites</a>
+                        <a href="{{ assigned_site_url }}"
+                           class="btn btn-sm {{ 'btn-secondary active' if selected_site_id else 'btn-outline-secondary' }}"
+                           {% if selected_site_id %}aria-current="page"{% endif %}>My site only</a>
+                    </div>
+                {% else %}
+                    <form method="get"
+                          action="{{ request.url_for('contest_score', slug=contest.login_slug) }}"
+                          class="row g-2 align-items-end mb-3">
+                        <div class="col-sm-auto">
+                            <label for="scoreboard-site-filter" class="form-label form-label-sm mb-1">Site</label>
+                            <select id="scoreboard-site-filter"
+                                    name="site_id"
+                                    class="form-select form-select-sm">
+                                <option value="" {% if not selected_site_id %}selected{% endif %}>All sites</option>
+                                {% for site in site_options %}
+                                    <option value="{{ site.id }}"
+                                            {% if selected_site_id == site.id %}selected{% endif %}>
+                                        {{ site.sitename }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-sm-auto">
+                            <button type="submit" class="btn btn-secondary btn-sm">
+                                {{ render_icon(icon="filter_list", classes="me-1") }}Show
+                            </button>
+                        </div>
+                    </form>
+                {% endif %}
+            {% endif %}
             {% if contest.is_running and not snapshot.is_frozen %}
                 {# HTMX auto-refresh: replace the entire scoreboard div every 30 s #}
                 <div id="scoreboard-live"
-                     hx-get="{{ request.url_for('contest_score', slug=contest.login_slug) }}"
+                     hx-get="{{ scoreboard_refresh_url }}"
                      hx-trigger="every 30s"
                      hx-target="#scoreboard-live"
                      hx-swap="outerHTML"
@@ -87,21 +126,20 @@
                                                 {% for label in snapshot.problems %}
                                                     {% set color = snapshot.balloon_colors[loop.index0] %}
                                                     <th class="problem-header text-center noca-col-5">
-                                                        <div class="d-flex flex-column align-items-center gap-1">
-                                                            <span>{{ label }}</span>
-                                                            <img src="/assets/balloon/{{ color }}"
-                                                                 alt="Problem {{ label }} balloon"
-                                                                 width="34"
-                                                                 height="53"
-                                                                 title="Problem {{ label }}">
-                                                        </div>
+                                                        <img src="/assets/balloon/{{ color }}/{{ label }}"
+                                                             alt="Problem {{ label }} balloon"
+                                                             width="51"
+                                                             height="80"
+                                                             title="Problem {{ label }}">
                                                     </th>
                                                 {% endfor %}
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {% for standing in snapshot.standings %}
-                                                <tr>
+                                                {% set is_own_team = current_user.role == RoleEnum.TEAM.value and standing.team_id == current_user.id %}
+                                                <tr id="{{ standing.team_id }}"
+                                                    class="{{ 'noca-own-team-row' if is_own_team else '' }}">
                                                     <td class="text-center fw-semibold">{{ standing.rank }}</td>
                                                     <td>
                                                         {% set display_team_name = team_display_map.get(standing.team_id, standing.team_fullname) %}
@@ -116,7 +154,7 @@
                                                     </td>
                                                     <td class="text-center">
                                                         {% if standing.problems_solved > 0 %}
-                                                            <span class="badge bg-success rounded-pill">{{ standing.problems_solved }}</span>
+                                                            <span class="fw-semibold">{{ standing.problems_solved }}</span>
                                                         {% else %}
                                                             <span class="text-muted">0</span>
                                                         {% endif %}
@@ -133,33 +171,41 @@
                                                         {% set pr = standing.problems.get(label) %}
                                                         {% if pr and pr.solved %}
                                                             {# Solved: balloon + submission time + penalty if any #}
-                                                            <td class="problem-cell solved-cell">
-                                                                <img src="/assets/{{ 'star' if pr.is_first_balloon else 'balloon' }}/{{ color }}"
-                                                                     alt="{{ label }} {{ 'star balloon' if pr.is_first_balloon else 'balloon' }}"
-                                                                     width="23"
-                                                                     height="35"
-                                                                     class="mb-1 {{ 'noca-first-balloon' if pr.is_first_balloon else '' }}">
-                                                                <div class="fw-semibold text-success small">{{ pr.solved_at_minutes }}'</div>
-                                                                {% if pr.attempts > 0 %}<div class="text-danger small">+{{ pr.attempts }} ({{ pr.penalty }}')</div>{% endif %}
+                                                            <td class="problem-cell">
+                                                                <div class="noca-problem-cell-inner">
+                                                                    <img src="/assets/{{ 'star' if pr.is_first_balloon else 'balloon' }}/{{ color }}"
+                                                                         alt="{{ label }} {{ 'star balloon' if pr.is_first_balloon else 'balloon' }}"
+                                                                         width="23"
+                                                                         height="35"
+                                                                         class="mb-1 {{ 'noca-first-balloon' if pr.is_first_balloon else '' }}">
+                                                                    <div class="fw-semibold text-success small">{{ pr.solved_at_minutes }}'</div>
+                                                                    {% if pr.attempts > 0 %}<div class="text-danger small">+{{ pr.attempts }} ({{ pr.penalty }}')</div>{% endif %}
+                                                                </div>
                                                             </td>
                                                         {% elif pr and pr.is_pending %}
                                                             {# Pending: result hidden due to freeze or still judging #}
-                                                            <td class="problem-cell pending-cell">
-                                                                <div class="text-warning-emphasis small" title="Judge pending">
-                                                                    ⏳
-                                                                    {% if pr.attempts > 0 %}<div class="mt-1">−{{ pr.attempts }}</div>{% endif %}
+                                                            <td class="problem-cell">
+                                                                <div class="noca-problem-cell-inner">
+                                                                    <div class="text-warning-emphasis small" title="Judge pending">
+                                                                        ⏳
+                                                                        {% if pr.attempts > 0 %}<div class="mt-1">−{{ pr.attempts }}</div>{% endif %}
+                                                                    </div>
                                                                 </div>
                                                             </td>
                                                         {% elif pr and pr.attempts > 0 %}
                                                             {# Attempted but not solved #}
                                                             {% set unsolved_penalty = pr.attempts * contest.wa_penalty %}
                                                             <td class="problem-cell">
-                                                                <div class="text-danger small fw-semibold">−{{ pr.attempts }}</div>
-                                                                {% if unsolved_penalty > 0 %}<div class="text-danger small">({{ unsolved_penalty }}')</div>{% endif %}
+                                                                <div class="noca-problem-cell-inner">
+                                                                    <div class="text-danger small fw-semibold">−{{ pr.attempts }}</div>
+                                                                    {% if unsolved_penalty > 0 %}<div class="text-danger small">({{ unsolved_penalty }}')</div>{% endif %}
+                                                                </div>
                                                             </td>
                                                         {% else %}
                                                             {# Not attempted #}
-                                                            <td class="problem-cell"></td>
+                                                            <td class="problem-cell">
+                                                                <div class="noca-problem-cell-inner"></div>
+                                                            </td>
                                                         {% endif %}
                                                     {% endfor %}
                                                 </tr>
@@ -171,7 +217,12 @@
                         </div>
                     {% else %}
                         <div class="alert alert-info mt-3">
-                            {{ render_icon(icon="info", classes="me-2") }}No teams registered yet, or no submissions have been made.
+                            {{ render_icon(icon="info", classes="me-2") }}
+                            {% if selected_site_name %}
+                                No teams are assigned to {{ selected_site_name }}.
+                            {% else %}
+                                No teams registered yet, or no submissions have been made.
+                            {% endif %}
                         </div>
                     {% endif %}
                 </div>
@@ -206,4 +257,10 @@
                 </div>
             </div>
         </div>
+        {% if not access_blocked %}
+            <button type="button"
+                    id="scoreboard-back-to-top"
+                    class="btn btn-primary noca-back-to-top-btn"
+                    title="Return to top">{{ render_icon(icon="arrow_upward") }}</button>
+        {% endif %}
     {% endblock %}

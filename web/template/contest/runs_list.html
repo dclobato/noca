@@ -11,36 +11,37 @@
 {% set is_judge_or_above = current_user.role in (RoleEnum.JUDGE.value, RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) %}
 {# Judges and admins may take a review lock and confirm; uberadmins may not (confirmations FK into users). #}
 {% set can_review = current_user.role in (RoleEnum.JUDGE.value, RoleEnum.ADMIN.value) %}
-{% from "_macros.html" import render_icon %}
+{# An autojudge-only contest refuses every confirmation, so those columns can never fill.
+   Chief overrides have no such guard, so CJ stays. #}
+{% set shows_confirmations = not contest.autojudge_only %}
+{% from "_macros.html" import render_icon, sort_link %}
+{% set runs_base_url = request.url_for('contest_runs', slug=contest.login_slug).include_query_params(
+    filter_problem_id=filter_problem_id,
+    filter_autojudge=filter_autojudge,
+    filter_final_verdict=filter_final_verdict,
+    filter_team_id=filter_team_id,
+) %}
 <div id="runs-list-wrapper"
      data-accept-pe="{{ 'true' if contest.accept_pe else 'false' }}"
-     {% if not contest.is_past %} hx-get="{{ request.url_for('contest_runs_list', slug=contest.login_slug) }}" hx-trigger="every 60s, verdict-update" hx-swap="outerHTML" {% if is_judge_or_above %}hx-include="#runs-filter-form"{% endif %}
+     {% if not contest.is_past %} hx-get="{{ request.url_for('contest_runs_list', slug=contest.login_slug).include_query_params(sort_by=sort_by) }}" hx-trigger="every 60s, verdict-update" hx-swap="outerHTML" {% if is_judge_or_above %}hx-include="#runs-filter-form"{% endif %}
      data-sse-url="{{ request.url_for('contest_runs_events', slug=contest.login_slug) }}"
      {% endif %}>
     {% if not lock_service_available and is_judge_or_above %}
         <div class="alert alert-warning small">Lock service unavailable. Possible double work/rework.</div>
     {% endif %}
     {% if is_judge_or_above %}
-        {# Collect unique teams for team filter #}
-        {% set ns = namespace(team_ids=[], team_names={}) %}
-        {% for s in submissions %}
-            {% if s.team_id not in ns.team_ids %}
-                {% set ns.team_ids = ns.team_ids + [s.team_id] %}
-                {% set team_label = format_site_identity(
-                                    s.team.site.sitename if s.team and s.team.site else none,
-                                    s.team.fullname or s.team.username,
-                                ) %}
-                {% set _ = ns.team_names.update({s.team_id: team_label}) %}
-            {% endif %}
-        {% endfor %}
-        <form id="runs-filter-form" class="mb-3">
+        <form id="runs-filter-form"
+              class="mb-3"
+              hx-get="{{ request.url_for('contest_runs_list', slug=contest.login_slug).include_query_params(sort_by=sort_by) }}"
+              hx-trigger="change"
+              hx-target="#runs-list-wrapper"
+              hx-swap="outerHTML">
             <div class="row g-2 align-items-end">
                 <div class="col-auto">
                     <label for="filter_problem_id" class="form-label form-label-sm mb-1">Problem</label>
                     <select id="filter_problem_id"
                             name="filter_problem_id"
-                            class="form-select form-select-sm"
-                            data-filter-attr="problem-id">
+                            class="form-select form-select-sm">
                         <option value="">All problems</option>
                         {% for pid, plabel in problem_map.items() %}
                             <option value="{{ pid }}"
@@ -52,8 +53,7 @@
                     <label for="filter_autojudge" class="form-label form-label-sm mb-1">Autojudge</label>
                     <select id="filter_autojudge"
                             name="filter_autojudge"
-                            class="form-select form-select-sm"
-                            data-filter-attr="autojudge">
+                            class="form-select form-select-sm">
                         <option value="">All</option>
                         {% for v in Verdict %}
                             <option value="{{ v.value }}"
@@ -65,8 +65,7 @@
                     <label for="filter_final_verdict" class="form-label form-label-sm mb-1">Final verdict</label>
                     <select id="filter_final_verdict"
                             name="filter_final_verdict"
-                            class="form-select form-select-sm"
-                            data-filter-attr="final-verdict">
+                            class="form-select form-select-sm">
                         <option value="">All</option>
                         {% for v in Verdict %}
                             <option value="{{ v.value }}"
@@ -79,11 +78,11 @@
                         <label for="filter_team_id" class="form-label form-label-sm mb-1">Team</label>
                         <select id="filter_team_id"
                                 name="filter_team_id"
-                                class="form-select form-select-sm"
-                                data-filter-attr="team-id">
+                                class="form-select form-select-sm">
                             <option value="">All teams</option>
-                            {% for tid in ns.team_ids %}
-                                <option value="{{ tid }}" {% if filter_team_id == tid %}selected{% endif %}>{{ ns.team_names[tid] }}</option>
+                            {% for team_id, team_name in filter_team_options %}
+                                <option value="{{ team_id }}"
+                                        {% if filter_team_id == team_id %}selected{% endif %}>{{ team_name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -95,25 +94,28 @@
         <div class="card shadow-sm">
             <div class="card-body p-0">
                 <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
+                    <table class="table table-sm align-middle mb-0 noca-fixed-table">
                         <thead class="table-light">
                             <tr>
-                                <th class="text-end noca-col-8">Time</th>
-                                <th class="text-center noca-col-8">Status</th>
-                                <th class="text-start">Problem</th>
-                                <th class="text-start noca-col-12">Language</th>
+                                <th class="text-end noca-col-5">{{ sort_link('Time', 'time', sort_by, runs_base_url) }}</th>
+                                <th class="text-center noca-col-7">Status</th>
+                                <th class="text-start noca-col-14">{{ sort_link('Problem', 'problem', sort_by, runs_base_url) }}</th>
+                                <th class="text-start noca-col-9">Language</th>
                                 {% if is_judge_or_above %}
-                                    {% if is_privileged %}<th class="text-start text-nowrap">Team</th>{% endif %}
-                                    <th class="text-center noca-col-8">Autojudge</th>
+                                    {# Team is deliberately unsized: it absorbs whatever the fixed columns leave. #}
+                                    {% if is_privileged %}<th class="text-start">Team</th>{% endif %}
+                                    <th class="text-center noca-col-5">AJ</th>
                                     {% if is_privileged %}
-                                        <th class="text-center noca-col-8">Judge 1</th>
-                                        <th class="text-center noca-col-8">Judge 2</th>
-                                        <th class="text-center noca-col-8">CJ Override</th>
-                                    {% else %}
-                                        <th class="text-center noca-col-8">My verdict</th>
+                                        {% if shows_confirmations %}
+                                            <th class="text-center noca-col-5">J1</th>
+                                            <th class="text-center noca-col-5">J2</th>
+                                        {% endif %}
+                                        <th class="text-center noca-col-5">CJ</th>
+                                    {% elif shows_confirmations %}
+                                        <th class="text-center noca-col-7">My verdict</th>
                                     {% endif %}
                                 {% endif %}
-                                <th class="text-center noca-col-12">
+                                <th class="text-center noca-col-9">
                                     {% if is_judge_or_above %}
                                         Final verdict
                                     {% else %}
@@ -173,7 +175,7 @@
                                         <i class="{{ s.language.icon }} me-1"></i>{{ s.language.name }}
                                     </td>
                                     {% if is_judge_or_above %}
-                                        {% if is_privileged %}<td class="text-start small text-nowrap">{{ team_label }}</td>{% endif %}
+                                        {% if is_privileged %}<td class="text-start small">{{ team_label }}</td>{% endif %}
                                         {# Autojudge verdict column #}
                                         <td class="text-center">
                                             {% if newest_judgment and newest_judgment.autojudge_verdict %}
@@ -184,28 +186,30 @@
                                         </td>
                                         {% if is_privileged %}
                                             {# Judge 1, Judge 2, CJ Override columns #}
-                                            {% set non_chief_confs = [] %}
-                                            {% if newest_judgment %}
-                                                {% for conf in newest_judgment.confirmations %}
-                                                    {% if not conf.is_chief_confirmation %}
-                                                        {% set _ = non_chief_confs.append(conf) %}
+                                            {% if shows_confirmations %}
+                                                {% set non_chief_confs = [] %}
+                                                {% if newest_judgment %}
+                                                    {% for conf in newest_judgment.confirmations %}
+                                                        {% if not conf.is_chief_confirmation %}
+                                                            {% set _ = non_chief_confs.append(conf) %}
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                {% endif %}
+                                                <td class="text-center">
+                                                    {% if non_chief_confs | length > 0 %}
+                                                        {{ verdict_short_badge(non_chief_confs[0].confirmed_verdict.value) }}
+                                                    {% else %}
+                                                        <span class="text-muted">—</span>
                                                     {% endif %}
-                                                {% endfor %}
+                                                </td>
+                                                <td class="text-center">
+                                                    {% if non_chief_confs | length > 1 %}
+                                                        {{ verdict_short_badge(non_chief_confs[1].confirmed_verdict.value) }}
+                                                    {% else %}
+                                                        <span class="text-muted">—</span>
+                                                    {% endif %}
+                                                </td>
                                             {% endif %}
-                                            <td class="text-center">
-                                                {% if non_chief_confs | length > 0 %}
-                                                    {{ verdict_short_badge(non_chief_confs[0].confirmed_verdict.value) }}
-                                                {% else %}
-                                                    <span class="text-muted">—</span>
-                                                {% endif %}
-                                            </td>
-                                            <td class="text-center">
-                                                {% if non_chief_confs | length > 1 %}
-                                                    {{ verdict_short_badge(non_chief_confs[1].confirmed_verdict.value) }}
-                                                {% else %}
-                                                    <span class="text-muted">—</span>
-                                                {% endif %}
-                                            </td>
                                             <td class="text-center">
                                                 {% set chief_override = none %}
                                                 {% if newest_judgment and newest_judgment.overrides %}
@@ -217,7 +221,7 @@
                                                     <span class="text-muted">—</span>
                                                 {% endif %}
                                             </td>
-                                        {% else %}
+                                        {% elif shows_confirmations %}
                                             {# My verdict column (plain JUDGE) #}
                                             <td class="text-center">
                                                 {% set ns_my = namespace(conf=none) %}
@@ -251,7 +255,7 @@
                                                          class="{{ 'noca-first-balloon' if s.id in first_balloon_submission_ids else '' }}"
                                                          alt="{{ 'star balloon' if is_first_balloon else 'balloon' }}">
                                                 {% endif %}
-                                                <span class="badge {{ badge_class }}">{{ verdict_labels.get(v, v) }}</span>
+                                                <span class="badge {{ badge_class }}">{{ v }}</span>
                                             </span>
                                         {% else %}
                                             {% if team_hidden_pending %}

@@ -12,17 +12,26 @@ Mixin for profiling run data loading and state machine transitions.
 
 from __future__ import annotations
 
+import logging
 from typing import cast
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select, true
 
-from autojudge.db._base import _DatabaseBase, _utcnow
-from autojudge.types import ProfilingObservedLimits, QueuedProfilingRun, RecoverableProfilingJob
+from autojudge.db._base import PROFILING_DISPATCHABLE_STATUSES, AttemptClaim, _DatabaseBase, _utcnow
+from autojudge.types import (
+    JobNotDispatchable,
+    JudgmentOwnershipLost,
+    ProfilingObservedLimits,
+    QueuedProfilingRun,
+    RecoverableProfilingJob,
+)
 from shared.db_schema import problem_language_limits as _problem_language_limit
 from shared.db_schema import problems as _problem
 from shared.db_schema import profiling_case_results as _profiling_case_result
 from shared.db_schema import profiling_runs as _profiling_run
 from shared.enumerations import ProfilingStatus
+
+logger = logging.getLogger(__name__)
 
 
 class _ProfilingMixin(_DatabaseBase):
@@ -89,11 +98,7 @@ class _ProfilingMixin(_DatabaseBase):
                 _problem.c.contest_id,
             )
             .select_from(_profiling_run.join(_problem, _problem.c.id == _profiling_run.c.problem_id))
-            .where(
-                _profiling_run.c.status.in_(
-                    (ProfilingStatus.QUEUED, ProfilingStatus.DISPATCHED, ProfilingStatus.RUNNING)
-                )
-            )
+            .where(_profiling_run.c.status.in_(PROFILING_DISPATCHABLE_STATUSES))
             .order_by(_profiling_run.c.created_at)
         )
         result: list[RecoverableProfilingJob] = []
@@ -113,26 +118,42 @@ class _ProfilingMixin(_DatabaseBase):
             )
         return result
 
-    async def set_profiling_dispatched(self, profiling_run_id: str, worker_id: str) -> None:
+    async def set_profiling_dispatched(
+        self,
+        profiling_run_id: str,
+        worker_id: str,
+        attempt_token: str,
+    ) -> None:
         """
-        Mark a profiling run as dispatched to a worker.
+        Mark a profiling run as dispatched and claim it for this attempt.
 
         Retry-safe: removes partial per-test-case profiling rows before restart.
+
+        Fenced on a non-terminal status before the delete, so a dequeue racing
+        with the run's own completion cannot reset it or drop its results. That
+        fence is deliberately not a claim — taking a run over from a stalled
+        attempt is what the reaper's requeue is for. ``attempt_token`` is the
+        claim: stamping it here revokes any older attempt's right to write.
 
         Args:
             profiling_run_id: UUID of the profiling run.
             worker_id: Stable worker identity string.
+            attempt_token: Attempt-scoped claim for this dispatch.
+
+        Raises:
+            LookupError: If the run already reached a terminal status.
         """
         now = _utcnow()
-        await self._conn.execute(
-            delete(_profiling_case_result).where(_profiling_case_result.c.profiling_run_id == profiling_run_id)
-        )
-        await self._conn.execute(
+        result = await self._conn.execute(
             _profiling_run.update()
-            .where(_profiling_run.c.id == profiling_run_id)
+            .where(
+                _profiling_run.c.id == profiling_run_id,
+                _profiling_run.c.status.in_(PROFILING_DISPATCHABLE_STATUSES),
+            )
             .values(
                 status=ProfilingStatus.DISPATCHED,
                 worker_id=worker_id,
+                attempt_token=attempt_token,
                 started_at=now,
                 finished_at=None,
                 compile_log=None,
@@ -140,20 +161,34 @@ class _ProfilingMixin(_DatabaseBase):
                 updated_at=now,
             )
         )
+        if result.rowcount == 0:
+            await self._conn.rollback()
+            raise JobNotDispatchable(f"Profiling run {profiling_run_id} is no longer dispatchable")
+
+        await self._conn.execute(
+            delete(_profiling_case_result).where(_profiling_case_result.c.profiling_run_id == profiling_run_id)
+        )
         await self._conn.commit()
 
-    async def set_profiling_running(self, profiling_run_id: str) -> None:
+    async def set_profiling_running(self, profiling_run_id: str, attempt_token: str) -> None:
         """
         Mark a profiling run as actively executing test cases.
 
         Args:
             profiling_run_id: UUID of the profiling run.
+            attempt_token: Claim stamped by this attempt's dispatch.
+
+        Raises:
+            JudgmentOwnershipLost: If another attempt has claimed the run.
         """
-        await self._conn.execute(
+        result = await self._conn.execute(
             _profiling_run.update()
-            .where(_profiling_run.c.id == profiling_run_id)
+            .where(self._claim_predicate(AttemptClaim(_profiling_run, profiling_run_id, attempt_token)))
             .values(status=ProfilingStatus.RUNNING, updated_at=_utcnow())
         )
+        if result.rowcount == 0:
+            await self._conn.rollback()
+            raise JudgmentOwnershipLost(f"Profiling run {profiling_run_id} was claimed by another attempt")
         await self._conn.commit()
 
     async def set_profiling_failed(
@@ -162,19 +197,38 @@ class _ProfilingMixin(_DatabaseBase):
         error_message: str,
         *,
         compile_log: str | None = None,
+        attempt_token: str | None = None,
     ) -> None:
         """
         Mark a profiling run as failed and persist diagnostics.
+
+        Fenced on a non-terminal status, and on a claim that is either this
+        attempt's or absent: a run claimed by another attempt is that attempt's
+        to finish. A fenced-out call is a logged no-op.
 
         Args:
             profiling_run_id: UUID of the profiling run.
             error_message: Description of the failure.
             compile_log: Optional compiler output to persist.
+            attempt_token: Claim stamped by this attempt's dispatch, when it got
+                as far as dispatching.
         """
         now = _utcnow()
-        await self._conn.execute(
+        claim_filter = (
+            or_(
+                _profiling_run.c.attempt_token.is_(None),
+                _profiling_run.c.attempt_token == attempt_token,
+            )
+            if attempt_token is not None
+            else true()
+        )
+        result = await self._conn.execute(
             _profiling_run.update()
-            .where(_profiling_run.c.id == profiling_run_id)
+            .where(
+                _profiling_run.c.id == profiling_run_id,
+                _profiling_run.c.status.in_(PROFILING_DISPATCHABLE_STATUSES),
+                claim_filter,
+            )
             .values(
                 status=ProfilingStatus.FAILED,
                 error_message=error_message,
@@ -183,6 +237,12 @@ class _ProfilingMixin(_DatabaseBase):
                 updated_at=now,
             )
         )
+        if result.rowcount == 0:
+            logger.warning(
+                "Profiling run %s is terminal or owned by another attempt; not marking it FAILED: %s",
+                profiling_run_id,
+                error_message,
+            )
         await self._conn.commit()
 
     async def set_profiling_done(
@@ -191,6 +251,7 @@ class _ProfilingMixin(_DatabaseBase):
         observed_limits: ProfilingObservedLimits,
         repetitions: int,
         *,
+        attempt_token: str,
         compile_log: str | None = None,
     ) -> None:
         """
@@ -202,10 +263,12 @@ class _ProfilingMixin(_DatabaseBase):
             profiling_run_id: UUID of the profiling run.
             observed_limits: Observed resource peaks with safety factor applied.
             repetitions: Repetition count used for this run (persisted for auditing).
+            attempt_token: Claim stamped by this attempt's dispatch.
             compile_log: Optional compiler output to persist.
 
         Raises:
             LookupError: If the profiling run row is missing.
+            JudgmentOwnershipLost: If another attempt has claimed the run.
         """
         now = _utcnow()
         row = await self._conn.execute(
@@ -216,6 +279,23 @@ class _ProfilingMixin(_DatabaseBase):
         result = row.mappings().first()
         if result is None:
             raise LookupError(f"Profiling run '{profiling_run_id}' not found in database")
+
+        # Claim first, in the same transaction as the limits below: a stale
+        # attempt must not publish its profiled limits over the new owner's.
+        claimed = await self._conn.execute(
+            _profiling_run.update()
+            .where(self._claim_predicate(AttemptClaim(_profiling_run, profiling_run_id, attempt_token)))
+            .values(
+                status=ProfilingStatus.DONE,
+                compile_log=compile_log,
+                error_message=None,
+                finished_at=now,
+                updated_at=now,
+            )
+        )
+        if claimed.rowcount == 0:
+            await self._conn.rollback()
+            raise JudgmentOwnershipLost(f"Profiling run {profiling_run_id} was claimed by another attempt")
 
         existing = await self._conn.execute(
             select(_problem_language_limit.c.problem_id).where(
@@ -251,15 +331,4 @@ class _ProfilingMixin(_DatabaseBase):
                 .values(**limit_values)
             )
 
-        await self._conn.execute(
-            _profiling_run.update()
-            .where(_profiling_run.c.id == profiling_run_id)
-            .values(
-                status=ProfilingStatus.DONE,
-                compile_log=compile_log,
-                error_message=None,
-                finished_at=now,
-                updated_at=now,
-            )
-        )
         await self._conn.commit()

@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import logging
 from typing import cast
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, Response
+from fastapi_flash import FlashCategory, FlashService
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from shared.error_handlers import (
@@ -23,6 +25,7 @@ from shared.error_handlers import (
     render_error_response,
     request_accepts_html,
 )
+from shared.services.multipart_file_size import MultipartFileTooLargeError
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +57,15 @@ def register_error_handlers(app: FastAPI) -> None:
 
 
 async def http_exception_response(request: Request, exc: Exception) -> Response:
-    """Render browser 404 errors while preserving default HTTP error responses."""
+    """Render browser-specific HTTP errors while preserving API responses."""
     http_exception = cast(StarletteHTTPException, exc)
+    if (
+        isinstance(http_exception, MultipartFileTooLargeError)
+        and request_accepts_html(request)
+        and "session" in request.scope
+    ):
+        FlashService(request).flash(str(http_exception.detail), FlashCategory.WARNING)
+        return RedirectResponse(_safe_browser_return_url(request), status_code=303)
     if http_exception.status_code != 404 or not request_accepts_html(request):
         return await http_exception_handler(request, http_exception)
 
@@ -71,3 +81,20 @@ async def http_exception_response(request: Request, exc: Exception) -> Response:
             "primary_label": "View contests",
         },
     )
+
+
+def _safe_browser_return_url(request: Request) -> str:
+    """Return a same-origin Referer path or the profile fallback."""
+    referer = request.headers.get("referer")
+    if not referer:
+        return "/profile"
+
+    parsed = urlsplit(referer)
+    if parsed.scheme not in {"", "http", "https"}:
+        return "/profile"
+    if parsed.netloc and parsed.netloc != request.url.netloc:
+        return "/profile"
+    if not parsed.path.startswith("/") or parsed.path.startswith("//"):
+        return "/profile"
+
+    return parsed.path + (f"?{parsed.query}" if parsed.query else "")

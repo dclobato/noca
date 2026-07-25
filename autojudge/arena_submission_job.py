@@ -54,8 +54,17 @@ async def process_arena_submission_job(
     docker_client: docker.DockerClient,
     executor: ThreadPoolExecutor,
     worker_id: str,
+    attempt_token: str,
 ) -> None:
-    """Execute compile, fail-fast tests, and Arena-specific persistence."""
+    """Execute compile, fail-fast tests, and Arena-specific persistence.
+
+    Every write below is fenced on ``attempt_token``, the claim stamped by this
+    attempt's dispatch, so an attempt whose judgment was taken over by a reaper
+    requeue writes nothing.
+
+    Raises:
+        JudgmentOwnershipLost: If another attempt claims the judgment mid-run.
+    """
     judgment_id = submission.judgment_id
     submission_id = submission.submission_id
 
@@ -70,11 +79,11 @@ async def process_arena_submission_job(
             ),
         )
 
-    await db.set_arena_judgment_dispatched(judgment_id, worker_id)
+    await db.set_arena_judgment_dispatched(judgment_id, worker_id, attempt_token)
     try:
         language = get_language(language_registry, submission.language_id)
     except KeyError as exc:
-        await db.set_arena_judgment_failed(judgment_id, str(exc))
+        await db.set_arena_judgment_failed(judgment_id, str(exc), attempt_token)
         return
 
     try:
@@ -88,7 +97,7 @@ async def process_arena_submission_job(
             executor=executor,
         )
     except Exception as exc:
-        await db.set_arena_judgment_failed(judgment_id, f"Custom validator unavailable: {exc}")
+        await db.set_arena_judgment_failed(judgment_id, f"Custom validator unavailable: {exc}", attempt_token)
         return
     if prepared_validator is not None and (
         not prepared_validator.compile_result.success or prepared_validator.compile_result.artifact_data is None
@@ -96,6 +105,7 @@ async def process_arena_submission_job(
         await db.set_arena_judgment_failed(
             judgment_id,
             f"Custom validator compilation failed: {prepared_validator.compile_result.compile_log}",
+            attempt_token,
         )
         return
 
@@ -114,12 +124,13 @@ async def process_arena_submission_job(
         await db.set_arena_judgment_done(
             submission,
             verdict=Verdict.CE,
+            attempt_token=attempt_token,
             compile_log=compile_result.compile_log,
         )
         await _publish(Verdict.CE)
         return
 
-    await db.set_arena_judgment_judging(judgment_id)
+    await db.set_arena_judgment_judging(judgment_id, attempt_token)
     interactive_result, _ = await run_custom_validator_submission(
         domain="arena",
         judgment_id=judgment_id,
@@ -135,6 +146,7 @@ async def process_arena_submission_job(
         executor=executor,
         prepared=prepared_validator,
         user_language_id=submission.language_id,
+        attempt_token=attempt_token,
     )
     if interactive_result is not None:
         verdict = interactive_result.classification.verdict
@@ -150,11 +162,16 @@ async def process_arena_submission_job(
                     pipe.delete(f"judge:lock:{queued_id}")
                     pipe.zrem(QUEUE_INFLIGHT_TIMES_KEY, queued_id)
                     await pipe.execute()
-            await db.set_arena_judgment_failed(judgment_id, "Custom validator failed twice without a clean exit.")
+            await db.set_arena_judgment_failed(
+                judgment_id,
+                "Custom validator failed twice without a clean exit.",
+                attempt_token,
+            )
             return
         await db.set_arena_judgment_done(
             submission,
             verdict=verdict,
+            attempt_token=attempt_token,
             compile_log=compile_result.compile_log or None,
             max_wall_time_ms=interactive_result.wall_time_ms,
             max_memory_kb=interactive_result.memory_kb,
@@ -171,7 +188,7 @@ async def process_arena_submission_job(
     try:
         container_id: str | None = await pool_manager.acquire(submission.language_id)
     except (PoolExhaustedError, PoolShutdownError) as exc:
-        await db.set_arena_judgment_failed(judgment_id, str(exc))
+        await db.set_arena_judgment_failed(judgment_id, str(exc), attempt_token)
         return
 
     try:
@@ -257,6 +274,7 @@ async def process_arena_submission_job(
                     exit_signal=repeated_result.exit_signal,
                     stdout_excerpt=repeated_result.stdout_excerpt,
                     stderr_excerpt=repeated_result.stderr_excerpt,
+                    attempt_token=attempt_token,
                 )
                 break
 
@@ -269,6 +287,7 @@ async def process_arena_submission_job(
         await db.set_arena_judgment_done(
             submission,
             verdict=final_verdict,
+            attempt_token=attempt_token,
             compile_log=compile_result.compile_log or None,
             max_wall_time_ms=resource_peak["peak_wall_time_ms"],
             max_memory_kb=resource_peak["peak_memory_kb"],
@@ -276,10 +295,14 @@ async def process_arena_submission_job(
         )
         await _publish(final_verdict)
     except (PoolExhaustedError, PoolShutdownError) as exc:
-        await db.set_arena_judgment_failed(judgment_id, str(exc))
+        await db.set_arena_judgment_failed(judgment_id, str(exc), attempt_token)
         return
     except Exception as exc:
-        await db.set_arena_judgment_failed(judgment_id, f"Internal judge error: {exc}\n\n{traceback.format_exc()}")
+        await db.set_arena_judgment_failed(
+            judgment_id,
+            f"Internal judge error: {exc}\n\n{traceback.format_exc()}",
+            attempt_token,
+        )
         raise
     finally:
         if container_id is not None:

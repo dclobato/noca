@@ -31,6 +31,7 @@ from web.services.clarification_service import (
     ClarificationNotAcquiredByActorError,
     ContestNotRunningError,
     ForbiddenClarificationActionError,
+    create_announcement,
     create_clarification,
     get_clarification,
     toggle_hidden_clarification,
@@ -620,7 +621,6 @@ async def test_reaper_auto_answers_open_clarification_for_past_contest(
     session: AsyncSession,
     stopped_contest: Contest,
     uberadmin: UberAdmin,
-    team_user: User,
 ) -> None:
     stopped_problem = Problem(
         contest_id=stopped_contest.id,
@@ -641,8 +641,18 @@ async def test_reaper_auto_answers_open_clarification_for_past_contest(
     session.add(owner)
     await session.flush()
     stopped_contest.owner_user_id = owner.id
+    stopped_team = User(
+        username="team_clari_reaper",
+        fullname="Team Clari Reaper",
+        role=RoleEnum.TEAM,
+        contest_id=stopped_contest.id,
+        created_by_uberadmin_id=uberadmin.id,
+    )
+    stopped_team.password = "TestPass1!"
+    session.add(stopped_team)
+    await session.flush()
     clari = Clarification(
-        team_id=team_user.id,
+        team_id=stopped_team.id,
         problem_id=stopped_problem.id,
         question="Reap me.",
         created_timestamp_seconds=minutes_from_contest_start(stopped_contest.start_time, stopped_contest.end_time) * 60,
@@ -824,3 +834,160 @@ async def test_team_and_staff_cannot_acquire_or_answer_a_clarification(
                 answer="nope",
                 is_contest_public=False,
             )
+
+
+# ---------------------------------------------------------------------------
+# General (problem-less) clarifications
+# ---------------------------------------------------------------------------
+
+
+async def test_team_creates_general_clarification_without_a_problem(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    another_team_user: User,
+    judge_user: User,
+    admin_user: User,
+) -> None:
+    """A clarification with no problem is scoped to the contest through its author."""
+    clari = await create_clarification(
+        session,
+        running_contest,
+        team_user,
+        problem_id=None,
+        question="Where is the printer?",
+    )
+
+    assert clari.problem_id is None
+
+    owner_view = await list_clarifications(session, running_contest, team_user)
+    assert any(v.id == clari.id and v.problem_id is None for v in owner_view)
+
+    for staff in (judge_user, admin_user):
+        staff_view = await list_clarifications(session, running_contest, staff)
+        assert any(v.id == clari.id for v in staff_view)
+
+    other_team_view = await list_clarifications(session, running_contest, another_team_user)
+    assert not any(v.id == clari.id for v in other_team_view)
+
+    assert await get_clarification(session, running_contest, clari.id) is clari
+
+
+async def test_general_announcement_is_public_to_every_team(
+    session: AsyncSession,
+    running_contest: Contest,
+    judge_user: User,
+    team_user: User,
+    another_team_user: User,
+) -> None:
+    announcement = await create_announcement(
+        session,
+        running_contest,
+        judge_user,
+        problem_id=None,
+        announcement="The network will be restarted in five minutes.",
+    )
+
+    assert announcement.problem_id is None
+    assert announcement.is_contest_public is True
+
+    for team in (team_user, another_team_user):
+        view = await list_clarifications(session, running_contest, team)
+        assert any(v.id == announcement.id for v in view)
+
+
+async def test_problem_sort_keeps_general_clarifications_grouped_last(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    admin_user: User,
+    contest_problem: Problem,
+) -> None:
+    assert _LOCK_CLIENT is not None
+    general = await create_clarification(
+        session, running_contest, team_user, problem_id=None, question="General question?"
+    )
+    on_problem = await create_clarification(
+        session, running_contest, team_user, problem_id=contest_problem.id, question="Problem question?"
+    )
+
+    for sort_by in ("problem_asc", "problem_desc"):
+        views, _available = await _list_clarifications(session, running_contest, admin_user, _LOCK_CLIENT, sort_by)
+        ids = [v.id for v in views]
+        assert set(ids) == {general.id, on_problem.id}
+        assert ids[-1] == general.id
+
+
+async def test_general_clarification_supports_the_full_lifecycle(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    judge_user: User,
+    admin_user: User,
+) -> None:
+    clari = await create_clarification(
+        session, running_contest, team_user, problem_id=None, question="Can we use the whiteboard?"
+    )
+
+    await acquire_clarification(session, running_contest, judge_user, clari)
+    answered = await answer_clarification(
+        session,
+        running_contest,
+        judge_user,
+        clari,
+        answer="Yes.",
+        is_contest_public=True,
+    )
+    assert answered.answer == "Yes."
+
+    hidden = await toggle_hidden_clarification(session, admin_user, clari)
+    assert hidden.hidden is True
+    assert hidden.hidden_by_admin_id == admin_user.id
+    assert hidden.hidden_timestamp_seconds is not None
+
+    unhidden = await toggle_hidden_clarification(session, admin_user, clari)
+    assert unhidden.hidden is False
+
+
+async def test_reaper_auto_answers_general_clarification_for_past_contest(
+    session: AsyncSession,
+    stopped_contest: Contest,
+    uberadmin: UberAdmin,
+) -> None:
+    owner = User(
+        username="owner_general_reaper",
+        fullname="Owner General Reaper",
+        role=RoleEnum.ADMIN,
+        contest_id=stopped_contest.id,
+        created_by_uberadmin_id=uberadmin.id,
+    )
+    owner.password = "TestPass1!"
+    session.add(owner)
+    await session.flush()
+    stopped_contest.owner_user_id = owner.id
+
+    stopped_team = User(
+        username="team_general_reaper",
+        fullname="Team General Reaper",
+        role=RoleEnum.TEAM,
+        contest_id=stopped_contest.id,
+        created_by_uberadmin_id=uberadmin.id,
+    )
+    stopped_team.password = "TestPass1!"
+    session.add(stopped_team)
+    await session.flush()
+
+    clari = Clarification(
+        team_id=stopped_team.id,
+        problem_id=None,
+        question="Reap this general one.",
+        created_timestamp_seconds=0,
+    )
+    session.add(clari)
+    await session.flush()
+
+    concluded = await conclude_finished_contest_clarifications(session)
+
+    assert concluded == 1
+    assert clari.answer == AUTO_ANSWER_PLACEHOLDER
+    assert clari.judge_id == owner.id

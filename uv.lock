@@ -892,8 +892,10 @@ dependencies = [
     { name = "fastapi" },
     { name = "markdown-sanitize" },
     { name = "pillow" },
+    { name = "puremagic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
+    { name = "python-multipart" },
     { name = "pytz" },
     { name = "relative-datetime" },
     { name = "requests" },
@@ -911,8 +913,10 @@ requires-dist = [
     { name = "fastapi", specifier = "==0.136.3" },
     { name = "markdown-sanitize", git = "https://github.com/dclobato/markdown_sanitize.git?rev=v2.0.0" },
     { name = "pillow", specifier = "==12.2.0" },
+    { name = "puremagic", specifier = "==2.2.0" },
     { name = "pydantic-settings", specifier = "==2.14.1" },
     { name = "python-dotenv", specifier = "==1.2.2" },
+    { name = "python-multipart", specifier = "==0.0.32" },
     { name = "pytz", specifier = "==2026.2" },
     { name = "relative-datetime", specifier = "==0.1.4" },
     { name = "requests", specifier = "==2.34.2" },
@@ -933,6 +937,7 @@ dependencies = [
     { name = "jwtservice" },
     { name = "markdown-sanitize" },
     { name = "noca-shared" },
+    { name = "puremagic" },
     { name = "python-multipart" },
     { name = "tabulate" },
     { name = "uvicorn" },
@@ -948,6 +953,7 @@ requires-dist = [
     { name = "jwtservice", git = "https://github.com/dclobato/jwtservice.git?rev=v2.1.0" },
     { name = "markdown-sanitize", git = "https://github.com/dclobato/markdown_sanitize.git?rev=v2.0.0" },
     { name = "noca-shared", editable = "shared" },
+    { name = "puremagic", specifier = "==2.2.0" },
     { name = "python-multipart", specifier = "==0.0.32" },
     { name = "tabulate", specifier = "==0.10.0" },
     { name = "uvicorn", specifier = "==0.49.0" },
@@ -956,7 +962,7 @@ requires-dist = [
 
 [[package]]
 name = "noca-workspace"
-version = "14.1.0"
+version = "14.2.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]
@@ -1103,6 +1109,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/1b/fb/d9aa83ffe43ce1f19e557c0971d04b90561b0cfd50762aafb01968285553/prometheus_client-0.25.0.tar.gz", hash = "sha256:5e373b75c31afb3c86f1a52fa1ad470c9aace18082d39ec0d2f918d11cc9ba28", size = 86035, upload-time = "2026-04-09T19:53:42.359Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8d/9b/d4b1e644385499c8346fa9b622a3f030dce14cd6ef8a1871c221a17a67e7/prometheus_client-0.25.0-py3-none-any.whl", hash = "sha256:d5aec89e349a6ec230805d0df882f3807f74fd6c1a2fa86864e3c2279059fed1", size = 64154, upload-time = "2026-04-09T19:53:41.324Z" },
+]
+
+[[package]]
+name = "puremagic"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/74/ce5987ab9b8aec4ced06e2723ebb604205c9eb58abdad91453da93166380/puremagic-2.2.0.tar.gz", hash = "sha256:eb4bddf07c177c4b434554b92165b67449f5a51e152b976202d6254498810eef", size = 1189752, upload-time = "2026-04-08T01:39:55.562Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/95/81/314320aeffd88dadeac553ff9eb10f54507ab41deccd0c69f6221d254a0a/puremagic-2.2.0-py3-none-any.whl", hash = "sha256:c4f7ed7307f056c787199acfda839555921be1df13abba61e8e6db0c787ae1d0", size = 71971, upload-time = "2026-04-08T01:39:54.169Z" },
 ]
 
 [[package]]

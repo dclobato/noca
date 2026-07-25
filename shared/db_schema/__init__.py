@@ -64,6 +64,7 @@ from .problem_limits import (
     problem_limit_change_batches,
 )
 from .security_events import security_events
+from .solution_test import solution_test_case_results, solution_test_runs
 from .submission import (
     human_submission_confirmations,
     submission_interactive_attempts,
@@ -73,7 +74,7 @@ from .submission import (
     submissions,
     verdict_overrides,
 )
-from .users import login_history, uber_admins, users
+from .users import login_history, uber_admins, users, users_media
 
 __all__ = [
     "metadata",
@@ -124,6 +125,8 @@ __all__ = [
     "security_events",
     "problems",
     "sites",
+    "solution_test_case_results",
+    "solution_test_runs",
     "submission_judgment_audit",
     "submission_judgments",
     "submission_interactive_attempts",
@@ -133,5 +136,6 @@ __all__ = [
     "test_cases",
     "uber_admins",
     "users",
+    "users_media",
     "verdict_overrides",
 ]

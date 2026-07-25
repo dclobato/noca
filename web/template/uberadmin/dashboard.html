@@ -14,6 +14,8 @@
                 <a href="/problems" class="btn btn-success btn-sm">Problem Bank</a>
                 <a href="{{ request.url_for("add_contest") }}"
                    class="btn btn-primary btn-sm">Create contest</a>
+                <a href="{{ request.url_for("uberadmin_import_contest_form") }}"
+                   class="btn btn-outline-primary btn-sm">Import contest</a>
                 <a href="{{ request.url_for("list_uberadmins_route") }}"
                    class="btn btn-primary btn-sm">Manage UberAdmins</a>
                 <a href="{{ request.url_for("uberadmin_security_events") }}"
@@ -27,7 +29,7 @@
                     <div class="card-body">
                         {% if past_contests %}
                             {% for contest in past_contests %}
-                                {% call contest_tile(contest, show_login=False, show_languages=False, show_uberadmin_access=True, show_deactivate=True, width="col-12") %}
+                                {% call contest_tile(contest, show_login=False, show_languages=False, show_uberadmin_access=True, show_deactivate=True, show_export=True, width="col-12") %}
                                 {% endcall %}
                             {% endfor %}
                         {% else %}

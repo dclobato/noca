@@ -42,18 +42,22 @@ def ensure_user_edit_allowed(actor: User | UberAdmin, target_user: User) -> None
         )
 
 
-def ensure_user_photo_upload_allowed(actor: User | UberAdmin, target_user: User) -> None:
-    """Ensure the actor may upload a replacement photo for the target user."""
+def ensure_user_media_upload_allowed(actor: User | UberAdmin, target_user: User) -> None:
+    """Ensure the actor may upload media for the target user."""
+    if isinstance(actor, UberAdmin):
+        return
     if isinstance(actor, User) and actor.id == target_user.id:
+        return
+    if actor.role == RoleEnum.ADMIN:
         return
     raise HTTPException(
         status_code=403,
-        detail="You can only upload your own photo.",
+        detail="Only contest admins can upload media for another user.",
     )
 
 
-def ensure_user_photo_removal_allowed(actor: User | UberAdmin, target_user: User) -> None:
-    """Ensure the actor may remove the target user's stored photo."""
+def ensure_user_media_removal_allowed(actor: User | UberAdmin, target_user: User) -> None:
+    """Ensure the actor may remove the target user's stored media."""
     if isinstance(actor, UberAdmin):
         return
     if actor.id == target_user.id:
@@ -62,5 +66,5 @@ def ensure_user_photo_removal_allowed(actor: User | UberAdmin, target_user: User
         return
     raise HTTPException(
         status_code=403,
-        detail="Only contest admins can remove another user's photo.",
+        detail="Only contest admins can remove another user's media.",
     )

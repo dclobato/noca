@@ -9,15 +9,16 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import delete, select, update
 
-from autojudge.db._base import _DatabaseBase, _utcnow
+from autojudge.db._base import AttemptClaim, _DatabaseBase, _utcnow
 from autojudge.runtime_utils import decode_for_text_column
 from autojudge.types import (
     ActiveCustomValidator,
     CustomValidatorDispatchState,
+    JudgmentOwnershipLost,
     RecoverableCustomValidatorJob,
 )
 from shared.db_schema import (
@@ -27,7 +28,11 @@ from shared.db_schema import (
     arena_submission_judgments,
     arena_submissions,
     problem_custom_validators,
+    solution_test_case_results,
+    solution_test_runs,
     submission_interactive_attempts,
+    submission_judgments,
+    test_cases,
 )
 from shared.enumerations import (
     ArenaNotificationKind,
@@ -96,18 +101,60 @@ class _CustomValidatorMixin(_DatabaseBase):
         self,
         *,
         domain: str,
-        judgment_id: str,
+        owner_id: str,
         attempt_number: int,
         result: Any,
         test_case_ordinal: int | None = None,
+        attempt_target: Literal["submission", "solution_test"] = "submission",
+        attempt_token: str | None = None,
     ) -> None:
         """Persist bounded diagnostics for one interactive attempt.
 
-        Attempt 1 clears every earlier row of the judgment, including the rows of
-        an already-passed test case, so a judgment only ever retains the attempts
-        of the last executed case.
+        Attempt 1 clears every earlier row of the owner, including the rows of an
+        already-passed test case, so an owner only ever retains the attempts of
+        the last executed case.
+
+        ``domain`` selects the contest-vs-arena validator schema and cannot carry
+        the solution-test axis too: a solution test always runs against a
+        *contest* problem. ``attempt_target`` is that independent axis — it
+        chooses whether the attempt belongs to a real judgment or to a non-scoring
+        solution-test run.
+
+        Args:
+            domain: ``"contest"`` or ``"arena"`` identity domain.
+            owner_id: Judgment UUID, or solution-test run UUID when
+                ``attempt_target="solution_test"``.
+            attempt_number: 1 or 2 (a validator crash is retried once).
+            result: The InteractiveAttemptResult to persist.
+            test_case_ordinal: 1-based ordinal of the parametrizing test case.
+            attempt_target: Which table family owns this attempt.
+            attempt_token: Claim stamped by this attempt's dispatch.
+
+        Raises:
+            JudgmentOwnershipLost: If another attempt has claimed the run.
         """
+        if attempt_target == "solution_test":
+            await self._insert_solution_test_interactive_attempt(
+                solution_test_run_id=owner_id,
+                attempt_number=attempt_number,
+                test_case_ordinal=test_case_ordinal,
+                result=result,
+                attempt_token=attempt_token,
+            )
+            return
+
         table = arena_submission_interactive_attempts if domain == "arena" else submission_interactive_attempts
+        judgment_id = owner_id
+        if attempt_token is not None:
+            judgment_table = arena_submission_judgments if domain == "arena" else submission_judgments
+            claim = AttemptClaim(judgment_table, judgment_id, attempt_token)
+            if not await self._holds_claim(claim):
+                # The delete below would drop the new owner's transcript, so a
+                # lost claim has to stop this write before it starts.
+                raise JudgmentOwnershipLost(
+                    f"Discarded interactive attempt {attempt_number} for judgment {judgment_id}: "
+                    "the judgment was claimed by another attempt"
+                )
         delete_where = table.c.judgment_id == judgment_id
         if attempt_number != 1:
             delete_where = delete_where & (table.c.attempt_number == attempt_number)
@@ -141,6 +188,82 @@ class _CustomValidatorMixin(_DatabaseBase):
                 limit_outcome=limit_outcome,
                 validator_verdict=validator_verdict,
                 crash_reason=result.crash_reason,
+                created_at=_utcnow(),
+            )
+        )
+        await self._conn.commit()
+
+    async def _insert_solution_test_interactive_attempt(
+        self,
+        *,
+        solution_test_run_id: str,
+        attempt_number: int,
+        test_case_ordinal: int | None,
+        result: Any,
+        attempt_token: str | None = None,
+    ) -> None:
+        """Persist one interactive attempt of a non-scoring solution-test run.
+
+        Interactive rows share ``solution_test_case_results`` with ordinary ones
+        and are distinguished by a non-null ``attempt_number``, which is why the
+        table carries two partial unique indexes instead of one constraint.
+
+        Raises:
+            JudgmentOwnershipLost: If another attempt has claimed the run.
+        """
+        if attempt_token is not None and not await self._holds_claim(
+            AttemptClaim(solution_test_runs, solution_test_run_id, attempt_token)
+        ):
+            # The delete below would drop the new owner's rows, so a lost claim
+            # has to stop this write before it starts.
+            raise JudgmentOwnershipLost(
+                f"Discarded interactive attempt {attempt_number} for solution-test run "
+                f"{solution_test_run_id}: the run was claimed by another attempt"
+            )
+        ordinal = test_case_ordinal if test_case_ordinal is not None else 1
+        delete_where = solution_test_case_results.c.solution_test_run_id == solution_test_run_id
+        if attempt_number != 1:
+            delete_where = delete_where & (solution_test_case_results.c.attempt_number == attempt_number)
+        await self._conn.execute(delete(solution_test_case_results).where(delete_where))
+        # Resolve the parametrizing case so an interactive row is not indistinguishable
+        # from one whose test case was deleted (test_case_id IS NULL means exactly that
+        # to the UI). Stays NULL only if the case really is gone by the time we persist.
+        test_case_id = (
+            await self._conn.execute(
+                select(test_cases.c.id)
+                .select_from(
+                    test_cases.join(
+                        solution_test_runs,
+                        solution_test_runs.c.problem_id == test_cases.c.problem_id,
+                    )
+                )
+                .where(
+                    solution_test_runs.c.id == solution_test_run_id,
+                    test_cases.c.ordinal == ordinal,
+                )
+            )
+        ).scalar_one_or_none()
+        # The run itself is marked FAILED when the validator never exits cleanly;
+        # the row still records the attempt, so a crash is stored as RE.
+        verdict = result.classification.verdict or Verdict.RE
+        await self._conn.execute(
+            solution_test_case_results.insert().values(
+                id=str(uuid.uuid4()),
+                solution_test_run_id=solution_test_run_id,
+                test_case_id=test_case_id,
+                ordinal=ordinal,
+                attempt_number=attempt_number,
+                verdict=verdict,
+                wall_time_ms=result.wall_time_ms,
+                memory_kb=result.memory_kb,
+                output_bytes=result.contestant_output_bytes,
+                exit_code=result.contestant_exit_code,
+                exit_signal=result.contestant_signal,
+                input_excerpt=None,
+                expected_output_excerpt=None,
+                stdout_excerpt=None,
+                stderr_excerpt=decode_for_text_column(result.contestant_stderr_excerpt),
+                transcript=result.transcript.as_dict() if result.transcript is not None else None,
                 created_at=_utcnow(),
             )
         )

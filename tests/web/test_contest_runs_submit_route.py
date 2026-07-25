@@ -193,3 +193,69 @@ async def test_submit_rate_limited_flashes_and_does_not_enqueue(
     assert second.status_code == 303
     assert second.headers["location"] == f"/c/{running_contest.login_slug}/runs"
     assert enqueue_mock.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_submit_publishes_submission_event_after_commit(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    judgeable_contest_problem: Problem,
+    uberadmin: UberAdmin,
+) -> None:
+    language = await _make_language(session)
+    await session.execute(
+        insert(contest_languages_table).values(contest_id=running_contest.id, language_id=language.id)
+    )
+    await session.commit()
+
+    ctx = ContestContext(contest=running_contest, session=session, actor=team_user)
+    app, auth_service = _build_app(session, ctx)
+    token = await _contest_user_token(auth_service, session, team_user.username, running_contest.id)
+
+    import web.routes.contest_runs_review as runs_module
+    from shared.queue_schema import SubmissionEvent
+
+    call_order: list[str] = []
+
+    async def record_enqueue(*args: object, **kwargs: object) -> None:
+        call_order.append("enqueue")
+
+    async def record_publish(*args: object, **kwargs: object) -> None:
+        call_order.append("publish")
+
+    enqueue_mock = AsyncMock(side_effect=record_enqueue)
+    publish_mock = AsyncMock(side_effect=record_publish)
+    original_enqueue = runs_module.enqueue_job
+    original_publish = runs_module.publish_submission
+    runs_module.enqueue_job = enqueue_mock
+    runs_module.publish_submission = publish_mock
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+            client.cookies.set("noca_access_token", token)
+            response = await client.post(
+                f"/c/{running_contest.login_slug}/runs/submit",
+                data={"problem_id": judgeable_contest_problem.id, "language_id": language.id},
+                files={"source_file": ("main.py", b"print('hello')\n", "text/plain")},
+                follow_redirects=False,
+            )
+    finally:
+        runs_module.enqueue_job = original_enqueue
+        runs_module.publish_submission = original_publish
+
+    assert response.status_code == 303
+    submission_id = publish_mock.await_args.args[1].submission_id
+    expected_location = f"/c/{running_contest.login_slug}/runs?queued_submission={submission_id}"
+    assert response.headers["location"] == expected_location
+    assert enqueue_mock.await_count == 1
+    assert publish_mock.await_count == 1
+    assert call_order == ["enqueue", "publish"]
+    event = publish_mock.await_args.args[1]
+    assert isinstance(event, SubmissionEvent)
+    assert event.contest_id == str(running_contest.id)
+    assert event.team_id == str(team_user.id)
+    assert event.problem_id == judgeable_contest_problem.id
+    assert event.submission_id
+    # The event is published on the same runtime handle the enqueue uses.
+    assert publish_mock.await_args.args[0] is app.state.valkey_runtime

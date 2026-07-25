@@ -1,0 +1,70 @@
+{% extends "_base.html" %}
+{% block title_suffix %}— Export contest{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+            <div>
+                <h2 class="h4 mb-1">Export contest backup</h2>
+                {% if contest %}
+                    <p class="text-muted mb-0 small">{{ contest.contest_name }} — /c/{{ contest.login_slug }}</p>
+                {% endif %}
+            </div>
+            <a href="{{ request.url_for("uberadmin_dashboard") }}"
+               class="btn btn-outline-secondary btn-sm">Back to dashboard</a>
+        </div>
+        {% if not contest %}
+            <div class="alert alert-danger">Contest not found.</div>
+        {% else %}
+            {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <p class="text-muted small">
+                        Produces a single portable ZIP with this contest's problems, users, submissions,
+                        judgments, clarifications, and staff tasks for archival or faithful replay. Verdicts and
+                        timestamps are written verbatim; nothing is re-judged on import.
+                    </p>
+                    <div class="alert alert-info small" role="alert">
+                        Operational data is not archived: solution-test runs, Auto-Limit profiling runs, and
+                        problem-limit change batches are excluded from the ZIP.
+                    </div>
+                    <form method="post"
+                          action="{{ request.url_for('uberadmin_export_contest', contest_id=contest.id) }}">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   name="include_media"
+                                   value="yes"
+                                   id="include_media">
+                            <label class="form-check-label" for="include_media">
+                                Include user media (photos and audio). This can make the archive large.
+                            </label>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   name="include_password_hashes"
+                                   value="yes"
+                                   id="include_password_hashes">
+                            <label class="form-check-label" for="include_password_hashes">Include password hashes (sensitive)</label>
+                        </div>
+                        <div class="alert alert-warning small">
+                            Exporting password hashes copies credential material that is vulnerable to offline
+                            cracking and password reuse. Only do this for a secured backup. To confirm, re-enter
+                            your uberadmin password below.
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="reconfirm_password">Your uberadmin password</label>
+                            <input class="form-control"
+                                   type="password"
+                                   name="reconfirm_password"
+                                   id="reconfirm_password"
+                                   autocomplete="current-password">
+                            <div class="form-text">Required only when exporting password hashes.</div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Download backup ZIP</button>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

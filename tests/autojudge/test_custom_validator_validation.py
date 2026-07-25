@@ -163,7 +163,7 @@ async def test_interactive_attempt_insert_replaces_stale_rows() -> None:
 
     await db.insert_interactive_attempt(
         domain="contest",
-        judgment_id="judgment-1",
+        owner_id="judgment-1",
         attempt_number=1,
         result=result,
     )
@@ -207,7 +207,7 @@ async def test_interactive_attempt_insert_accepts_missing_transcript() -> None:
 
     await db.insert_interactive_attempt(
         domain="arena",
-        judgment_id="judgment-2",
+        owner_id="judgment-2",
         attempt_number=1,
         result=result,
     )

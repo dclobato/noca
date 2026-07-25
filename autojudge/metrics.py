@@ -63,6 +63,22 @@ PROFILING_DURATION_SECONDS = Histogram(
     buckets=_JOB_DURATION_BUCKETS,
 )
 
+# Deliberately a separate counter family rather than a label on VERDICTS_TOTAL:
+# labels on hot counters are easy to misuse in dashboards, and the whole point of
+# solution tests is keeping staff activity out of contest metrics.
+SOLUTION_TEST_DURATION_SECONDS = Histogram(
+    "solution_test_duration_seconds",
+    "Wall time for the full non-scoring solution-test test-case loop.",
+    ["language_id"],
+    buckets=_JOB_DURATION_BUCKETS,
+)
+
+SOLUTION_TEST_VERDICTS_TOTAL = Counter(
+    "solution_test_verdicts_total",
+    "Total non-scoring solution-test verdicts, by verdict and language.",
+    ["verdict", "language_id"],
+)
+
 VERDICTS_TOTAL = Counter(
     "autojudge_verdicts_total",
     "Total submission verdicts produced by the autojudge, by verdict and language.",
@@ -189,6 +205,16 @@ REAPER_ALREADY_DONE_TOTAL = Counter(
 REAPER_ERRORS_TOTAL = Counter(
     "autojudge_reaper_errors_total",
     "Total exceptions caught during reaper cycles.",
+)
+
+# ---------------------------------------------------------------------------
+# Reconciler
+# ---------------------------------------------------------------------------
+
+RECONCILE_SKIPPED_TOTAL = Counter(
+    "autojudge_reconcile_skipped_total",
+    "Total non-terminal jobs a reconciliation pass deliberately left in place.",
+    ["job_kind", "reason"],
 )
 
 # ---------------------------------------------------------------------------

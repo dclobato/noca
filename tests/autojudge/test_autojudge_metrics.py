@@ -120,4 +120,5 @@ def test_generate_latest_includes_autojudge_metrics() -> None:
     assert "autojudge_compile_duration_seconds" in output
     assert "autojudge_run_wall_time_seconds" in output
     assert "autojudge_reaper_cycles_total" in output
+    assert "autojudge_reconcile_skipped_total" in output
     assert "autojudge_worker_slots_active" in output

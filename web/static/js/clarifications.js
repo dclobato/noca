@@ -21,4 +21,31 @@
       }
     });
   }
+
+  // Make the whole clarification row open the detail modal, deferring to the
+  // eye button's own data-* attributes; clicks on other row controls (answer,
+  // hide, release lock) keep their own action instead of opening the modal.
+  var INTERACTIVE = 'a, button, input, select, textarea, label';
+
+  function openRowDetail(row) {
+    var detailBtn = row.querySelector('[data-bs-toggle="modal"]');
+    if (detailBtn) detailBtn.click();
+  }
+
+  function handleRowActivate(event) {
+    var row = event.target.closest('tr[data-clarification-row]');
+    if (!row) return;
+    if (event.target.closest(INTERACTIVE)) return;
+    openRowDetail(row);
+  }
+
+  document.body.addEventListener('click', handleRowActivate);
+  document.body.addEventListener('keydown', function (event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    var row = event.target.closest('tr[data-clarification-row]');
+    if (!row) return;
+    if (event.target.closest(INTERACTIVE)) return;
+    event.preventDefault();
+    openRowDetail(row);
+  });
 })();

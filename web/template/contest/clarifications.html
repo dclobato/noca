@@ -20,7 +20,7 @@
     </nav>
 {% endblock %}
 {% block content %}
-    <div class="container py-5">
+    <div class="container-fluid py-5">
         <div class="mb-4">
             <h1 class="h3 mb-1">Clarifications</h1>
             <p class="text-muted mb-0">{{ contest.contest_name }}</p>
@@ -44,8 +44,8 @@
                             <div class="row g-3 mb-3">
                                 <div class="col-md-3">
                                     <label for="problem_id" class="form-label">Problem</label>
-                                    <select class="form-select" id="problem_id" name="problem_id" required>
-                                        <option value="">-- select a problem --</option>
+                                    <select class="form-select" id="problem_id" name="problem_id">
+                                        <option value="" selected>General — no specific problem</option>
                                         {% for p in problems %}<option value="{{ p.id }}">{{ problem_map[p.id] }}</option>{% endfor %}
                                     </select>
                                 </div>
@@ -80,8 +80,8 @@
                             <div class="row g-3 mb-3">
                                 <div class="col-md-3">
                                     <label for="ann_problem_id" class="form-label">Problem</label>
-                                    <select class="form-select" id="ann_problem_id" name="problem_id" required>
-                                        <option value="">-- select a problem --</option>
+                                    <select class="form-select" id="ann_problem_id" name="problem_id">
+                                        <option value="" selected>General — no specific problem</option>
                                         {% for p in problems %}<option value="{{ p.id }}">{{ problem_map[p.id] }}</option>{% endfor %}
                                     </select>
                                 </div>

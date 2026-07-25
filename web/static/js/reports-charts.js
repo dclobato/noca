@@ -12,8 +12,8 @@
  *   - runs_pie:      [{value, name, color}, ...]
  *   - accepted_pie:  [{value, name, color}, ...]
  *   - time_labels:   ["0-10", "10-20", ...]
- *   - time_all:      [count, ...]
- *   - time_accepted: [count, ...]
+ *   - time_all:      [count, ...]   (total runs per window)
+ *   - time_accepted: [count, ...]   (accepted runs per window)
  *   - accept_label:  "AC" or "AC + PE"
  */
 document.addEventListener("DOMContentLoaded", function () {
@@ -64,17 +64,24 @@ document.addEventListener("DOMContentLoaded", function () {
         };
     }
 
-    // ── Helper: build a bar chart option ──────────────────────────────────
-    function barOption(title, labels, values, color) {
+    // ── Helper: build a stacked bar chart option ──────────────────────────
+    // Total bar height is the window's run volume, split into accepted and
+    // non-accepted (rejected) segments.
+    function stackedBarOption(labels, accepted, rejected, acceptLabel) {
         return {
             tooltip: {
                 trigger: "axis",
                 axisPointer: { type: "shadow" },
             },
+            legend: {
+                data: [acceptLabel, "Non-" + acceptLabel],
+                top: 0,
+            },
             grid: {
                 left: "3%",
                 right: "4%",
                 bottom: "3%",
+                top: 40,
                 containLabel: true,
             },
             xAxis: {
@@ -87,14 +94,24 @@ document.addEventListener("DOMContentLoaded", function () {
             },
             yAxis: {
                 type: "value",
-                name: title,
+                name: "Runs",
                 minInterval: 1,
             },
             series: [
                 {
+                    name: acceptLabel,
                     type: "bar",
-                    data: values,
-                    itemStyle: { color: color },
+                    stack: "runs",
+                    data: accepted,
+                    itemStyle: { color: "#198754" },
+                    barMaxWidth: 40,
+                },
+                {
+                    name: "Non-" + acceptLabel,
+                    type: "bar",
+                    stack: "runs",
+                    data: rejected,
+                    itemStyle: { color: "#adb5bd" },
                     barMaxWidth: 40,
                 },
             ],
@@ -117,29 +134,23 @@ document.addEventListener("DOMContentLoaded", function () {
         charts.push(acceptedPie);
     }
 
-    // ── Bar charts ───────────────────────────────────────────────────────
+    // ── Stacked bar chart (runs by time, AC vs non-AC) ────────────────────
     var runsTimeEl = document.getElementById("chart-runs-time");
-    if (runsTimeEl && data.time_labels && data.time_all) {
+    if (runsTimeEl && data.time_labels && data.time_all && data.time_accepted) {
+        var accLabel = data.accept_label || "AC";
+        var rejected = data.time_all.map(function (total, i) {
+            return Math.max(0, total - (data.time_accepted[i] || 0));
+        });
         var runsBar = echarts.init(runsTimeEl);
         runsBar.setOption(
-            barOption("Runs", data.time_labels, data.time_all, "#0d6efd")
-        );
-        charts.push(runsBar);
-    }
-
-    var acceptedTimeEl = document.getElementById("chart-accepted-time");
-    if (acceptedTimeEl && data.time_labels && data.time_accepted) {
-        var acceptedBar = echarts.init(acceptedTimeEl);
-        var accLabel = data.accept_label || "AC";
-        acceptedBar.setOption(
-            barOption(
-                accLabel + " Runs",
+            stackedBarOption(
                 data.time_labels,
                 data.time_accepted,
-                "#198754"
+                rejected,
+                accLabel
             )
         );
-        charts.push(acceptedBar);
+        charts.push(runsBar);
     }
 
     // ── Responsive resize ────────────────────────────────────────────────

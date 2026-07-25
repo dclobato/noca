@@ -16,7 +16,7 @@ COPY shared /app/shared
 COPY aiassistant /app/aiassistant
 COPY migrations /app/migrations
 COPY scripts/__init__.py /app/scripts/__init__.py
-COPY scripts/run_migrations.py /app/scripts/run_migrations.py
+COPY scripts/wait_for_migrations.py /app/scripts/wait_for_migrations.py
 COPY scripts/secrets_config.py /app/scripts/secrets_config.py
 COPY containers/aiassistant/entrypoint.sh /app/entrypoint.sh
 

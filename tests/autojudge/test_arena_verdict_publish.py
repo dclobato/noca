@@ -69,6 +69,7 @@ async def test_compile_error_exit_publishes_arena_verdict(monkeypatch: pytest.Mo
         docker_client=SimpleNamespace(),
         executor=SimpleNamespace(),
         worker_id="worker-1",
+        attempt_token="worker-1:attempt",
     )
 
     db.set_arena_judgment_done.assert_awaited_once()
@@ -119,6 +120,7 @@ async def test_normal_verdict_exit_publishes_arena_verdict(monkeypatch: pytest.M
         docker_client=SimpleNamespace(),
         executor=SimpleNamespace(),
         worker_id="worker-1",
+        attempt_token="worker-1:attempt",
     )
 
     db.set_arena_judgment_done.assert_awaited_once()

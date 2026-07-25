@@ -4,7 +4,7 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
@@ -23,6 +23,7 @@ from web.services.clarification_service import (
     can_answer_clarifications,
     can_force_release_clarifications,
     list_clarifications,
+    normalize_clarification_sort,
 )
 
 router = APIRouter(prefix="/c/{slug}/clarifications", tags=["contest_clarifications"])
@@ -32,11 +33,13 @@ router = APIRouter(prefix="/c/{slug}/clarifications", tags=["contest_clarificati
 async def view(
     request: Request,
     ctx: ContestContext = Depends(get_contest_context),
+    sort_by: str = Query("time_desc"),
 ) -> HTMLResponse:
     templates = request.app.state.templates
     ensure_allowed_role(ctx.actor, _ALLOWED)
 
     access_blocked = _team_access_blocked(ctx.actor, ctx.contest)
+    normalized_sort = normalize_clarification_sort(sort_by)
 
     if access_blocked:
         return _html(
@@ -54,6 +57,7 @@ async def view(
                     "problems": [],
                     "problem_map": {},
                     "user_map": {},
+                    "sort_by": normalized_sort,
                 },
             )
         )
@@ -63,6 +67,7 @@ async def view(
         ctx.contest,
         ctx.actor,
         request.app.state.valkey_runtime,
+        normalized_sort,
     )
 
     result = await ctx.session.execute(
@@ -88,15 +93,21 @@ async def view(
                 "problems": problems,
                 "problem_map": problem_map,
                 "user_map": user_map,
+                "sort_by": normalized_sort,
             },
         )
     )
 
 
 @router.get("/list", response_class=HTMLResponse, name="contest_clarifications_list")
-async def list_partial(request: Request, ctx: ContestContext = Depends(get_contest_context)) -> HTMLResponse:
+async def list_partial(
+    request: Request,
+    ctx: ContestContext = Depends(get_contest_context),
+    sort_by: str = Query("time_desc"),
+) -> HTMLResponse:
     templates = request.app.state.templates
     ensure_allowed_role(ctx.actor, _ALLOWED)
+    normalized_sort = normalize_clarification_sort(sort_by)
 
     if _team_access_blocked(ctx.actor, ctx.contest):
         return _html(
@@ -113,6 +124,7 @@ async def list_partial(request: Request, ctx: ContestContext = Depends(get_conte
                     "lock_service_available": request.app.state.valkey_runtime.is_available,
                     "problem_map": {},
                     "user_map": {},
+                    "sort_by": normalized_sort,
                 },
             )
         )
@@ -122,6 +134,7 @@ async def list_partial(request: Request, ctx: ContestContext = Depends(get_conte
         ctx.contest,
         ctx.actor,
         request.app.state.valkey_runtime,
+        normalized_sort,
     )
     problem_map = await _build_problem_map(ctx.session, ctx.contest)
 
@@ -139,6 +152,7 @@ async def list_partial(request: Request, ctx: ContestContext = Depends(get_conte
                 "lock_service_available": lock_service_available,
                 "problem_map": problem_map,
                 "user_map": await _build_user_map(ctx.session, ctx.contest) if _needs_user_map(ctx.actor) else {},
+                "sort_by": normalized_sort,
             },
         )
     )

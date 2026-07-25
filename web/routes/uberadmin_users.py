@@ -136,6 +136,7 @@ async def toggle_uberadmin_route(
                 request,
                 module="web",
                 actor_user_id=current_user.id,
+                actor_label=current_user.username,
                 action="enable" if updated.is_enabled else "disable",
                 target_type="uberadmin",
                 target_id=uberadmin_id,

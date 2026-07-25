@@ -8,7 +8,9 @@
 
 from __future__ import annotations
 
-from sqlalchemy import or_, select
+from typing import Literal, cast
+
+from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.enumerations import RoleEnum
@@ -20,6 +22,34 @@ from web.models.users import UberAdmin, User
 
 from .views import ClarificationView, merge_clarification_views
 
+ClarificationSort = Literal["time_asc", "time_desc", "problem_asc", "problem_desc"]
+
+_ALLOWED_SORTS: frozenset[str] = frozenset({"time_asc", "time_desc", "problem_asc", "problem_desc"})
+
+
+def normalize_clarification_sort(value: str | None) -> ClarificationSort:
+    """Normalize a clarification list ``sort_by`` query parameter."""
+    if value in _ALLOWED_SORTS:
+        return cast(ClarificationSort, value)
+    return "time_desc"
+
+
+def _apply_clarification_sort(
+    stmt: Select[tuple[Clarification]], sort_by: ClarificationSort
+) -> Select[tuple[Clarification]]:
+    """Order clarifications by *sort_by*; problem sort ties break on newest first.
+
+    General clarifications have no problem, so they group last in both problem
+    directions instead of being scattered by the database's default NULL ordering.
+    """
+    if sort_by == "time_asc":
+        return stmt.order_by(Clarification.created_at.asc())
+    if sort_by == "problem_asc":
+        return stmt.order_by(Problem.ordinal.asc().nulls_last(), Clarification.created_at.desc())
+    if sort_by == "problem_desc":
+        return stmt.order_by(Problem.ordinal.desc().nulls_last(), Clarification.created_at.desc())
+    return stmt.order_by(Clarification.created_at.desc())
+
 
 async def get_clarification(
     session: AsyncSession,
@@ -29,8 +59,8 @@ async def get_clarification(
     """Fetch a single clarification scoped to the given contest."""
     result = await session.execute(
         select(Clarification)
-        .join(Problem, Clarification.problem_id == Problem.id)
-        .where(Clarification.id == clarification_id, Problem.contest_id == contest.id)
+        .join(User, Clarification.team_id == User.id)
+        .where(Clarification.id == clarification_id, User.contest_id == contest.id)
     )
     return result.scalar_one_or_none()
 
@@ -40,13 +70,14 @@ async def list_clarifications(
     contest: Contest,
     actor: User | UberAdmin,
     lock_client: LockClient,
+    sort_by: ClarificationSort = "time_desc",
 ) -> tuple[list[ClarificationView], bool]:
     """Return clarifications visible to the given actor."""
     base_stmt = (
         select(Clarification)
-        .join(Problem, Clarification.problem_id == Problem.id)
-        .where(Problem.contest_id == contest.id)
-        .order_by(Clarification.created_at.desc())
+        .join(User, Clarification.team_id == User.id)
+        .outerjoin(Problem, Clarification.problem_id == Problem.id)
+        .where(User.contest_id == contest.id)
     )
 
     if isinstance(actor, UberAdmin) or actor.role == RoleEnum.ADMIN:
@@ -65,6 +96,7 @@ async def list_clarifications(
         )
         show_judge = False
 
+    stmt = _apply_clarification_sort(stmt, sort_by)
     result = await session.execute(stmt)
     clarifications = list(result.scalars().all())
     lock_batch = await get_locks(

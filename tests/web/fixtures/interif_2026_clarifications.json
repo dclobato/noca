@@ -1,0 +1,163 @@
+[
+  {
+    "boca_user": "1303",
+    "time_minutes": 12,
+    "problem": "A",
+    "question": "Na entrada, é enviado tudo de uma vez ou em etapas, por exemplo linha 1, linha 2 etc",
+    "answer": "Veja o exemplo do caderno de questões."
+  },
+  {
+    "boca_user": "1304",
+    "time_minutes": 14,
+    "problem": null,
+    "question": "A saída esperada na linguagem Java deve ser um print?",
+    "answer": "Leia as instruções no caderno de provas."
+  },
+  {
+    "boca_user": "1709",
+    "time_minutes": 18,
+    "problem": null,
+    "question": "Gostaria de saber no problema E, se devo limitar o usuario digitar valores fora do parametro. Exemplo 1<=t<=1000. Posso, criar o progrma sem definir isso ou perde ponto?",
+    "answer": "Assuma que as entradas seguem os limites definidos no enunciado do problema."
+  },
+  {
+    "boca_user": "1008",
+    "time_minutes": 31,
+    "problem": "E",
+    "question": "No segundo teste, testamos a mão e a resposta foi 67, mas de acordo com a questão deveria ser 68... Porém mesmo que fosse algo sobre arrendodamento, não podemos criar uma nova figurinha, somente retirar uma, então não podemos ter o resultado 68, né?",
+    "answer": "O resultado do caderno de questões está correto."
+  },
+  {
+    "boca_user": "1008",
+    "time_minutes": 33,
+    "problem": "E",
+    "question": "No segundo teste da questão E, fizemos a mão e o resultado foi 67, então como pode ser 68? (o primeiro teste está correto)",
+    "answer": "O resultado do caderno de questões está correto."
+  },
+  {
+    "boca_user": "1304",
+    "time_minutes": 33,
+    "problem": null,
+    "question": "Qual a saída padrão esperada do Java?",
+    "answer": "Leia as instruções no caderno de problemas."
+  },
+  {
+    "boca_user": "2064",
+    "time_minutes": 39,
+    "problem": "I",
+    "question": "É possível que a palavra original possua a letra P?",
+    "answer": "O que é \"Palavra original\"? Veja os exemplos no caderno de questões."
+  },
+  {
+    "boca_user": "1304",
+    "time_minutes": 46,
+    "problem": null,
+    "question": "o caderno nao explica essa duvida.\nQual a saída padrão esperada do Java? deve ser um print ou return. Eu ja li o caderno varias vezes e minha duvida nao foi sanada.\nSe puder nos auxiliar, agradeceria muito. Obrigado.",
+    "answer": "Leia as instruções do caderno de questões e a saída esperada no enunciado dos problemas."
+  },
+  {
+    "boca_user": "1709",
+    "time_minutes": 53,
+    "problem": "E",
+    "question": "Mandamos a E.py mas resolvemos o problema que estava tendo, porém o sistema não aceita mandar E.py denovo. Oque fazer?",
+    "answer": "O sistema não deixa enviar o mesmo arquivo para o mesmo problema. Vocês devem ter enviado um arquivo já enviado para o mesmo problema."
+  },
+  {
+    "boca_user": "1908",
+    "time_minutes": 57,
+    "problem": "D",
+    "question": "qual é a formula da distancia euclidiana?",
+    "answer": "Esse conhecimento faz parte da resolução do problema."
+  },
+  {
+    "boca_user": "1912",
+    "time_minutes": 60,
+    "problem": "H",
+    "question": "O que seria o Nó folha?",
+    "answer": "Esse conhecimento faz parte da resolução do problema."
+  },
+  {
+    "boca_user": "1303",
+    "time_minutes": 64,
+    "problem": "I",
+    "question": "Como funciona a entrada padrao, pois ai deixar um input para receber a entrada está vindo como errado e o caderno de questões nao tem nenhum exemplo de como funciona para receber a entrada, estou usando python",
+    "answer": "A leitura da entrada faz parte da resolução do problema."
+  },
+  {
+    "boca_user": "1601",
+    "time_minutes": 73,
+    "problem": "E",
+    "question": "Todas as condições pedidas pelo problema estão sendo atendidas, existe alguma especificação que o programa não atende?",
+    "answer": "Há outros casos de testes além dos que estão no caderno de problemas."
+  },
+  {
+    "boca_user": "1160",
+    "time_minutes": 81,
+    "problem": "C",
+    "question": "Tem que colocar 2 casas após a vírgula?",
+    "answer": "Leia o enunciado do problema."
+  },
+  {
+    "boca_user": "1501",
+    "time_minutes": 101,
+    "problem": "I",
+    "question": "// Fizemos o código abaixo, só tem um exemplo na questão I, ele funciona, mas é dito que ele envia a resposta errada. Onde estaria o problema?\nimport java.util.Scanner;\npublic class I {",
+    "answer": "O sistema avalia outras entradas além das que estão no caderno de questões."
+  },
+  {
+    "boca_user": "1653",
+    "time_minutes": 104,
+    "problem": null,
+    "question": "Eu estou enviando as questões, e mesmo quando para mim apareça um resultado que seria correto de acordo com o que é pedido, é marcado como errado. Isso seria devido ao \"input\" ou \"print\"??",
+    "answer": "O sistema avalia outras entradas além das que estão no caderno de questões."
+  },
+  {
+    "boca_user": "1011",
+    "time_minutes": 113,
+    "problem": "F",
+    "question": "Poderia nos ajudar a como podemos nodular os valores recebidos de uma lista? a nossa programação está assim:\na = int(input())\nlista = []\nfor i in range (a+1):\n    b, c = map(str, input().split())",
+    "answer": "No response."
+  },
+  {
+    "boca_user": "1012",
+    "time_minutes": 124,
+    "problem": null,
+    "question": "qual o comando para quebrar codigo em py",
+    "answer": "No response."
+  },
+  {
+    "boca_user": "1160",
+    "time_minutes": 126,
+    "problem": "C",
+    "question": "Qual a regra para arredondar?",
+    "answer": "Siga o enunciado do problema e os exemplos do caderno de questões."
+  },
+  {
+    "boca_user": "1304",
+    "time_minutes": 130,
+    "problem": null,
+    "question": "lemos o caderno de problemas inúmeras vezes, e não encontramos essa informação, de qual a saída padrão esperada na linguagem Java. Também não nos foi passado esse tipo de instrução em quaisquer outros dias. É nossa última esperança.\nAtenciosamente,\nEquipe Michaelsoft",
+    "answer": "Leia o caderno de questões e o enunciado do problema."
+  },
+  {
+    "boca_user": "1359",
+    "time_minutes": 161,
+    "problem": "I",
+    "question": "Qual o tamanho maximo da string, sabendo que estou usando C?",
+    "answer": "Considere 100 como o tamanho máximo da entrada."
+  },
+  {
+    "boca_user": "1011",
+    "time_minutes": 163,
+    "problem": null,
+    "question": "poderia me dizer porque a segunda formatação desse código não esta resetando?\nh = (f\"{o}\"f\"{input()}\"(int(input())))",
+    "answer": "No response."
+  },
+  {
+    "boca_user": "1708",
+    "time_minutes": 164,
+    "problem": "D",
+    "question": "Na segunda linha da saida do primeiro exemplo o resultado aparenta estar errado pois a distancia calculada mostra que a resposta seria Veriscimo no Lugar de Froldi",
+    "answer": "Os exemplos estão corretos."
+  }
+]

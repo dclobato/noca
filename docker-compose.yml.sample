@@ -129,11 +129,12 @@ services:
       NOCA_PASSWORD_NUMBER_REQUIRED: ${NOCA_PASSWORD_NUMBER_REQUIRED:-true}
       NOCA_PASSWORD_SYMBOL_REQUIRED: ${NOCA_PASSWORD_SYMBOL_REQUIRED:-true}
       NOCA_IMAGE_AVATAR_SIZE: ${NOCA_IMAGE_AVATAR_SIZE:-64}
-      NOCA_IMAGE_MAX_FILE_SIZE: ${NOCA_IMAGE_MAX_FILE_SIZE:-5242880}
+      NOCA_IMAGE_MAX_FILE_SIZE: ${NOCA_IMAGE_MAX_FILE_SIZE:-2097152}
       NOCA_IMAGE_MAX_WIDTH: ${NOCA_IMAGE_MAX_WIDTH:-2048}
       NOCA_IMAGE_MAX_HEIGHT: ${NOCA_IMAGE_MAX_HEIGHT:-2048}
       NOCA_IMAGE_FONT_DIR: ${NOCA_IMAGE_FONT_DIR:-}
       NOCA_IMAGE_RESPONSE_CACHE_MAX_AGE: ${NOCA_IMAGE_RESPONSE_CACHE_MAX_AGE:-3600}
+      NOCA_AUDIO_MAX_FILE_SIZE: ${NOCA_AUDIO_MAX_FILE_SIZE:-2097152}
       NOCA_SEED_LANGUAGES: ${NOCA_SEED_LANGUAGES:-false}
     depends_on:
       postgres:
@@ -314,6 +315,27 @@ services:
       POSTGRES_DB: ${NOCA_DB_NAME:?NOCA_DB_NAME is required}
       POSTGRES_USER: ${NOCA_DB_USER:?NOCA_DB_USER is required}
       POSTGRES_PASSWORD: ${NOCA_DB_PASSWORD:?NOCA_DB_PASSWORD is required}
+    # Server-wide autovacuum tuning. Per-table storage parameters (set by the
+    # Alembic migration for high-churn tables) layer on top of these. The goal is
+    # to run the launcher more often with more parallel workers and a higher cost
+    # budget so vacuum/analyze keep pace with the submission/judging write load and
+    # the bulk deletes performed by the retention reapers.
+    command:
+      - postgres
+      - -c
+      - autovacuum=on
+      - -c
+      - autovacuum_naptime=15s
+      - -c
+      - autovacuum_max_workers=4
+      - -c
+      - autovacuum_vacuum_cost_limit=2000
+      - -c
+      - autovacuum_vacuum_cost_delay=2ms
+      - -c
+      - autovacuum_vacuum_scale_factor=0.1
+      - -c
+      - autovacuum_analyze_scale_factor=0.05
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s

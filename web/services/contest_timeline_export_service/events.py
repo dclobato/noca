@@ -32,9 +32,10 @@ def build_clarification_events(
     sequence = 0
     ordered = sorted(clarifications, key=lambda item: (item.created_timestamp_seconds, item.created_at, item.id))
     for clarification in ordered:
-        problem = problems_by_id.get(clarification.problem_id)
+        is_general = clarification.problem_id is None
+        problem = problems_by_id.get(clarification.problem_id or "")
         team = users_by_id.get(clarification.team_id)
-        problem_reference = problem_ref(problem)
+        problem_reference = "the contest in general" if is_general else problem_ref(problem)
         if clarification.question == "Announcement":
             events.append(
                 TimelineEvent(
@@ -103,10 +104,10 @@ def build_task_events(
             created_actor = "System"
             if task.type == TaskType.FIRST_BALLOON:
                 created_what = f"First balloon task is issued for {actor_label(team)} on {problem_reference}"
-                finished_what = f"Team gets the first balloon for {problem_reference}"
+                finished_what = f"{actor_label(team)} gets the first balloon for {problem_reference}"
             else:
                 created_what = f"Balloon task is issued for {actor_label(team)} on {problem_reference}"
-                finished_what = f"Team gets a balloon for {problem_reference}"
+                finished_what = f"{actor_label(team)} gets a balloon for {problem_reference}"
         elif task.type == TaskType.PRINT:
             created_actor = actor_label(team)
             created_what = f"Team issues a print task for {problem_reference}"

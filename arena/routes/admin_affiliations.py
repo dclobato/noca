@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_admin
+from arena.image_upload_limits import ARENA_LOGO_MAX_FILE_SIZE
 from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_affiliation_service
@@ -34,8 +35,6 @@ from shared.services.admin_audit import record_admin_action
 from shared.services.imageprocessing_service import ImageProcessingError
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
-
-_LOGO_MAX_FILE_SIZE = 2 * 1024 * 1024
 
 
 def _html(response: Any) -> HTMLResponse:
@@ -308,7 +307,7 @@ async def admin_affiliation_logo(
             processed = await image_service.process_upload_image(
                 upload=foto_cropada,
                 avatar_size=64,
-                max_file_size=_LOGO_MAX_FILE_SIZE,
+                max_file_size=ARENA_LOGO_MAX_FILE_SIZE,
                 crop_aspect_ratio=True,
                 aspect_width=1,
                 aspect_height=1,
@@ -356,6 +355,7 @@ async def admin_affiliation_delete(
         request,
         module="arena",
         actor_user_id=admin.id,
+        actor_label=admin.email_normalizado,
         action="delete",
         target_type="arena_affiliation",
         target_id=affiliation_id,

@@ -25,12 +25,12 @@ class _FakeRuntime:
             raise
 
 
-def _make_event(*, contest_id: str = "contest-1") -> VerdictEvent:
+def _make_event(*, contest_id: str = "contest-1", verdict: str = "AC") -> VerdictEvent:
     return VerdictEvent(
         submission_id="sub-1",
         contest_id=contest_id,
         judgment_id="judgment-1",
-        verdict="AC",
+        verdict=verdict,
         team_id="team-1",
         problem_id="problem-a",
         update_kind="autojudge",
@@ -73,6 +73,7 @@ async def test_heartbeat_does_not_cancel_pending_pubsub_read_and_live_payload_is
     assert json.loads(second_chunk.removeprefix("data: ").strip()) == {
         "kind": "verdict-update",
         "update_kind": "autojudge",
+        "submission_id": "sub-1",
         "team_id": "team-1",
         "problem_id": "problem-a",
         "verdict": "AC",
@@ -109,8 +110,9 @@ async def test_contest_filtering_skips_other_contests() -> None:
 
 
 @pytest.mark.asyncio
-async def test_team_receives_redacted_payload_when_scoreboard_is_frozen() -> None:
-    runtime = _FakeRuntime([_make_event()])
+@pytest.mark.parametrize("verdict", ["AC", "WA"])
+async def test_team_receives_identical_redacted_payloads_when_scoreboard_is_frozen(verdict: str) -> None:
+    runtime = _FakeRuntime([_make_event(verdict=verdict)])
     runtime.ready.set()
 
     async def is_disconnected() -> bool:
@@ -151,6 +153,7 @@ async def test_privileged_role_receives_live_payload_even_when_scoreboard_is_fro
     assert json.loads(chunk.removeprefix("data: ").strip()) == {
         "kind": "verdict-update",
         "update_kind": "autojudge",
+        "submission_id": "sub-1",
         "team_id": "team-1",
         "problem_id": "problem-a",
         "verdict": "AC",
@@ -180,6 +183,7 @@ async def test_judge_receives_live_payload_even_when_scoreboard_is_frozen() -> N
     assert json.loads(chunk.removeprefix("data: ").strip()) == {
         "kind": "verdict-update",
         "update_kind": "autojudge",
+        "submission_id": "sub-1",
         "team_id": "team-1",
         "problem_id": "problem-a",
         "verdict": "AC",

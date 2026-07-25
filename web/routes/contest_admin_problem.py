@@ -557,6 +557,7 @@ async def remove_problem(
         request,
         module="web",
         actor_user_id=ctx.actor.id,
+        actor_label=ctx.actor.username,
         action="delete",
         target_type="contest_problem",
         target_id=pid,

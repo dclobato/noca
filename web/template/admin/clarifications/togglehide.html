@@ -24,7 +24,10 @@
         </div>
         <div class="card shadow-sm mb-4">
             <div class="card-header fw-semibold">
-                Problem {{ problem_map.get(clarification.problem_id, '?') }}
+                {%- if clarification.problem_id %}Problem {{ problem_map.get(clarification.problem_id, '?') }}
+                {% else %}
+                    General clarification
+                {% endif %}
                 {% if clarification.hidden %}<span class="badge bg-secondary ms-2">Currently Hidden</span>{% endif %}
             </div>
             <div class="card-body">

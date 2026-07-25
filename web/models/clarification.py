@@ -23,7 +23,7 @@ class Clarification(Base):
     id: Mapped[str]
     team_id: Mapped[str]
     judge_id: Mapped[str | None]
-    problem_id: Mapped[str]
+    problem_id: Mapped[str | None]
     question: Mapped[str]
     is_contest_public: Mapped[bool]
     answer: Mapped[str | None]
@@ -38,7 +38,7 @@ class Clarification(Base):
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 
-    problem: Mapped[Problem] = relationship(
+    problem: Mapped[Problem | None] = relationship(
         back_populates="clarifications",
         foreign_keys="[Clarification.problem_id]",
     )

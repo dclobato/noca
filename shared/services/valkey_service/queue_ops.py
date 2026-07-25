@@ -24,6 +24,8 @@ from shared.queue_schema import (
     CustomValidatorValidationJob,
     JudgeJob,
     ProfilingJob,
+    SolutionTestJob,
+    SubmissionEvent,
     VerdictEvent,
 )
 from shared.services.valkey_service.constants import (
@@ -39,6 +41,7 @@ from shared.services.valkey_service.constants import (
     QUEUE_PRIORITY_KEY,
     QUEUE_PROFILING_KEY,
     QUEUE_RESULTS_CHANNEL,
+    QUEUE_SUBMISSIONS_CHANNEL,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,6 +83,26 @@ async def enqueue_profiling_job_with_client(client: aivalkey.Valkey, job: Profil
     pipe = client.pipeline()
     pipe.hset(job_key, mapping=job_mapping)
     pipe.lpush(QUEUE_PROFILING_KEY, job.profiling_run_id)
+    await pipe.execute()
+
+
+async def enqueue_solution_test_job_with_client(
+    client: aivalkey.Valkey, job: SolutionTestJob, *, priority: bool
+) -> None:
+    """Store a SolutionTestJob hash and push its run id onto the proper queue list.
+
+    Solution tests share the contestant queues and the ``priority=contest.is_running``
+    rule, so staff testing competes for judge capacity exactly like a real submission.
+    """
+    queue_key = QUEUE_PRIORITY_KEY if priority else QUEUE_PENDING_KEY
+    job_key = f"{QUEUE_JOB_HASH_PREFIX}:{job.solution_test_run_id}"
+    job_mapping = {
+        key: str(value).lower() if isinstance(value, bool) else str(value)
+        for key, value in job.model_dump(mode="python", exclude_none=True).items()
+    }
+    pipe = client.pipeline()
+    pipe.hset(job_key, mapping=job_mapping)
+    pipe.lpush(queue_key, job.solution_test_run_id)
     await pipe.execute()
 
 
@@ -267,6 +290,14 @@ async def publish_verdict_with_client(client: aivalkey.Valkey, event: VerdictEve
     )
 
 
+async def publish_submission_with_client(client: aivalkey.Valkey, event: SubmissionEvent) -> None:
+    """Publish a SubmissionEvent to the Valkey pub/sub submissions channel."""
+    await client.publish(
+        QUEUE_SUBMISSIONS_CHANNEL,
+        event.model_dump_json(),
+    )
+
+
 async def publish_arena_verdict_with_client(client: aivalkey.Valkey, event: ArenaVerdictEvent) -> None:
     """Publish an ArenaVerdictEvent to the Valkey Arena pub/sub results channel."""
     await client.publish(
@@ -293,6 +324,18 @@ async def enqueue_profiling_job(client_or_runtime: aivalkey.Valkey | object, job
         await client_or_runtime.enqueue_profiling_job(job)
         return
     await enqueue_profiling_job_with_client(cast(aivalkey.Valkey, client_or_runtime), job)
+
+
+async def enqueue_solution_test_job(
+    client_or_runtime: aivalkey.Valkey | object, job: SolutionTestJob, *, priority: bool
+) -> None:
+    """Enqueue a non-scoring solution-test run for processing."""
+    from shared.services.valkey_service.runtime import ValkeyRuntime
+
+    if isinstance(client_or_runtime, ValkeyRuntime):
+        await client_or_runtime.enqueue_solution_test_job(job, priority=priority)
+        return
+    await enqueue_solution_test_job_with_client(cast(aivalkey.Valkey, client_or_runtime), job, priority=priority)
 
 
 async def enqueue_custom_validator_validation_job(
@@ -352,6 +395,25 @@ async def publish_verdict(client_or_runtime: aivalkey.Valkey | object, event: Ve
         logger.error("Failed to publish verdict event")
         logger.error(
             json.dumps({"submission_id": event.submission_id, "verdict": event.verdict, "error": str(exc)}, indent=2)
+        )
+
+
+async def publish_submission(client_or_runtime: aivalkey.Valkey | object, event: SubmissionEvent) -> None:
+    """Publish a SubmissionEvent to the pub/sub submissions channel."""
+    from shared.services.valkey_service.runtime import ValkeyRuntime
+
+    if isinstance(client_or_runtime, ValkeyRuntime):
+        await client_or_runtime.publish_submission(event)
+        return
+    try:
+        await publish_submission_with_client(cast(aivalkey.Valkey, client_or_runtime), event)
+    except Exception as exc:
+        logger.error("Failed to publish submission event")
+        logger.error(
+            json.dumps(
+                {"submission_id": event.submission_id, "contest_id": event.contest_id, "error": str(exc)},
+                indent=2,
+            )
         )
 
 

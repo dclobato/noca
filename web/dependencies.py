@@ -139,8 +139,8 @@ async def get_visible_user(
 
 
 @dataclass
-class UserPhotoContext:
-    """Resolved actor/target context for user photo and avatar routes.
+class UserMediaContext:
+    """Resolved actor/target context for user media routes.
 
     Args:
         actor: Authenticated actor viewing or mutating the target user's image.
@@ -165,12 +165,12 @@ class UserPhotoContext:
     is_self: bool
 
 
-async def get_user_photo_context(
+async def get_user_media_context(
     request: Request,
     user_id: str,
     session: AsyncSession = Depends(get_db),
-) -> UserPhotoContext:
-    """Resolve the actor and target user for photo and avatar access.
+) -> UserMediaContext:
+    """Resolve the actor and target user for media access.
 
     Args:
         request: Incoming FastAPI request carrying the auth cookie.
@@ -178,7 +178,7 @@ async def get_user_photo_context(
         session: Database session used to load the actor and target user.
 
     Returns:
-        A `UserPhotoContext` describing the authenticated actor and target user.
+        A `UserMediaContext` describing the authenticated actor and target user.
 
     Raises:
         HTTPException: With status code `404` when the target user does not
@@ -199,7 +199,7 @@ async def get_user_photo_context(
         assert isinstance(actor, User)
         if target_user.contest_id != actor.contest_id:
             raise HTTPException(status_code=403)
-    return UserPhotoContext(
+    return UserMediaContext(
         actor=actor,
         target_user=target_user,
         is_uberadmin=is_uberadmin,

@@ -6,7 +6,13 @@
 
 """Image processing service package."""
 
-from .models import ImageBasicMetadata, ImageProcessingConfig, ImageProcessingError, ImageProcessingResult
+from .models import (
+    MAX_IMAGE_FILE_SIZE,
+    ImageBasicMetadata,
+    ImageProcessingConfig,
+    ImageProcessingError,
+    ImageProcessingResult,
+)
 from .service import ImageProcessingService
 
 __all__ = [
@@ -15,4 +21,5 @@ __all__ = [
     "ImageProcessingError",
     "ImageProcessingResult",
     "ImageProcessingService",
+    "MAX_IMAGE_FILE_SIZE",
 ]

@@ -32,18 +32,10 @@ async def submit_new(
     assert isinstance(ctx.actor, User)
     slug = ctx.contest.login_slug
 
-    errors: list[str] = []
     question_stripped = question.strip()
-    problem_id_stripped = problem_id.strip()
 
     if not question_stripped:
-        errors.append("Question is required and cannot be blank.")
-    if not problem_id_stripped:
-        errors.append("A problem must be selected.")
-
-    if errors:
-        for err in errors:
-            flash(err, FlashCategory.DANGER)
+        flash("Question is required and cannot be blank.", FlashCategory.DANGER)
         return RedirectResponse(url=f"/c/{slug}/clarifications/", status_code=303)
 
     try:
@@ -51,7 +43,7 @@ async def submit_new(
             ctx.session,
             ctx.contest,
             ctx.actor,
-            problem_id=problem_id_stripped,
+            problem_id=problem_id.strip() or None,
             question=question_stripped,
         )
         await ctx.session.commit()
@@ -83,15 +75,8 @@ async def submit_announcement(
     assert isinstance(ctx.actor, User)
     slug = ctx.contest.login_slug
 
-    errors: list[str] = []
     if not announcement.strip():
-        errors.append("Announcement text is required and cannot be blank.")
-    if not problem_id.strip():
-        errors.append("A problem must be selected.")
-
-    if errors:
-        for err in errors:
-            flash(err, FlashCategory.DANGER)
+        flash("Announcement text is required and cannot be blank.", FlashCategory.DANGER)
         return RedirectResponse(url=f"/c/{slug}/clarifications/", status_code=303)
 
     try:
@@ -99,7 +84,7 @@ async def submit_announcement(
             ctx.session,
             ctx.contest,
             ctx.actor,
-            problem_id=problem_id.strip(),
+            problem_id=problem_id.strip() or None,
             announcement=announcement,
         )
         await ctx.session.commit()

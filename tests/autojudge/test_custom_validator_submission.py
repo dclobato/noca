@@ -63,6 +63,7 @@ async def _run(
     domain: str = "contest",
     user_language_id: str = "python3",
     per_language_limits: dict[str, ProblemLimits] | None = None,
+    attempt_target: str = "submission",
 ) -> tuple[InteractiveAttemptResult | None, CompileResult | None]:
     """Run the interactive judgment over ``test_cases`` (one case by default)."""
     return await service.run_custom_validator_submission(
@@ -81,6 +82,7 @@ async def _run(
         prepared=_prepared(),
         user_language_id=user_language_id,
         per_language_limits=per_language_limits,
+        attempt_target=attempt_target,  # type: ignore[arg-type]
     )
 
 
@@ -333,3 +335,56 @@ async def test_resource_usage_is_the_worst_across_executed_cases(monkeypatch) ->
 async def test_a_problem_without_test_cases_cannot_be_judged() -> None:
     with pytest.raises(CustomValidatorUnavailableError):
         await _run(pool=AsyncMock(), db=AsyncMock(), test_cases=[])
+
+
+@pytest.mark.asyncio
+async def test_attempt_target_defaults_to_submission(monkeypatch) -> None:
+    """The rename to `owner_id` must leave the real submission path unchanged.
+
+    Every existing caller relies on this default, so a drift here would silently
+    reroute real contestants' interactive attempts.
+    """
+    monkeypatch.setattr(service, "run_docker_interaction", AsyncMock(side_effect=[_result(Verdict.AC)]))
+    monkeypatch.setattr(service, "prepare_interactive_containers", AsyncMock())
+    pool = AsyncMock()
+    pool.acquire.side_effect = ["c1", "v1"]
+    db = AsyncMock()
+
+    await _run(pool=pool, db=db)
+
+    kwargs = db.insert_interactive_attempt.await_args.kwargs
+    assert kwargs["attempt_target"] == "submission"
+    assert kwargs["owner_id"] == "judgment"
+    assert kwargs["domain"] == "contest"
+
+
+@pytest.mark.asyncio
+async def test_attempt_target_is_threaded_through_the_real_replay_loop(monkeypatch) -> None:
+    """A solution test drives this same production loop, not a stand-in.
+
+    `domain` still selects the contest validator schema; `attempt_target` is the
+    independent axis choosing which table family owns the attempts.
+    """
+    run = AsyncMock(side_effect=[_result(Verdict.AC), _result(Verdict.WA)])
+    monkeypatch.setattr(service, "run_docker_interaction", run)
+    monkeypatch.setattr(service, "prepare_interactive_containers", AsyncMock())
+    pool = AsyncMock()
+    pool.acquire.side_effect = ["c1", "v1"]
+    db = AsyncMock()
+
+    result, _ = await _run(
+        pool=pool,
+        db=db,
+        test_cases=[(1, b"a\n"), (2, b"b\n"), (3, b"c\n")],
+        attempt_target="solution_test",
+    )
+
+    # Stop-on-first-non-AC, proven against the production loop.
+    assert result is not None and result.classification.verdict == Verdict.WA
+    assert run.await_count == 2
+
+    calls = db.insert_interactive_attempt.await_args_list
+    assert [call.kwargs["test_case_ordinal"] for call in calls] == [1, 2]
+    assert all(call.kwargs["attempt_target"] == "solution_test" for call in calls)
+    assert all(call.kwargs["domain"] == "contest" for call in calls)
+    assert all(call.kwargs["owner_id"] == "judgment" for call in calls)

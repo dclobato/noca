@@ -293,6 +293,7 @@ An optional illustration shown below the statement.
 ### Supported formats
 | Extension | MIME type |
 | --- | --- |
+| `gif` | `image/gif` |
 | `png` | `image/png` |
 | `jpg` / `jpeg` | `image/jpeg` |
 | `webp` | `image/webp` |
@@ -300,7 +301,11 @@ The MIME map is the single source of truth: `shared/services/problem_image.py` d
 `MIME_TO_EXT` and `EXT_TO_MIME`.
 ### Rules
 - Maximum size: **2 MiB** (`MAX_PROBLEM_IMAGE_BYTES = 2 * 1024 * 1024`).
-- The file is validated through `ImageProcessingService.process_base64` (resizes/strips metadata).
+- Maximum dimensions: **2048 × 2048 pixels** (`MAX_PROBLEM_IMAGE_WIDTH` and
+  `MAX_PROBLEM_IMAGE_HEIGHT`). These fixed dimensions keep packages portable
+  between deployments with different general image settings.
+- The file is validated and re-encoded through `ImageProcessingService.process_base64`.
+- Animated GIF frames and timing are preserved during re-encoding.
 - When `problem.json.image` names a specific file, that file **must exist** in the archive —
 otherwise import fails with `"problem.json references image '...' which is not present in the ZIP."`.
 - When `problem.json.image` is absent, the loader auto-detects the first root-level file whose
@@ -503,6 +508,8 @@ empty string is treated as null.
 | `MAX_TESTCASES` | 1000 | `shared/tc_zip.py` |
 | `MAX_INLINE_TESTCASE_BYTES` | 10 KiB | `shared/tc_zip.py` (textarea editing gate only) |
 | `MAX_PROBLEM_IMAGE_BYTES` | 2 MiB | `shared/services/problem_image.py` |
+| `MAX_PROBLEM_IMAGE_WIDTH` | 2048 pixels | `shared/services/problem_image.py` |
+| `MAX_PROBLEM_IMAGE_HEIGHT` | 2048 pixels | `shared/services/problem_image.py` |
 | `MAX_CUSTOM_VALIDATOR_SOURCE_BYTES` | 256 KiB | `shared/services/custom_validator.py` |
 | `MAX_CUSTOM_VALIDATOR_COMPILE_LOG_CHARS` | 16 384 | `shared/services/custom_validator.py` |
 | `MAX_SAMPLE_INTERACTIONS` | 5 | `shared/services/sample_interactions.py` |

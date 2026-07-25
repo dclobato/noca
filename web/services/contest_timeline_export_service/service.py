@@ -77,8 +77,8 @@ async def build_contest_timeline_report(
         (
             await session.execute(
                 select(Clarification)
-                .join(Problem, Clarification.problem_id == Problem.id)
-                .where(Problem.contest_id == contest.id)
+                .join(User, Clarification.team_id == User.id)
+                .where(User.contest_id == contest.id)
                 .order_by(Clarification.created_timestamp_seconds, Clarification.created_at, Clarification.id)
             )
         )

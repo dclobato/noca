@@ -1,4 +1,4 @@
-{% macro contest_tile(contest, badge_label=None, badge_class=None, btn_class=None, show_login=True, show_languages=True, show_uberadmin_access=False, show_deactivate=False, width=None) %}
+{% macro contest_tile(contest, badge_label=None, badge_class=None, btn_class=None, show_login=True, show_languages=True, show_uberadmin_access=False, show_deactivate=False, show_export=False, show_remove=False, width=None) %}
     <div class="{{ 'col-12 col-md-6 col-lg-4' if width is none else width }}">
         <div class="card shadow-sm h-100">
             <div class="card-body d-flex flex-column">
@@ -34,6 +34,10 @@
                     <div class="mt-1 d-flex flex-wrap gap-2">
                         <a href="{{ request.url_for('view', slug=contest.login_slug) }}"
                            class="btn btn-outline-secondary btn-xs py-0 px-1 small">Administration</a>
+                        {% if show_export %}
+                            <a href="{{ request.url_for('uberadmin_export_contest_form', contest_id=contest.id) }}"
+                               class="btn btn-outline-secondary btn-xs py-0 px-1 small">Export</a>
+                        {% endif %}
                         {% if show_deactivate %}
                             <form method="post"
                                   action="{{ request.url_for('uberadmin_deactivate_contest', contest_id=contest.id) }}"
@@ -42,8 +46,59 @@
                             </form>
                         {% endif %}
                     </div>
+                {% elif show_export %}
+                    <div class="mt-1 d-flex flex-wrap gap-2">
+                        <a href="{{ request.url_for('uberadmin_export_contest_form', contest_id=contest.id) }}"
+                           class="btn btn-outline-secondary btn-xs py-0 px-1 small">Export</a>
+                        {% if show_remove %}
+                            <button type="button"
+                                    class="btn btn-outline-danger btn-xs py-0 px-1 small"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#remove-contest-{{ contest.id }}">Remove</button>
+                        {% endif %}
+                    </div>
                 {% endif %}
             </div>
         </div>
     </div>
+    {% if show_remove %}
+        <div class="modal fade"
+             id="remove-contest-{{ contest.id }}"
+             tabindex="-1"
+             aria-labelledby="remove-contest-title-{{ contest.id }}"
+             aria-describedby="remove-contest-warning-{{ contest.id }}"
+             aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <form method="post"
+                          action="{{ request.url_for('uberadmin_remove_contest', contest_id=contest.id) }}">
+                        <div class="modal-header">
+                            <h2 class="modal-title fs-5" id="remove-contest-title-{{ contest.id }}">Remove {{ contest.contest_name }}?</h2>
+                            <button type="button"
+                                    class="btn-close"
+                                    data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p id="remove-contest-warning-{{ contest.id }}"
+                               class="text-danger fw-semibold">
+                                This permanently removes the contest and all of its data. This action cannot be undone.
+                            </p>
+                            <label for="remove-contest-password-{{ contest.id }}" class="form-label">Current UberAdmin password</label>
+                            <input type="password"
+                                   class="form-control"
+                                   id="remove-contest-password-{{ contest.id }}"
+                                   name="password"
+                                   autocomplete="current-password"
+                                   required>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-danger">Remove permanently</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    {% endif %}
 {% endmacro %}

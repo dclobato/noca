@@ -44,8 +44,48 @@
     width: 8rem;
 }
 
+.noca-col-9 {
+    width: 9rem;
+}
+
 .noca-col-12 {
     width: 12rem;
+}
+
+.noca-col-14 {
+    width: 14rem;
+}
+
+/*
+ * Fixed-width table: every column carries a .noca-col-* width except one,
+ * which is left unsized and absorbs the remaining width (Runs: team name).
+ */
+.noca-fixed-table {
+    table-layout: fixed;
+    width: 100%;
+}
+
+.noca-fixed-table th,
+.noca-fixed-table td {
+    overflow-wrap: anywhere;
+}
+
+/* Problem legend (Reports): up to 3 problems per line */
+.noca-legend-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem 1.5rem;
+    max-width: 48rem;
+}
+
+/* Narrow, wrapping team-name column (Reports: Runs by Team and Problem) */
+.noca-team-name {
+    width: 25rem;
+    min-width: 25rem;
+    max-width: 25rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .noca-limits-divider {
@@ -57,6 +97,12 @@
 .noca-counters-chart {
     width: 100%;
     height: 7rem;
+}
+
+.noca-reports-time-chart {
+    width: 100%;
+    min-width: 0;
+    height: 21.875rem;
 }
 
 /* Edit Metadata — section group headings */
@@ -78,4 +124,20 @@
 
 [aria-expanded="false"] .noca-collapse-caret {
     transform: rotate(-90deg);
+}
+
+/* Server-side sortable column headers — see _macros.html `sort_link` */
+.noca-sort-icon {
+    font-size: 1rem;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+.noca-sort-icon--idle {
+    opacity: 0.28;
+}
+
+.noca-sort-icon--active {
+    color: var(--bs-primary);
+    opacity: 1;
 }

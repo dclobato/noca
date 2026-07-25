@@ -21,7 +21,12 @@
             <p class="text-muted mb-0">{{ contest.contest_name }}</p>
         </div>
         <div class="card shadow-sm mb-4">
-            <div class="card-header fw-semibold">Problem {{ problem_map.get(clarification.problem_id, '?') }}</div>
+            <div class="card-header fw-semibold">
+                {%- if clarification.problem_id %}Problem {{ problem_map.get(clarification.problem_id, '?') }}
+                {% else %}
+                    General clarification
+                {% endif -%}
+            </div>
             <div class="card-body">
                 <div class="fw-semibold text-muted small mb-1">Question</div>
                 <pre class="bg-light p-3 rounded small text-wrap mb-2">{{ clarification.question }}</pre>

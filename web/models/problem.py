@@ -265,6 +265,7 @@ class ProfilingRun(Base):
     status: Mapped[ProfilingStatus]
     safety_factor: Mapped[float]
     worker_id: Mapped[str | None]
+    attempt_token: Mapped[str | None]
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
     error_message: Mapped[str | None]

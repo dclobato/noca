@@ -38,24 +38,79 @@ from .errors import (
 from .permissions import can_answer_clarifications, can_force_release_clarifications
 
 
+async def _require_contest_problem(session: AsyncSession, contest: Contest, problem_id: str | None) -> None:
+    """Validate that *problem_id*, when given, belongs to *contest*.
+
+    Args:
+        session: Active database session.
+        contest: Contest the problem must belong to.
+        problem_id: Problem identifier, or ``None`` for a general clarification.
+
+    Raises:
+        ValueError: If the problem does not belong to the contest.
+    """
+    if problem_id is None:
+        return
+    result = await session.execute(select(Problem).where(Problem.id == problem_id, Problem.contest_id == contest.id))
+    if result.scalar_one_or_none() is None:
+        raise ValueError(f"Problem '{problem_id}' not found in contest '{contest.id}'.")
+
+
+async def _resolve_clarification_contest(session: AsyncSession, clarification: Clarification) -> Contest | None:
+    """Resolve the contest a clarification belongs to.
+
+    General clarifications carry no problem, so the contest is resolved through the
+    author user, which is always contest-scoped.
+
+    Args:
+        session: Active database session.
+        clarification: Clarification to resolve.
+
+    Returns:
+        The owning contest, or ``None`` when it cannot be resolved.
+    """
+    if clarification.problem_id is not None:
+        problem = await session.get(Problem, clarification.problem_id)
+        if problem is not None:
+            return await session.get(Contest, problem.contest_id)
+    author = await session.get(User, clarification.team_id)
+    if author is None or author.contest_id is None:
+        return None
+    return await session.get(Contest, author.contest_id)
+
+
 async def create_clarification(
     session: AsyncSession,
     contest: Contest,
     actor: User,
     *,
-    problem_id: str,
+    problem_id: str | None,
     question: str,
 ) -> Clarification:
-    """Create a new clarification on behalf of a team."""
+    """Create a new clarification on behalf of a team.
+
+    Args:
+        session: Active database session.
+        contest: Contest the clarification belongs to.
+        actor: Team submitting the question.
+        problem_id: Problem the question is about, or ``None`` for a general
+            contest-wide clarification.
+        question: Question text.
+
+    Returns:
+        The created clarification.
+
+    Raises:
+        ContestNotRunningError: If the contest is not running.
+        ForbiddenClarificationActionError: If the actor is not a team.
+        ValueError: If *problem_id* does not belong to the contest.
+    """
     if not contest.is_running:
         raise ContestNotRunningError("Clarifications can only be requested while the contest is running.")
     if actor.role != RoleEnum.TEAM:
         raise ForbiddenClarificationActionError("Only team members may submit clarifications.")
 
-    result = await session.execute(select(Problem).where(Problem.id == problem_id, Problem.contest_id == contest.id))
-    problem = result.scalar_one_or_none()
-    if problem is None:
-        raise ValueError(f"Problem '{problem_id}' not found in contest '{contest.id}'.")
+    await _require_contest_problem(session, contest, problem_id)
 
     now = _utcnow()
     clarification = Clarification(
@@ -194,18 +249,33 @@ async def create_announcement(
     contest: Contest,
     actor: User,
     *,
-    problem_id: str,
+    problem_id: str | None,
     announcement: str,
 ) -> Clarification:
-    """Create a public announcement as a clarification initiated by a judge or admin."""
+    """Create a public announcement as a clarification initiated by a judge or admin.
+
+    Args:
+        session: Active database session.
+        contest: Contest the announcement belongs to.
+        actor: Judge or admin publishing the announcement.
+        problem_id: Problem the announcement is about, or ``None`` for a general
+            contest-wide announcement.
+        announcement: Announcement text.
+
+    Returns:
+        The created, already-answered clarification.
+
+    Raises:
+        ContestNotRunningError: If the contest is not running.
+        ForbiddenClarificationActionError: If the actor is neither judge nor admin.
+        ValueError: If *problem_id* does not belong to the contest.
+    """
     if not contest.is_running:
         raise ContestNotRunningError("Announcements can only be created while the contest is running.")
     if actor.role not in (RoleEnum.ADMIN, RoleEnum.JUDGE):
         raise ForbiddenClarificationActionError("Only admins and judges may create announcements.")
 
-    result = await session.execute(select(Problem).where(Problem.id == problem_id, Problem.contest_id == contest.id))
-    if result.scalar_one_or_none() is None:
-        raise ValueError(f"Problem '{problem_id}' not found in contest '{contest.id}'.")
+    await _require_contest_problem(session, contest, problem_id)
 
     now = _utcnow()
     clarification = Clarification(
@@ -240,8 +310,7 @@ async def toggle_hidden_clarification(
             "Only judges, admins, and UberAdmins may hide or unhide clarifications."
         )
 
-    problem = await session.get(Problem, clarification.problem_id) if clarification.problem_id else None
-    contest = await session.get(Contest, problem.contest_id) if problem is not None else None
+    contest = await _resolve_clarification_contest(session, clarification)
 
     if not clarification.hidden:
         now = _utcnow()

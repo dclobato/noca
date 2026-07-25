@@ -17,7 +17,7 @@ from shared.timing import compute_timestamp_seconds
 from web.models._base import _utcnow
 from web.models.clarification import Clarification
 from web.models.contest import Contest
-from web.models.problem import Problem
+from web.models.users import User
 from web.services.reaper_runner import run_reaper_loop
 
 AUTO_ANSWER_PLACEHOLDER = "Contest ended before this clarification was answered."
@@ -27,12 +27,16 @@ async def conclude_finished_contest_clarifications(
     session: AsyncSession,
     now: datetime.datetime | None = None,
 ) -> int:
-    """Auto-answer still-open clarifications for contests that have already ended."""
+    """Auto-answer still-open clarifications for contests that have already ended.
+
+    The contest is resolved through the clarification author, which is always
+    contest-scoped, so general clarifications with no problem are covered too.
+    """
     current_time = now or _utcnow()
     result = await session.execute(
         select(Clarification, Contest)
-        .join(Problem, Clarification.problem_id == Problem.id)
-        .join(Contest, Problem.contest_id == Contest.id)
+        .join(User, Clarification.team_id == User.id)
+        .join(Contest, User.contest_id == Contest.id)
         .where(
             Clarification.answered_at.is_(None),
             Clarification.hidden.is_(False),

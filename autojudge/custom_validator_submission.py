@@ -19,6 +19,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass, replace
+from typing import Literal
 
 import docker
 
@@ -213,6 +214,8 @@ async def _judge_test_case(
     *,
     domain: str,
     judgment_id: str,
+    attempt_target: Literal["submission", "solution_test"],
+    attempt_token: str | None,
     ordinal: int,
     testcase_input: bytes,
     containers: _ContainerPair,
@@ -251,10 +254,12 @@ async def _judge_test_case(
         # retains the attempts of the last executed case.
         await db.insert_interactive_attempt(
             domain=domain,
-            judgment_id=judgment_id,
+            owner_id=judgment_id,
             attempt_number=attempt_number,
             test_case_ordinal=ordinal,
             result=result,
+            attempt_target=attempt_target,
+            attempt_token=attempt_token,
         )
         if not result.classification.retryable_validator_failure:
             break
@@ -280,12 +285,19 @@ async def run_custom_validator_submission(
     prepared: PreparedCustomValidator | None,
     user_language_id: str,
     per_language_limits: dict[str, ProblemLimits] | None = None,
+    attempt_target: Literal["submission", "solution_test"] = "submission",
+    attempt_token: str | None = None,
 ) -> tuple[InteractiveAttemptResult | None, CompileResult | None]:
     """Replay the validator once per test case until one does not end ``AC``.
 
     Args:
         test_cases: Ordered ``(ordinal, input_bytes)`` cases parametrizing the
             validator. Must not be empty; callers gate that before dispatching.
+        attempt_target: Whether the recorded attempts belong to a real judgment
+            or to a non-scoring solution-test run. Independent of ``domain``,
+            which selects the contest-vs-arena validator schema.
+        attempt_token: Claim stamped by this attempt's dispatch, so a transcript
+            is only recorded while this attempt still owns the judgment.
 
     Returns:
         The last executed case's result, carrying the worst wall time and memory
@@ -325,6 +337,8 @@ async def run_custom_validator_submission(
             result = await _judge_test_case(
                 domain=domain,
                 judgment_id=judgment_id,
+                attempt_target=attempt_target,
+                attempt_token=attempt_token,
                 ordinal=ordinal,
                 testcase_input=testcase_input,
                 containers=containers,

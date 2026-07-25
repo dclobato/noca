@@ -1,0 +1,195 @@
+# IX InterIF 2026 - Fase Local final scoreboard ground truth
+# Source: FinalScore_IXInterIF-FaseLocal.pdf
+final_position	team	site	fullname	problems_solved	total_time_minutes
+1	teamslt7	SLT	nunca foi sort()	6	293
+2	teambrt7	BRT	Esquecemos o ;	6	412
+3	teamsmp3	SMP	MaratonIF	6	533
+4	teamsmp8	SMP	TriTry	5	208
+5	teambrt10	BRT	magic fingers	5	295
+6	teamslt9	SLT	rivo trio	5	341
+7	teambri5	BRI	Calma CalabresoCompiler	5	408
+8	teamgru1	GRU	100.py	5	477
+9	teamspo7	SPO	C418	4	116
+10	teambri26	BRI	Saudadescreverson	4	130
+11	teampep4	PEP	pythonLovers	4	162
+12	teamscl6	SCL	IFerno	4	223
+13	teamprc5	PRC	Lambda no C#	4	230
+14	teamarq3	ARQ	Dedo no C#	4	245
+15	teamslt3	SLT	C++ da SilvaJunior	4	272
+16	teamprc8	PRC	random	4	288
+17	teamspo18	SPO	País dasMaravilhas	4	299
+18	teamspo15	SPO	Lambdinha	4	333
+19	teamspo10	SPO	ChroniLag	4	339
+20	teamspo4	SPO	Basqueteiros	4	400
+21	teamarq10	ARQ	Rubber Duck	4	448
+22	teambri29	BRI	The End ofBanheirão dos Campeões	3	31
+23	teamarq6	ARQ	Lambdinha no C#	3	42
+24	teambrt14	BRT	Receba.cpp	3	42
+25	teamarq13	ARQ	Trabalhando comc#	3	48
+26	teambri19	BRI	Namorados doKauan do Nascimento	3	52
+27	teambri25	BRI	Quadrilha Junina	3	55
+28	teamcar5	CAR	No meu funciona	3	56
+29	teamscl1	SCL	baguga ou morte:longe de casa	3	56
+30	teamsjp2	SJP	As meninas e oSaldanha	3	58
+31	teamscl11	SCL	Pylantras	3	59
+32	teamhto2	HTO	I have no memoryand I must Java	3	61
+33	teamscl4	SCL	Debug Queens	3	62
+34	teamscl2	SCL	birronda	3	66
+35	teamspo20	SPO	Vermelhinautas	3	71
+36	teamscl9	SCL	Margarets	3	78
+37	teamarq2	ARQ	Coda e dorme	3	79
+38	teambra6	BRA	NO PRÓXIMO PITSTOP DO MALUCO EM VEZ DEFAZER KATCHAU ELE VAI FAZERKABOOM	3	85
+39	teamsjp5	SJP	Erro 404	3	87
+40	teamscl12	SCL	The Sampas	3	89
+41	teamprc3	PRC	Byte que pariu	3	90
+42	teamsjp1	SJP	017 Coders	3	97
+43	teamspo19	SPO	Power Rangers	3	98
+44	teamctd3	CTD	Devs212	3	103
+45	teambri18	BRI	Kauan&Cia	3	113
+46	teamcar6	CAR	Os Piás	3	114
+47	teamptb7	PTB	Trio Monstro	3	119
+48	teambri3	BRI	C Pussy Pussy	3	122
+49	teamcbt5	CBT	LINQin Park	3	125
+50	teamsjp13	SJP	TriGÊN!AS³	3	130
+51	teamspo16	SPO	Os Lindux	3	135
+52	teamarq1	ARQ	Belizos	3	142
+53	teamcmp8	CMP	MMJ	3	148
+54	teamptb1	PTB	AtléticoJavaense	3	148
+55	teamsjp11	SJP	Shadow Bytes	3	148
+56	teamscl7	SCL	Inominia	3	149
+57	teambrt5	BRT	computaria	3	151
+58	teamjcr2	JCR	Equipe 404	3	160
+59	teamjcr1	JCR	Danadinhos	3	165
+60	teamspo2	SPO	aPYxonados	3	167
+61	teamcjo4	CJO	Espada de SãoJorge	3	177
+62	teambri23	BRI	Pikacodes	3	177
+63	teamitp3	ITP	GarbageCollectors	3	179
+64	teambrt15	BRT	The Papaleguas	3	181
+65	teamsmp7	SMP	Three Stack	3	183
+66	teamarq5	ARQ	GrandePython	3	184
+67	teamcjo5	CJO	NCT - NeoComputer Technician	3	185
+68	teamarq7	ARQ	Py Tá On	3	186
+69	teamspo3	SPO	Atlas.jar	3	188
+70	teamscl3	SCL	C2R	3	189
+71	teamcbt6	CBT	Maniac# doparque	3	189
+72	teamscl10	SCL	Os Gato Pingado	3	196
+73	teamspo5	SPO	Beletti TEAMAMOS	3	200
+74	teamslt4	SLT	codicem promoveo	3	205
+75	teamprc2	PRC	404: Time nãoencontrado	3	211
+76	teamspo6	SPO	C# Trancado	3	214
+77	teamsjp4	SJP	Código de Elite\\_(67)_/	3	219
+78	teamsjp12	SJP	Tanabienses	3	225
+79	teamprc6	PRC	O PY TA ON	3	231
+80	teamcbt3	CBT	Compilados	3	232
+81	teambri21	BRI	Os cagatrons	3	243
+82	teamcjo2	CJO	Carrapatos 67	3	251
+83	teambri4	BRI	caBRItos	3	253
+84	teamscl5	SCL	Girls just wannacode	3	256
+85	teambri12	BRI	Engineer'sComPorty	3	265
+86	teampep1	PEP	Bug Busters	3	266
+87	teamhto1	HTO	Haters de CSharp	3	278
+88	teamprc7	PRC	Querytrancar.com	3	284
+89	teamitp1	ITP	C - -	3	287
+90	teamctd9	CTD	SegmentationFault	3	289
+91	teamspo21	SPO	Voleygrammer	3	290
+92	teamctd11	CTD	Tcheka && Vara	3	297
+93	teamgru2	GRU	Anomalia	3	297
+94	teambri9	BRI	Compila Depois	3	345
+95	teamcar2	CAR	GoHorseDevs	3	346
+96	teamslt10	SLT	Turma doThiaguinho	3	346
+97	teamsjp6	SJP	Estrelas do IF	3	363
+98	teamjcr4	JCR	Vibe Goats	3	364
+99	teamcbt2	CBT	404 Team NotFound	3	368
+100	teambri1	BRI	404 team notfound	3	371
+101	teamsjp7	SJP	JJA	3	377
+102	teamcbt8	CBT	Os Descritores	3	388
+103	teamspo14	SPO	Invencíveis	3	417
+104	teamitq1	ITQ	Mecanimais	3	420
+105	teambri22	BRI	PartidoRecursivo	3	442
+106	teamsjp14	SJP	TRIVIUM	3	481
+107	teamcar4	CAR	Michaelsoft	3	510
+108	teamptb6	PTB	Python e seusAmigos	3	761
+109	teambrt6	BRT	div.girls	2	29
+110	teambrt2	BRT	BIRIGUBINHOS	2	34
+111	teamscl8	SCL	Jogando noEscuro	2	40
+112	teamcar8	CAR	Ponto e Vírgula	2	40
+113	teamsjp10	SJP	Os Flintstones	2	54
+114	teamspo8	SPO	cameloCasos	2	57
+115	teambri7	BRI	Claude Code Team	2	58
+116	teamhto6	HTO	Works on my PC	2	59
+117	teamslt1	SLT	Bruxo Travells	2	61
+118	teambrt1	BRT	Bazinga	2	63
+119	teamsjp8	SJP	liga das 3	2	65
+120	teamarq11	ARQ	Spaghetti code-arq	2	77
+121	teamsmp1	SMP	<inserir texto>	2	77
+122	teambrt9	BRT	Juca xaves	2	84
+123	teambri20	BRI	O Py Tha On!	2	87
+124	teamslt8	SLT	Os -(menosmenos)	2	91
+125	teamarq8	ARQ	PyTrio	2	91
+126	teambrt16	BRT	XIKI-XIKI	2	92
+127	teamspo17	SPO	Os Mono Bolas	2	92
+128	teamctd6	CTD	JovensTranquilões	2	92
+129	teambrt4	BRT	C++angaceiros	2	97
+130	teamhto4	HTO	Mentes em bug	2	104
+131	teamcmp2	CMP	Brandhane	2	106
+132	teambrt13	BRT	Quantum Code	2	109
+133	teamctd8	CTD	Reza_Coders_CTD	2	115
+134	teamctd5	CTD	Final_Time_CTD	2	118
+135	teamsjp9	SJP	Luz do Luar	2	124
+136	teamarq4	ARQ	Girls da TI	2	126
+137	teamhto3	HTO	JAVAmos embora	2	131
+138	teambri14	BRI	gjs.guide	2	134
+139	teamcar9	CAR	Pythonismo	2	135
+140	teambra3	BRA	CafeComLinguica	2	137
+141	teamprc9	PRC	Runtime Error	2	140
+142	teamgru7	GRU	Queens	2	141
+143	teamsmp4	SMP	Red Code	2	142
+144	teampep2	PEP	Code Girls	2	142
+145	teambri28	BRI	Teiús	2	146
+146	teamgru5	GRU	Equipe CÃO	2	150
+147	teambri8	BRI	Code (in)perfect	2	156
+148	teamcar1	CAR	CarmoDevs	2	158
+149	teambra10	BRA	PYPO	2	194
+150	teamarq12	ARQ	The PyGLA	2	208
+151	teamspo13	SPO	Hello, Girls!	2	208
+152	teamptb3	PTB	Cookies PTB	2	208
+153	teambri6	BRI	Ci pruz pruz ☝🥸	2	226
+154	teamgru4	GRU	Code Queens	2	231
+155	teamptb4	PTB	Garotos doPrograma	2	242
+156	teamctd2	CTD	Delta_Coders_CTD	2	244
+157	teamctd1	CTD	CompilaAI	2	246
+158	teambri17	BRI	IF vibe coders	2	250
+159	teamcmp3	CMP	Ctrl+C Ctrl+V	2	260
+160	teamsmp2	SMP	As Esquiletes	2	264
+161	teamslt6	SLT	NTC	2	264
+162	teambra4	BRA	Code Squad	2	275
+163	teambri16	BRI	Grupo G	2	276
+164	teamitp5	ITP	The legends ofjava	2	276
+165	teamgru3	GRU	ASCIII	2	280
+166	teambri27	BRI	Syntax Errors	2	283
+167	teambri15	BRI	Godnes Code &Cicuit	2	302
+168	teambri13	BRI	garotos deprograma	2	372
+169	teambri2	BRI	Azarões	2	377
+170	teamjcr3	JCR	If, Elif e Else	2	386
+171	teambri24	BRI	Piratas dos bonspensamentos	2	424
+172	teambra11	BRA	What IF	1	21
+173	teamcbt1	CBT	3G	1	43
+174	teamptb5	PTB	J.A.M	1	44
+175	teambri10	BRI	Debug Girls	1	50
+176	teambra1	BRA	Adassauras	1	63
+177	teamspo1	SPO	"G" ao cubo	1	70
+178	teamgru8	GRU	Sociedade Alt F4	1	149
+179	teamctd4	CTD	E_(minúsculo)_CTD	1	157
+180	teamcmp4	CMP	Goblins CMP	1	396
+181	teambrt8	BRT	Gradiente	0	0
+182	teambra7	BRA	O Importante éParticipar!	0	0
+183	teambra9	BRA	Piracaiudos	0	0
+184	teamcmp1	CMP	Big tril	0	0
+185	teamcmp5	CMP	IF.exe	0	0
+186	teamcmp6	CMP	InterCode	0	0
+187	teamcmp7	CMP	Loop	0	0
+188	teamcmp9	CMP	Garotos DaCidade	0	0
+189	teamcar3	CAR	InterDevs	0	0
+190	teamprc1	PRC	2anoIF	0	0
+191	teamslt2	SLT	Bug Hunters	0	0
+192	teamslt5	SLT	Ctrl alt Elite	0	0

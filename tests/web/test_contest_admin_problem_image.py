@@ -54,6 +54,13 @@ def _png_bytes(*, width: int = 8, height: int = 8, color: tuple[int, int, int] =
     return buffer.getvalue()
 
 
+def _gif_bytes() -> bytes:
+    """Return a valid GIF image."""
+    buffer = io.BytesIO()
+    Image.new("RGB", (8, 8), (255, 0, 0)).save(buffer, format="GIF")
+    return buffer.getvalue()
+
+
 def _oversized_png_bytes() -> bytes:
     """A valid PNG larger than the 2 MB problem-image cap.
 
@@ -130,6 +137,10 @@ def _build_app(session: AsyncSession, contest: Contest, actor: UberAdmin, tmp_pa
     @app.get("/c/{slug}/clock", name="contest_clock")
     @app.get("/c/{slug}/admin", name="view")
     async def _contest_stub(slug: str) -> dict[str, str]:
+        return {"slug": slug}
+
+    @app.get("/c/{slug}/solution-tests/", name="contest_solution_tests")
+    async def _solution_tests(slug: str) -> dict[str, str]:
         return {"slug": slug}
 
     @app.get("/assets/balloon/{color}", name="balloon")
@@ -294,6 +305,41 @@ async def test_create_persists_image_and_caption(
     assert problem.problem_image_base64
     assert problem.problem_image_mime == "image/png"
     assert problem.problem_image_caption == "A red square"
+
+
+@pytest.mark.asyncio
+async def test_edit_form_advertises_gif_support(
+    client: AsyncClient,
+    session: AsyncSession,
+    upcoming_contest: Contest,
+) -> None:
+    """The Contest problem edit form lists GIF in its shared upload field."""
+    problem = await _create_problem_with_image(client, session, upcoming_contest.login_slug)
+
+    response = await client.get(f"/c/{upcoming_contest.login_slug}/admin/problems/{problem.id}/edit")
+
+    assert response.status_code == 200
+    assert "GIF, JPEG, PNG, or WebP" in response.text
+    assert 'accept=".gif,.png,.jpg,.jpeg,.webp"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_create_persists_gif_image(
+    client: AsyncClient,
+    session: AsyncSession,
+    upcoming_contest: Contest,
+) -> None:
+    """The Contest problem route accepts GIF illustration images."""
+    response = await client.post(
+        f"/c/{upcoming_contest.login_slug}/admin/problems/new",
+        data=_create_form(),
+        files={"image": ("figure.gif", _gif_bytes(), "image/gif")},
+    )
+
+    assert response.status_code == 303, response.text
+    problem = (await session.scalars(select(Problem).where(Problem.title == "Problem With Image"))).one()
+    assert problem.problem_image_base64
+    assert problem.problem_image_mime == "image/gif"
 
 
 @pytest.mark.asyncio

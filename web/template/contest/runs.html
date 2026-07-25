@@ -1,8 +1,13 @@
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon %}
+{% from "_macros.html" import render_flash_messages, render_icon with context %}
+{% set queued_submission_id = request.query_params.get("queued_submission") %}
 {% block title_suffix %}— Runs{% endblock %}
+{% block flash %}
+    {{ render_flash_messages(auto_dismiss_success_ms=5000,
+        verdict_submission_id=queued_submission_id) }}
+{% endblock %}
 {% block extra_head %}
-    {% if not contest.is_past %}
+    {% if not contest.is_past or current_user.role != RoleEnum.TEAM.value %}
         <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
                 defer></script>
     {% endif %}
@@ -158,12 +163,12 @@
     {% if not access_blocked and not contest.is_past %}
         <script src="{{ request.url_for('static_js', path='refresh-timer.js') }}?v={{ app_version }}"
                 defer></script>
+    {% endif %}
+    {% if (not access_blocked and not contest.is_past) or queued_submission_id %}
         <script src="{{ request.url_for('static_js', path='runs-sse.js') }}?v={{ app_version }}"
                 defer></script>
     {% endif %}
     {% if current_user.role != RoleEnum.TEAM.value and not access_blocked %}
-        <script src="{{ request.url_for('static_js', path='runs-filter.js') }}?v={{ app_version }}"
-                defer></script>
         <script src="{{ request.url_for('static_shared_js', path='row-href.js') }}?v={{ app_version }}"
                 defer></script>
     {% endif %}

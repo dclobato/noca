@@ -26,7 +26,7 @@ from .lifecycle import (
     toggle_hidden_clarification,
 )
 from .permissions import can_answer_clarifications, can_force_release_clarifications
-from .queries import get_clarification, list_clarifications
+from .queries import ClarificationSort, get_clarification, list_clarifications, normalize_clarification_sort
 from .views import ClarificationView
 
 __all__ = [
@@ -37,6 +37,7 @@ __all__ = [
     "ClarificationHiddenError",
     "ClarificationLockUnavailableError",
     "ClarificationNotAcquiredByActorError",
+    "ClarificationSort",
     "ClarificationView",
     "ContestNotRunningError",
     "ForbiddenClarificationActionError",
@@ -48,6 +49,7 @@ __all__ = [
     "create_clarification",
     "get_clarification",
     "list_clarifications",
+    "normalize_clarification_sort",
     "release_clarification",
     "toggle_hidden_clarification",
 ]

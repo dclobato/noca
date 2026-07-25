@@ -14,7 +14,7 @@
         {% if inactive_contests %}
             <div class="row g-3">
                 {% for contest in inactive_contests %}
-                    {% call contest_tile(contest, "Inactive", "bg-secondary", show_login=False, show_languages=False) %}
+                    {% call contest_tile(contest, "Inactive", "bg-secondary", show_login=False, show_languages=False, show_export=True, show_remove=True) %}
                         <div>Start: {{ contest.local_start_time.strftime("%Y-%m-%d %H:%M") }} ({{ contest.contest_timezone }})</div>
                         <div>End: {{ contest.local_end_time.strftime("%Y-%m-%d %H:%M") }} ({{ contest.contest_timezone }})</div>
                     {% endcall %}

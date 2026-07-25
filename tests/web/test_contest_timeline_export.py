@@ -291,7 +291,14 @@ async def test_build_contest_timeline_report_renders_wrapped_markdown_table(
         answered_at=running_contest.start_time + timedelta(minutes=11),
         answered_timestamp_seconds=11 * 60,
     )
-    session.add_all([clarification, announcement])
+    general_clarification = Clarification(
+        team_id=team_user.id,
+        problem_id=None,
+        question="Where do we hand in the printouts?",
+        created_at=running_contest.start_time + timedelta(minutes=9),
+        created_timestamp_seconds=9 * 60,
+    )
+    session.add_all([clarification, announcement, general_clarification])
 
     balloon_task = Task(
         team_id=team_user.id,
@@ -344,13 +351,14 @@ async def test_build_contest_timeline_report_renders_wrapped_markdown_table(
     assert "Autojudge ends" in content
     assert "Judge publishes an announcement" in content
     assert "Team asks for a clarification" in content
+    assert "a clarification about the contest in" in content
     assert "Judge answers a clarification" in content
     assert "Team issues a print task" in content
     assert "Staff handles printout to a team" in content
     assert "Team issues a SOS task" in content
     assert "Staff answers a SOS task" in content
     assert "Balloon task is issued" in content
-    assert "Team gets a balloon" in content
+    assert "Team A (team_a) gets a balloon" in content
     assert "Submission is requeued for autojudge" in content
     assert "Scoreboard stops updating" in content
     assert "Answers stop being issued" in content

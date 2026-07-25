@@ -71,6 +71,7 @@ async def _record_credential_email_event(
     request: Request,
     *,
     actor_user_id: str,
+    actor_label: str,
     event_type: str,
     scope: str,
     target_username: str,
@@ -88,6 +89,7 @@ async def _record_credential_email_event(
             event_type=event_type,
             severity="info" if event_type == "credential_email_sent" else "warning",
             actor_user_id=actor_user_id,
+            actor_label=actor_label,
             metadata=metadata,
         )
         await session.commit()
@@ -245,6 +247,7 @@ async def send_uberadmin_credentials_email_route(
         await _record_credential_email_event(
             request,
             actor_user_id=_uberadmin.id,
+            actor_label=_uberadmin.username,
             event_type="credential_email_skipped",
             scope="uberadmin",
             target_username=username,
@@ -278,6 +281,7 @@ async def send_uberadmin_credentials_email_route(
     await _record_credential_email_event(
         request,
         actor_user_id=_uberadmin.id,
+        actor_label=_uberadmin.username,
         event_type="credential_email_sent" if delivery.success else "credential_email_failed",
         scope="uberadmin",
         target_username=username,
@@ -495,6 +499,7 @@ async def send_contest_credentials_email(
         await _record_credential_email_event(
             request,
             actor_user_id=_uberadmin.id,
+            actor_label=_uberadmin.username,
             event_type="credential_email_skipped",
             scope="contest_owner",
             target_username=username,
@@ -531,6 +536,7 @@ async def send_contest_credentials_email(
     await _record_credential_email_event(
         request,
         actor_user_id=_uberadmin.id,
+        actor_label=_uberadmin.username,
         event_type="credential_email_sent" if delivery.success else "credential_email_failed",
         scope="contest_owner",
         target_username=username,

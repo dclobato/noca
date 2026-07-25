@@ -16,7 +16,17 @@ clarifications = Table(
     _id_column(),
     Column("team_id", String(36), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True),
     Column("judge_id", String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True),
-    Column("problem_id", String(36), ForeignKey("problems.id", ondelete="RESTRICT"), nullable=False, index=True),
+    Column(
+        "problem_id",
+        String(36),
+        ForeignKey("problems.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+        comment=(
+            "Problem this clarification is about. NULL for general, contest-wide clarifications. "
+            "RESTRICT on delete to prevent orphaned clarifications."
+        ),
+    ),
     Column("question", String(1024), nullable=False, comment="Text of the clarification question"),
     Column(
         "is_contest_public",

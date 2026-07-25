@@ -272,6 +272,7 @@ async def admin_category_delete(
         request,
         module="arena",
         actor_user_id=admin.id,
+        actor_label=admin.email_normalizado,
         action="delete",
         target_type="arena_category",
         target_id=category_id,

@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse
 from shared.enumerations import RoleEnum
 from web.dependencies import ContestContext, ensure_allowed_role, get_contest_context
 from web.services.contest_report_service import ALL_VERDICTS, compute_contest_report
-from web.services.problem_service import get_active_languages
+from web.services.problem_service import get_contest_languages
 from web.services.submission_service import list_submissions
 
 router = APIRouter(prefix="/c/{slug}/reports", tags=["contest_reports"])
@@ -58,7 +58,7 @@ async def view(
 
     submissions, languages = await asyncio.gather(
         list_submissions(ctx.session, contest, ctx.actor),
-        get_active_languages(ctx.session),
+        get_contest_languages(ctx.session, contest),
     )
     report = compute_contest_report(contest, submissions, languages)
 

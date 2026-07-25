@@ -121,8 +121,14 @@ The autojudge module is a separate async worker process that owns:
   re-enqueues non-terminal jobs (QUEUED/DISPATCHED/JUDGING) missing from the
   Valkey queue, recovering jobs lost between a producer's DB commit and its
   follow-up enqueue without waiting for a worker restart
-- The three job kinds (submission, profiling, Arena submission) share one
-  parameterized rebuild loop driven by a per-kind spec
+- Rebuilds *missing* queue state only, decided from queue membership rather than
+  database status. A conservative snapshot skips known queued work, while every
+  repair or enqueue uses an atomic current-state transition. Inflight jobs are
+  left to the reaper, locked jobs are left alone, and an already-queued job is
+  never enqueued twice
+- The five job kinds (submission, profiling, solution test, Arena submission,
+  custom-validator validation) share one parameterized rebuild loop driven by a
+  per-kind spec
 
 **Valkey decoding (`valkey_decode.py`):**
 - `decode_valkey_scalar`, `hash_requeue_count` — normalize raw `bytes` queue values
@@ -135,6 +141,12 @@ The autojudge module is a separate async worker process that owns:
 **Worker identity (`worker_identity.py`):**
 - Shared worker identity generation used by the main worker loop and Docker container labels
 - `worker_id`
+- Process-scoped, not attempt-scoped: two concurrent attempts at the same run (a reaper
+  requeue overtaking a slow-but-alive attempt) normally share it. Ownership of a run is
+  therefore tracked by the per-attempt `attempt_token` stamped at dispatch on all four
+  worker-owned run tables (`submission_judgments`, `arena_submission_judgments`,
+  `profiling_runs`, `solution_test_runs`), not by `worker_id` — see
+  [AUTOJUDGE_INFRA.md](../autojudge/docs/AUTOJUDGE_INFRA.md)
 
 **Image management (`image_sync.py`):**
 - Registry image sync at startup: `sync_registry_images_from_settings`, `assert_required_images_present`
@@ -211,7 +223,8 @@ The autojudge module is a separate async worker process that owns:
 - `db/_results.py`: test result and profiling case result persistence
 
 **Reaper logic (`reaper.py`):**
-- Stale in-flight job detection and recovery
+- Stale in-flight job detection and atomic recovery, including current timestamp
+  and inflight-membership revalidation across worker replicas
 - Zombie container cleanup
 
 **Shared types (`types.py`):**
@@ -228,11 +241,13 @@ The autojudge module is a separate async worker process that owns:
 
 The worker architecture is fixed-width concurrency: N async worker loops + 1 reaper loop + 1 reconciler loop, all managed by `asyncio.gather()`.
 
-The judge queue carries three first-class job kinds in the same Valkey hash namespace:
+The judge queue carries five first-class job kinds in the same Valkey hash namespace:
 
 - `submission` jobs for normal/rejudge submission judgments
 - `arena_submission` jobs for Arena submission judgments
 - `profiling` jobs for Auto-Limit reference implementations
+- `solution_test` jobs for non-scoring judge/admin solution tests
+- `custom_validator_validation` jobs for staged interactive validator candidates
 
 Profiling jobs are consumed from a dedicated priority queue before normal contest submissions. The worker persists profiling history in PostgreSQL and only applies computed `ProblemLanguageLimit` rows when the reference implementation returns `AC` for every test case.
 

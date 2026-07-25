@@ -1,0 +1,139 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_flash_messages, render_icon with context %}
+{% block title_suffix %}— Solution tests{% endblock %}
+{% block flash %}{{ render_flash_messages(auto_dismiss_success_ms=5000) }}{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Solution tests</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="px-4 py-4">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Solution tests</h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        <div class="alert alert-info small d-flex align-items-center gap-3"
+             role="alert">
+            {{ render_icon(icon="science") }}
+            <span>
+                A solution test runs a candidate solution against this problem's real compiler, sandbox, limits,
+                test cases and custom validator. It never appears in the scoreboard, Runs, balloons, reports or
+                exports, and it is never included in a contest backup.
+            </span>
+        </div>
+        <div class="card shadow-sm mb-4">
+            <div class="card-header fw-semibold">Test a solution</div>
+            <div class="card-body">
+                <form method="post"
+                      enctype="multipart/form-data"
+                      action="{{ request.url_for('contest_solution_tests_submit', slug=contest.login_slug) }}">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label for="solution-test-problem" class="form-label">Problem</label>
+                            <select id="solution-test-problem"
+                                    name="problem_id"
+                                    class="form-select"
+                                    required>
+                                <option value="">Select a problem…</option>
+                                {% for problem in problems %}
+                                    <option value="{{ problem.id }}"
+                                            {% if problem.id == selected_problem_id %}selected{% endif %}>
+                                        {{ problem.title }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="solution-test-language" class="form-label">Language</label>
+                            <select id="solution-test-language"
+                                    name="language_id"
+                                    class="form-select"
+                                    required>
+                                <option value="">Select a language…</option>
+                                {% for language in languages %}<option value="{{ language.id }}">{{ language.name }}</option>{% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="solution-test-file" class="form-label">Source file</label>
+                            <input id="solution-test-file"
+                                   type="file"
+                                   name="source_file"
+                                   class="form-control"
+                                   required>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            {{ render_icon(icon="play_arrow") }}
+                            Run solution test
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <section>
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-2">
+                <h2 class="h5 mb-0">History</h2>
+                {% if current_user.role == RoleEnum.JUDGE.value %}
+                    <span class="text-muted small">Showing your own runs.</span>
+                {% endif %}
+            </div>
+            {% if runs.items %}
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0 align-middle">
+                        <thead>
+                            <tr>
+                                <th scope="col">Problem</th>
+                                <th scope="col">Language</th>
+                                <th scope="col">Triggered by</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Verdict</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for run in runs.items %}
+                                <tr data-href="{{ request.url_for('contest_solution_test_detail', slug=contest.login_slug, run_id=run.id) }}">
+                                    <td>{{ run.problem.title }}</td>
+                                    <td>{{ run.language.name }}</td>
+                                    <td>{{ run.actor_label }}</td>
+                                    <td>{{ run.status.value }}</td>
+                                    <td>
+                                        {% if run.verdict %}
+                                            <span class="badge {{ 'text-bg-success' if run.verdict.value == 'AC' else 'text-bg-danger' }}">{{ run.verdict.value }}</span>
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="py-2">
+                    {% with pagination = runs %}
+                        {% include "_partials/pagination.html" %}
+                    {% endwith %}
+                </div>
+            {% else %}
+                <p class="text-muted mb-0">No solution tests have been run yet.</p>
+            {% endif %}
+        </section>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_shared_js', path='row-href.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}

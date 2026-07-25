@@ -321,6 +321,9 @@ async def test_list_renders_for_admin(session: AsyncSession, admin: ArenaUser, a
         resp = await client.get("/admin/affiliations")
     assert resp.status_code == 200
     assert affiliation.name in resp.text
+    assert "JPEG, PNG, or WebP" in resp.text
+    assert "up to 2.0 MiB" in resp.text
+    assert "up to 2048 × 2048 px" in resp.text
 
 
 @pytest.mark.asyncio

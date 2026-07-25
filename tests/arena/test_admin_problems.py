@@ -438,6 +438,10 @@ async def test_problem_create_renders_form(session: AsyncSession) -> None:
     assert "New Problem" in response.text
     assert 'id="author_is_owner"' in response.text
     assert 'id="author-field"' in response.text
+    assert "GIF, JPEG, PNG, or WebP" in response.text
+    assert 'accept=".gif,.png,.jpg,.jpeg,.webp"' in response.text
+    assert "up to 2.0 MiB" in response.text
+    assert "up to 2048 × 2048 px" in response.text
     author_field_attributes = response.text.split('id="author-field"', 1)[1].split(">", 1)[0]
     assert "hidden" in author_field_attributes
 
@@ -543,6 +547,8 @@ async def test_problem_edit_shows_owner_link_to_admin(session: AsyncSession) -> 
     assert "Problem Author" in response.text
     assert "Difficulty" in response.text
     assert f"/admin/users/{author.id}" in response.text
+    assert "GIF, JPEG, PNG, or WebP" in response.text
+    assert 'accept=".gif,.png,.jpg,.jpeg,.webp"' in response.text
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,75 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_flash_messages with context %}
+{% block title_suffix %}— Solution test{% endblock %}
+{% block flash %}{{ render_flash_messages(auto_dismiss_success_ms=5000) }}{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path=highlight_theme_path) }}">
+    <script src="{{ request.url_for('static_vendor', path=highlight_core_path) }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path=highlight_language_path) }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path=highlight_line_numbers_path) }}"
+            defer></script>
+    <script src="{{ request.url_for('static_js', path='highlight-code-blocks.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
+            defer></script>
+{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('contest_solution_tests', slug=contest.login_slug) }}">Solution tests</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Run</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Solution Test</h1>
+            <p class="text-muted mb-0">
+                {{ run.problem.title }}
+                / <i class="{{ run.language.icon }} me-1"></i>{{ run.language.name }}
+                / triggered by {{ run.actor_label }}
+            </p>
+        </div>
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header p-0">
+                <div class="accordion" id="solution-test-detail-accordion">
+                    <div class="accordion-item border-0">
+                        <h2 class="accordion-header" id="solution-test-source-heading">
+                            <button class="accordion-button collapsed fw-semibold bg-transparent shadow-none"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#solution-test-source-collapse"
+                                    aria-expanded="false"
+                                    aria-controls="solution-test-source-collapse">Source Code</button>
+                        </h2>
+                        <div id="solution-test-source-collapse"
+                             class="accordion-collapse collapse"
+                             aria-labelledby="solution-test-source-heading"
+                             data-bs-parent="#solution-test-detail-accordion">
+                            <div class="accordion-body bg-body-tertiary p-0">
+                                <pre class="mb-0 noca-source-code-pre"><code class="{{ highlight_language_class }}" data-highlight-line-numbers>{{ run.source_code | e }}</code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% include "contest/_solution_test_status.html" %}
+    </div>
+{% endblock %}

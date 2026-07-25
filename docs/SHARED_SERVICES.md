@@ -359,19 +359,25 @@ Model:
 
 Purpose:
 - own the problem illustration image contract shared by the Arena and Contest problem domains:
-  the size cap, the extension/MIME maps, the upload processor, and the packaged-image loader,
-  so the two domains cannot drift apart when the rules change
+  the fixed file-size and dimension limits, the extension/MIME maps, the upload processor, and
+  the packaged-image loader, so the two domains cannot drift apart when the rules change
 
 Both domains store the image in the database as base64 text plus its MIME type and an optional
 caption (unlike test cases, which live on the filesystem), render it as a `data:` URI with no
 serving route, and round-trip it through the problem package ZIP as a root-level `image.<ext>`
 member declared by the `image` key of `problem.json`.
 
+Problem illustrations accept GIF, JPEG, PNG, and WebP content. GIF support is scoped to this
+service, so the image-processing service's default profile-photo and logo allowlist is unchanged.
+Re-encoding preserves animated GIF frames and timing.
+
 Canonical location:
 - `shared/services/problem_image.py`
 
 Main entrypoints:
-- `MAX_PROBLEM_IMAGE_BYTES` — 2 MB per-problem cap, tighter than the image service's own default
+- `MAX_PROBLEM_IMAGE_BYTES` — fixed 2 MiB per-problem file-size limit
+- `MAX_PROBLEM_IMAGE_WIDTH` and `MAX_PROBLEM_IMAGE_HEIGHT` — fixed 2048 × 2048-pixel
+  limits that keep package validation independent from deployment configuration
 - `process_problem_image_upload(image_service, upload) -> (base64, mime)` — validates a form upload
 - `load_packaged_image(meta, archive, names, image_service) -> (base64 | None, mime | None)` — a
   `problem.json`-referenced filename **must** exist in the archive (a missing referenced image
@@ -847,6 +853,7 @@ Do not reimplement:
 
 Purpose:
 - process uploaded/base64 images
+- enforce JPEG, PNG, and WebP file types from their content signatures
 - generate avatars
 - crop to aspect ratio
 - validate images
@@ -884,6 +891,15 @@ Reuse this module when:
 - handling web or arena user photos/avatars
 - validating raw image uploads
 - serving image bytes with consistent cache headers
+
+Uploaded files and base64 data URIs are identified from their bytes with
+`puremagic`. The service ignores client-provided MIME labels and returns the
+canonical detected MIME type. It rejects unknown signatures, unsupported image
+types, and signatures that disagree with Pillow's decoded format.
+
+Web and Arena use `multipart_file_size.py` ahead of route parsing to stop
+selected image fields as soon as they exceed their configured byte ceiling.
+Rules can target all file parts or named fields on mixed upload forms.
 
 Do not reimplement:
 - avatar resizing
@@ -977,6 +993,16 @@ Canonical location:
 
 Main entrypoints:
 - `ValkeyRuntime` — owns pool/client lifecycle, periodic ping health checks, reconnect attempts, and local buffering of write commands while Valkey is unavailable
+- `ContestValkeyTargets` — immutable contest, judgment, profiling, validation,
+  task, and clarification identifier set for strict cleanup
+- `ValkeyRuntime.purge_contest_runtime_state(targets) ->
+  ContestValkeyPurgeResult` — removes and verifies every target queue entry, job
+  hash, autojudge/workflow lock, buffered command, inflight timestamp, and
+  scoreboard cache variant
+- `purge_contest_with_client(client, targets) -> ContestValkeyPurgeResult` —
+  raw-client strict purge used by the runtime and integration tests
+- `ContestValkeyPurgeError` — reports unavailable, failed, or unverifiable
+  cleanup without degrading to best-effort behavior
 - `create_valkey_pool() -> ConnectionPool`
 - `enqueue_job(client_or_runtime, job, *, priority) -> None`
 - `enqueue_arena_submission_job(client_or_runtime, job) -> None`
@@ -985,6 +1011,10 @@ Main entrypoints:
 - `get_contest_queue_metrics(client_or_runtime, contest_id) -> ContestQueueMetrics | None`
 - `remove_from_inflight(client_or_runtime, judgment_id) -> None`
 - `publish_verdict(client_or_runtime, event) -> None`
+- `publish_submission(client_or_runtime, event) -> None` — publishes a
+  `SubmissionEvent` new-submission nudge to `QUEUE_SUBMISSIONS_CHANNEL`
+  (`judge:submissions`) so the animator can flash a pending cell and refetch the
+  authoritative `/snapshot`; buffered/best-effort like `publish_verdict`
 - `worker_presence_loop(...) -> None` — immediately publishes a worker and
   refreshes its live marker until shutdown
 - `list_all_workers(client_or_runtime) -> dict[WorkerClass, list[WorkerPresence]]`
@@ -993,7 +1023,7 @@ Main entrypoints:
 - `ValkeyRuntime.set_reporting(key, value, *, ex) -> bool` — atomic `SET … EX` reporting delivery success for auditing
 - `ValkeyRuntime.get_and_delete(key) -> str | None` — atomically consumes a
   string key with `GETDEL`
-- Queue key constants: `QUEUE_PENDING_KEY`, `QUEUE_PRIORITY_KEY`, `QUEUE_INFLIGHT_KEY`, `QUEUE_INFLIGHT_TIMES_KEY`, `QUEUE_JOB_HASH_PREFIX`, `QUEUE_RESULTS_CHANNEL`
+- Queue key constants: `QUEUE_PENDING_KEY`, `QUEUE_PRIORITY_KEY`, `QUEUE_INFLIGHT_KEY`, `QUEUE_INFLIGHT_TIMES_KEY`, `QUEUE_JOB_HASH_PREFIX`, `QUEUE_RESULTS_CHANNEL`, `QUEUE_SUBMISSIONS_CHANNEL`
 
 Worker presence:
 - `WorkerClass` defines `autojudge`, `rating`, `aiassistant`, `web`, and
@@ -1074,6 +1104,7 @@ Worker pause/resume commands (`worker_commands.py` + `worker_pause_state.py`):
 
 Verdict pub/sub channels (live feeds):
 - `QUEUE_RESULTS_CHANNEL = "judge:results"` — contest (web) verdicts. Produced by autojudge/web; consumed by `ValkeyRuntime.iter_verdict_events()` (web runs SSE and the public contest live feed).
+- `QUEUE_SUBMISSIONS_CHANNEL = "judge:submissions"` — contest new-submission nudges. Produced by the web submit route via `publish_submission` after the submission commits; consumed by `ValkeyRuntime.iter_submission_events()` (the animator live feed). `SubmissionEvent` (`shared/queue_schema.py`) is the `{submission_id, contest_id, team_id, problem_id}` payload (all fields required so malformed messages fail validation at parse). It is a low-latency signal only: the animator flashes the pending cell and refetches the authoritative `/snapshot`. Ordering vs. `judge:results` is **not** guaranteed; snapshot reconciliation corrects a verdict that arrives before its submission signal.
 - `ARENA_RESULTS_CHANNEL = "arena:results"` — Arena verdicts. Produced **only** by the autojudge worker via `publish_arena_verdict_with_client` (exported as `_publish_arena_verdict_with_client`); consumed by `ValkeyRuntime.iter_arena_verdict_events()` (Arena public live feed). The channel name has a single source of truth in this constant so the autojudge producer and Arena subscriber cannot drift.
 - `ArenaVerdictEvent` (`shared/queue_schema.py`) is the minimal `{submission_id, judgment_id, verdict}` payload on `arena:results`. It is a "changed" signal only: the Arena live feed refetches a server-side snapshot rather than rendering event fields. There is deliberately no runtime publish path / `PendingCommand` operation for it, since nothing publishes Arena verdicts through `ValkeyRuntime`.
 
@@ -1299,18 +1330,21 @@ Canonical location:
 - `shared/services/admin_audit.py`
 
 Key types and functions:
-- `record_admin_action(session, request, *, module, actor_user_id, action,
-  target_type, target_id, detail=None)` — write one `event_type="admin_action"`
-  row with a structured `{"action", "target_type", "target_id", "detail"}`
-  metadata payload
+- `record_admin_action(session, request, *, module, actor_user_id, actor_label,
+  action, target_type, target_id, detail=None)` — write one
+  `event_type="admin_action"` row with the actor's human-readable login and a
+  structured `{"action", "target_type", "target_id", "detail"}` metadata
+  payload
 
 Notes:
 - the audit row is written on the caller's session so, wherever the mutation
   commits in the same transaction, they commit atomically
+- callers snapshot the Web username or Arena email in `actor_label`; the event
+  viewers show this login instead of the opaque actor ID
 - currently wired to destructive/privilege actions: Arena user role change,
   activate/deactivate, disable-2FA, and problem/affiliation/category deletes;
   Web uberadmin enable/disable, contest problem/user deletes, and contest
-  start-now/end-now state changes
+  start-now/end-now state changes, plus sensitive contest backup exports
 - escape hatch: promote to a typed table later if query needs outgrow the JSON
   shape
 

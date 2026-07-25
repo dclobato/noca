@@ -20,6 +20,7 @@ from autojudge.db._languages import _LanguagesMixin
 from autojudge.db._problem import _ProblemMixin
 from autojudge.db._profiling import _ProfilingMixin
 from autojudge.db._results import _ResultsMixin
+from autojudge.db._solution_test import _SolutionTestMixin
 from autojudge.db._submission import _SubmissionMixin
 
 
@@ -31,6 +32,7 @@ class DatabaseAccess(
     _ProblemMixin,
     _JudgmentMixin,
     _ProfilingMixin,
+    _SolutionTestMixin,
     _ResultsMixin,
 ):
     """

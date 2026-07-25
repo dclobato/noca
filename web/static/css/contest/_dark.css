@@ -37,14 +37,6 @@
     background: var(--bs-tertiary-bg);
 }
 
-[data-bs-theme="dark"] .solved-cell {
-    background-color: var(--bs-success-bg-subtle);
-}
-
-[data-bs-theme="dark"] .pending-cell {
-    background-color: var(--bs-warning-bg-subtle);
-}
-
 [data-bs-theme="dark"] .noca-source-code-pre .hljs-ln-numbers {
     border-color: var(--bs-border-color);
     color: var(--bs-secondary-color);

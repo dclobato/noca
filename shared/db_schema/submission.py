@@ -105,6 +105,17 @@ submission_judgments = Table(
     Column("min_memory_kb", Integer, nullable=True),
     Column("error_message", Text, nullable=True),
     Column("worker_id", String(200), nullable=True),
+    Column(
+        "attempt_token",
+        String(72),
+        nullable=True,
+        comment=(
+            "Attempt-scoped claim stamped at dispatch. Identifies one attempt at this run, "
+            "not one worker: two attempts may share a worker_id (same host and process). "
+            "Every later write of that attempt is fenced on it, so an attempt whose claim "
+            "was taken over by a reaper requeue cannot mutate the run."
+        ),
+    ),
     Column("started_at", DateTime(timezone=True), nullable=True),
     Column("finished_at", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), default=_utcnow, nullable=False),

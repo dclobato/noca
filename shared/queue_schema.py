@@ -26,6 +26,7 @@ class JobKind(str):
     PROFILING = "profiling"
     ARENA_AI_REVIEW = "arena_ai_review"
     CUSTOM_VALIDATOR_VALIDATION = "custom_validator_validation"
+    SOLUTION_TEST = "solution_test"
 
 
 class CustomValidatorValidationJob(BaseModel):
@@ -74,6 +75,24 @@ class ProfilingJob(BaseModel):
     language_id: str
     requeue_count: int = Field(default=0, description="Times this job has been requeued by the judger reaper")
     job_kind: str = Field(default=JobKind.PROFILING, description="Worker dispatch discriminator")
+
+    model_config = {"frozen": True}
+
+
+class SolutionTestJob(BaseModel):
+    """Lightweight payload stored in Valkey for non-scoring solution-test runs.
+
+    ``contest_id`` is required rather than optional: queue metrics bucket jobs by
+    contest from the job hash, so omitting it would report every solution test
+    under the unknown-contest bucket.
+    """
+
+    solution_test_run_id: str
+    contest_id: str
+    problem_id: str
+    language_id: str
+    requeue_count: int = Field(default=0, description="Times this job has been requeued by the judger reaper")
+    job_kind: str = Field(default=JobKind.SOLUTION_TEST, description="Worker dispatch discriminator")
 
     model_config = {"frozen": True}
 
@@ -163,6 +182,25 @@ class VerdictEvent(BaseModel):
     update_kind: Literal["autojudge", "confirmation", "override"] | None = None
     team_id: str | None = None
     problem_id: str | None = None
+
+    model_config = {"frozen": True}
+
+
+class SubmissionEvent(BaseModel):
+    """
+    Published to Valkey ``judge:submissions`` when a team submits a new run.
+
+    This is a low-latency *nudge* only: the animator uses it to flash the
+    pending cell and trigger an authoritative ``/snapshot`` refetch. All four
+    fields are required so a malformed message fails validation at parse time,
+    where the subscriber's per-message guard logs and skips it. There is no
+    legacy variant; every publisher populates all fields.
+    """
+
+    submission_id: str
+    contest_id: str
+    team_id: str
+    problem_id: str
 
     model_config = {"frozen": True}
 

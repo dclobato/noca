@@ -8,6 +8,8 @@ Related references:
 - [ARCHITECTURE_RUNTIME.md](ARCHITECTURE_RUNTIME.md) for detailed runtime architecture and operational constraints
 - [autojudge/docs/AUTOJUDGE_INFRA.md](../autojudge/docs/AUTOJUDGE_INFRA.md) for worker isolation, queue protocol, and container execution details
 - [DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md](DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md) for the submission lifecycle
+- [CONTEST_BACKUP_FORMAT.md](CONTEST_BACKUP_FORMAT.md) for the contest
+  backup/restore ZIP format and fidelity notes
 - [CUSTOM_VALIDATOR.md](CUSTOM_VALIDATOR.md) for interactive custom validators: authoring, exit codes, and which limits apply
 - [FASTAPI_FLASH.md](FASTAPI_FLASH.md) for the flash-message pattern used in the web and arena modules
 - [web/docs/ROUTES.md](../web/docs/ROUTES.md) and [web/docs/SERVICES.md](../web/docs/SERVICES.md) for web-layer responsibilities
@@ -131,14 +133,30 @@ Schema ownership is centralized in `shared/db_schema/`:
 - `autojudge/db/` package uses the same shared tables directly through SQLAlchemy Core queries
 
 Alembic migrations target `shared.db_schema.metadata`, so the migration environment
-is independent of the `web`, `arena`, and `autojudge` runtime modules. In containers,
-each runtime may request migrations during startup via `scripts/run_migrations.py`;
-PostgreSQL advisory locking serializes concurrent `alembic upgrade head` attempts.
+is independent of the `web`, `arena`, and `autojudge` runtime modules. Schema
+stewardship is limited to the independently-deployable HTTP front doors: the `web`
+and `arena` container entrypoints run `scripts/run_migrations.py` (`alembic upgrade
+head` under a PostgreSQL advisory lock that serializes concurrent attempts), so a
+Web-only or Arena-only install can still bring the schema to head on its own. The
+worker containers (`autojudge`, `rating`, `aiassistant`) are pure schema consumers:
+their entrypoints instead run `scripts/wait_for_migrations.py`, which blocks until
+`alembic_version` is at or ahead of the head revision the worker image expects (a
+revision the image does not recognize counts as "ahead", i.e. newer than the
+worker). This keeps a mismatched worker image from driving the schema during a
+rolling deploy. The optional `NOCA_WAIT_FOR_MIGRATIONS_TIMEOUT` (seconds, default
+300) bounds that wait.
 
 The web module adds application-specific ORM behavior on top of the shared tables:
 relationships, computed properties, hybrid properties, model hooks, and invariants.
 The autojudge intentionally does not depend on those ORM hooks. It reads and writes
 only the shared schema plus its own focused worker-side data access layer.
+
+Contest-user photo and audio payloads live in `users_media`, keyed one-to-one by
+`user_id` with cascade deletion from `users`. The table keeps the original photo,
+derived avatar, MIME metadata, update timestamps, and an optional MP3, OGG, or WAV
+clip. Web routes load this row explicitly so normal authentication and user-list
+queries do not fetch multi-megabyte base64 payloads. The animator module reads the
+same shared table for team presentation media.
 
 Contest-scoped programming language availability is stored in the `contest_languages`
 junction table. The web layer uses `get_contest_languages(session, contest)` as the
@@ -155,6 +173,18 @@ for Arena. The database keeps only metadata and the normalized (LF) on-disk byte
 gated to cases where both sides are ≤ `MAX_INLINE_TESTCASE_BYTES` (10 KB); larger cases are
 edited offline via a single-case ZIP download/replace round-trip. The autojudge reads test
 files directly from the appropriate domain subdirectory.
+
+Permanent inactive-contest removal coordinates all three infrastructure
+boundaries synchronously. Web locks and rechecks the inactive contest row,
+collects its database and runtime identifiers, and requires strict Valkey
+cleanup before changing PostgreSQL or files. It then moves each problem's PDF,
+Markdown, and test-case directory into guarded same-filesystem quarantine and
+deletes the contest graph in one PostgreSQL transaction. The transaction also
+adds one warning-level `contest_deleted` security event containing only the
+acting UberAdmin ID and deleted contest ID. A pre-commit failure rolls back the
+database and restores the quarantine; a successful commit erases it. Global
+languages, global problem categories, UberAdmins, unrelated contests, and
+existing security events remain outside the deletion graph.
 
 Authenticated worker pause/resume adds two Arena-owned tables to the shared schema:
 `arena_worker_pause_state` (authoritative `paused`/`paused_by` plus a monotonic
@@ -360,6 +390,40 @@ The shared module defines cross-runtime contracts: SQLAlchemy Core schema, enums
 queue payloads, language registry helpers, logging, Valkey services, locks,
 scoreboard cache support, email delivery, safe outbound network helpers, image
 processing, and other services reused by more than one runtime module.
+
+## Non-scoring solution tests
+
+JUDGE, ADMIN, and UBERADMIN actors can run a candidate solution against any problem
+in an active contest through the real compiler, sandbox, limits, test cases, and
+custom validator, and see a verdict — with zero effect on the competition.
+
+The runs live in their **own** tables (`solution_test_runs`,
+`solution_test_case_results`) rather than behind an `is_test` flag on
+`submissions`. A flag would make correctness depend on every present and future
+consumer remembering `WHERE is_test = false`, and a single missed filter silently
+corrupts standings. Separate tables make leakage into standings, balloons, Runs,
+reports, feeds, and exports **structurally impossible** rather than test-enforced.
+The worker enforces the same boundary by signature: `process_solution_test_job`
+takes no Valkey handle, so it cannot publish a verdict event, invalidate the
+scoreboard cache, or create a balloon task.
+
+Execution semantics mirror real submissions rather than profiling: an ordinary
+problem runs *every* test case and aggregates the verdict, while an interactive
+problem stops at the first case that does not end `AC` — the custom validator
+replay's own contract. Interactive attempts are routed to the solution-test tables
+by an `attempt_target` axis independent of `domain`, since a solution test always
+runs against a *contest* problem.
+
+Each ordinary case-result row snapshots the executed problem input, expected
+output, and submission output for later diagnosis. Each value is capped at 10
+KB, including an explicit truncation marker, so one run cannot duplicate
+unbounded test data in PostgreSQL. Interactive runs retain their transcript
+instead because they have no static expected output.
+
+Runs reuse `JudgmentStatus` so the autojudge state machine is reused verbatim.
+They share the contestant queues and the `priority=contest.is_running` rule, are
+retained for the life of the contest and purged only by permanent contest removal,
+and are **excluded from contest backups** exactly as Auto-Limit profiling runs are.
 
 ## Custom interactive validators
 

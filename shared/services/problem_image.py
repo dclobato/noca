@@ -9,8 +9,8 @@
 Both domains store the image in the database as base64 text plus its MIME type and
 an optional caption, and both round-trip it through the problem package ZIP as a
 root-level ``image.<ext>`` member declared by the ``image`` key of ``problem.json``.
-This module owns the size cap, the extension/MIME maps, the upload processor, and
-the packaged-image loader so the two domains cannot drift apart.
+This module owns the size and dimension caps, the extension/MIME maps, the upload
+processor, and the packaged-image loader so the two domains cannot drift apart.
 """
 
 from __future__ import annotations
@@ -24,10 +24,30 @@ from fastapi import UploadFile
 from shared.services.imageprocessing_service import ImageProcessingError, ImageProcessingService
 
 MAX_PROBLEM_IMAGE_BYTES = 2 * 1024 * 1024
-"""Per-problem image cap (2 MB), tighter than the image service's own default."""
+"""Per-problem image file-size limit (2 MiB)."""
 
-MIME_TO_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
-EXT_TO_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp"}
+MAX_PROBLEM_IMAGE_WIDTH = 2048
+"""Maximum problem-image width in pixels."""
+
+MAX_PROBLEM_IMAGE_HEIGHT = 2048
+"""Maximum problem-image height in pixels."""
+
+_MAX_PROBLEM_IMAGE_DIMENSIONS = (MAX_PROBLEM_IMAGE_WIDTH, MAX_PROBLEM_IMAGE_HEIGHT)
+_PROBLEM_IMAGE_FORMATS = {*ImageProcessingService.SUPPORTED_FORMATS, "GIF"}
+
+MIME_TO_EXT = {
+    "image/gif": "gif",
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+}
+EXT_TO_MIME = {
+    "gif": "image/gif",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "webp": "image/webp",
+}
 
 
 async def process_problem_image_upload(image_service: ImageProcessingService, upload: UploadFile) -> tuple[str, str]:
@@ -42,9 +62,14 @@ async def process_problem_image_upload(image_service: ImageProcessingService, up
 
     Raises:
         ImageProcessingError: The file is not a supported image.
-        ValueError: The file is empty or larger than ``MAX_PROBLEM_IMAGE_BYTES``.
+        ValueError: The file is empty or exceeds a problem-image limit.
     """
-    result = await image_service.process_upload_image(upload, max_file_size=MAX_PROBLEM_IMAGE_BYTES)
+    result = await image_service.process_upload_image(
+        upload,
+        max_file_size=MAX_PROBLEM_IMAGE_BYTES,
+        max_dimensions=_MAX_PROBLEM_IMAGE_DIMENSIONS,
+        supported_formats=_PROBLEM_IMAGE_FORMATS,
+    )
     return result.imagem_base64, result.mime_type
 
 
@@ -106,7 +131,12 @@ def load_packaged_image(
     mime = EXT_TO_MIME.get(ext, "image/png")
     data_uri = f"data:{mime};base64,{b64encode(image_bytes).decode('ascii')}"
     try:
-        result = image_service.process_base64(data_uri, max_file_size=MAX_PROBLEM_IMAGE_BYTES)
+        result = image_service.process_base64(
+            data_uri,
+            max_file_size=MAX_PROBLEM_IMAGE_BYTES,
+            max_dimensions=_MAX_PROBLEM_IMAGE_DIMENSIONS,
+            supported_formats=_PROBLEM_IMAGE_FORMATS,
+        )
     except (ImageProcessingError, ValueError) as exc:
         raise ValueError(f"Invalid problem image: {exc}") from exc
     return result.imagem_base64, result.mime_type

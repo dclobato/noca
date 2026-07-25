@@ -115,6 +115,34 @@ async def update_user(
     return actual_password
 
 
+async def update_user_credentials(
+    session: AsyncSession,
+    contest: Contest,
+    user: User,
+    *,
+    email: str | None | object = EMAIL_UNSET,
+    password: str | None = None,
+) -> str | None:
+    """Update only a contest user's email and optional password.
+
+    Unlike :func:`update_user`, this is permitted even after the contest has
+    finished so admins can still deliver or reset login credentials. It never
+    touches the profile fields (name, role, site, location) that stay frozen
+    once the contest is over.
+    """
+    if email is not EMAIL_UNSET:
+        user.email_normalizado = normalize_optional_email(None if email is None else str(email))
+
+    actual_password: str | None = None
+    if password:
+        actual_password = resolve_password(password)
+        user.password = actual_password
+
+    await session.flush()
+    await session.commit()
+    return actual_password
+
+
 async def remove_user(
     session: AsyncSession,
     contest: Contest,

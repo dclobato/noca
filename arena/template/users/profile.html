@@ -44,6 +44,9 @@
                            name="profile_photo"
                            accept="image/png,image/jpeg,image/webp">
                 </div>
+                <p class="form-text text-center mb-0">
+                    JPEG, PNG, or WebP · up to {{ "%.1f"|format(image_max_file_size_mib|default(2.0) ) }} MiB · up to {{ image_max_width|default(2048) }} × {{ image_max_height|default(2048) }} px
+                </p>
                 <div class="modal fade"
                      id="cropModal"
                      tabindex="-1"

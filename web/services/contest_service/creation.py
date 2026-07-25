@@ -19,8 +19,7 @@ from shared.enumerations import RoleEnum
 from web.models.contest import Contest
 from web.models.site import Site
 from web.models.users import UberAdmin, User
-from web.services.contest_user_service import normalize_username
-from web.services.contest_user_service.validation import normalize_optional_email, resolve_password
+from web.services.contest_user_service.credentials import normalize_optional_email, normalize_username, resolve_password
 from web.services.site_service import normalize_site_name_key
 
 from .forms import ContestMetadataInput
@@ -28,6 +27,16 @@ from .models import ContestCreationResult
 from .validation import validate_contest_metadata_fields
 
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def slug_format_is_valid(login_slug: str) -> bool:
+    """Return whether a contest login slug is well-formed.
+
+    A valid slug is lowercase letters, digits, and single hyphens between
+    segments (for example ``my-contest-2026``). This is the public predicate
+    other services should use instead of importing the private ``_SLUG_RE``.
+    """
+    return bool(_SLUG_RE.match(login_slug.strip()))
 
 
 def build_blank_contest_form(default_start_time: str) -> dict[str, Any]:

@@ -9,6 +9,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Protocol
+
+from werkzeug.security import check_password_hash
 
 from shared.services.password_service import (
     PasswordPolicy as SharedPasswordPolicy,
@@ -31,6 +34,17 @@ class PasswordPolicy(SharedPasswordPolicy):
         super().__init__(settings)
 
 
+class PasswordHashActor(Protocol):
+    """Actor exposing a Werkzeug-compatible password hash."""
+
+    password_hash: str
+
+
+def password_matches(actor: PasswordHashActor, password: str) -> bool:
+    """Return whether a non-empty password matches an actor's stored hash."""
+    return bool(password) and check_password_hash(actor.password_hash, password)
+
+
 def generate_diceware_password(*, wordlist_path: Path | None = None, size: int | None = None) -> str:
     """Generate a diceware-style password using web settings.
 
@@ -49,4 +63,5 @@ __all__ = [
     "PasswordPolicyError",
     "PasswordSettings",
     "generate_diceware_password",
+    "password_matches",
 ]

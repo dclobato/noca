@@ -21,7 +21,7 @@ class ClarificationView:
     """Role-scoped projection of a clarification."""
 
     id: str
-    problem_id: str
+    problem_id: str | None
     team_id: str
     question: str
     answer: str | None

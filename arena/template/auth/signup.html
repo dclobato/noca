@@ -114,7 +114,11 @@
                                             <br>
                                             or drag and drop
                                             <br>
-                                            <span class="text-muted-emphasis">PNG, JPG, WEBP up to 5MB</span>
+                                            <span class="text-muted-emphasis">
+                                                JPEG, PNG, or WebP · up to {{ "%.1f"|format(image_max_file_size_mib|default(2.0) ) }} MiB
+                                                <br>
+                                                Up to {{ image_max_width|default(2048) }} × {{ image_max_height|default(2048) }} px
+                                            </span>
                                         </p>
                                     </div>
                                     <div id="profile-photo-preview" class="d-none">

@@ -131,3 +131,16 @@ def validate_edit_user_form(fullname: str, email: str) -> tuple[str, str | None,
         errors.append(str(exc))
 
     return cleaned_fullname, normalized_email, errors
+
+
+def validate_edit_credentials_form(email: str) -> tuple[str | None, list[str]]:
+    """Validate the credentials-only edit form (email), allowed after contest end."""
+    normalized_email: str | None = None
+    errors: list[str] = []
+
+    try:
+        normalized_email = normalize_optional_email(email)
+    except ValueError as exc:
+        errors.append(str(exc))
+
+    return normalized_email, errors

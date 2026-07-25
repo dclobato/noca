@@ -12,6 +12,28 @@ import pytest
 from pydantic import ValidationError
 
 from arena.config import Settings
+from shared.services.imageprocessing_service import MAX_IMAGE_FILE_SIZE
+
+
+def test_image_max_file_size_defaults_to_two_mebibytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Arena defaults image uploads below the shared hard limit."""
+    monkeypatch.delenv("NOCA_IMAGE_MAX_FILE_SIZE", raising=False)
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.IMAGE_MAX_FILE_SIZE == 2 * 1024 * 1024
+
+
+def test_image_max_file_size_rejects_values_above_shared_hard_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Arena rejects image upload settings above the shared hard limit."""
+    monkeypatch.setenv("NOCA_IMAGE_MAX_FILE_SIZE", str(MAX_IMAGE_FILE_SIZE + 1))
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # type: ignore[call-arg]
 
 
 def test_arena_live_feed_limit_defaults_to_twenty(monkeypatch: pytest.MonkeyPatch) -> None:

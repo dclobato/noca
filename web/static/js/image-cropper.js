@@ -21,6 +21,7 @@
     let cropper = null;
     let originalFileType = null;
     let context = null;
+    let stagedPreviewUrl = null;
 
     /**
      * Detects the context based on elements present in the DOM.
@@ -37,6 +38,8 @@
                 previewId: 'cropPreview',
                 confirmBtnId: 'cropConfirm',
                 croppedFieldName: 'foto_cropada',
+                stagedPreviewId: fotoInput.dataset.photoPreviewId || null,
+                unsavedIndicatorId: fotoInput.dataset.unsavedIndicatorId || null,
                 aspectRatio: 2 / 3,  // Portrait
                 maxWidth: 600,
                 maxHeight: 900
@@ -54,6 +57,8 @@
                 previewId: 'cropPreview',
                 confirmBtnId: 'cropConfirm',
                 croppedFieldName: 'foto_cropada',
+                stagedPreviewId: teamInput.dataset.photoPreviewId || null,
+                unsavedIndicatorId: teamInput.dataset.unsavedIndicatorId || null,
                 aspectRatio: 16 / 10,  // Landscape
                 maxWidth: 1600,
                 maxHeight: 1000
@@ -147,6 +152,8 @@
 
             // Convert to blob
             canvas.toBlob(function(blob) {
+                if (!blob) return;
+
                 const ext = mimeType.split('/')[1];
                 const fileName = `${context.type}_cropped.${ext}`;
                 const file = new File([blob], fileName, { type: mimeType });
@@ -160,10 +167,23 @@
                     croppedInput = document.createElement('input');
                     croppedInput.type = 'file';
                     croppedInput.name = context.croppedFieldName;
-                    croppedInput.style.display = 'none';
+                    croppedInput.classList.add('d-none');
                     context.input.form.appendChild(croppedInput);
                 }
                 croppedInput.files = dataTransfer.files;
+
+                const stagedPreview = context.stagedPreviewId
+                    ? document.getElementById(context.stagedPreviewId)
+                    : null;
+                if (stagedPreview) {
+                    if (stagedPreviewUrl) URL.revokeObjectURL(stagedPreviewUrl);
+                    stagedPreviewUrl = URL.createObjectURL(blob);
+                    stagedPreview.src = stagedPreviewUrl;
+                }
+                const unsavedIndicator = context.unsavedIndicatorId
+                    ? document.getElementById(context.unsavedIndicatorId)
+                    : null;
+                if (unsavedIndicator) unsavedIndicator.classList.remove('d-none');
 
                 cropModal.hide();
 
@@ -192,6 +212,10 @@
             });
         }
     }
+
+    window.addEventListener('pagehide', function() {
+        if (stagedPreviewUrl) URL.revokeObjectURL(stagedPreviewUrl);
+    });
 
     // Initialize when the DOM is ready
     if (document.readyState === 'loading') {

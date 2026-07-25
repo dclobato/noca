@@ -33,28 +33,16 @@ Algorithm (per reaper cycle)
 ----------------------------
   1. ZRANGEBYSCORE inflight:times  0  (now - threshold)
      → list of stale judgment_ids
-  2. For each stale_id:
-     a. Fetch HGETALL judge:job:<stale_id>
-     b. If hash is gone: the job finished normally (or was cleaned up by another
-        reaper instance) → just ZREM the timestamp entry and LREM from inflight
-     c. If requeue_count >= max_requeue_count: give up — log and drop
-     d. Otherwise:
-        - HINCRBY judge:job:<stale_id> requeue_count 1
-        - RPUSH pending <stale_id>           (back of queue, not priority)
-        - LREM inflight 1 <stale_id>
-        - ZREM inflight:times <stale_id>
-        - ZADD inflight:times <now> <stale_id>  ← reset clock for the new attempt
+  2. For each candidate, one Lua script revalidates that its current score is
+     still stale and that the id remains inflight, then either cleans finished
+     metadata, records an exhaustion tombstone, or requeues it.
 
 Multi-worker safety
 -------------------
-Multiple worker processes may run reapers simultaneously (e.g. in Kubernetes
-with multiple replicas). The algorithm is safe because:
-- Step 2a handles the case where another reaper already cleaned up.
-- RPUSH + LREM is not atomic, but the worst case is duplicate requeue:
-  two reapers both RPUSH the same id. The second worker to pick it up will
-  fail the per-judgment Redis lock and skip it.
-- For stricter exactly-once semantics, a Lua EVAL could be used here, but
-  the simpler approach is acceptable given the rarity of simultaneous crashes.
+Multiple worker processes may run reapers simultaneously. Candidate discovery
+is intentionally advisory: the Lua transition rechecks both the sorted-set score
+and inflight membership at action time. Only one reaper can move the job, and a
+candidate whose score was refreshed for a new attempt is left untouched.
 
 Distinguishing the reaper's requeue from a live enqueue
 -------------------------------------------------------
@@ -69,8 +57,6 @@ import json
 import logging
 import time
 
-import valkey.asyncio as aiovalkey
-
 from autojudge.config import settings
 from autojudge.metrics import (
     REAPER_ALREADY_DONE_TOTAL,
@@ -79,10 +65,9 @@ from autojudge.metrics import (
     REAPER_ERRORS_TOTAL,
     REAPER_REQUEUED_TOTAL,
 )
+from autojudge.queue_ops import Valkey_Client, reap_stale_job
 
 logger = logging.getLogger(__name__)
-
-Valkey_Client = aiovalkey.Valkey
 
 
 # ---------------------------------------------------------------------------
@@ -199,119 +184,43 @@ async def _reaper_cycle(valkey: Valkey_Client) -> tuple[int, int, int]:
 
     for raw_id in stale_ids:
         judgment_id = raw_id.decode() if isinstance(raw_id, bytes) else raw_id
-        await _handle_stale_job(
+        outcome, _job_kind, requeue_count = await reap_stale_job(
             valkey,
-            judgment_id,
-            requeued_ref := [requeued],
-            dropped_ref := [dropped],
-            already_done_ref := [already_done],
+            job_id=judgment_id,
+            cutoff_epoch=cutoff_epoch,
+            max_requeue_count=settings.REAPER_MAX_REQUEUE_COUNT,
         )
-        requeued = requeued_ref[0]
-        dropped = dropped_ref[0]
-        already_done = already_done_ref[0]
+        if outcome in {"not_stale", "not_inflight"}:
+            continue
+        if outcome == "already_done":
+            already_done += 1
+            continue
+        if outcome == "dropped":
+            dropped += 1
+            logger.error("Reaper: job exceeded max requeue count — dropped")
+            logger.error(
+                json.dumps(
+                    {
+                        "judgment_id": judgment_id,
+                        "requeue_count": requeue_count,
+                        "max": settings.REAPER_MAX_REQUEUE_COUNT,
+                    },
+                    indent=2,
+                )
+            )
+            continue
 
-    return requeued, dropped, already_done
-
-
-# ---------------------------------------------------------------------------
-# Per-job handling
-# ---------------------------------------------------------------------------
-
-
-async def _handle_stale_job(
-    valkey: Valkey_Client,
-    judgment_id: str,
-    requeued_ref: list[int],
-    dropped_ref: list[int],
-    already_done_ref: list[int],
-) -> None:
-    """
-    Inspect one stale judgment_id and take appropriate action.
-    Uses a list-ref pattern to avoid nonlocal variable juggling in the caller.
-    """
-    job_key = f"{settings.queue_job_hash_prefix}:{judgment_id}"
-    lock_key = f"judge:lock:{judgment_id}"
-
-    # Fetch job hash
-    raw_data = await valkey.hgetall(job_key)  # type: ignore[misc]
-
-    if not raw_data:
-        # Hash is gone — job finished and was cleaned up normally
-        # (or another reaper already handled it). Clean up the stale zset entry.
-        await valkey.zrem(settings.queue_inflight_times_key, judgment_id)
-        await valkey.lrem(settings.queue_inflight_key, 1, judgment_id)  # type: ignore[misc]
-        already_done_ref[0] += 1
-        logger.debug(f"Reaper: job hash for judgment '{judgment_id}' already gone - cleaned up stale zset entry")
-        return
-
-    # Decode hash
-    data = {
-        (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
-        for k, v in raw_data.items()
-    }
-
-    raw_requeue_count = data.get("requeue_count", "0")
-    job_kind = data.get("job_kind", "submission")
-    try:
-        requeue_count = int(raw_requeue_count)
-    except Exception:
-        requeue_count = 0
-        logger.warning(f"Reaper: invalid requeue_count in job hash '{judgment_id}'; defaulting to zero")
-
-    if requeue_count >= settings.REAPER_MAX_REQUEUE_COUNT:
-        # This job has been requeued too many times — it is a poison pill.
-        pipe = valkey.pipeline()
-        if job_kind == "custom_validator_validation":
-            # Leave the hash for the DB reconciler so it can mark the matching
-            # pending candidate INVALID instead of re-enqueueing forever.
-            pipe.hset(job_key, mapping={"requeue_count": str(requeue_count), "reaper_dropped": "true"})
-        else:
-            pipe.delete(job_key)
-        pipe.delete(lock_key)
-        pipe.lrem(settings.queue_inflight_key, 1, judgment_id)
-        pipe.zrem(settings.queue_inflight_times_key, judgment_id)
-        await pipe.execute()
-
-        dropped_ref[0] += 1
-        logger.error("Reaper: job exceeded max requeue count — dropped")
+        requeued += 1
+        logger.warning("Reaper: stale job requeued")
         logger.error(
             json.dumps(
                 {
                     "judgment_id": judgment_id,
                     "requeue_count": requeue_count,
-                    "max": settings.REAPER_MAX_REQUEUE_COUNT,
+                    "stale_after_min": settings.REAPER_STALE_THRESHOLD_MINUTES,
                 },
                 indent=2,
             )
         )
-        return
 
-    # Requeue: clear the stale worker lock, increment retry metadata, push
-    # back to pending, and remove the stale inflight bookkeeping.
-    new_count = requeue_count + 1
-
-    pipe = valkey.pipeline()
-    pipe.delete(lock_key)
-    pipe.hset(job_key, "requeue_count", str(new_count))
-    destination_key = (
-        settings.queue_profiling_key
-        if job_kind in {"profiling", "custom_validator_validation"}
-        else settings.queue_pending_key
-    )
-    pipe.rpush(destination_key, judgment_id)
-    pipe.lrem(settings.queue_inflight_key, 1, judgment_id)
-    pipe.zrem(settings.queue_inflight_times_key, judgment_id)
-    await pipe.execute()
-
-    requeued_ref[0] += 1
-    logger.warning("Reaper: stale job requeued")
-    logger.error(
-        json.dumps(
-            {
-                "judgment_id": judgment_id,
-                "requeue_count": new_count,
-                "stale_after_min": settings.REAPER_STALE_THRESHOLD_MINUTES,
-            },
-            indent=2,
-        )
-    )
+    return requeued, dropped, already_done

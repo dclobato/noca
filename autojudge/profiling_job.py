@@ -66,6 +66,7 @@ async def process_profiling_job(
     docker_client: docker.DockerClient,
     executor: ThreadPoolExecutor,
     worker_id: str,
+    attempt_token: str,
 ) -> None:
     """
     Execute profiling for one problem/language reference implementation.
@@ -78,18 +79,23 @@ async def process_profiling_job(
         docker_client: Synchronous Docker client.
         executor: ThreadPoolExecutor for Docker SDK calls.
         worker_id: Stable worker identity string.
+        attempt_token: Attempt-scoped claim; every write below is fenced on it,
+            so an attempt whose run was taken over writes nothing.
+
+    Raises:
+        JudgmentOwnershipLost: If another attempt claims the run mid-execution.
     """
     from autojudge.runner import IsolateError  # avoid circular at module level
 
     container_id: str | None = None
     profiling_run_id = profiling_run.profiling_run_id
 
-    await db.set_profiling_dispatched(profiling_run_id, worker_id)
+    await db.set_profiling_dispatched(profiling_run_id, worker_id, attempt_token)
 
     try:
         language = get_language(language_registry, profiling_run.language_id)
     except KeyError as exc:
-        await db.set_profiling_failed(profiling_run_id, str(exc))
+        await db.set_profiling_failed(profiling_run_id, str(exc), attempt_token=attempt_token)
         return
 
     compile_result = await compile_submission(
@@ -107,10 +113,11 @@ async def process_profiling_job(
             profiling_run_id,
             "Reference implementation failed to compile.",
             compile_log=compile_result.compile_log,
+            attempt_token=attempt_token,
         )
         return
 
-    await db.set_profiling_running(profiling_run_id)
+    await db.set_profiling_running(profiling_run_id, attempt_token)
 
     try:
         profile_limits = profiling_hard_limits()
@@ -123,7 +130,12 @@ async def process_profiling_job(
         )
         test_cases = _load_test_cases(profiling_run.problem_id)
     except (LookupError, FileNotFoundError, ValueError) as exc:
-        await db.set_profiling_failed(profiling_run_id, str(exc), compile_log=compile_result.compile_log)
+        await db.set_profiling_failed(
+            profiling_run_id,
+            str(exc),
+            compile_log=compile_result.compile_log,
+            attempt_token=attempt_token,
+        )
         return
 
     test_case_ids = await db.get_test_case_id_map(profiling_run.problem_id)
@@ -132,13 +144,19 @@ async def process_profiling_job(
             profiling_run_id,
             f"Filesystem/DB mismatch for problem '{profiling_run.problem_id}'.",
             compile_log=compile_result.compile_log,
+            attempt_token=attempt_token,
         )
         return
 
     try:
         container_id = await pool_manager.acquire(profiling_run.language_id)
     except (PoolExhaustedError, PoolShutdownError) as exc:
-        await db.set_profiling_failed(profiling_run_id, str(exc), compile_log=compile_result.compile_log)
+        await db.set_profiling_failed(
+            profiling_run_id,
+            str(exc),
+            compile_log=compile_result.compile_log,
+            attempt_token=attempt_token,
+        )
         return
 
     profiling_start = time.monotonic()
@@ -211,6 +229,7 @@ async def process_profiling_job(
                 peak_output_bytes=repeated_result.peak_output_bytes,
                 peak_pids=observed_case_pids,
                 exit_code=repeated_result.exit_code,
+                attempt_token=attempt_token,
             )
             if repeated_result.total_wall_time_ms is not None:
                 observed_time_ms = max(observed_time_ms, repeated_result.total_wall_time_ms)
@@ -228,6 +247,7 @@ async def process_profiling_job(
                         f"{ordinal} with verdict {repeated_result.verdict.value}."
                     ),
                     compile_log=compile_result.compile_log,
+                    attempt_token=attempt_token,
                 )
                 return
 
@@ -243,10 +263,16 @@ async def process_profiling_job(
             profiling_run_id,
             profiled_limits,
             language.profiling_repetitions_default,
+            attempt_token=attempt_token,
             compile_log=compile_result.compile_log,
         )
     except (PoolExhaustedError, PoolShutdownError) as exc:
-        await db.set_profiling_failed(profiling_run_id, str(exc), compile_log=compile_result.compile_log)
+        await db.set_profiling_failed(
+            profiling_run_id,
+            str(exc),
+            compile_log=compile_result.compile_log,
+            attempt_token=attempt_token,
+        )
         return
     finally:
         PROFILING_DURATION_SECONDS.labels(language_id=profiling_run.language_id).observe(

@@ -20,6 +20,7 @@ from web.models.problem import (
     ProfilingRun,
 )
 from web.models.site import Site
+from web.models.solution_test import SolutionTestCaseResult, SolutionTestRun
 from web.models.submission import (
     HumanSubmissionConfirmation,
     Submission,
@@ -28,7 +29,7 @@ from web.models.submission import (
     SubmissionTestResult,
     VerdictOverride,
 )
-from web.models.users import BaseUser, Login_History, UberAdmin, User
+from web.models.users import BaseUser, Login_History, UberAdmin, User, UserMedia
 
 __all__ = [
     "AuditMixin",
@@ -47,6 +48,8 @@ __all__ = [
     "ProblemTestCase",
     "ProfilingCaseResult",
     "ProfilingRun",
+    "SolutionTestCaseResult",
+    "SolutionTestRun",
     "Submission",
     "SubmissionJudgment",
     "SubmissionJudgmentAudit",
@@ -56,6 +59,7 @@ __all__ = [
     "UUIDPrimaryKeyMixin",
     "UberAdmin",
     "User",
+    "UserMedia",
     "_new_uuid",
     "_utcnow",
 ]

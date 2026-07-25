@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024
+
 
 class ImageProcessingError(Exception):
     """Custom exception for image processing errors."""
@@ -21,7 +23,7 @@ class ImageProcessingConfig:
     """Runtime settings required by ``ImageProcessingService``."""
 
     avatar_size: int = 256
-    max_file_size: int = 5 * 1024 * 1024
+    max_file_size: int = MAX_IMAGE_FILE_SIZE
     max_width: int = 4096
     max_height: int = 4096
     response_cache_max_age: int = 3600

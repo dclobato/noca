@@ -14,6 +14,9 @@ QUEUE_PROFILING_KEY = "judge:queue:profiling"
 QUEUE_INFLIGHT_KEY = "judge:queue:inflight"
 QUEUE_INFLIGHT_TIMES_KEY = "judge:queue:inflight:times"
 QUEUE_RESULTS_CHANNEL = "judge:results"
+# New-submission nudges are published on their own channel so animator
+# subscribers can react to submissions without touching the verdict channel.
+QUEUE_SUBMISSIONS_CHANNEL = "judge:submissions"
 # Arena verdicts are published on a dedicated channel so Arena live-feed subscribers
 # never receive contest (web) verdict events and vice versa.
 ARENA_RESULTS_CHANNEL = "arena:results"

@@ -35,7 +35,16 @@ from shared.enumerations import (
 from shared.services.email_service import EmailConfig, EmailService
 from shared.services.geolocation import GeolocationIP
 from shared.services.imageprocessing_service import ImageProcessingConfig, ImageProcessingService
+from shared.services.multipart_file_size import (
+    MultipartFileSizeLimitMiddleware,
+    MultipartFileSizeRule,
+)
 from shared.services.network_utils import NetworkService
+from shared.services.problem_image import (
+    MAX_PROBLEM_IMAGE_BYTES,
+    MAX_PROBLEM_IMAGE_HEIGHT,
+    MAX_PROBLEM_IMAGE_WIDTH,
+)
 from shared.services.security_events_reaper import run_security_events_reaper
 from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
 from shared.services.startup_wait import wait_for_db, wait_for_valkey
@@ -81,6 +90,7 @@ from web.routes.contest_runs import router as contest_runs_router
 from web.routes.contest_runs_events import router as contest_runs_events_router
 from web.routes.contest_runs_review import router as contest_runs_review_router
 from web.routes.contest_score import router as contest_score_router
+from web.routes.contest_solution_tests import router as contest_solution_tests_router
 from web.routes.contest_submissions import router as contest_submissions_router
 from web.routes.contest_submissions_files import router as contest_submissions_files_router
 from web.routes.contest_submissions_review import router as contest_submissions_review_router
@@ -90,9 +100,12 @@ from web.routes.generaluser_dashboard import router as generaluser_dashboard_rou
 from web.routes.health import router as health_router
 from web.routes.profile import router as profile_router
 from web.routes.root import router as root_router
+from web.routes.uberadmin_contest_backup import router as uberadmin_contest_backup_router
+from web.routes.uberadmin_contest_removal import router as uberadmin_contest_removal_router
 from web.routes.uberadmin_dashboard import router as uberadmin_dashboard_router
 from web.routes.uberadmin_security import router as uberadmin_security_router
 from web.routes.uberadmin_users import router as uberadmin_users_router
+from web.routes.user_media import router as user_media_router
 from web.services.assorted_utils import contest_minutes, contest_verdict_badge_class, format_site_identity
 from web.services.authentication_service import AuthAction, AuthenticationService
 from web.services.clarification_reaper import run_clarification_reaper
@@ -217,6 +230,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     templates.env.globals["brand_name"] = settings.BRAND_NAME
     templates.env.globals["healthmon_url"] = settings.HEALTHMON_URL
     templates.env.globals["MAX_INLINE_TESTCASE_BYTES"] = MAX_INLINE_TESTCASE_BYTES
+    templates.env.globals["audio_max_file_size_mib"] = settings.AUDIO_MAX_FILE_SIZE / (1024 * 1024)
+    templates.env.globals["image_max_file_size_mib"] = settings.IMAGE_MAX_FILE_SIZE / (1024 * 1024)
+    templates.env.globals["image_max_width"] = settings.IMAGE_MAX_WIDTH
+    templates.env.globals["image_max_height"] = settings.IMAGE_MAX_HEIGHT
+    templates.env.globals["problem_image_max_file_size_mib"] = MAX_PROBLEM_IMAGE_BYTES / (1024 * 1024)
+    templates.env.globals["problem_image_max_width"] = MAX_PROBLEM_IMAGE_WIDTH
+    templates.env.globals["problem_image_max_height"] = MAX_PROBLEM_IMAGE_HEIGHT
     templates.env.globals["contest_minutes"] = contest_minutes
     templates.env.globals["format_site_identity"] = format_site_identity
     templates.env.globals["RoleEnum"] = RoleEnum
@@ -422,6 +442,21 @@ app.add_middleware(
     https_only=settings.COOKIE_SECURE,
 )
 app.add_middleware(AuthTokenRefreshMiddleware)
+app.add_middleware(
+    MultipartFileSizeLimitMiddleware,
+    rules=(
+        MultipartFileSizeRule(
+            path_pattern=r"^/user/[^/]+/photo$",
+            max_file_size=settings.IMAGE_MAX_FILE_SIZE,
+            label="Photo",
+        ),
+        MultipartFileSizeRule(
+            path_pattern=r"^/user/[^/]+/audio$",
+            max_file_size=settings.AUDIO_MAX_FILE_SIZE,
+            label="Audio",
+        ),
+    ),
+)
 
 app.mount("/static/js", ShortCacheStaticFiles(directory=_WEB_DIR / "static" / "js"), name="static_js")
 app.mount(
@@ -449,6 +484,8 @@ app.include_router(health_router)
 # ###################################################################
 # Dashboard routes
 app.include_router(uberadmin_dashboard_router)
+app.include_router(uberadmin_contest_backup_router)
+app.include_router(uberadmin_contest_removal_router)
 app.include_router(uberadmin_security_router)
 app.include_router(uberadmin_users_router)
 app.include_router(generaluser_dashboard_router)
@@ -471,6 +508,7 @@ app.include_router(contest_submissions_files_router)
 app.include_router(contest_tasks_router)
 app.include_router(contest_tasks_staff_router)
 app.include_router(contest_reports_router)
+app.include_router(contest_solution_tests_router)
 app.include_router(contest_admin_problem_router)
 app.include_router(contest_admin_problem_edit_router)
 app.include_router(contest_admin_problem_limits_router)
@@ -486,6 +524,7 @@ app.include_router(contest_admin_metadata_router)
 app.include_router(contest_admin_reports_router)
 app.include_router(contest_admin_export_router)
 app.include_router(profile_router)
+app.include_router(user_media_router)
 
 
 def main() -> None:

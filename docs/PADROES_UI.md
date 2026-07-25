@@ -6,6 +6,8 @@ Este documento descreve padrões de UI e boilerplates reutilizáveis usados no p
 
 - [Admin List Page](#admin-list-page)
 - [Paginação](#paginação)
+- [Linhas de tabela clicáveis](#linhas-de-tabela-clicáveis)
+- [Coluna de Tabela Ordenável (sort_by)](#coluna-de-tabela-ordenável-sort_by)
 - [Autocomplete com Estado Pendente](#autocomplete-com-estado-pendente)
 - [Destaque de Linha após CRUD](#destaque-de-linha-após-crud)
 - [Upload de Imagem com Cropper](#upload-de-imagem-com-cropper)
@@ -170,6 +172,263 @@ Ambos aceitam `nav_margin` (default vazio).
 | `arena/template/ranking/users.html` | Ranking |
 | `arena/template/classes/class_list.html` | Três abas, três `page_param` |
 | `arena/template/users/_submissions_list.html` | Partial dedicado com filtros |
+
+---
+
+## Linhas de tabela clicáveis
+
+Use este padrão quando cada linha de uma tabela representa um recurso que tem
+uma página de detalhes. A linha inteira funciona como link, sem precisar de uma
+coluna de ações com um botão **Open**.
+
+### Uso
+
+Defina a URL de destino no atributo `data-href` da linha:
+
+```jinja2
+<tbody>
+    {% for item in pagination.items %}
+        <tr data-href="{{ request.url_for('item_detail', item_id=item.id) }}">
+            <td>{{ item.name }}</td>
+            <td>{{ item.status }}</td>
+        </tr>
+    {% endfor %}
+</tbody>
+```
+
+Carregue o script compartilhado no bloco `extra_script`:
+
+```jinja2
+{% block extra_script %}
+    <script src="{{ request.url_for('static_shared_js', path='row-href.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock %}
+```
+
+O script adiciona a classe `noca-clickable-row`, `tabindex="0"` e
+`role="link"`. Ele abre o destino com clique, **Enter** ou **Espaço**, e mantém
+o comportamento de abrir em uma nova aba com um clique modificado.
+
+### Regras
+
+Siga estas regras para manter a navegação previsível e acessível:
+
+- Use `data-href` apenas quando a linha tiver um destino principal inequívoco.
+- Não adicione uma coluna de ações apenas para repetir o mesmo destino com um
+  botão **Open**.
+- Mantenha links, botões, campos de formulário e outros controles dentro da
+  linha quando eles executarem ações diferentes. O script não intercepta esses
+  elementos.
+- Adicione `data-no-row-link` a qualquer outro elemento interno que não deva
+  acionar a navegação da linha.
+- Inclua `row-href.js` uma única vez na página, mesmo que ela tenha várias
+  tabelas clicáveis.
+
+**Referências reais:**
+
+- `web/template/contest/solution_tests.html`
+- `arena/template/problems/problem_list.html`
+- `arena/template/classes/registered.html`
+- `arena/template/ranking/users.html`
+
+---
+
+## Coluna de Tabela Ordenável (sort_by)
+
+### Visão Geral
+
+Padrão para tornar colunas de uma tabela ordenáveis clicando no cabeçalho. A
+ordenação é **sempre server-side** (query param na URL + `ORDER BY` no SQL) —
+**não** reordenar linhas no cliente via JavaScript. Isso mantém uma única fonte
+de verdade (a URL), funciona sem JS, e sobrevive a paginação/HTMX sem estado
+duplicado.
+
+Duas variações já convivem no projeto; para telas novas, **prefira a variação A**
+(mais simples quando não há paginação/filtros complexos para preservar):
+
+**A) Parâmetro único combinado `sort_by="<campo>_<asc|desc>"`**
+Usado por `arena/template/admin/problem_list.html` e pelos exemplos novos abaixo
+(`web/template/contest/clarifications_list.html`, `web/template/contest/runs_list.html`).
+
+**B) Dois parâmetros separados `sort` + `direction`**
+Usado por `arena/template/classes/problem_set_list.html`,
+`arena/template/classes/*` e `arena/template/admin/_user_login_history.html`
+(este último com nomes de campo prefixados, ex. `login_sort_dir`, para não colidir
+com outros `sort`/`direction` da mesma página com múltiplas tabelas).
+
+Ambas seguem a mesma UX: clique no cabeçalho ordena crescente na primeira vez;
+clique de novo alterna para decrescente; trocar de coluna sempre volta para
+crescente. Um ícone (`arrow_upward` / `arrow_downward` / `unfold_more`) indica o
+estado.
+
+### Referência canônica (variação A, com macro reutilizável)
+
+**Macro:** `web/template/_macros.html` → `sort_link(label, field, sort_by, base_url)`
+
+```jinja2
+{% macro sort_link(label, field, sort_by, base_url) %}
+    {% set is_active = sort_by in (field ~ '_asc', field ~ '_desc') %}
+    {% set next_dir = 'desc' if sort_by == field ~ '_asc' else 'asc' %}
+    <a href="{{ base_url.include_query_params(sort_by=field ~ '_' ~ next_dir) }}"
+       class="text-decoration-none text-reset d-inline-flex align-items-center gap-1">
+        {{ label }}
+        {% if is_active and sort_by == field ~ '_asc' %}
+            {{ render_icon(icon='arrow_upward', classes='noca-sort-icon noca-sort-icon--active') }}
+        {% elif is_active %}
+            {{ render_icon(icon='arrow_downward', classes='noca-sort-icon noca-sort-icon--active') }}
+        {% else %}
+            {{ render_icon(icon='unfold_more', classes='noca-sort-icon noca-sort-icon--idle') }}
+        {% endif %}
+    </a>
+{% endmacro %}
+```
+
+**Uso no template da tabela** (`web/template/contest/clarifications_list.html`,
+`web/template/contest/runs_list.html`):
+
+```jinja2
+{% from "_macros.html" import render_icon, sort_link %}
+{% set my_base_url = request.url_for('my_full_page_route', slug=contest.login_slug) %}
+...
+<th class="text-end noca-col-8">{{ sort_link('Time', 'time', sort_by, my_base_url) }}</th>
+<th class="text-start">{{ sort_link('Problem', 'problem', sort_by, my_base_url) }}</th>
+```
+
+**IMPORTANTE:** `base_url` deve ser sempre a URL da **página completa**
+(`request.url_for(...)` da rota principal), nunca a rota de um partial HTMX
+(`/list`). O clique no link faz uma navegação normal (full page load); o partial
+HTMX só existe para o auto-refresh, não para a ordenação em si.
+
+### Backend
+
+**Normalização e ORDER BY** (arquivo do serviço/query, não da rota):
+
+```python
+Sort = Literal["time_asc", "time_desc", "problem_asc", "problem_desc"]
+_ALLOWED_SORTS: frozenset[str] = frozenset({"time_asc", "time_desc", "problem_asc", "problem_desc"})
+
+
+def normalize_my_sort(value: str | None) -> Sort:
+    """Normalize a list ``sort_by`` query parameter."""
+    if value in _ALLOWED_SORTS:
+        return cast(Sort, value)
+    return "time_desc"
+
+
+def _order_for_sort(sort_by: Sort) -> tuple[Any, ...]:
+    """Return the ORDER BY clauses for *sort_by*; secondary-column sorts tie-break on newest first."""
+    if sort_by == "time_asc":
+        return (MyModel.created_at.asc(),)
+    if sort_by == "problem_asc":
+        return (Problem.ordinal.asc(), MyModel.created_at.desc())
+    if sort_by == "problem_desc":
+        return (Problem.ordinal.desc(), MyModel.created_at.desc())
+    return (MyModel.created_at.desc(),)
+```
+
+Exemplos reais: `web/services/clarification_service/queries.py`
+(`normalize_clarification_sort`, `_apply_clarification_sort`) e
+`web/services/submission_service.py` (`normalize_submission_sort`,
+`_order_for_submission_sort`).
+
+**Regra de tie-break:** quando o campo ordenado não é o tempo (ex: `problem_asc`),
+sempre desempate por `created_at.desc()` (mais recente primeiro) — nunca deixe a
+ordem de empate indefinida, pois o resultado ficaria instável entre requisições.
+
+**Rota** (ambas as rotas — página completa e partial `/list` — devem aceitar e
+repassar o mesmo parâmetro):
+
+```python
+@router.get("/", response_class=HTMLResponse, name="my_full_page_route")
+async def view(
+    request: Request,
+    ctx: ContestContext = Depends(get_contest_context),
+    sort_by: str = Query("time_desc"),
+) -> HTMLResponse:
+    normalized_sort = normalize_my_sort(sort_by)
+    rows = await list_my_rows(ctx.session, ctx.contest, sort_by=normalized_sort)
+    return _html(
+        templates.TemplateResponse(
+            request,
+            "my_template.html",
+            {..., "sort_by": normalized_sort},
+        )
+    )
+```
+
+**IMPORTANTE:**
+- Valide sempre com uma função `normalize_*` (`Literal` + `frozenset`) — nunca
+  interpole `sort_by` bruto no SQL.
+- `sort_by` deve ir para o contexto do template em **todo** branch de retorno da
+  rota (inclusive os de acesso bloqueado / lista vazia), para o macro não
+  quebrar por variável ausente.
+- A rota do partial (`/list`, usada por HTMX) também precisa aceitar `sort_by` e
+  repassá-lo à query — senão o auto-refresh perde a ordenação escolhida.
+
+### Preservando o sort_by durante auto-refresh HTMX
+
+Quando a tabela tem `hx-get` de polling (`hx-trigger="every 60s"` etc.), o
+`sort_by` atual precisa ser embutido na própria URL do `hx-get` — a página não
+navega, então não há outra forma de o partial saber qual ordenação está ativa:
+
+```jinja2
+<div id="my-list-wrapper"
+     hx-get="{{ request.url_for('my_list_partial', slug=contest.login_slug).include_query_params(sort_by=sort_by) }}"
+     hx-trigger="every 60s"
+     hx-swap="outerHTML">
+```
+
+Se a tabela já tem um `<form>` de filtros com `hx-include`, **não** duplique
+`sort_by` como hidden input dentro do form — mantenha-o só na URL do `hx-get`,
+já que o form só está presente para alguns papéis/condições e a URL cobre todos
+os casos uniformemente.
+
+### CSS
+
+**Arquivo:** `web/static/css/contest/_layout.css` (web) /
+`arena/static/css/arena/_tables.css` (arena) — cada módulo mantém sua própria
+cópia das classes (não compartilhadas via `shared/static/css/common.css`, pois
+cada módulo tem tokens de cor próprios):
+
+```css
+.noca-sort-icon {
+    font-size: 1rem;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+.noca-sort-icon--idle {
+    opacity: 0.28;
+}
+
+.noca-sort-icon--active {
+    color: var(--bs-primary);
+    opacity: 1;
+}
+```
+
+(Arena usa os equivalentes `.arena-sort-icon`, `.arena-sort-icon--idle`,
+`.arena-sort-icon--active` com `var(--arena-primary)`.)
+
+### Exemplos Reais no Projeto
+
+| Template | Variação | Observação |
+|---|---|---|
+| `arena/template/admin/problem_list.html` | A (`sort_by`) | Referência original da variação A |
+| `web/template/contest/clarifications_list.html` | A (`sort_by`), via macro `sort_link` | Ordena por Time / Problem, tie-break por tempo |
+| `web/template/contest/runs_list.html` | A (`sort_by`), via macro `sort_link` | Idem, preserva `sort_by` no `hx-get` de polling |
+| `arena/template/classes/problem_set_list.html` | B (`sort`/`direction`) | Macro `sort_link` local ao template (não compartilhado) |
+| `arena/template/admin/_user_login_history.html` | B, prefixado (`login_sort_dir`) | Evita colisão com outra tabela/aba na mesma página |
+
+### Checklist de Implementação
+
+- [ ] Query param validado por função `normalize_*` (`Literal` + `frozenset`), nunca interpolado direto no SQL
+- [ ] `ORDER BY` com tie-break explícito por tempo quando o campo ordenado não é o tempo
+- [ ] Rota da página completa **e** rota do partial HTMX aceitam e repassam `sort_by`
+- [ ] `sort_by` presente em **todos** os branches de retorno da rota (inclusive bloqueado/vazio)
+- [ ] Links do cabeçalho apontam para a URL da **página completa**, nunca para a rota do partial
+- [ ] `hx-get` de auto-refresh embute `sort_by` via `.include_query_params(sort_by=sort_by)`
+- [ ] Ícone de estado (`arrow_upward` / `arrow_downward` / `unfold_more`) com classes `--active`/`--idle`
 
 ---
 

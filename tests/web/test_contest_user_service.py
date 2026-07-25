@@ -19,6 +19,7 @@ from web.services.contest_user_service import (
     get_contest_user_groups,
     parse_batch_upload,
     update_user,
+    update_user_credentials,
 )
 from web.services.site_service import normalize_site_name_key
 
@@ -37,6 +38,36 @@ async def _create_site(session: AsyncSession, contest_id: str, name: str) -> Sit
     session.add(site)
     await session.flush()
     return site
+
+
+async def _make_contest_user(
+    session: AsyncSession,
+    contest_id: str,
+    uberadmin_id: str,
+    *,
+    username: str,
+    role: RoleEnum = RoleEnum.USER,
+    email: str | None = None,
+    site_id: str | None = None,
+) -> User:
+    """Insert a contest user directly, bypassing the contest-state guards.
+
+    Used to seed users on an already-finished contest, where ``create_user``
+    is intentionally refused.
+    """
+    user = User(
+        username=username,
+        fullname=username.replace("-", " ").title(),
+        role=role,
+        contest_id=contest_id,
+        created_by_uberadmin_id=uberadmin_id,
+        site_id=site_id,
+    )
+    user.email_normalizado = email
+    user.password = "TestPass1!"
+    session.add(user)
+    await session.flush()
+    return user
 
 
 @pytest.mark.asyncio
@@ -382,6 +413,18 @@ async def test_edit_user_submit_keeps_role_immutable_even_if_forged_role_is_post
     ).read_text()
     assert 'name="role"' not in edit_template
     assert "Role cannot be changed after the user is created." in edit_template
+    assert "user_photo_submit" in edit_template
+    assert "user_audio_submit" in edit_template
+    assert "user_audio_remove" in edit_template
+    assert 'id="cropModal"' in edit_template
+    assert 'data-photo-preview-id="adminPhotoPreview"' in edit_template
+    assert 'data-audio-preview-id="adminAudioPreview"' in edit_template
+    assert 'id="adminPhotoUnsaved"' in edit_template
+    assert 'id="adminAudioUnsaved"' in edit_template
+    assert "image_max_file_size_mib" in edit_template
+    assert "image_max_width" in edit_template
+    assert "image_max_height" in edit_template
+    assert "audio_max_file_size_mib" in edit_template
 
 
 @pytest.mark.asyncio
@@ -498,3 +541,122 @@ async def test_export_users_route_returns_import_compatible_json_without_passwor
         }
         for row in payload["users"]
     )
+
+
+@pytest.mark.asyncio
+async def test_update_user_credentials_allows_email_and_password_after_contest_end(
+    session: AsyncSession, stopped_contest, uberadmin
+) -> None:
+    user = await _make_contest_user(
+        session,
+        stopped_contest.id,
+        uberadmin.id,
+        username="team-after-end",
+        role=RoleEnum.USER,
+        email="old@example.com",
+    )
+    original_fullname = user.fullname
+
+    applied_password = await update_user_credentials(
+        session,
+        stopped_contest,
+        user,
+        email="New.Email+Reset@Example.COM",
+        password="NewPassword1!",
+    )
+
+    await session.refresh(user)
+    assert applied_password == "NewPassword1!"
+    assert user.email_normalizado == "new.email+reset@example.com"
+    # Profile fields stay frozen after the contest ends.
+    assert user.fullname == original_fullname
+
+
+@pytest.mark.asyncio
+async def test_edit_user_submit_after_contest_end_updates_only_credentials(
+    session: AsyncSession, stopped_contest, uberadmin
+) -> None:
+    site = await _create_site(session, stopped_contest.id, "Frozen Site")
+    user = await _make_contest_user(
+        session,
+        stopped_contest.id,
+        uberadmin.id,
+        username="team-locked",
+        role=RoleEnum.TEAM,
+        email="old@example.com",
+        site_id=site.id,
+    )
+    original_fullname = user.fullname
+    original_site_id = user.site_id
+    ctx = ContestAdminContext(contest=stopped_contest, session=session, actor=uberadmin)
+    request = _route_request()
+    flash_messages: list[tuple[str, object]] = []
+    user_id = user.id
+
+    response = await edit_user_submit(
+        request=request,
+        user_id=user_id,
+        flash=lambda message, category: flash_messages.append((message, category)),
+        ctx=ctx,
+        fullname="Forged Name",
+        email="new@example.com",
+        password="NewPassword1!",
+        site_id="",
+        location="FORGED",
+    )
+
+    await session.refresh(user)
+    assert response.status_code == 303
+    # Credentials are applied even though the contest has ended.
+    assert user.email_normalizado == "new@example.com"
+    # Profile fields posted alongside are ignored, not cleared.
+    assert user.fullname == original_fullname
+    assert user.site_id == original_site_id
+    assert user.location is None
+    assert any(message == "Credentials updated successfully." for message, _ in flash_messages)
+
+
+@pytest.mark.asyncio
+async def test_edit_user_submit_after_contest_end_rejects_invalid_email(
+    session: AsyncSession, stopped_contest, uberadmin
+) -> None:
+    user = await _make_contest_user(
+        session,
+        stopped_contest.id,
+        uberadmin.id,
+        username="team-bad-email",
+        role=RoleEnum.USER,
+        email="keep@example.com",
+    )
+    ctx = ContestAdminContext(contest=stopped_contest, session=session, actor=uberadmin)
+    request = _route_request()
+    flash_messages: list[tuple[str, object]] = []
+    user_id = user.id
+
+    response = await edit_user_submit(
+        request=request,
+        user_id=user_id,
+        flash=lambda message, category: flash_messages.append((message, category)),
+        ctx=ctx,
+        fullname="",
+        email="not-an-email",
+        password="",
+        site_id="",
+        location="",
+    )
+
+    await session.refresh(user)
+    assert response.status_code == 303
+    assert user.email_normalizado == "keep@example.com"
+    assert any("Invalid email address." in message for message, _ in flash_messages)
+
+
+def test_edit_user_template_keeps_credentials_editable_when_locked() -> None:
+    edit_template = (
+        Path(__file__).resolve().parents[2] / "web" / "template" / "admin" / "users" / "edit.html"
+    ).read_text()
+    # The email input closes right after its value (no is_locked disabled attr).
+    assert "edit_user.email_normalizado or '' }}\">" in edit_template
+    # The save button is always rendered, relabelled when the contest is locked.
+    assert "Save credentials" in edit_template
+    assert "Only the email and password can still be updated." in edit_template

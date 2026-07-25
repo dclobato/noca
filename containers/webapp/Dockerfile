@@ -24,10 +24,16 @@ COPY web /app/web
 COPY migrations /app/migrations
 COPY scripts/__init__.py /app/scripts/__init__.py
 COPY scripts/backfill_web_tc_sizes.py /app/scripts/backfill_web_tc_sizes.py
+COPY scripts/backfill_login_geolocation.py /app/scripts/backfill_login_geolocation.py
 COPY scripts/migrate_arena_tc_to_fs.py /app/scripts/migrate_arena_tc_to_fs.py
-COPY scripts/web /app/scripts/web
+COPY scripts/web/__init__.py /app/scripts/web/__init__.py
+COPY scripts/web/create_uberadmin.py /app/scripts/web/create_uberadmin.py
+COPY scripts/web/backfill_job_contest_id.py /app/scripts/web/backfill_job_contest_id.py
+COPY scripts/web/cleanup_problem_files.py /app/scripts/web/cleanup_problem_files.py
+COPY scripts/web/valkey_queue_status.py /app/scripts/web/valkey_queue_status.py
 COPY scripts/bootstrap_languages.py /app/scripts/bootstrap_languages.py
 COPY scripts/run_migrations.py /app/scripts/run_migrations.py
+COPY scripts/secrets_config.py /app/scripts/secrets_config.py
 COPY containers/webapp/entrypoint.sh /app/entrypoint.sh
 
 RUN chmod +x /app/entrypoint.sh

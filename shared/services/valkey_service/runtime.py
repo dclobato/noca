@@ -30,9 +30,22 @@ from shared.queue_schema import (
     CustomValidatorValidationJob,
     JudgeJob,
     ProfilingJob,
+    SolutionTestJob,
+    SubmissionEvent,
     VerdictEvent,
 )
-from shared.services.valkey_service.constants import ARENA_RESULTS_CHANNEL, QUEUE_RESULTS_CHANNEL
+from shared.services.valkey_service.constants import (
+    ARENA_RESULTS_CHANNEL,
+    QUEUE_RESULTS_CHANNEL,
+    QUEUE_SUBMISSIONS_CHANNEL,
+)
+from shared.services.valkey_service.contest_purge import (
+    ContestValkeyPurgeError,
+    ContestValkeyPurgeResult,
+    ContestValkeyTargets,
+    pending_command_belongs_to_contest,
+    purge_contest_with_client,
+)
 from shared.services.valkey_service.errors import is_recoverable_valkey_error
 from shared.services.valkey_service.pool import create_valkey_pool
 
@@ -46,6 +59,7 @@ class PendingCommand:
     operation: Literal[
         "enqueue_job",
         "enqueue_profiling_job",
+        "enqueue_solution_test_job",
         "enqueue_custom_validator_validation_job",
         "enqueue_arena_submission_job",
         "enqueue_arena_ai_review_job",
@@ -53,11 +67,20 @@ class PendingCommand:
         "remove_from_inflight",
         "remove_from_ai_review_inflight",
         "publish_verdict",
+        "publish_submission",
     ]
-    job: JudgeJob | ProfilingJob | CustomValidatorValidationJob | ArenaSubmissionJob | ArenaAIReviewJob | None = None
+    job: (
+        JudgeJob
+        | ProfilingJob
+        | SolutionTestJob
+        | CustomValidatorValidationJob
+        | ArenaSubmissionJob
+        | ArenaAIReviewJob
+        | None
+    ) = None
     priority: bool = False
     job_id: str | None = None
-    event: VerdictEvent | None = None
+    event: VerdictEvent | SubmissionEvent | None = None
 
 
 class ValkeyRuntime:
@@ -321,6 +344,11 @@ class ValkeyRuntime:
         command = PendingCommand(operation="enqueue_profiling_job", job=job)
         await self._execute_or_buffer(command)
 
+    async def enqueue_solution_test_job(self, job: SolutionTestJob, *, priority: bool) -> None:
+        """Execute or buffer a solution-test enqueue command."""
+        command = PendingCommand(operation="enqueue_solution_test_job", job=job, priority=priority)
+        await self._execute_or_buffer(command)
+
     async def enqueue_custom_validator_validation_job(self, job: CustomValidatorValidationJob) -> None:
         """Execute or buffer a custom-validator validation command."""
         command = PendingCommand(operation="enqueue_custom_validator_validation_job", job=job)
@@ -551,6 +579,37 @@ class ValkeyRuntime:
                 return None
             raise
 
+    async def purge_contest_runtime_state(
+        self,
+        targets: ContestValkeyTargets,
+    ) -> ContestValkeyPurgeResult:
+        """Strictly purge one contest's queues, locks, caches, and buffer.
+
+        Raises:
+            ContestValkeyPurgeError: If the runtime is unavailable or the purge
+                cannot be verified.
+        """
+        async with self._reconnect_lock:
+            client = self._client
+            if client is None or not self._is_available:
+                raise ContestValkeyPurgeError("Valkey is unavailable.")
+
+            async with self._pending_lock:
+                retained_commands = deque(
+                    command
+                    for command in self._pending_commands
+                    if not pending_command_belongs_to_contest(command, targets)
+                )
+                removed_count = len(self._pending_commands) - len(retained_commands)
+                result = await purge_contest_with_client(client, targets)
+                self._pending_commands = retained_commands
+
+        return ContestValkeyPurgeResult(
+            queue_entries_removed=result.queue_entries_removed,
+            keys_removed=result.keys_removed,
+            buffered_commands_removed=removed_count,
+        )
+
     async def remove_from_inflight(self, job_id: str) -> None:
         """Execute or buffer a remove-from-inflight command."""
         command = PendingCommand(operation="remove_from_inflight", job_id=job_id)
@@ -576,6 +635,55 @@ class ValkeyRuntime:
                     indent=2,
                 )
             )
+
+    async def publish_submission(self, event: SubmissionEvent) -> None:
+        """Execute or buffer a submission-publish command."""
+        command = PendingCommand(operation="publish_submission", event=event)
+        try:
+            await self._execute_or_buffer(command)
+        except Exception as exc:
+            logger.error("Failed to publish submission event")
+            logger.error(
+                json.dumps(
+                    {
+                        "submission_id": event.submission_id,
+                        "contest_id": event.contest_id,
+                        "error": str(exc),
+                    },
+                    indent=2,
+                )
+            )
+
+    async def iter_submission_events(self) -> AsyncIterator[SubmissionEvent]:
+        """Yield submission events from the Valkey pub/sub channel until interrupted."""
+        if self._client is None:
+            return
+
+        client: aivalkey.Valkey = aivalkey.Valkey.from_url(
+            self._valkey_url,
+            decode_responses=True,
+            socket_keepalive=True,
+            socket_timeout=None,
+        )
+        pubsub = client.pubsub()
+        await pubsub.subscribe(QUEUE_SUBMISSIONS_CHANNEL)
+        try:
+            try:
+                async for message in pubsub.listen():
+                    if message["type"] == "message":
+                        try:
+                            yield SubmissionEvent.model_validate_json(message["data"])
+                        except Exception as exc:
+                            logger.warning("Failed to parse SubmissionEvent from pub/sub: %s", exc)
+            except Exception as exc:
+                if is_recoverable_valkey_error(exc):
+                    logger.debug("Submission pub/sub stream interrupted; caller may reconnect: %s", exc)
+                    return
+                raise
+        finally:
+            with contextlib.suppress(Exception):
+                await pubsub.unsubscribe(QUEUE_SUBMISSIONS_CHANNEL)
+            await client.aclose()
 
     async def iter_verdict_events(self) -> AsyncIterator[VerdictEvent]:
         """Yield verdict events from the Valkey pub/sub channel until interrupted."""
@@ -801,6 +909,16 @@ class ValkeyRuntime:
             await valkey_facade._enqueue_profiling_job_with_client(client, cast(ProfilingJob, command.job))
             return
 
+        if command.operation == "enqueue_solution_test_job":
+            if command.job is None:
+                raise RuntimeError("enqueue_solution_test_job pending command without job payload")
+            await valkey_facade._enqueue_solution_test_job_with_client(
+                client,
+                cast(SolutionTestJob, command.job),
+                priority=command.priority,
+            )
+            return
+
         if command.operation == "enqueue_custom_validator_validation_job":
             if command.job is None:
                 raise RuntimeError("validator validation command without job payload")
@@ -849,7 +967,13 @@ class ValkeyRuntime:
         if command.operation == "publish_verdict":
             if command.event is None:
                 raise RuntimeError("publish_verdict pending command without event payload")
-            await valkey_facade._publish_verdict_with_client(client, command.event)
+            await valkey_facade._publish_verdict_with_client(client, cast(VerdictEvent, command.event))
+            return
+
+        if command.operation == "publish_submission":
+            if command.event is None:
+                raise RuntimeError("publish_submission pending command without event payload")
+            await valkey_facade._publish_submission_with_client(client, cast(SubmissionEvent, command.event))
             return
 
         raise RuntimeError(f"Unknown pending command operation: {command.operation}")

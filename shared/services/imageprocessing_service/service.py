@@ -17,8 +17,14 @@ from fastapi import Response, UploadFile
 from PIL import Image
 
 from .helpers import build_placeholder, crop_to_aspect_ratio, generate_avatar
-from .models import ImageBasicMetadata, ImageProcessingConfig, ImageProcessingError, ImageProcessingResult
+from .models import (
+    ImageBasicMetadata,
+    ImageProcessingConfig,
+    ImageProcessingError,
+    ImageProcessingResult,
+)
 from .validation import convert_to as convert_image_to
+from .validation import detect_image_type
 from .validation import image_validation as validate_image_bytes
 
 
@@ -49,6 +55,7 @@ class ImageProcessingService:
         crop_aspect_ratio: bool = False,
         aspect_width: int = 2,
         aspect_height: int = 3,
+        supported_formats: set[str] | None = None,
     ) -> ImageProcessingResult:
         """Process an uploaded image and generate a stored image plus avatar."""
         if upload is None:
@@ -57,6 +64,7 @@ class ImageProcessingService:
         avatar_size = avatar_size or self._config.avatar_size
         max_file_size = max_file_size or self._config.max_file_size
         max_dimensions = max_dimensions or (self._config.max_width, self._config.max_height)
+        supported_formats = supported_formats or self.SUPPORTED_FORMATS
 
         try:
             await upload.seek(0)
@@ -64,14 +72,14 @@ class ImageProcessingService:
             if not image_data:
                 raise ValueError("Empty image file")
             if len(image_data) > max_file_size:
-                raise ValueError(f"File too large. Maximum allowed: {max_file_size / (1024 * 1024):.1f}MB")
+                maximum_megabytes = max_file_size / (1024 * 1024)
+                raise ValueError(f"File too large. Maximum allowed: {maximum_megabytes:.1f}MB")
 
-            mime_type = upload.content_type or "application/octet-stream"
             return self._process_image_bytes(
                 image_data=image_data,
-                mime_type=mime_type,
                 avatar_size=avatar_size,
                 max_dimensions=max_dimensions,
+                supported_formats=supported_formats,
                 crop_aspect_ratio=crop_aspect_ratio,
                 aspect_width=aspect_width,
                 aspect_height=aspect_height,
@@ -85,6 +93,7 @@ class ImageProcessingService:
         avatar_size: int | None = None,
         max_file_size: int | None = None,
         max_dimensions: tuple[int, int] | None = None,
+        supported_formats: set[str] | None = None,
     ) -> ImageProcessingResult:
         """Process a base64-encoded image and generate a stored image plus avatar."""
         if not base64_string:
@@ -93,13 +102,12 @@ class ImageProcessingService:
         avatar_size = avatar_size or self._config.avatar_size
         max_file_size = max_file_size or self._config.max_file_size
         max_dimensions = max_dimensions or (self._config.max_width, self._config.max_height)
+        supported_formats = supported_formats or self.SUPPORTED_FORMATS
 
         try:
-            mime_type = "image/jpeg"
             if base64_string.startswith("data:"):
                 match = re.match(r"data:(image/[a-z]+);base64,(.+)", base64_string)
                 if match:
-                    mime_type = match.group(1)
                     base64_string = match.group(2)
                 else:
                     raise ValueError("Invalid data URI format")
@@ -108,13 +116,14 @@ class ImageProcessingService:
             if not image_data:
                 raise ValueError("Empty image data after decoding")
             if len(image_data) > max_file_size:
-                raise ValueError(f"File too large. Maximum allowed: {max_file_size / (1024 * 1024):.1f}MB")
+                maximum_megabytes = max_file_size / (1024 * 1024)
+                raise ValueError(f"File too large. Maximum allowed: {maximum_megabytes:.1f}MB")
 
             return self._process_image_bytes(
                 image_data=image_data,
-                mime_type=mime_type,
                 avatar_size=avatar_size,
                 max_dimensions=max_dimensions,
+                supported_formats=supported_formats,
             )
         except (ValueError, TypeError) as exc:
             if isinstance(exc, ValueError):
@@ -124,37 +133,50 @@ class ImageProcessingService:
     def _process_image_bytes(
         self,
         image_data: bytes,
-        mime_type: str,
         avatar_size: int,
         max_dimensions: tuple[int, int],
+        supported_formats: set[str],
         crop_aspect_ratio: bool = False,
         aspect_width: int = 2,
         aspect_height: int = 3,
     ) -> ImageProcessingResult:
         """Process validated image bytes and generate a stored image plus avatar."""
         try:
+            mime_type, detected_format = detect_image_type(
+                image_data,
+                supported_formats=supported_formats,
+            )
             with Image.open(io.BytesIO(image_data)) as loaded_image:
                 image: Image.Image = loaded_image
                 if not hasattr(image, "format") or image.format is None:
                     raise ImageProcessingError("Unrecognized image format")
-                if image.format not in self.SUPPORTED_FORMATS:
+                if image.format not in supported_formats:
+                    accepted_formats = ", ".join(sorted(supported_formats))
                     raise ImageProcessingError(
-                        f"Format {image.format} not supported. Accepted formats: {', '.join(self.SUPPORTED_FORMATS)}"
+                        f"Format {image.format} not supported. Accepted formats: {accepted_formats}"
                     )
+                if image.format != detected_format:
+                    signature_label = f"Image signature format {detected_format}"
+                    decoded_label = f"decoded format {image.format}"
+                    raise ImageProcessingError(f"{signature_label} does not match {decoded_label}")
 
                 original_width, original_height = image.size
                 if original_width > max_dimensions[0] or original_height > max_dimensions[1]:
-                    raise ValueError(f"Image too large. Maximum: {max_dimensions[0]}x{max_dimensions[1]} pixels")
+                    maximum_dimensions = f"{max_dimensions[0]}x{max_dimensions[1]}"
+                    raise ValueError(f"Image too large. Maximum: {maximum_dimensions} pixels")
 
                 original_format = image.format
                 if crop_aspect_ratio:
                     image = crop_to_aspect_ratio(image, aspect_width, aspect_height)
                     image.format = original_format
 
-                image_buffer = io.BytesIO()
-                image.save(image_buffer, format=original_format, optimize=True)
-                stored_bytes = image_buffer.getvalue()
                 avatar_data, avatar_dims = generate_avatar(image, avatar_size)
+                image_buffer = io.BytesIO()
+                if original_format == "GIF" and getattr(image, "is_animated", False):
+                    image.save(image_buffer, format=original_format, optimize=True, save_all=True)
+                else:
+                    image.save(image_buffer, format=original_format, optimize=True)
+                stored_bytes = image_buffer.getvalue()
 
                 return ImageProcessingResult(
                     imagem_base64=b64encode(stored_bytes).decode("utf-8"),
@@ -225,4 +247,8 @@ class ImageProcessingService:
 
     def convert_to(self, content: bytes, output_format: str = "PNG") -> bytes:
         """Convert raw image bytes to another supported output format."""
-        return convert_image_to(content=content, output_format=output_format, supported_formats=self.SUPPORTED_FORMATS)
+        return convert_image_to(
+            content=content,
+            output_format=output_format,
+            supported_formats=self.SUPPORTED_FORMATS,
+        )

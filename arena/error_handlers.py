@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import logging
 from typing import cast
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi_flash import FlashCategory
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -30,6 +31,7 @@ from shared.error_handlers import (
     register_backend_error_handlers,
     request_accepts_html,
 )
+from shared.services.multipart_file_size import MultipartFileTooLargeError
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +99,21 @@ async def arena_http_exception_handler(request: Request, exc: Exception) -> Resp
     http_exception = cast(HTTPException, exc)
     is_htmx_request = request.headers.get("HX-Request", "").lower() == "true"
     accepts_html = request_accepts_html(request)
+    if isinstance(http_exception, MultipartFileTooLargeError):
+        if request.url.path.endswith("/logo"):
+            return JSONResponse(
+                {"ok": False, "error": str(http_exception.detail)},
+                status_code=413,
+            )
+        if accepts_html and "session" in request.scope:
+            write_flash_message(
+                request,
+                str(http_exception.detail),
+                FlashCategory.WARNING,
+            )
+            return RedirectResponse(_safe_browser_return_url(request), status_code=303)
+        return await http_exception_handler(request, http_exception)
+
     if (not accepts_html and not is_htmx_request) or http_exception.status_code not in {
         401,
         403,
@@ -136,3 +153,21 @@ async def arena_http_exception_handler(request: Request, exc: Exception) -> Resp
             headers={"HX-Redirect": str(request.url_for("arena_dashboard"))},
         )
     return RedirectResponse(url=str(request.url_for("arena_dashboard")), status_code=303)
+
+
+def _safe_browser_return_url(request: Request) -> str:
+    """Return a same-origin Referer path or the Arena dashboard fallback."""
+    fallback = str(request.url_for("arena_dashboard"))
+    referer = request.headers.get("referer")
+    if not referer:
+        return fallback
+
+    parsed = urlsplit(referer)
+    if parsed.scheme not in {"", "http", "https"}:
+        return fallback
+    if parsed.netloc and parsed.netloc != request.url.netloc:
+        return fallback
+    if not parsed.path.startswith("/") or parsed.path.startswith("//"):
+        return fallback
+
+    return parsed.path + (f"?{parsed.query}" if parsed.query else "")

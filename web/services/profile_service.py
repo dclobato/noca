@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from werkzeug.security import check_password_hash
 
 from shared.services.email_validation import EmailValidationService
-from shared.services.imageprocessing_service import ImageProcessingResult
 from shared.services.password_service import PasswordPolicy, PasswordPolicyError
 from web.config import settings
 from web.models.users import UberAdmin, User
@@ -103,19 +102,3 @@ async def update_password(
     user.password = new_password
     await session.commit()
     return None
-
-
-async def update_photo(session: AsyncSession, user: User, result: ImageProcessingResult) -> None:
-    """Apply processed photo to user and commit."""
-    user.apply_processed_photo(
-        foto_base64=result.imagem_base64,
-        avatar_base64=result.avatar_base64,
-        mime_type=result.mime_type,
-    )
-    await session.commit()
-
-
-async def remove_photo(session: AsyncSession, user: User) -> None:
-    """Clear user photo fields and commit."""
-    user.clear_foto_fields()
-    await session.commit()

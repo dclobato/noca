@@ -40,6 +40,7 @@ from arena.config import settings
 from arena.database import create_engine, create_session_factory
 from arena.dependencies.access_control import enforce_arena_authentication
 from arena.error_handlers import register_error_handlers
+from arena.image_upload_limits import ARENA_LOGO_MAX_FILE_SIZE, arena_image_upload_rules
 from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.routes.admin_affiliations import router as arena_admin_affiliations_router
 from arena.routes.admin_categories import router as arena_admin_categories_router
@@ -105,8 +106,14 @@ from shared.services.email_reputation import EmailReputationService
 from shared.services.email_service import EmailConfig, EmailService
 from shared.services.geolocation import GeolocationIP
 from shared.services.imageprocessing_service import ImageProcessingConfig, ImageProcessingService
+from shared.services.multipart_file_size import MultipartFileSizeLimitMiddleware
 from shared.services.network_utils import NetworkService
 from shared.services.network_utils.ip_reputation import IPQualityScoreIPReputationService
+from shared.services.problem_image import (
+    MAX_PROBLEM_IMAGE_BYTES,
+    MAX_PROBLEM_IMAGE_HEIGHT,
+    MAX_PROBLEM_IMAGE_WIDTH,
+)
 from shared.services.security_events_reaper import run_security_events_reaper
 from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
 from shared.services.startup_wait import wait_for_db, wait_for_valkey
@@ -445,6 +452,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     arena_templates.env.globals["app_version"] = APP_VERSION
     arena_templates.env.globals["brand_name"] = settings.BRAND_NAME
     arena_templates.env.globals["healthmon_url"] = settings.HEALTHMON_URL
+    arena_templates.env.globals["image_max_file_size_mib"] = settings.IMAGE_MAX_FILE_SIZE / (1024 * 1024)
+    arena_templates.env.globals["image_max_width"] = settings.IMAGE_MAX_WIDTH
+    arena_templates.env.globals["image_max_height"] = settings.IMAGE_MAX_HEIGHT
+    arena_templates.env.globals["affiliation_logo_max_file_size_mib"] = ARENA_LOGO_MAX_FILE_SIZE / (1024 * 1024)
+    arena_templates.env.globals["problem_image_max_file_size_mib"] = MAX_PROBLEM_IMAGE_BYTES / (1024 * 1024)
+    arena_templates.env.globals["problem_image_max_width"] = MAX_PROBLEM_IMAGE_WIDTH
+    arena_templates.env.globals["problem_image_max_height"] = MAX_PROBLEM_IMAGE_HEIGHT
     arena_templates.env.globals["presence_enabled"] = settings.PRESENCE_ENABLED
     arena_templates.env.globals["presence_heartbeat_seconds"] = settings.PRESENCE_HEARTBEAT_SECONDS
     arena_templates.env.globals["arena_online_user_count"] = _arena_online_user_count
@@ -583,9 +597,9 @@ app = FastAPI(
 register_error_handlers(app)
 
 # Middleware order matters: SessionMiddleware must wrap ArenaAuthMiddleware so
-# that the session is available when the auth middleware writes flash messages
-# via the dependency.  FastAPI processes middleware in reverse registration
-# order (last registered = outermost), so SessionMiddleware is registered last.
+# that the session is available when the auth middleware writes flash messages.
+# The multipart limiter is outermost, but it delegates error rendering through
+# the inner stack after SessionMiddleware has populated the request scope.
 app.add_middleware(
     SecurityHeadersMiddleware,
     settings=SecurityHeaderSettings(
@@ -599,6 +613,10 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=settings.JWT_SECRET_KEY,
     https_only=settings.COOKIE_SECURE,
+)
+app.add_middleware(
+    MultipartFileSizeLimitMiddleware,
+    rules=arena_image_upload_rules(settings.IMAGE_MAX_FILE_SIZE),
 )
 
 

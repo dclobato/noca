@@ -89,14 +89,6 @@ users = Table(
         nullable=False,
         comment="Função do usuário, que determina suas permissões no contest",
     ),
-    Column("com_foto", Boolean, default=False, server_default="false", nullable=False),
-    Column("foto_base64", Text, default=None, comment="Foto original enviada pelo usuário, armazenada em base64"),
-    Column(
-        "avatar_base64",
-        Text,
-        default=None,
-        comment="Avatar gerado a partir da foto original enviada pelo usuário, armazenado em base64",
-    ),
     Column("site_id", String(36), ForeignKey("sites.id", ondelete="SET NULL"), nullable=True, index=True),
     Column(
         "location",
@@ -104,19 +96,6 @@ users = Table(
         nullable=True,
         default=None,
         comment="Physical location of the team within the site (e.g. room, lab)",
-    ),
-    Column(
-        "foto_mime",
-        String(129),
-        default=None,
-        comment="MIME type da foto original enviada pelo usuário, usado para servir a foto corretamente",
-    ),
-    Column(
-        "dta_foto",
-        DateTime(timezone=True),
-        nullable=True,
-        default=None,
-        comment="Data e hora da última atualização da foto do usuário, usada para controle de cache",
     ),
     Column(
         "contest_id",
@@ -154,6 +133,63 @@ users = Table(
         "(created_by_admin_id IS NOT NULL AND created_by_uberadmin_id IS NULL)"
         " OR (created_by_admin_id IS NULL AND created_by_uberadmin_id IS NOT NULL)",
         name="ck_users_exactly_one_creator",
+    ),
+)
+
+users_media = Table(
+    "users_media",
+    metadata,
+    Column(
+        "user_id",
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        comment="Contest user that owns this media record",
+    ),
+    Column("com_foto", Boolean, default=False, server_default="false", nullable=False),
+    Column(
+        "foto_base64",
+        Text,
+        default=None,
+        comment="Original user photo stored as a base64-encoded string",
+    ),
+    Column(
+        "avatar_base64",
+        Text,
+        default=None,
+        comment="Resized avatar derived from the user photo, stored as a base64-encoded string",
+    ),
+    Column(
+        "foto_mime",
+        String(129),
+        default=None,
+        comment="Detected MIME type of the stored user photo",
+    ),
+    Column(
+        "dta_foto",
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+        comment="Timestamp of the last user photo update",
+    ),
+    Column(
+        "audio_base64",
+        Text,
+        default=None,
+        comment="User audio clip stored as a base64-encoded string",
+    ),
+    Column(
+        "audio_mime",
+        String(129),
+        default=None,
+        comment="Detected MIME type of the stored user audio clip",
+    ),
+    Column(
+        "dta_audio",
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+        comment="Timestamp of the last user audio clip update",
     ),
 )
 

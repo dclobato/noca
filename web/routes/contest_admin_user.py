@@ -59,6 +59,7 @@ async def _record_credential_email_event(
         event_type=event_type,
         severity="info" if event_type == "credential_email_sent" else "warning",
         actor_user_id=ctx.actor.id,
+        actor_label=ctx.actor.username,
         metadata={
             "scope": "contest_user",
             "contest_slug": ctx.contest.login_slug,

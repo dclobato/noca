@@ -11,7 +11,7 @@
               rel="stylesheet">
         <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"
               rel="stylesheet">
-        <link href="{{ request.url_for('static_css', path='contest.css') }}?v={{ app_version }}-r1"
+        <link href="{{ request.url_for('static_css', path='contest.css') }}?v={{ app_version }}"
               rel="stylesheet">
         <link href="{{ request.url_for('static_vendor', path='devicon.min.css') }}"
               rel="stylesheet">
@@ -73,7 +73,7 @@
                         {# Avatar for non-uberadmin when in contest; otherwise username text #}
                         {% if contest is defined and contest and current_user.role != RoleEnum.UBERADMIN.value %}
                             <a href="{{ request.url_for("profile_get") }}">
-                                <img src="/user/{{ current_user.id }}/avatar?v={{ current_user.dta_foto or '0' }}"
+                                <img src="/user/{{ current_user.id }}/avatar?v={{ current_user.media_cache_version }}"
                                      width="40"
                                      height="40"
                                      class="rounded-circle object-fit-cover noca-avatar-navbar"

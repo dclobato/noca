@@ -1,6 +1,7 @@
-{% from "_macros.html" import render_icon %}
+{% from "_macros.html" import render_icon, sort_link %}
+{% set clarifications_base_url = request.url_for('contest_clarifications', slug=contest.login_slug) %}
 <div id="clarifications-list-wrapper"
-     {% if current_user.role == RoleEnum.TEAM.value and not access_blocked and not contest.is_past %} hx-get="{{ request.url_for('contest_clarifications_list', slug=contest.login_slug) }}" hx-trigger="every 60s" hx-swap="outerHTML" {% endif %}>
+     {% if current_user.role == RoleEnum.TEAM.value and not access_blocked and not contest.is_past %} hx-get="{{ request.url_for('contest_clarifications_list', slug=contest.login_slug).include_query_params(sort_by=sort_by) }}" hx-trigger="every 60s" hx-swap="outerHTML" {% endif %}>
     {% if not lock_service_available and current_user.role in (RoleEnum.JUDGE.value, RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
         <div class="alert alert-warning small mx-3 mt-3 mb-0">Lock service unavailable. Possible double work/rework.</div>
     {% endif %}
@@ -11,10 +12,10 @@
                     <table class="table table-sm align-middle mb-0">
                         <thead class="table-light">
                             <tr>
-                                <th class="text-end noca-col-8">Time</th>
+                                <th class="text-end noca-col-8">{{ sort_link('Time', 'time', sort_by, clarifications_base_url) }}</th>
                                 <th class="text-center noca-col-6">Visibility</th>
                                 <th class="text-center noca-col-8">Status</th>
-                                <th class="text-center">Problem</th>
+                                <th class="text-center">{{ sort_link('Problem', 'problem', sort_by, clarifications_base_url) }}</th>
                                 {% if current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) %}
                                     <th>Team</th>
                                     <th>Judge</th>
@@ -27,7 +28,10 @@
                         <tbody>
                             {% for c in clarifications %}
                                 <tr id="{{ c.id }}"
-                                    {% if c.hidden and current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value, RoleEnum.JUDGE.value) %} class="opacity-50 text-decoration-line-through" {% endif %}>
+                                    class="noca-clickable-row {% if c.hidden and current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value, RoleEnum.JUDGE.value) %}opacity-50 text-decoration-line-through{% endif %}"
+                                    tabindex="0"
+                                    role="button"
+                                    data-clarification-row>
                                     <td class="small text-end">{{ contest_minutes(c.created_timestamp_seconds) }}</td>
                                     <td class="text-center">
                                         {% if c.is_contest_public %}
@@ -49,7 +53,13 @@
                                             {% endif %}
                                         {% endif %}
                                     </td>
-                                    <td class="fw-semibold text-center">{{ problem_map.get(c.problem_id, '?') }}</td>
+                                    <td class="fw-semibold text-center">
+                                        {% if c.problem_id %}
+                                            {{ problem_map.get(c.problem_id, '?') }}
+                                        {% else %}
+                                            <span class="badge bg-light text-dark border">General</span>
+                                        {% endif %}
+                                    </td>
                                     {% if current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) %}
                                         <td class="small">{{ user_map.get(c.team_id, '?') }}</td>
                                         <td class="small text-muted">{{ user_map.get(c.judge_id, '—') if c.judge_id else '—' }}</td>
@@ -74,7 +84,7 @@
                                                     class="btn btn-secondary noca-icon-btn"
                                                     data-bs-toggle="modal"
                                                     data-bs-target="#clarificationDetailModal"
-                                                    data-problem="{{ problem_map.get(c.problem_id, '?') | e }}"
+                                                    data-problem="{{ (problem_map.get(c.problem_id, '?') if c.problem_id else 'General') | e }}"
                                                     data-question="{{ c.question | e }}"
                                                     data-answer="{{ c.answer | e if c.answer else '' }}"
                                                     data-visibility="{{ 'global' if c.is_contest_public else 'private' }}"

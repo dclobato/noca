@@ -459,9 +459,9 @@ class Settings(NocaSettings):
         description=(
             "TTL (seconds) for the per-judgment Redis idempotency lock "
             "(judge:lock:<judgment_id>). Must be strictly greater than "
-            "reaper_stale_threshold_minutes * 60 so that a slow-but-alive "
-            "worker holds the lock past the point where the reaper would "
-            "requeue the job. Default: 660 = 600 s threshold + 60 s margin."
+            "reaper_stale_threshold_minutes * 60 so the lock cannot expire "
+            "naturally before the reaper makes its atomic stale decision. "
+            "Default: 660 = 600 s threshold + 60 s margin."
         ),
     )
 

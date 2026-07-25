@@ -20,3 +20,30 @@ document.querySelectorAll('.team-link').forEach(function (el) {
     img.alt = teamName;
   });
 });
+
+/**
+ * Own-row scroll: when the viewer is browsing as a team, scroll their own row
+ * into view once on load. The row's highlight itself is a persistent CSS
+ * class (.noca-own-team-row) applied server-side, not a fading flash — so no
+ * hash/highlight-row.js involvement is needed here, only the scroll.
+ */
+document.addEventListener('DOMContentLoaded', function () {
+  var marker = document.querySelector('[data-own-team-id]');
+  if (!marker) return;
+  var teamId = marker.getAttribute('data-own-team-id');
+  if (!teamId) return;
+  var row = document.getElementById(teamId);
+  if (!row) return;
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+});
+
+/**
+ * Back-to-top floating button: smooth-scrolls the window to the top.
+ */
+(function () {
+  var backToTopBtn = document.getElementById('scoreboard-back-to-top');
+  if (!backToTopBtn) return;
+  backToTopBtn.addEventListener('click', function () {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+})();

@@ -17,7 +17,7 @@ from typing import cast
 
 from sqlalchemy import select
 
-from autojudge.db._base import _DatabaseBase
+from autojudge.db._base import JUDGMENT_DISPATCHABLE_STATUSES, _DatabaseBase
 from autojudge.types import QueuedSubmission, RecoverableSubmissionJob
 from shared.db_schema import contests as _contest
 from shared.db_schema import problems as _problem
@@ -113,11 +113,7 @@ class _SubmissionMixin(_DatabaseBase):
                 .join(_problem, _problem.c.id == _submission.c.problem_id)
                 .join(_contest, _contest.c.id == _problem.c.contest_id)
             )
-            .where(
-                _submission_judgment.c.status.in_(
-                    (JudgmentStatus.QUEUED, JudgmentStatus.DISPATCHED, JudgmentStatus.JUDGING)
-                )
-            )
+            .where(_submission_judgment.c.status.in_(JUDGMENT_DISPATCHABLE_STATUSES))
             .order_by(_submission_judgment.c.created_at)
         )
         result: list[RecoverableSubmissionJob] = []

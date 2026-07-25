@@ -4,14 +4,11 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-import asyncio
-import json as _json
-from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import cast
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import and_, func, or_, select
 
 from shared.enumerations import JudgmentStatus, RoleEnum
@@ -41,10 +38,10 @@ class DashboardCounters:
 async def _build_clarifications_pending_count(ctx: ContestContext, team_id: str | None = None) -> int:
     query = (
         select(func.count(Clarification.id))
-        .join(Problem, Clarification.problem_id == Problem.id)
+        .join(User, Clarification.team_id == User.id)
         .where(
             and_(
-                Problem.contest_id == ctx.contest.id,
+                User.contest_id == ctx.contest.id,
                 Clarification.answered_at.is_(None),
                 Clarification.hidden.is_(False),
             )
@@ -146,16 +143,6 @@ async def dashboard(request: Request, ctx: ContestContext = Depends(get_contest_
 
 
 @router.get("/clock")
-async def contest_clock(request: Request, ctx: ContestContext = Depends(get_contest_context)) -> Response:
-    if "text/event-stream" in request.headers.get("accept", ""):
-        contest = ctx.contest  # already loaded into memory; session not needed during streaming
-        await ctx.session.close()  # release DB connection before entering the long-lived stream
-
-        async def _stream() -> AsyncIterator[str]:
-            while not await request.is_disconnected():
-                yield f"data: {_json.dumps(build_contest_clock_payload(contest))}\n\n"
-                await asyncio.sleep(30)
-
-        return StreamingResponse(_stream(), media_type="text/event-stream")
-
-    return Response(content=_json.dumps(build_contest_clock_payload(ctx.contest)), media_type="application/json")
+async def contest_clock(ctx: ContestContext = Depends(get_contest_context)) -> JSONResponse:
+    """Return the current contest clock snapshot for periodic browser polling."""
+    return JSONResponse(build_contest_clock_payload(ctx.contest))

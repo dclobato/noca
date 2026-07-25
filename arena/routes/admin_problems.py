@@ -653,6 +653,7 @@ async def admin_problem_delete(
         request,
         module="arena",
         actor_user_id=current_user.id,
+        actor_label=current_user.email_normalizado,
         action="delete",
         target_type="arena_problem",
         target_id=problem_id,

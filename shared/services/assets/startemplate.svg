@@ -28,4 +28,5 @@
     stroke-width="6"
     stroke-linejoin="round"
   />
+{letter_element}
 </svg>

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, relationship
 from shared.db_schema import login_history as login_history_table
 from shared.db_schema import uber_admins as uber_admins_table
 from shared.db_schema import users as users_table
+from shared.db_schema import users_media as users_media_table
 from shared.enumerations import RoleEnum
 from shared.services.email_validation import EmailValidationService
 from web.database import Base
@@ -94,11 +95,6 @@ class User(Base, BaseUser):
     fullname: Mapped[str]
     password_hash: Mapped[str]
     role: Mapped[RoleEnum]
-    com_foto: Mapped[bool]
-    foto_base64: Mapped[str | None]
-    avatar_base64: Mapped[str | None]
-    foto_mime: Mapped[str | None]
-    dta_foto: Mapped[datetime | None]
     site_id: Mapped[str | None]
     location: Mapped[str | None]
     contest_id: Mapped[str]
@@ -155,6 +151,14 @@ class User(Base, BaseUser):
         back_populates="judge",
         foreign_keys="[HumanSubmissionConfirmation.judge_id]",
     )
+    media: Mapped[UserMedia | None] = relationship(
+        "UserMedia",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+        lazy="raise",
+        passive_deletes=True,
+    )
 
     @property
     def email(self) -> str | None:
@@ -169,24 +173,67 @@ class User(Base, BaseUser):
         self.email_normalizado = normalizado
 
     @property
-    def foto(self) -> tuple[bytes, str]:
-        if self.com_foto:
-            data = b64decode(str(self.foto_base64))
-            mime_type = self.foto_mime or "application/octet-stream"
-        else:
-            data = _generate_cached_avatar(self.username)
-            mime_type = "image/svg+xml"
-        return data, mime_type
+    def generated_avatar(self) -> tuple[bytes, str]:
+        """Return the deterministic fallback avatar for this user."""
+        return _generate_cached_avatar(self.username), "image/svg+xml"
 
     @property
-    def avatar(self) -> tuple[bytes, str]:
-        if self.com_foto:
-            data = b64decode(str(self.avatar_base64))
-            mime_type = self.foto_mime or "application/octet-stream"
-        else:
-            data = _generate_cached_avatar(self.username)
-            mime_type = "image/svg+xml"
-        return data, mime_type
+    def media_cache_version(self) -> int:
+        """Return a URL-safe cache version for user media."""
+        return int(self.updated_at.timestamp() * 1_000_000)
+
+
+class UserMedia(Base):
+    """Stored photo and audio media for a contest user."""
+
+    __table__ = users_media_table
+
+    user_id: Mapped[str]
+    com_foto: Mapped[bool]
+    foto_base64: Mapped[str | None]
+    avatar_base64: Mapped[str | None]
+    foto_mime: Mapped[str | None]
+    dta_foto: Mapped[datetime | None]
+    audio_base64: Mapped[str | None]
+    audio_mime: Mapped[str | None]
+    dta_audio: Mapped[datetime | None]
+
+    user: Mapped[User] = relationship("User", back_populates="media")
+
+    @property
+    def foto(self) -> tuple[bytes, str] | None:
+        """Return the decoded full photo and MIME type when present."""
+        if not self.com_foto or not self.foto_base64:
+            return None
+        return b64decode(self.foto_base64), self.foto_mime or "application/octet-stream"
+
+    @property
+    def avatar(self) -> tuple[bytes, str] | None:
+        """Return the decoded avatar and MIME type when present."""
+        if not self.com_foto or not self.avatar_base64:
+            return None
+        return b64decode(self.avatar_base64), self.foto_mime or "application/octet-stream"
+
+    @property
+    def audio(self) -> tuple[bytes, str] | None:
+        """Return the decoded audio clip and MIME type when present."""
+        if not self.audio_base64 or not self.audio_mime:
+            return None
+        return b64decode(self.audio_base64), self.audio_mime
+
+    @property
+    def photo_cache_version(self) -> int:
+        """Return a URL-safe cache version for the stored photo."""
+        if self.dta_foto is None:
+            return 0
+        return int(self.dta_foto.timestamp() * 1_000_000)
+
+    @property
+    def audio_cache_version(self) -> int:
+        """Return a URL-safe cache version for the stored audio clip."""
+        if self.dta_audio is None:
+            return 0
+        return int(self.dta_audio.timestamp() * 1_000_000)
 
     def apply_processed_photo(
         self,
@@ -195,6 +242,7 @@ class User(Base, BaseUser):
         avatar_base64: str,
         mime_type: str,
     ) -> None:
+        """Store a processed photo and its derived avatar."""
         if not foto_base64 or not avatar_base64 or not mime_type:
             raise ValueError("foto_base64, avatar_base64 and mime_type are required to apply a processed photo")
         self.foto_base64 = foto_base64
@@ -204,11 +252,26 @@ class User(Base, BaseUser):
         self.com_foto = True
 
     def clear_foto_fields(self) -> None:
+        """Clear the stored photo and avatar fields."""
         self.com_foto = False
         self.foto_base64 = None
         self.avatar_base64 = None
         self.foto_mime = None
         self.dta_foto = None
+
+    def apply_audio(self, *, audio_base64: str, mime_type: str) -> None:
+        """Store a validated audio clip."""
+        if not audio_base64 or not mime_type:
+            raise ValueError("audio_base64 and mime_type are required to apply audio")
+        self.audio_base64 = audio_base64
+        self.audio_mime = mime_type
+        self.dta_audio = _utcnow()
+
+    def clear_audio_fields(self) -> None:
+        """Clear the stored audio clip fields."""
+        self.audio_base64 = None
+        self.audio_mime = None
+        self.dta_audio = None
 
 
 class Login_History(Base):

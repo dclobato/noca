@@ -1,5 +1,9 @@
 {% extends "_base.html" %}
 {% block title_suffix %}— Edit User{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='cropper.min.css') }}">
+{% endblock %}
 {% block breadcrumb %}
     <nav aria-label="breadcrumb">
         <ol class="breadcrumb mb-0">
@@ -32,25 +36,129 @@
         <div class="row g-4">
             <div class="col-12 col-lg-4">
                 <div class="card shadow-sm">
-                    <div class="card-body text-center">
-                        <img src="/user/{{ edit_user.id }}/avatar?v={{ edit_user.dta_foto or '0' }}"
+                    <div class="card-header d-flex align-items-center gap-2 fw-semibold">
+                        Photo
+                        <span id="adminPhotoUnsaved"
+                              class="badge text-bg-warning d-none"
+                              role="status"
+                              aria-live="polite">Unsaved</span>
+                    </div>
+                    <div class="card-body">
+                        <img id="adminPhotoPreview"
+                             src="/user/{{ edit_user.id }}/photo?v={{ user_media.photo_cache_version if user_media else 0 }}"
                              alt="{{ edit_user.fullname or edit_user.username }}"
-                             class="rounded-circle mb-3 noca-avatar-lg">
-                        <div class="small text-muted mb-3">
-                            {% if edit_user.com_foto %}
+                             class="noca-admin-photo-preview {% if edit_user.role == RoleEnum.TEAM.value %}noca-admin-photo-preview-team{% else %}noca-admin-photo-preview-person{% endif %} mb-3">
+                        <div class="small text-muted mb-3 text-center">
+                            {% if user_media and user_media.com_foto %}
                                 Custom photo uploaded
                             {% else %}
                                 Using generated avatar
                             {% endif %}
                         </div>
-                        {% if not is_locked and can_remove_photo and edit_user.com_foto %}
+                        {% if not is_locked %}
                             <form method="post"
-                                  action="{{ request.url_for('user_photo_remove', user_id=edit_user.id) }}">
+                                  action="{{ request.url_for('user_photo_submit', user_id=edit_user.id) }}"
+                                  enctype="multipart/form-data"
+                                  novalidate>
                                 <input type="hidden" name="return_to" value="admin_edit">
-                                <button type="submit"
-                                        class="btn btn-outline-danger btn-sm"
-                                        onclick="return confirm('Remove this user photo?');">Remove photo</button>
+                                {% if edit_user.role == RoleEnum.TEAM.value %}
+                                    <input type="file"
+                                           class="form-control form-control-sm mb-2"
+                                           id="foto_input"
+                                           name="team"
+                                           data-photo-preview-id="adminPhotoPreview"
+                                           data-unsaved-indicator-id="adminPhotoUnsaved"
+                                           accept="image/jpeg,image/png,image/webp">
+                                {% else %}
+                                    <input type="file"
+                                           class="form-control form-control-sm mb-2"
+                                           id="foto_input"
+                                           name="foto"
+                                           data-photo-preview-id="adminPhotoPreview"
+                                           data-unsaved-indicator-id="adminPhotoUnsaved"
+                                           accept="image/jpeg,image/png,image/webp">
+                                {% endif %}
+                                <div class="d-flex flex-wrap gap-2 justify-content-center">
+                                    <button type="submit" class="btn btn-primary btn-sm">Save photo</button>
+                                    {% if can_remove_photo and user_media and user_media.com_foto %}
+                                        <button type="submit"
+                                                class="btn btn-outline-danger btn-sm"
+                                                form="admin-remove-photo-form">Remove photo</button>
+                                    {% endif %}
+                                </div>
                             </form>
+                            {% if can_remove_photo and user_media and user_media.com_foto %}
+                                <form method="post"
+                                      id="admin-remove-photo-form"
+                                      action="{{ request.url_for('user_photo_remove', user_id=edit_user.id) }}"
+                                      data-confirm="Remove this user photo?">
+                                    <input type="hidden" name="return_to" value="admin_edit">
+                                </form>
+                            {% endif %}
+                            <div class="text-muted small mt-2 text-center">
+                                {% if edit_user.role == RoleEnum.TEAM.value %}
+                                    JPEG, PNG, or WebP · up to {{ "%.1f"|format(image_max_file_size_mib|default(2.0) ) }} MiB · up to {{ image_max_width|default(2048) }} × {{ image_max_height|default(2048) }} px · 16:10 crop
+                                {% else %}
+                                    JPEG, PNG, or WebP · up to {{ "%.1f"|format(image_max_file_size_mib|default(2.0) ) }} MiB · up to {{ image_max_width|default(2048) }} × {{ image_max_height|default(2048) }} px · 2:3 crop
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card shadow-sm mt-4">
+                    <div class="card-header d-flex align-items-center gap-2 fw-semibold">
+                        Audio clip
+                        <span id="adminAudioUnsaved"
+                              class="badge text-bg-warning d-none"
+                              role="status"
+                              aria-live="polite">Unsaved</span>
+                    </div>
+                    <div class="card-body">
+                        <audio id="adminAudioPreview"
+                               controls
+                               preload="metadata"
+                               class="noca-audio-player mb-3 {% if not user_media or not user_media.audio_base64 %}d-none{% endif %}"
+                               {% if user_media and user_media.audio_base64 %}src="{{ request.url_for('user_audio_by_id', user_id=edit_user.id) }}?v={{ user_media.audio_cache_version }}"{% endif %}>
+                            Your browser does not support audio playback.
+                        </audio>
+                        {% if not user_media or not user_media.audio_base64 %}
+                            <p id="adminAudioEmptyState" class="text-muted small">No audio clip uploaded.</p>
+                        {% endif %}
+                        {% if not is_locked %}
+                            <form method="post"
+                                  action="{{ request.url_for('user_audio_submit', user_id=edit_user.id) }}"
+                                  enctype="multipart/form-data"
+                                  novalidate>
+                                <input type="hidden" name="return_to" value="admin_edit">
+                                <input type="file"
+                                       class="form-control form-control-sm mb-2"
+                                       id="audio_clip"
+                                       name="audio_clip"
+                                       data-audio-preview-id="adminAudioPreview"
+                                       data-audio-empty-state-id="adminAudioEmptyState"
+                                       data-unsaved-indicator-id="adminAudioUnsaved"
+                                       accept="audio/mpeg,audio/ogg,audio/wav,.mp3,.ogg,.wav"
+                                       required>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button type="submit" class="btn btn-primary btn-sm">Save audio</button>
+                                    {% if user_media and user_media.audio_base64 %}
+                                        <button type="submit"
+                                                class="btn btn-outline-danger btn-sm"
+                                                form="admin-remove-audio-form">Remove audio</button>
+                                    {% endif %}
+                                </div>
+                            </form>
+                            {% if user_media and user_media.audio_base64 %}
+                                <form method="post"
+                                      id="admin-remove-audio-form"
+                                      action="{{ request.url_for('user_audio_remove', user_id=edit_user.id) }}"
+                                      data-confirm="Remove this user audio clip?">
+                                    <input type="hidden" name="return_to" value="admin_edit">
+                                </form>
+                            {% endif %}
+                            <div class="text-muted small mt-2">
+                                MP3, OGG, or WAV · up to {{ "%.1f"|format(audio_max_file_size_mib|default(2.0) ) }} MiB
+                            </div>
                         {% endif %}
                     </div>
                 </div>
@@ -59,7 +167,9 @@
                 <div class="card shadow-sm">
                     <div class="card-body">
                         {% if is_locked %}
-                            <div class="alert alert-warning py-2 small">Contest has ended — user details cannot be changed.</div>
+                            <div class="alert alert-warning py-2 small">
+                                Contest has ended — profile details are frozen. Only the email and password can still be updated.
+                            </div>
                         {% endif %}
                         <form method="post"
                               action="{{ request.url_for('edit_user_submit', slug=contest.login_slug, user_id=edit_user.id) }}"
@@ -87,8 +197,7 @@
                                            class="form-control"
                                            id="email"
                                            name="email"
-                                           value="{{ edit_user.email_normalizado or '' }}"
-                                           {% if is_locked %}disabled{% endif %}>
+                                           value="{{ edit_user.email_normalizado or '' }}">
                                     <div class="form-text">Optional. Used to send credentials and contest information.</div>
                                 </div>
                                 <div class="col-12">
@@ -132,19 +241,65 @@
                                            class="form-control"
                                            id="password"
                                            name="password"
-                                           value=""
-                                           {% if is_locked %}disabled{% endif %}>
+                                           value="">
                                 </div>
                             </div>
-                            {% if not is_locked %}
-                                <div class="mt-4">
-                                    <button type="submit" class="btn btn-primary btn-sm">Save changes</button>
-                                </div>
-                            {% endif %}
+                            <div class="mt-4">
+                                <button type="submit" class="btn btn-primary btn-sm">
+                                    {% if is_locked %}
+                                        Save credentials
+                                    {% else %}
+                                        Save changes
+                                    {% endif %}
+                                </button>
+                            </div>
                         </form>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+    <div class="modal fade"
+         id="cropModal"
+         tabindex="-1"
+         aria-labelledby="cropModalLabel"
+         aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="cropModalLabel">Adjust Photo</h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <img id="cropImage" class="noca-crop-img" alt="Image to crop">
+                        </div>
+                        <div class="col-md-4">
+                            <p class="fw-semibold small mb-1">Preview</p>
+                            {% if edit_user.role == RoleEnum.TEAM.value %}
+                                <div id="cropPreview" class="noca-crop-preview-team"></div>
+                            {% else %}
+                                <div id="cropPreview" class="noca-crop-preview-default"></div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="cropConfirm">Confirm crop</button>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='cropper.min.js') }}"></script>
+    <script src="{{ request.url_for('static_js', path='image-cropper.js') }}?v={{ app_version }}-r3"></script>
+    <script src="{{ request.url_for('static_js', path='user-media-preview.js') }}?v={{ app_version }}"></script>
 {% endblock %}

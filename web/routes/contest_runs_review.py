@@ -12,7 +12,7 @@ from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy import select
 
 from shared.enumerations import RoleEnum, Verdict
-from shared.queue_schema import JudgeJob, VerdictEvent
+from shared.queue_schema import JudgeJob, SubmissionEvent, VerdictEvent
 from shared.services.scoreboard_cache import invalidate_scoreboard_cache
 from web.config import settings
 from web.dependencies import ContestContext, ensure_allowed_role, get_contest_context
@@ -31,7 +31,7 @@ from web.services.submission_service import (
     SubmissionRateLimitError,
     create_submission,
 )
-from web.services.valkey_service import enqueue_job, publish_verdict
+from web.services.valkey_service import enqueue_job, publish_submission, publish_verdict
 
 router = APIRouter(prefix="/c/{slug}/runs", tags=["contest_runs"])
 
@@ -133,8 +133,20 @@ async def submit(
         ),
         priority=ctx.contest.is_running,
     )
+    await publish_submission(
+        request.app.state.valkey_runtime,
+        SubmissionEvent(
+            submission_id=str(submission.id),
+            contest_id=str(ctx.contest.id),
+            team_id=str(ctx.actor.id),
+            problem_id=problem_id.strip(),
+        ),
+    )
     flash("Submission received and queued for judgment.", FlashCategory.SUCCESS)
-    return RedirectResponse(url=f"/c/{slug}/runs", status_code=303)
+    return RedirectResponse(
+        url=f"/c/{slug}/runs?queued_submission={submission.id}",
+        status_code=303,
+    )
 
 
 @router.post(

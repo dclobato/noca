@@ -18,6 +18,7 @@ from autojudge.reaper import _reaper_cycle, reaper_loop
 INFLIGHT_KEY = "judge:queue:inflight"
 INFLIGHT_TIMES_KEY = "judge:queue:inflight:times"
 PENDING_KEY = "judge:queue:pending"
+PROFILING_KEY = "judge:queue:profiling"
 JOB_HASH_PREFIX = "judge:job"
 
 
@@ -33,6 +34,7 @@ def _patch_reaper_settings(monkeypatch):
         queue_inflight_times_key = INFLIGHT_TIMES_KEY
         queue_inflight_key = INFLIGHT_KEY
         queue_pending_key = PENDING_KEY
+        queue_profiling_key = PROFILING_KEY
         queue_job_hash_prefix = JOB_HASH_PREFIX
 
     monkeypatch.setattr(_mod, "settings", _ReaperSettings())
@@ -166,6 +168,65 @@ async def test_exhausted_custom_validator_job_keeps_hash_for_reconciliation(valk
     assert jid not in await valkey_client.lrange(PENDING_KEY, 0, -1)
     assert jid not in await valkey_client.lrange(INFLIGHT_KEY, 0, -1)
     assert await valkey_client.hget(job_key, "reaper_dropped") in (b"true", "true")
+
+
+async def test_stale_candidate_with_refreshed_deadline_is_not_requeued(
+    valkey_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A candidate selected before a new attempt starts cannot delete its lock."""
+    from autojudge import queue_ops as queue_ops_module
+    from autojudge import reaper as reaper_module
+
+    jid = "judgment-refreshed"
+    job_key = f"{JOB_HASH_PREFIX}:{jid}"
+    lock_key = f"judge:lock:{jid}"
+    await valkey_client.zadd(INFLIGHT_TIMES_KEY, {jid: time.time() - 600})
+    await valkey_client.rpush(INFLIGHT_KEY, jid)
+    await valkey_client.hset(job_key, mapping={"requeue_count": "0", "judgment_id": jid})
+
+    original = queue_ops_module.reap_stale_job
+
+    async def _refresh_then_reap(*args, **kwargs):
+        await valkey_client.zadd(INFLIGHT_TIMES_KEY, {jid: time.time()})
+        await valkey_client.set(lock_key, "new-attempt")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(reaper_module.settings, "REAPER_STALE_THRESHOLD_MINUTES", 5.0)
+    monkeypatch.setattr(reaper_module, "reap_stale_job", _refresh_then_reap)
+
+    assert await _reaper_cycle(valkey_client) == (0, 0, 0)
+    assert await valkey_client.get(lock_key) == "new-attempt"
+    assert await valkey_client.lrange(INFLIGHT_KEY, 0, -1) == [jid]
+    assert await valkey_client.lrange(PENDING_KEY, 0, -1) == []
+
+
+async def test_two_reapers_can_requeue_a_stale_job_only_once(valkey_client) -> None:
+    """Atomic stale transitions prevent duplicate pushes across worker replicas."""
+    jid = "judgment-two-reapers"
+    job_key = f"{JOB_HASH_PREFIX}:{jid}"
+    await valkey_client.zadd(INFLIGHT_TIMES_KEY, {jid: time.time() - 600})
+    await valkey_client.rpush(INFLIGHT_KEY, jid)
+    await valkey_client.hset(job_key, mapping={"requeue_count": "0", "judgment_id": jid})
+
+    results = await asyncio.gather(_reaper_cycle(valkey_client), _reaper_cycle(valkey_client))
+
+    assert sum(result[0] for result in results) == 1
+    assert await valkey_client.lrange(PENDING_KEY, 0, -1) == [jid]
+    assert await valkey_client.hget(job_key, "requeue_count") in (b"1", "1")
+
+
+async def test_stale_deadline_without_inflight_membership_is_only_cleaned(valkey_client) -> None:
+    """A stray old score cannot make the reaper duplicate queued work."""
+    jid = "judgment-stray-deadline"
+    job_key = f"{JOB_HASH_PREFIX}:{jid}"
+    await valkey_client.zadd(INFLIGHT_TIMES_KEY, {jid: time.time() - 600})
+    await valkey_client.rpush(PENDING_KEY, jid)
+    await valkey_client.hset(job_key, mapping={"requeue_count": "0", "judgment_id": jid})
+
+    assert await _reaper_cycle(valkey_client) == (0, 0, 0)
+    assert await valkey_client.zscore(INFLIGHT_TIMES_KEY, jid) is None
+    assert await valkey_client.lrange(PENDING_KEY, 0, -1) == [jid]
 
 
 # ---------------------------------------------------------------------------

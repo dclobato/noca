@@ -13,7 +13,9 @@ from pydantic import DirectoryPath, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from shared.enumerations import Environment
+from shared.services.imageprocessing_service import MAX_IMAGE_FILE_SIZE
 from shared.services.testcase_files import CONTEST_TC_SUBDIR
+from web.audio_upload_limits import DEFAULT_AUDIO_MAX_FILE_SIZE, MAX_AUDIO_FILE_SIZE
 
 
 class Settings(BaseSettings):
@@ -305,9 +307,9 @@ class Settings(BaseSettings):
         default=64, gt=0, le=256, description="Generated avatar max size in pixels for uploaded images (64 to 256)"
     )
     IMAGE_MAX_FILE_SIZE: int = Field(
-        default=5 * 1024 * 1024,
+        default=2 * 1024 * 1024,
         gt=0,
-        le=5 * 1024 * 1024,
+        le=MAX_IMAGE_FILE_SIZE,
         description="Maximum allowed uploaded image size in bytes (1 byte to 5 MiB)",
     )
     IMAGE_MAX_WIDTH: int = Field(
@@ -322,6 +324,12 @@ class Settings(BaseSettings):
     )
     IMAGE_RESPONSE_CACHE_MAX_AGE: int = Field(
         default=3600, gt=0, description="Cache max-age for image responses in seconds"
+    )
+    AUDIO_MAX_FILE_SIZE: int = Field(
+        default=DEFAULT_AUDIO_MAX_FILE_SIZE,
+        gt=0,
+        le=MAX_AUDIO_FILE_SIZE,
+        description="Maximum allowed uploaded audio size in bytes (1 byte to 5 MiB)",
     )
 
     PROBLEM_STATEMENT_DIR: DirectoryPath = Field(

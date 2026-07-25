@@ -120,13 +120,13 @@
         var assetKind = taskType === 'FIRST_BALLOON' ? 'star' : 'balloon';
         var assetAlt = taskType === 'FIRST_BALLOON' ? 'star balloon' : 'balloon';
         var balloonClass = taskType === 'FIRST_BALLOON' ? ' class="noca-first-balloon-lg"' : '';
-        var problemDisplay = problemLabel
-          ? (_esc(problemLabel) + (problemTitle ? ': ' + _esc(problemTitle) : ''))
-          : '—';
+        var assetUrl = '/assets/' + assetKind + '/' +
+          encodeURIComponent(colorHex) + '/' + encodeURIComponent(problemLabel);
+        var problemDisplay = problemTitle ? _esc(problemTitle) : '—';
         bodyHtml =
           '<div class="row align-items-center g-3">' +
           '<div class="col-md-5 text-center">' +
-          '<img src="/assets/' + assetKind + '/' + _esc(colorHex) + '" width="180" height="270"' + balloonClass + ' alt="' + assetAlt + '">' +
+          '<img src="' + _esc(assetUrl) + '" width="234" height="351"' + balloonClass + ' alt="' + assetAlt + '">' +
           '</div>' +
           '<div class="col-md-7">' +
           '<div class="mb-1"><span class="fw-semibold text-muted small">Team</span></div>' +

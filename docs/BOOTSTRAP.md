@@ -29,14 +29,25 @@ Scripts are organized by ownership:
 1. Install dependencies:
 
 ```bash
-uv sync --extra dev
+uv sync --all-packages
 uv lock
 ```
 
-2. Copy and adjust the environment file:
+2. Copy the tracked environment template:
 
 ```bash
-cp .env.example .env
+cp .env.full .env
+```
+
+Set the required database, Valkey, and storage variables in `.env`, plus the
+public URL variables needed by your environment. Also set
+`NOCA_WEB_UBERADMIN_*` and `NOCA_ARENA_ADMIN_*` to unique administrator
+identities and strong, randomly generated passwords before running the account
+bootstrap commands below. Create the storage directories that match the
+documented development values:
+
+```bash
+mkdir -p .docker/problem_test_cases .docker/problem_statements
 ```
 
 3. Fetch shared vendor assets (needed by both web and arena):
@@ -58,45 +69,7 @@ cp docker-compose.yml.sample docker-compose-db-valkey.yml
 wsl docker compose -f docker-compose-db-valkey.yml up -d
 ```
 
-5. Run migrations, create the web UberAdmin, and seed languages:
-
-```bash
-uv run alembic upgrade head
-uv run python scripts/web/create_uberadmin.py
-uv run python scripts/bootstrap_languages.py
-```
-
-6. Seed the Arena initial user and categories:
-
-```bash
-uv run python scripts/arena/seed_arena_user.py \
-    --fullname "Your Name" \
-    --email you@example.com \
-    --enabled \
-    --email-confirmed \
-    --role ARENA_ADMIN
-uv run python scripts/arena/upsert_arena_categories.py categories-en.txt (or categories-pt.txt)
-```
-
-7. Start the web app:
-
-```bash
-uv run noca-web
-```
-
-8. Build the judge images if they are not present locally:
-
-```bash
-./containers/build.sh gcc-c17 gcc-cpp23 python3 java javascript kotlin fpc-pascal go rust c-sharp
-```
-
-9. Start the worker:
-
-```bash
-uv run noca-autojudge
-```
-
-10. Generate the crypto key file (required before Arena and the AI worker start;
+5. Generate the crypto key file (required before Arena and the AI worker start;
     encrypts OTP secrets and user-owned API keys):
 
 ```bash
@@ -105,6 +78,43 @@ uv run python scripts/secrets_config.py generate
 
 See [CONFIG.md](CONFIG.md#in-container-bootstrap-and-rotation) for the equivalent
 in-container procedure and for key rotation.
+
+6. Run migrations, create the web UberAdmin, and seed languages:
+
+```bash
+uv run python scripts/run_migrations.py
+uv run python scripts/arena/copy_legal_docs.py
+uv run python scripts/bootstrap_languages.py
+uv run python scripts/web/create_uberadmin.py
+```
+
+7. Seed the Arena initial user and categories:
+
+```bash
+uv run python scripts/arena/create_arena_admin.py
+uv run python scripts/arena/upsert_arena_categories.py scripts/arena/categories-en.txt
+```
+
+To seed Portuguese categories instead, use
+`scripts/arena/categories-pt.txt`.
+
+8. Start the web app:
+
+```bash
+uv run noca-web
+```
+
+9. Build the judge images if they are not present locally:
+
+```bash
+./containers/build.sh gcc-c17 gcc-cpp23 python3 java javascript kotlin fpc-pascal go rust c-sharp
+```
+
+10. Start the worker:
+
+```bash
+uv run noca-autojudge
+```
 
 11. Start the Arena app:
 
@@ -182,13 +192,6 @@ Important variable guidance:
 | `NOCA_VALKEY_USER` | Leave empty in development when using the local container without auth |
 | `NOCA_VALKEY_PASSWORD` | Leave empty in development when using the local container without auth |
 
-Example alignment with `NOCA_DATA_ROOT=.docker`:
-
-```env
-NOCA_WEB_PROBLEM_STATEMENT_DIR=.docker/problem_statements
-NOCA_PROBLEM_TESTCASE_DIR=.docker/problem_test_cases
-```
-
 If you change `NOCA_DB_PASSWORD` after PostgreSQL has already initialized its
 data volume, the container credentials do not update automatically. Reset the
 password inside PostgreSQL or recreate the volume.
@@ -221,18 +224,11 @@ Important notes:
 - shared static vendor assets must already exist under `shared/static/vendor`
 - if running behind a reverse proxy, configure both sides:
   - proxy must forward `X-Forwarded-Proto`, `X-Forwarded-Host`, and `X-Forwarded-For`
-  - `NOCA_FORWARDED_ALLOW_IPS` must include only trusted proxy IPs/CIDRs
+  - `NOCA_FORWARDED_ALLOW_IPS` must include only trusted proxy IPs/CIDRs; avoid
+    `*` unless the network is fully private and clients cannot access `web` directly
   - `NOCA_WEB_URL_BASE` is still recommended for stable absolute links in emails/reports
 
-That is why the normal dev bootstrap is:
-
-```bash
-uv run python scripts/fetch_assets.py
-uv run alembic upgrade head
-uv run python scripts/web/create_uberadmin.py
-uv run python scripts/bootstrap_languages.py
-uv run noca-web
-```
+The Quick Start above already runs this full sequence in order.
 
 ### Autojudge bootstrap on the host
 
@@ -448,54 +444,6 @@ Operational consequence:
   because only one container holds the migration advisory lock at a time
 - language seeding is available in the web and arena containers, controlled by
   `NOCA_SEED_LANGUAGES=true`
-
----
-
-## Recommended Commands
-
-### Development
-
-```bash
-uv sync --extra dev
-uv run python scripts/fetch_assets.py
-wsl docker compose -f docker-compose-db-valkey.yml up -d
-uv run alembic upgrade head
-uv run python scripts/web/create_uberadmin.py
-uv run python scripts/bootstrap_languages.py
-uv run python scripts/arena/seed_arena_user.py --fullname "Your Name" --email you@example.com --enabled --email-confirmed --role ARENA_ADMIN
-uv run python scripts/arena/upsert_arena_categories.py categories-en.txt (or categories-pt.txt)
-uv run noca-web
-uv run noca-arena
-uv run noca-rating
-uv run noca-aiassistant
-uv run noca-autojudge
-```
-
-### Build judge images
-
-```bash
-./containers/build.sh gcc-c17 gcc-cpp23 python3 java javascript kotlin fpc-pascal go rust c-sharp
-```
-
-### Full stack containers
-
-```bash
-wsl docker compose -f docker-compose.yml.sample up --build
-```
-
-For reverse-proxy deployments, set `NOCA_FORWARDED_ALLOW_IPS` to the address/CIDR of the proxy that reaches the `web` service. Avoid `*` unless the network is fully private and clients cannot access `web` directly.
-
----
-
-## Common Failure Modes
-
-- `ModuleNotFoundError`: `uv sync` has not been run, or the editable install is stale
-- `password authentication failed`: `.env` does not match the PostgreSQL container state
-- Valkey auth errors in development: clear `NOCA_VALKEY_USER` and `NOCA_VALKEY_PASSWORD`
-- missing static assets: run `uv run python scripts/fetch_assets.py`
-- `Directory '...' is not readable/writable`: the problem data directories do not exist or have the wrong permissions
-- `Missing required judge images`: build the local judge images before starting `noca-autojudge`
-- Docker permission errors from autojudge: the host user cannot access the Docker daemon
 
 ---
 

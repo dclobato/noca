@@ -12,7 +12,6 @@ from typing import cast
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy import and_, func, or_, select
-from werkzeug.security import check_password_hash
 
 from shared.enumerations import JudgmentStatus
 from shared.services.lock_service import get_locks
@@ -22,6 +21,7 @@ from web.models.contest import Contest, Task
 from web.models.problem import Problem
 from web.models.submission import Submission, SubmissionJudgment
 from web.models.users import UberAdmin, User
+from web.services.password_service import password_matches
 from web.services.valkey_service import get_contest_queue_metrics
 
 
@@ -73,7 +73,7 @@ def _is_actor_password_valid(actor: User | UberAdmin, password: str) -> bool:
     Returns:
         `True` when the password matches the actor credentials.
     """
-    return bool(password) and check_password_hash(actor.password_hash, password)
+    return password_matches(actor, password)
 
 
 @dataclass(frozen=True)
@@ -235,8 +235,8 @@ async def _build_clarification_counters(ctx: ContestAdminContext) -> tuple[Clari
     """Build clarification and announcement counters for one contest."""
     result = await ctx.session.execute(
         select(Clarification.question, Clarification.answered_at)
-        .join(Problem, Clarification.problem_id == Problem.id)
-        .where(Problem.contest_id == ctx.contest.id)
+        .join(User, Clarification.team_id == User.id)
+        .where(User.contest_id == ctx.contest.id)
     )
 
     total = 0

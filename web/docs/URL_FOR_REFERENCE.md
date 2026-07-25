@@ -15,6 +15,17 @@ All names are stable — changing a route's path no longer breaks templates.
 | `request.url_for('static_vendor', path='<file>')` | `/static/vendor/<file>` | `static_vendor` |
 | `request.url_for('static_webfonts', path='<file>')` | `/static/webfonts/<file>` | `static_webfonts` |
 
+## Generated assets
+
+These public routes generate SVG images from path parameters.
+
+| `url_for` call | Generated path | Endpoint name |
+|---|---|---|
+| `request.url_for('balloon', color='<hex>')` | `/assets/balloon/<hex>` | `balloon` |
+| `request.url_for('balloon', color='<hex>', letter='<letters>')` | `/assets/balloon/<hex>/<letters>` | `balloon` |
+| `request.url_for('star', color='<hex>')` | `/assets/star/<hex>` | `star` |
+| `request.url_for('star', color='<hex>', letter='<letters>')` | `/assets/star/<hex>/<letters>` | `star` |
+
 ## Public / Auth Routes (`auth.py`, `root.py`)
 
 | Hardcoded path | Endpoint name | Path params | File |
@@ -52,10 +63,17 @@ with a degraded payload when either required backend is unavailable.
 | `POST /uberadmin/contests/new` | `add_contest_submit` | — | `uberadmin_dashboard.py` |
 | `GET /uberadmin/contests/inactive` | `uberadmin_inactive_contests` | — | `uberadmin_dashboard.py` |
 | `POST /uberadmin/contests/{contest_id}/deactivate` | `uberadmin_deactivate_contest` | `contest_id=` | `uberadmin_dashboard.py` |
+| `POST /uberadmin/contests/{contest_id}/remove` | `uberadmin_remove_contest` | `contest_id=` | `uberadmin_contest_removal.py` |
 | `POST /uberadmin/contests/credentials.json` | `download_contest_credentials_json` | — | `uberadmin_dashboard.py` |
 | `POST /uberadmin/contests/credentials/email` | `send_contest_credentials_email` | — | `uberadmin_dashboard.py` |
+| `GET /uberadmin/contests/{contest_id}/export` | `uberadmin_export_contest_form` | `contest_id=` | `uberadmin_contest_backup.py` |
+| `POST /uberadmin/contests/{contest_id}/export` | `uberadmin_export_contest` | `contest_id=` | `uberadmin_contest_backup.py` |
+| `GET /uberadmin/contests/import` | `uberadmin_import_contest_form` | — | `uberadmin_contest_backup.py` |
+| `POST /uberadmin/contests/import` | `uberadmin_import_contest` | — | `uberadmin_contest_backup.py` |
 
 ## Contest Dashboard Routes (`generaluser_dashboard.py`)
+
+The authenticated navbar polls the contest clock endpoint for a JSON snapshot.
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
@@ -66,14 +84,14 @@ with a degraded payload when either required backend is unavailable.
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
-| `GET /c/{slug}/scoreboard/` | `contest_score` | `slug=` | `contest_score.py` |
+| `GET /c/{slug}/scoreboard/` | `contest_score` | `slug=`, `site_id=` | `contest_score.py` |
 | `GET /c/{slug}/problems/` | `contest_problems` | `slug=` | `contest_problems.py` |
 | `GET /c/{slug}/problems/{problem_label}` | `contest_problem_detail` | `slug=`, `problem_label=` | `contest_problems.py` |
 | `GET /c/{slug}/problems/{problem_label}/statement` | `contest_problem_statement` | `slug=`, `problem_label=` | `contest_problems.py` |
 | `GET /c/{slug}/problems/{problem_label}/print` | `contest_problem_print` | `slug=`, `problem_label=` | `contest_problems.py` |
 | `GET /c/{slug}/problems/{problem_label}/export` | `contest_problem_export` | `slug=`, `problem_label=` | `contest_problems.py` |
-| `GET /c/{slug}/clarifications/` | `contest_clarifications` | `slug=` | `contest_clarifications.py` |
-| `GET /c/{slug}/clarifications/list` | `contest_clarifications_list` | `slug=` | `contest_clarifications.py` |
+| `GET /c/{slug}/clarifications/` | `contest_clarifications` | `slug=`, `sort_by=` | `contest_clarifications.py` |
+| `GET /c/{slug}/clarifications/list` | `contest_clarifications_list` | `slug=`, `sort_by=` | `contest_clarifications.py` |
 | `POST /c/{slug}/clarifications/new` | `contest_clarifications_new` | `slug=` | `contest_clarifications_submit.py` |
 | `POST /c/{slug}/clarifications/announcement` | `contest_clarifications_announcement` | `slug=` | `contest_clarifications_submit.py` |
 | `POST /c/{slug}/clarifications/acquire` | `contest_clarifications_acquire` | `slug=` | `contest_clarifications_judge.py` |
@@ -84,8 +102,8 @@ with a degraded payload when either required backend is unavailable.
 | `GET /c/{slug}/clarifications/togglehide` | `contest_clarifications_togglehide` | `slug=` | `contest_clarifications_admin.py` |
 | `POST /c/{slug}/clarifications/togglehide` | `contest_clarifications_togglehide_submit` | `slug=` | `contest_clarifications_admin.py` |
 | `POST /c/{slug}/clarifications/releaselock` | `contest_clarifications_releaselock` | `slug=` | `contest_clarifications_admin.py` |
-| `GET /c/{slug}/runs/` | `contest_runs` | `slug=` | `contest_runs.py` |
-| `GET /c/{slug}/runs/list` | `contest_runs_list` | `slug=` | `contest_runs.py` |
+| `GET /c/{slug}/runs/` | `contest_runs` | `slug=`, `sort_by=`, `filter_problem_id=`, `filter_autojudge=`, `filter_final_verdict=`, `filter_team_id=`, `queued_submission=` | `contest_runs.py` |
+| `GET /c/{slug}/runs/list` | `contest_runs_list` | `slug=`, `sort_by=`, `filter_problem_id=`, `filter_autojudge=`, `filter_final_verdict=`, `filter_team_id=` | `contest_runs.py` |
 | `GET /c/{slug}/runs/language-info` | `contest_runs_language_info` | `slug=` | `contest_runs.py` |
 | `GET /c/{slug}/runs/events` | `contest_runs_events` | `slug=` | `contest_runs_events.py` |
 | `POST /c/{slug}/runs/submit` | `contest_runs_submit` | `slug=` | `contest_runs_review.py` |
@@ -103,6 +121,10 @@ with a degraded payload when either required backend is unavailable.
 | `POST /c/{slug}/tasks/{task_id}/release` | `contest_tasks_release` | `slug=`, `task_id=` | `contest_tasks_staff.py` |
 | `GET /c/{slug}/tasks/{task_id}/source` | `contest_tasks_source` | `slug=`, `task_id=` | `contest_tasks_staff.py` |
 | `GET /c/{slug}/reports/` | `contest_reports` | `slug=` | `contest_reports.py` |
+| `GET /c/{slug}/solution-tests/` | `contest_solution_tests` | `slug=` | `contest_solution_tests.py` |
+| `POST /c/{slug}/solution-tests/submit` | `contest_solution_tests_submit` | `slug=` | `contest_solution_tests.py` |
+| `GET /c/{slug}/solution-tests/{run_id}` | `contest_solution_test_detail` | `slug=`, `run_id=` | `contest_solution_tests.py` |
+| `GET /c/{slug}/solution-tests/{run_id}/status` | `contest_solution_test_status_partial` | `slug=`, `run_id=` | `contest_solution_tests.py` |
 | `GET /c/{slug}/submissions/download-all` | `team_submissions_download` | `slug=` | `contest_submissions.py` |
 | `GET /c/{slug}/submissions/{submission_id}/review` | `submission_review` | `slug=`, `submission_id=` | `contest_submissions.py` |
 | `POST /c/{slug}/submissions/{submission_id}/acquire-review` | `submission_acquire_review` | `slug=`, `submission_id=` | `contest_submissions_review.py` |
@@ -137,6 +159,11 @@ with a degraded payload when either required backend is unavailable.
 | `POST /c/{slug}/admin/end-now` | `contest_end_now` | `slug=` | `contest_admin.py` |
 | `POST /c/{slug}/admin/chief-judge` | `contest_admin_set_chief_judge` | `slug=` | `contest_admin.py` |
 | `POST /c/{slug}/admin/release-scoreboard` | `contest_admin_release_scoreboard` | `slug=` | `contest_admin.py` |
+| `GET /c/{slug}/admin/animator/` | `animator_settings` | `slug=` | `contest_admin_animator.py` |
+| `POST /c/{slug}/admin/animator/settings` | `animator_update_settings` | `slug=` | `contest_admin_animator.py` |
+| `POST /c/{slug}/admin/animator/medals` | `animator_update_all_medals` | `slug=` | `contest_admin_animator.py` |
+| `POST /c/{slug}/admin/animator/secrets` | `animator_create_secret` | `slug=` | `contest_admin_animator.py` |
+| `POST /c/{slug}/admin/animator/secrets/{secret_id}/revoke` | `animator_revoke_secret` | `slug=`, `secret_id=` | `contest_admin_animator.py` |
 
 ## Contest Problem Management Routes
 
@@ -234,15 +261,18 @@ Shared helpers (`contest_admin_problem_helpers.py` and
 | `POST /profile/fullname` | `profile_fullname_submit` | — | `profile.py` |
 | `POST /profile/email` | `profile_email_submit` | — | `profile.py` |
 | `POST /profile/password` | `profile_password_submit` | — | `profile.py` |
-| `POST /user/{user_id}/photo` | `user_photo_submit` | `user_id=` | `profile.py` |
-| `POST /user/{user_id}/photo/remove` | `user_photo_remove` | `user_id=` | `profile.py` |
+| `POST /user/{user_id}/photo` | `user_photo_submit` | `user_id=` | `user_media.py` |
+| `POST /user/{user_id}/photo/remove` | `user_photo_remove` | `user_id=` | `user_media.py` |
+| `POST /user/{user_id}/audio` | `user_audio_submit` | `user_id=` | `user_media.py` |
+| `POST /user/{user_id}/audio/remove` | `user_audio_remove` | `user_id=` | `user_media.py` |
 
-## Asset Routes (`profile.py`)
+## User media asset routes (`user_media.py`)
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
-| `GET /user/{user_id}/avatar` | `user_avatar_by_id` | `user_id=` | `profile.py` |
-| `GET /user/{user_id}/photo` | `user_photo_by_id` | `user_id=` | `profile.py` |
+| `GET /user/{user_id}/avatar` | `user_avatar_by_id` | `user_id=` | `user_media.py` |
+| `GET /user/{user_id}/photo` | `user_photo_by_id` | `user_id=` | `user_media.py` |
+| `GET /user/{user_id}/audio` | `user_audio_by_id` | `user_id=` | `user_media.py` |
 
 ## Notes
 

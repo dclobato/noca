@@ -5,6 +5,7 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 from pathlib import PurePosixPath
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
@@ -18,12 +19,20 @@ from web.routes.contest_runs_helpers import (
     _build_first_balloon_submission_ids,
     _build_problem_map,
     _build_review_lock_context,
+    _build_team_filter_options,
+    _can_filter_runs_by_team,
     _html,
+    _normalize_verdict_filter,
     _team_runs_are_blind,
 )
 from web.routes.contest_runs_helpers import _iter_verdict_sse_events as _iter_verdict_sse_events  # noqa: F401
 from web.services.problem_service import get_contest_languages, get_contest_problems
-from web.services.submission_service import list_submissions
+from web.services.submission_service import (
+    SubmissionFilters,
+    list_submission_teams,
+    list_submissions,
+    normalize_submission_sort,
+)
 
 router = APIRouter(prefix="/c/{slug}/runs", tags=["contest_runs"])
 
@@ -33,10 +42,16 @@ async def view(
     request: Request,
     ctx: ContestContext = Depends(get_contest_context),
     problem_id: str = "",
+    filter_problem_id: Annotated[str, Query()] = "",
+    filter_autojudge: Annotated[str, Query()] = "",
+    filter_final_verdict: Annotated[str, Query()] = "",
+    filter_team_id: Annotated[str, Query()] = "",
+    sort_by: Annotated[str, Query()] = "time_desc",
 ) -> HTMLResponse:
     templates = request.app.state.templates
     ensure_allowed_role(ctx.actor, _ALLOWED)
     access_blocked = _access_blocked(ctx.actor, ctx.contest)
+    normalized_sort = normalize_submission_sort(sort_by)
 
     if access_blocked:
         return _html(
@@ -60,7 +75,9 @@ async def view(
                     "filter_autojudge": "",
                     "filter_final_verdict": "",
                     "filter_team_id": "",
+                    "filter_team_options": [],
                     "show_compile_run_cmds": settings.SHOW_COMPILE_RUN_CMDS,
+                    "sort_by": normalized_sort,
                 },
             )
         )
@@ -75,6 +92,15 @@ async def view(
     # File-picker hint: extension derived from each language's source filename
     # (e.g. "Main.java" -> ".java"), used to filter the submit file input.
     lang_ext_map = {lang.id: PurePosixPath(lang.source_filename).suffix for lang in languages}
+
+    can_filter_by_team = _can_filter_runs_by_team(ctx.actor, ctx.contest)
+    filter_teams = await list_submission_teams(ctx.session, ctx.contest) if can_filter_by_team else []
+    filter_team_options = _build_team_filter_options(filter_teams)
+    normalized_filter_problem_id = filter_problem_id if filter_problem_id in problem_map else ""
+    valid_team_ids = {team.id for team in filter_teams}
+    normalized_filter_team_id = filter_team_id if filter_team_id in valid_team_ids else ""
+    autojudge_verdict = _normalize_verdict_filter(filter_autojudge)
+    final_verdict = _normalize_verdict_filter(filter_final_verdict)
 
     # Build per-problem per-language limits for JS confirmation modal.
     # Structure: {problem_id: {default: {...}, language_id: {...}, ...}}
@@ -97,7 +123,18 @@ async def view(
             }
         submit_limits[p.id] = entry
 
-    submissions = await list_submissions(ctx.session, ctx.contest, ctx.actor)
+    submissions = await list_submissions(
+        ctx.session,
+        ctx.contest,
+        ctx.actor,
+        normalized_sort,
+        filters=SubmissionFilters(
+            problem_id=normalized_filter_problem_id or None,
+            team_id=normalized_filter_team_id or None,
+            autojudge_verdict=autojudge_verdict,
+            final_verdict=final_verdict,
+        ),
+    )
     lock_service_available, review_lock_map = await _build_review_lock_context(request, ctx.contest, submissions)
 
     return _html(
@@ -122,11 +159,13 @@ async def view(
                 "lock_service_available": lock_service_available,
                 "review_lock_map": review_lock_map,
                 "preselect_problem_id": problem_id,
-                "filter_problem_id": "",
-                "filter_autojudge": "",
-                "filter_final_verdict": "",
-                "filter_team_id": "",
+                "filter_problem_id": normalized_filter_problem_id,
+                "filter_autojudge": autojudge_verdict.value if autojudge_verdict else "",
+                "filter_final_verdict": final_verdict.value if final_verdict else "",
+                "filter_team_id": normalized_filter_team_id,
+                "filter_team_options": filter_team_options,
                 "show_compile_run_cmds": settings.SHOW_COMPILE_RUN_CMDS,
+                "sort_by": normalized_sort,
             },
         )
     )
@@ -136,13 +175,15 @@ async def view(
 async def list_partial(
     request: Request,
     ctx: ContestContext = Depends(get_contest_context),
-    filter_problem_id: str = Query(""),
-    filter_autojudge: str = Query(""),
-    filter_final_verdict: str = Query(""),
-    filter_team_id: str = Query(""),
+    filter_problem_id: Annotated[str, Query()] = "",
+    filter_autojudge: Annotated[str, Query()] = "",
+    filter_final_verdict: Annotated[str, Query()] = "",
+    filter_team_id: Annotated[str, Query()] = "",
+    sort_by: Annotated[str, Query()] = "time_desc",
 ) -> HTMLResponse:
     templates = request.app.state.templates
     ensure_allowed_role(ctx.actor, _ALLOWED)
+    normalized_sort = normalize_submission_sort(sort_by)
 
     if _access_blocked(ctx.actor, ctx.contest):
         return _html(
@@ -162,12 +203,33 @@ async def list_partial(
                     "filter_autojudge": "",
                     "filter_final_verdict": "",
                     "filter_team_id": "",
+                    "filter_team_options": [],
+                    "sort_by": normalized_sort,
                 },
             )
         )
 
     problem_map = await _build_problem_map(ctx.session, ctx.contest)
-    submissions = await list_submissions(ctx.session, ctx.contest, ctx.actor)
+    can_filter_by_team = _can_filter_runs_by_team(ctx.actor, ctx.contest)
+    filter_teams = await list_submission_teams(ctx.session, ctx.contest) if can_filter_by_team else []
+    filter_team_options = _build_team_filter_options(filter_teams)
+    normalized_filter_problem_id = filter_problem_id if filter_problem_id in problem_map else ""
+    valid_team_ids = {team.id for team in filter_teams}
+    normalized_filter_team_id = filter_team_id if filter_team_id in valid_team_ids else ""
+    autojudge_verdict = _normalize_verdict_filter(filter_autojudge)
+    final_verdict = _normalize_verdict_filter(filter_final_verdict)
+    submissions = await list_submissions(
+        ctx.session,
+        ctx.contest,
+        ctx.actor,
+        normalized_sort,
+        filters=SubmissionFilters(
+            problem_id=normalized_filter_problem_id or None,
+            team_id=normalized_filter_team_id or None,
+            autojudge_verdict=autojudge_verdict,
+            final_verdict=final_verdict,
+        ),
+    )
     first_balloon_submission_ids = await _build_first_balloon_submission_ids(ctx.session, ctx.contest)
     lock_service_available, review_lock_map = await _build_review_lock_context(request, ctx.contest, submissions)
 
@@ -184,10 +246,12 @@ async def list_partial(
                 "first_balloon_submission_ids": first_balloon_submission_ids,
                 "lock_service_available": lock_service_available,
                 "review_lock_map": review_lock_map,
-                "filter_problem_id": filter_problem_id,
-                "filter_autojudge": filter_autojudge,
-                "filter_final_verdict": filter_final_verdict,
-                "filter_team_id": filter_team_id,
+                "filter_problem_id": normalized_filter_problem_id,
+                "filter_autojudge": autojudge_verdict.value if autojudge_verdict else "",
+                "filter_final_verdict": final_verdict.value if final_verdict else "",
+                "filter_team_id": normalized_filter_team_id,
+                "filter_team_options": filter_team_options,
+                "sort_by": normalized_sort,
             },
         )
     )

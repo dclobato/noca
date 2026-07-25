@@ -30,6 +30,7 @@ async def record_admin_action(
     *,
     module: str,
     actor_user_id: str | None,
+    actor_label: str | None,
     action: str,
     target_type: str,
     target_id: str | None,
@@ -46,6 +47,7 @@ async def record_admin_action(
         request: Incoming request, used for actor IP and user-agent.
         module: Producing module, such as ``web`` or ``arena``.
         actor_user_id: Authenticated admin performing the action.
+        actor_label: Human-readable login of the admin, snapshotted at event time.
         action: Stable action slug, such as ``delete`` or ``role_change``.
         target_type: Kind of object acted upon, such as ``arena_user``.
         target_id: Identifier of the affected object when applicable.
@@ -66,5 +68,6 @@ async def record_admin_action(
         event_type=ADMIN_ACTION_EVENT_TYPE,
         severity=severity,
         actor_user_id=actor_user_id,
+        actor_label=actor_label,
         metadata=metadata,
     )

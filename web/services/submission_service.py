@@ -11,10 +11,10 @@ import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import anyio
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -52,6 +52,16 @@ class SubmissionRateLimitError(Exception):
         """
         super().__init__()
         self.next_allowed_at = next_allowed_at
+
+
+@dataclass(frozen=True, slots=True)
+class SubmissionFilters:
+    """Optional server-side filters for contest submission lists."""
+
+    problem_id: str | None = None
+    team_id: str | None = None
+    autojudge_verdict: Verdict | None = None
+    final_verdict: Verdict | None = None
 
 
 @dataclass(slots=True)
@@ -187,15 +197,80 @@ def _build_team_submissions_zip_bytes(archive_problems: list[_ExportProblemArchi
     return buffer.getvalue()
 
 
+SubmissionSort = Literal["time_asc", "time_desc", "problem_asc", "problem_desc"]
+
+_ALLOWED_SUBMISSION_SORTS: frozenset[str] = frozenset({"time_asc", "time_desc", "problem_asc", "problem_desc"})
+
+
+def normalize_submission_sort(value: str | None) -> SubmissionSort:
+    """Normalize a runs list ``sort_by`` query parameter."""
+    if value in _ALLOWED_SUBMISSION_SORTS:
+        return cast(SubmissionSort, value)
+    return "time_desc"
+
+
+def _order_for_submission_sort(sort_by: SubmissionSort) -> tuple[Any, ...]:
+    """Return the ORDER BY clauses for *sort_by*; problem sort ties break on newest first."""
+    if sort_by == "time_asc":
+        return (Submission.created_at.asc(),)
+    if sort_by == "problem_asc":
+        return (Problem.ordinal.asc(), Submission.created_at.desc())
+    if sort_by == "problem_desc":
+        return (Problem.ordinal.desc(), Submission.created_at.desc())
+    return (Submission.created_at.desc(),)
+
+
+def _apply_submission_filters(stmt: Select[tuple[Submission]], filters: SubmissionFilters) -> Select[tuple[Submission]]:
+    """Apply Runs-page filters to a submission query."""
+    if filters.problem_id:
+        stmt = stmt.where(Submission.problem_id == filters.problem_id)
+    if filters.team_id:
+        stmt = stmt.where(Submission.team_id == filters.team_id)
+
+    if filters.autojudge_verdict is None and filters.final_verdict is None:
+        return stmt
+
+    latest_judgment_id = (
+        select(SubmissionJudgment.id)
+        .where(SubmissionJudgment.submission_id == Submission.id)
+        .order_by(SubmissionJudgment.created_at.desc(), SubmissionJudgment.id.desc())
+        .limit(1)
+        .correlate(Submission)
+        .scalar_subquery()
+    )
+    stmt = stmt.join(SubmissionJudgment, SubmissionJudgment.id == latest_judgment_id)
+    if filters.autojudge_verdict is not None:
+        stmt = stmt.where(SubmissionJudgment.autojudge_verdict == filters.autojudge_verdict)
+    if filters.final_verdict is not None:
+        stmt = stmt.where(SubmissionJudgment.final_verdict == filters.final_verdict)
+    return stmt
+
+
+async def list_submission_teams(session: AsyncSession, contest: Contest) -> list[User]:
+    """Return contest teams that have submissions for the Runs filter."""
+    stmt = (
+        select(User)
+        .join(Submission, Submission.team_id == User.id)
+        .join(Problem, Submission.problem_id == Problem.id)
+        .where(Problem.contest_id == contest.id, User.role == RoleEnum.TEAM)
+        .options(selectinload(User.site))
+        .distinct()
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
 async def list_submissions(
     session: AsyncSession,
     contest: Contest,
     actor: UberAdmin | User,
+    sort_by: SubmissionSort = "time_desc",
+    *,
+    filters: SubmissionFilters | None = None,
 ) -> list[Submission]:
     """Return submissions visible to *actor* for the given contest.
 
-    TEAM users see only their own submissions ordered newest-first.
-    All other roles see every submission in the contest ordered newest-first.
+    TEAM users see only their own submissions; all other roles see every
+    submission in the contest. Both default to newest-first.
     """
     opts = [
         selectinload(Submission.problem),
@@ -203,12 +278,14 @@ async def list_submissions(
         selectinload(Submission.judgments),
         selectinload(Submission.team).selectinload(User.site),
     ]
+    order = _order_for_submission_sort(sort_by)
+    filters = filters or SubmissionFilters()
 
     if hasattr(actor, "role") and actor.role == RoleEnum.TEAM:
         stmt = (
             select(Submission)
+            .join(Problem, Submission.problem_id == Problem.id)
             .where(Submission.team_id == actor.id)
-            .order_by(Submission.created_at.desc())
             .options(*opts)
         )
     else:
@@ -223,10 +300,10 @@ async def list_submissions(
             select(Submission)
             .join(Problem, Submission.problem_id == Problem.id)
             .where(Problem.contest_id == contest.id)
-            .order_by(Submission.created_at.desc())
             .options(*judge_opts)
         )
 
+    stmt = _apply_submission_filters(stmt, filters).order_by(*order)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 

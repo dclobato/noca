@@ -16,10 +16,12 @@ from __future__ import annotations
 import math
 import uuid
 
-from autojudge.db._base import _DatabaseBase, _utcnow
+from autojudge.db._base import RESULT_VOLATILE_COLUMNS, AttemptClaim, _DatabaseBase, _utcnow
 from autojudge.runtime_utils import decode_for_text_column
 from autojudge.types import ProfilingObservedLimits
 from shared.db_schema import profiling_case_results as _profiling_case_result
+from shared.db_schema import profiling_runs as _profiling_run
+from shared.db_schema import submission_judgments as _submission_judgment
 from shared.db_schema import submission_test_results as _submission_test_result
 from shared.enumerations import Verdict
 
@@ -38,9 +40,14 @@ class _ResultsMixin(_DatabaseBase):
         exit_signal: int | None,
         stdout_excerpt: bytes,
         stderr_excerpt: bytes,
+        attempt_token: str | None = None,
     ) -> None:
         """
-        Persist the result of running one test case.
+        Persist the result of running one test case, for the owning attempt.
+
+        Written only while this attempt still holds the judgment's claim, and
+        tolerant of the attempt replaying its own write. See
+        ``_insert_result_row_once``.
 
         Args:
             judgment_id: UUID of the parent judgment.
@@ -52,21 +59,35 @@ class _ResultsMixin(_DatabaseBase):
             exit_signal: Fatal signal number when the process was signal-killed.
             stdout_excerpt: First N bytes of stdout (already truncated).
             stderr_excerpt: First N bytes of stderr (already truncated).
+            attempt_token: Claim stamped by this attempt's dispatch.
+
+        Raises:
+            JudgmentOwnershipLost: If another attempt has claimed the judgment.
+            RuntimeError: If a committed row for this case holds a different verdict.
         """
-        await self._conn.execute(
-            _submission_test_result.insert().values(
-                id=str(uuid.uuid4()),
-                judgment_id=judgment_id,
-                test_case_id=test_case_id,
-                verdict=verdict,
-                wall_time_ms=wall_time_ms,
-                memory_kb=memory_kb,
-                exit_code=exit_code,
-                exit_signal=exit_signal,
-                stdout_excerpt=decode_for_text_column(stdout_excerpt),
-                stderr_excerpt=decode_for_text_column(stderr_excerpt),
-                created_at=_utcnow(),
-            )
+        await self._insert_result_row_once(
+            _submission_test_result,
+            values={
+                "id": str(uuid.uuid4()),
+                "judgment_id": judgment_id,
+                "test_case_id": test_case_id,
+                "verdict": verdict,
+                "wall_time_ms": wall_time_ms,
+                "memory_kb": memory_kb,
+                "exit_code": exit_code,
+                "exit_signal": exit_signal,
+                "stdout_excerpt": decode_for_text_column(stdout_excerpt),
+                "stderr_excerpt": decode_for_text_column(stderr_excerpt),
+                "created_at": _utcnow(),
+            },
+            index_elements=("judgment_id", "test_case_id"),
+            # The case is already part of the key here, so only the verdict is
+            # left to disagree about.
+            identity_columns=("verdict",),
+            volatile_columns=RESULT_VOLATILE_COLUMNS,
+            claim=(
+                AttemptClaim(_submission_judgment, judgment_id, attempt_token) if attempt_token is not None else None
+            ),
         )
         await self._conn.commit()
 
@@ -81,9 +102,14 @@ class _ResultsMixin(_DatabaseBase):
         peak_output_bytes: int | None,
         peak_pids: int | None,
         exit_code: int | None,
+        attempt_token: str | None = None,
     ) -> None:
         """
         Persist the aggregated result of profiling one test case.
+
+        The table carries no unique key, so a stale attempt's late row would not
+        collide with anything — it would simply interleave with the new owner's
+        rows and skew the computed limits. The claim is what stops it.
 
         Args:
             profiling_run_id: UUID of the parent profiling run.
@@ -95,21 +121,29 @@ class _ResultsMixin(_DatabaseBase):
             peak_output_bytes: Peak output size across repetitions.
             peak_pids: Peak PID count across repetitions.
             exit_code: Process exit code.
+            attempt_token: Claim stamped by this attempt's dispatch.
+
+        Raises:
+            JudgmentOwnershipLost: If another attempt has claimed the run.
         """
-        await self._conn.execute(
-            _profiling_case_result.insert().values(
-                id=str(uuid.uuid4()),
-                profiling_run_id=profiling_run_id,
-                test_case_id=test_case_id,
-                ordinal=ordinal,
-                total_wall_time_ms=total_wall_time_ms,
-                peak_memory_kb=peak_memory_kb,
-                peak_output_bytes=peak_output_bytes,
-                peak_pids=peak_pids,
-                verdict=verdict,
-                exit_code=exit_code,
-                created_at=_utcnow(),
-            )
+        await self._insert_claimed_row(
+            _profiling_case_result,
+            values={
+                "id": str(uuid.uuid4()),
+                "profiling_run_id": profiling_run_id,
+                "test_case_id": test_case_id,
+                "ordinal": ordinal,
+                "total_wall_time_ms": total_wall_time_ms,
+                "peak_memory_kb": peak_memory_kb,
+                "peak_output_bytes": peak_output_bytes,
+                "peak_pids": peak_pids,
+                "verdict": verdict,
+                "exit_code": exit_code,
+                "created_at": _utcnow(),
+            },
+            claim=(
+                AttemptClaim(_profiling_run, profiling_run_id, attempt_token) if attempt_token is not None else None
+            ),
         )
         await self._conn.commit()
 

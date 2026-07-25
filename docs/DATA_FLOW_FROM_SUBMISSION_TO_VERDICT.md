@@ -162,7 +162,10 @@ The worker should always record what the machine concluded, even when contest po
 Rejudges create new `submission_judgment` rows for the same immutable submission. Queueing the judgment rather than the submission lets each judgment attempt move independently through the worker, audit, and confirmation pipeline.
 
 **Why Redis lists + inflight tracking instead of a heavier job framework?**
-The queue protocol is deliberately small: `LPUSH`, a Lua ready-job move, an inflight list, a reaper, and a per-judgment Redis lock. That is enough for this workload and keeps failure modes easy to inspect with plain Redis tooling.
+The queue protocol is deliberately small: Redis lists, inflight timestamps,
+per-attempt locks, and Lua transitions for dequeue, reconciliation, stale
+recovery, and owned cleanup. This keeps each cross-replica state transition
+atomic while leaving the runtime state inspectable with standard Valkey tools.
 
 **Why are Web and judge separate packages/processes?**
 The worker executes untrusted code and needs a very different security posture from the web/ process. Keeping the boundary at PostgreSQL + Redis + shared filesystems makes it possible to harden and scale each side independently.

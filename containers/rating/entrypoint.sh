@@ -7,8 +7,9 @@
 
 # containers/rating/entrypoint.sh
 #
-# Wait for PostgreSQL and Valkey to be ready, run schema migrations under the
-# shared PostgreSQL advisory lock, then start the single-replica rating worker.
+# Wait for PostgreSQL and Valkey to be ready, wait for the shared schema to be
+# migrated by an HTTP steward (web/arena), then start the single-replica rating
+# worker.
 
 set -euo pipefail
 
@@ -174,8 +175,8 @@ async def wait_for_valkey() -> None:
 asyncio.run(wait_for_valkey())
 PY
 
-echo "Running Alembic migrations..."
-python scripts/run_migrations.py
+echo "Waiting for database schema to reach the latest migration..."
+python scripts/wait_for_migrations.py
 
 if [[ "$#" -eq 0 ]]; then
     set -- noca-rating

@@ -151,10 +151,10 @@ done
 echo "Valkey is ready."
 
 # ---------------------------------------------------------------------------
-# Run DB migrations
+# Wait for the schema (owned by web/arena) instead of migrating from a worker
 # ---------------------------------------------------------------------------
-echo "Running Alembic migrations..."
-python scripts/run_migrations.py
+echo "Waiting for database schema to reach the latest migration..."
+python scripts/wait_for_migrations.py
 
 # ---------------------------------------------------------------------------
 # Start the worker

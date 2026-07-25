@@ -15,7 +15,7 @@ from .authorization import (
     reconcile_chief_judge,
     validate_chief_judge_assignment,
 )
-from .creation import build_blank_contest_form, create_contest_with_owner
+from .creation import build_blank_contest_form, create_contest_with_owner, slug_format_is_valid
 from .metadata import (
     ContestMetadataInput,
     ContestMetadataResult,
@@ -69,6 +69,7 @@ __all__ = [
     "get_inactive_contests",
     "list_contest_judge_ids",
     "reconcile_chief_judge",
+    "slug_format_is_valid",
     "_validate_contest_metadata_fields",
     "update_contest_metadata",
     "validate_chief_judge_assignment",

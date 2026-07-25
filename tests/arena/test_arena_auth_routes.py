@@ -187,6 +187,9 @@ async def test_signup_page_renders_with_flash_macro_context(session: AsyncSessio
     assert "Password must be at least" in response.text
     assert 'href="http://testserver/legal/terms"' in response.text
     assert 'href="http://testserver/legal/privacy"' in response.text
+    assert "JPEG, PNG, or WebP" in response.text
+    assert "up to 2.0 MiB" in response.text
+    assert "Up to 2048 × 2048 px" in response.text
 
 
 @pytest.mark.asyncio

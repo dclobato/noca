@@ -57,6 +57,10 @@
                 {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value] %}
                     {{ dashboard_card(request.url_for('contest_reports', slug=contest.login_slug) , "bar_chart", "Reports", "Analytics & exports", True, filled=True) }}
                 {% endif %}
+                {# Solution tests - admin, uberadmin, judge #}
+                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value] %}
+                    {{ dashboard_card(request.url_for('contest_solution_tests', slug=contest.login_slug) , "science", "Solution tests", "Try a solution", True, filled=True) }}
+                {% endif %}
                 {# Administration - admin, uberadmin only #}
                 {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] %}
                     {{ dashboard_card(request.url_for('view', slug=contest.login_slug) , "settings", "Administration", "Contest settings", True, filled=True) }}

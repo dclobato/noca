@@ -559,6 +559,9 @@ async def test_authenticated_profile_renders_navbar_avatar_link(session: AsyncSe
     assert "notifications" in response.text
     assert 'href="http://testserver/user/profile"' in response.text
     assert f"/user/{user.id}/avatar" in response.text
+    assert "JPEG, PNG, or WebP" in response.text
+    assert "up to 2.0 MiB" in response.text
+    assert "up to 2048 × 2048 px" in response.text
 
 
 @pytest.mark.asyncio

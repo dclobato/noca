@@ -1,5 +1,170 @@
 # Changelog
 
+## [Unreleased]
+
+## [14.2.0] - 2026-07-25
+
+### Features
+
+- **solution-tests**: Add non-scoring solution tests for judges and admins —
+  JUDGE, ADMIN and UBERADMIN actors can run a candidate solution against any
+  problem in an active contest through the real compiler, sandbox, limits, test
+  cases and custom validator, with zero effect on the competition. Runs live in
+  their own `solution_test_runs` / `solution_test_case_results` tables so
+  leakage into standings, balloons, Runs, reports, feeds and exports is
+  structurally impossible; the worker entrypoint takes no Valkey handle, so it
+  cannot publish verdict events, invalidate the scoreboard cache, or create
+  balloon tasks. Interactive attempts reach these tables through a new
+  `attempt_target` axis independent of `domain`. Jobs share the contestant
+  queues and the `priority=contest.is_running` rule, are retained for the life
+  of the contest, and are excluded from contest backups. Rate limiting is an
+  independent per-actor budget keyed on a namespaced advisory lock
+- **web**: Add an UberAdmin contest backup export/import — export a finished or
+  inactive contest to a portable ZIP (problems, users, submissions, full
+  judgment history, clarifications, staff tasks, sites, and optional
+  media/password hashes) and restore it under a new name and slug as a faithful
+  historical replay, with verdicts, timings and timestamps written verbatim and
+  no re-judging. Bounded archive parsing (ZIP-bomb and path-traversal guards,
+  size ceilings), fail-closed reference-graph integrity checks, and a
+  one-transaction restore with filesystem rollback. Password-hash export
+  requires password reconfirmation, and each sensitive opt-in records its own
+  admin-action audit event
+- **web**: Permanently remove inactive contests — an UberAdmin-only workflow
+  that deletes a contest across PostgreSQL, Valkey and the problem-artifact
+  filesystem. A verified Valkey purge runs before any destructive change,
+  problem artifacts move to a reversible same-root quarantine, and the contest
+  graph is deleted in one transaction alongside a sanitized `contest_deleted`
+  audit event; a pre-commit failure rolls back and restores the quarantine
+- **web**: Add user photo and audio media storage — contest-user photo payloads
+  move to a dedicated `users_media` table (public photo and avatar URLs
+  unchanged), with validated MP3/OGG/WAV clip uploads, authenticated preview
+  endpoints, admin management, staged previews, cache-safe media versions and
+  past-contest mutation guards
+- **web**: Allow general clarifications and announcements with no problem
+  attached — `clarifications.problem_id` is now nullable, both contest forms
+  default to a "General" option, and the UI labels such rows as General.
+  Contest scoping for clarifications now goes through the author
+  (`team_id` → `users.contest_id`) instead of through the problem, so the
+  reaper, dashboards, counters, timeline export, backup export, and contest
+  removal all cover general rows
+- **scoreboard**: Add site filtering — a validated `site_id` query filter trims
+  scoreboard snapshots on the backend while preserving global ranks and the
+  shared contest-wide cache. Assigned users get "All sites" / "My site only"
+  buttons, unassigned users and uberadmins keep the site combobox, and
+  single-site contests hide filtering entirely
+- **images**: Enforce upload type and size limits — JPEG, PNG and WebP are
+  detected from file signatures with `puremagic` instead of client-provided
+  MIME types, and a shared streaming multipart limiter stops oversized uploads
+  before route processing across Web and Arena. Adds
+  `NOCA_IMAGE_MAX_FILE_SIZE` (2 MiB default, 5 MiB hard ceiling)
+- **problems**: Support portable GIF illustrations — a deployment-independent
+  problem-image contract with fixed 2 MiB and 2048×2048 limits applied to both
+  manual uploads and package imports, so an exported problem stays valid across
+  installations with different general image settings. Animated GIFs are
+  re-encoded with all frames and timing intact and round-trip through problem
+  packages
+- **web**: Enforce a configurable audio upload limit —
+  `NOCA_AUDIO_MAX_FILE_SIZE` (2 MiB default, 5 MiB hard ceiling) with a
+  dedicated streaming multipart rule returning HTTP 413 before route
+  processing, independent of the photo limit and displayed on the forms
+- **web**: Label balloon and star assets with optional ASCII letter path
+  segments, rendering the first letter uppercase with black or white text
+  chosen by WCAG contrast, and show the labeled assets in scoreboard headers,
+  problem details and task modals
+- **shared**: Add `shared/services/balloon_assets.py`, a framework-agnostic
+  balloon/star SVG renderer (templates, hex/letter normalization, WCAG contrast
+  text color, memoized rendering) as the cross-module source of truth
+- **web**: Improve contest reports — merge the two time-window charts into one
+  stacked AC vs non-AC bar, add client-side Team/Total/AC ordering to "Runs by
+  Team and Problem" ranked by a sample-size-aware Wilson score, add captions to
+  all nine reports, and add a reusable balloon-thumbnail class
+- **web**: Make clarification and runs tables sortable by time and problem via
+  a server-side `sort_by` query param, preserved across HTMX polling
+- **web**: Make clarification rows full width and clickable, opening the detail
+  modal on click or Enter/Space
+- **web**: Highlight the viewer's own scoreboard row, auto-scroll it into view,
+  and add a floating back-to-top button
+- **web**: Allow editing contest user credentials (email and password) after
+  the contest ends, via a credentials-only service that leaves profile fields
+  frozen
+
+### Bug Fixes
+
+- **autojudge**: Fence worker writes on a per-attempt claim — the Valkey lock
+  did not make a run single-writer, so a slow-but-alive worker crossing the
+  reaper's stale threshold could execute concurrently with its replacement and
+  bury a committed verdict behind a duplicate-key `FAILED`. Every
+  `set_*_dispatched` now stamps an attempt-scoped `attempt_token` on all four
+  worker-owned run tables, and each later write is fenced on the token it
+  stamped; result inserts fold the ownership test into the INSERT's source. A
+  lost claim raises `JudgmentOwnershipLost` and aborts dispatch quietly instead
+  of persisting `FAILED`. Adds a nullable `attempt_token` column to
+  `submission_judgments`, `arena_submission_judgments`, `profiling_runs` and
+  `solution_test_runs`
+- **autojudge**: Prevent duplicate reconciliation dispatch — atomically
+  revalidate inflight membership, stale deadlines, tombstones and lock
+  ownership before recovery mutates queue state, and use attempt-scoped lock
+  tokens so an older worker cannot remove a replacement worker's claim
+- **web**: Keep every Runs column in view — the auto table layout let unsized
+  Problem and Team columns push the last columns past the viewport. The table
+  now uses a fixed layout with explicit widths from the shared `.noca-col-*`
+  scale, and J1/J2/My-verdict columns are hidden in autojudge-only contests
+  where they can never hold a value
+- **audit**: Record usernames for security events — admin-action producers must
+  now snapshot a human-readable actor label alongside the opaque user ID (Web
+  records usernames, Arena records normalized email logins)
+- **web**: Dismiss queued submission alerts after verdict by tagging the
+  redirect with the queued submission ID and including submission IDs only in
+  live-visibility SSE payloads, keeping scoreboard-frozen team payloads fully
+  redacted
+- **web**: Scope the report language tables to the contest's registered
+  languages instead of every globally active language
+- **web**: Name the team in balloon timeline events so the recipient is
+  identifiable in the users-per-site report
+- **web**: Make the reports activity chart responsive with a reusable
+  full-width layout class and an accessible container label
+- **web**: Add `Cache-Control` headers to the balloon and star SVG asset routes
+  so the navbar logo and scoreboard balloons stop re-fetching on navigation
+- **ui**: Show the configured media upload limits on Arena and Web upload
+  surfaces instead of duplicating stale defaults in markup
+- **shared**: Add the `judge:submissions` channel definitions used by the web
+  submit route, restoring the web runtime import
+- **web**: Avoid a contest service import cycle
+- **web**: Seed general InterIF clarifications with a null problem ID, and make
+  the InterIF seed backup-compatible by generating Markdown statement stubs and
+  using real registry languages
+
+### Performance
+
+- **web**: Filter contest runs on the server — problem, team,
+  autojudge-verdict and final-verdict predicates are applied in the submission
+  query while preserving role-based visibility and SQL sort modes; the obsolete
+  client-side filtering script is removed
+- **web**: Poll the contest clock instead of streaming it — the clock endpoint
+  returns a finite JSON snapshot for every request, freeing a persistent
+  connection per tab from the browser's small per-origin pool
+- **db**: Tune autovacuum for high-churn tables with a per-table migration for
+  the submission/judging pipeline and the append-then-bulk-delete log tables
+
+### Build
+
+- **containers**: Fix missing scripts per image and split schema stewardship —
+  `web` and `arena` remain stewards running `run_migrations.py`, while
+  `autojudge`, `rating` and `aiassistant` become pure consumers running the new
+  `scripts/wait_for_migrations.py`, bounded by
+  `NOCA_WAIT_FOR_MIGRATIONS_TIMEOUT` (default 300s)
+- Ignore missing type stubs for the untyped `markdown_sanitize` dependency
+
+### Documentation
+
+- **animator**: Add a phased implementation roadmap splitting the unified
+  design into 22 dependency-ordered plans, and align the unified plan with the
+  codebase and reveal engine
+- **bootstrap**: Correct the development setup commands — use the tracked
+  environment template, create storage directories safely, restore the
+  advisory-lock migration runner, and drive privileged account creation from
+  configured credentials instead of hard-coded secrets
+
 ## [14.1.0] - 2026-07-18
 
 ### Features

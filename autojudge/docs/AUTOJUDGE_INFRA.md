@@ -7,16 +7,95 @@
   - priority queue: `judge:queue:priority`
   - normal queue: `judge:queue:pending`
   - inflight list: `judge:queue:inflight`
-  - per-job hash: `judge:job:<judgment_id>`
+  - per-job hash: `judge:job:<job_id>` — the id is a `judgment_id` for web/Arena submissions, a `profiling_run_id`, a `validation_id`, or a `solution_test_run_id`, depending on `job_kind`
     - expected fields for web jobs: `judgment_id`, `contest_id`, `is_rejudge`, `requeue_count`, `job_kind`
     - expected fields for Arena jobs: `judgment_id`, `submission_id`, `user_id`, `problem_id`, `language_id`, `requeue_count`, `job_kind`
     - optional traceability field: `submission_id`
     - rollout compatibility: older hashes may miss `contest_id`; tooling must bucket them as unknown
-    - `job_kind` distinguishes normal `submission`, `arena_submission`, and `profiling` jobs used by Auto-Limit profiling
+    - expected fields for solution-test jobs: `solution_test_run_id`, `contest_id`, `problem_id`, `language_id`, `requeue_count`, `job_kind`
+    - `job_kind` distinguishes normal `submission`, `arena_submission`, `profiling` (Auto-Limit), `custom_validator_validation`, and `solution_test` jobs
   - result channel: `judge:results`
-- Jobs are intentionally lightweight in Redis. The worker dequeues a `judgment_id` and loads the full submission payload from PostgreSQL.
-- Arena jobs share the normal pending queue and the same compile/run containers as web jobs. Their adapter reads test-case ordinals from Arena database rows and loads the content from the shared filesystem at `<NOCA_PROBLEM_TESTCASE_DIR>/arena/<problem_id>/NNN.in|out` (web jobs read `<root>/contest/<problem_id>`), stores only the first non-AC test result, and does not publish `judge:results` events.
-- The worker uses a Redis `SET NX` lock per judgment to avoid duplicate processing after requeue races.
+- Non-scoring solution tests (`job_kind=solution_test`) are staff-triggered runs
+  of a candidate solution against a contest problem's real compiler, sandbox,
+  limits, test cases, and custom validator. They share the contestant
+  priority/pending queues and the same `priority=contest.is_running` rule, and
+  their processor takes no Valkey handle at all. Publishing a verdict event,
+  invalidating the scoreboard cache, or creating a balloon task is structurally
+  impossible rather than test-enforced. Results land in `solution_test_runs` /
+  `solution_test_case_results`; ordinary case rows snapshot input, expected
+  output, and submission output with a 10 KB cap per value.
+- Exhaustion tombstone: when a `solution_test` job exceeds `REAPER_MAX_REQUEUE_COUNT`, the reaper does **not** delete its job hash. It rewrites the hash with `reaper_dropped=true` (the same treatment `custom_validator_validation` gets) and clears the lock and inflight entries. Deleting the hash would make the run look like missing queue state and resurrect it on every pass. The reconciler detects the tombstone inside its atomic decision, marks the run `FAILED` with an explanatory `error_message`, and only then deletes the hash.
+- Jobs are intentionally lightweight in Redis. The worker dequeues a bare `job_id`, reads `job_kind` from that job's hash to pick a pipeline, and loads the full payload for that kind from PostgreSQL.
+- Arena jobs share the normal pending queue and the same compile/run containers as web
+  jobs. Their adapter reads test-case ordinals from Arena database rows and loads the
+  content from the shared filesystem at
+  `<NOCA_PROBLEM_TESTCASE_DIR>/arena/<problem_id>/NNN.in|out` (web jobs read
+  `<root>/contest/<problem_id>`), stores only the first non-AC test result, and does not
+  publish `judge:results` events.
+- The worker uses a Redis `SET NX` lock keyed on the dequeued `job_id` (`judge:lock:<job_id>`), whatever its kind, to avoid duplicate processing after requeue races.
+
+### Attempt claims: why the lock is not enough
+
+The Valkey lock does not make a run single-writer. The reaper *deletes* it and requeues any
+job that has been inflight past `REAPER_STALE_THRESHOLD_MINUTES`
+(`_REAP_STALE_JOB_SCRIPT`), which is correct for a dead worker but indistinguishable from
+a slow-but-alive one — a submission that TLEs across many cases can legitimately cross the
+threshold. From that moment two attempts at the same run execute concurrently, and they
+routinely share a `worker_id`: the requeue is usually picked up by the same host, often by
+the same process, so `worker_id` cannot tell them apart.
+
+The claim can. Every `set_*_dispatched` accessor stamps an **attempt token** — the
+dispatch's Valkey lock token, which is already attempt-scoped (`worker_id:uuid4`), so the
+database and the queue agree on who holds the job. It is stored in `attempt_token` on all
+four worker-owned run tables: `submission_judgments`, `arena_submission_judgments`,
+`profiling_runs`, and `solution_test_runs`. The status fence on dispatch is deliberately
+*not* a claim (`DISPATCHED`/`JUDGING`/`RUNNING` are accepted, since taking a run over from
+a stalled attempt is the whole point of the requeue); stamping the new token is what
+revokes the older attempt's right to write.
+
+Every subsequent write of an attempt is then fenced on the token it stamped:
+
+- `set_*_judging` / `set_*_running` and `set_*_done` update
+  `WHERE id = … AND attempt_token = …`, so a stale attempt finishing late cannot overwrite
+  the new owner's verdict, append a second terminal audit row, re-notify the user, re-run
+  first-solve accounting, or — for profiling — publish its `problem_language_limits` over
+  the new owner's. `set_profiling_done` takes the claim *before* writing the limits, in the
+  same transaction, so a lost claim leaves nothing behind.
+- Result inserts fold the ownership test into the INSERT's source
+  (`INSERT … SELECT … WHERE EXISTS (claim)`, `_DatabaseBase._claimed_insert_source`), so no
+  window exists between checking the claim and writing.
+- `insert_interactive_attempt` and its solution-test counterpart check the claim *before*
+  their delete, which would otherwise drop the new owner's transcript.
+- `set_*_failed` is fenced on a non-terminal status **and** on a claim that is either this
+  attempt's or absent: a run claimed by another attempt is that attempt's to finish, while
+  an unclaimed one (the job failed before dispatch could stamp it) is legitimately ours to
+  fail.
+
+A lost claim raises `JudgmentOwnershipLost`, which `dispatch_job` treats as a clean abort:
+the attempt is logged and counted as `jobs_completed_total{outcome="ownership_lost"}`, and
+**no** terminal `FAILED` is persisted — stamping one would bury the verdict the new owner
+is about to write. Legacy rows with a NULL token, and callers that pass no token, keep the
+previous unfenced behavior.
+
+Two result tables have a unique key of their own
+(`arena_submission_test_results.judgment_id`,
+`submission_test_results (judgment_id, test_case_id)`); those keep it as a second line of
+defence, and `_insert_result_row_once` reconciles a collision from the *same* attempt
+rather than failing a judgment that already holds a correct verdict: the replay is accepted
+when both writes blamed the same case with the same verdict (re-measured time, memory, exit
+status, and output legitimately differ between two executions and are only logged), and
+raised only when they disagree on *which* failure was recorded, which no ordering of one
+attempt's own work can produce. `profiling_case_results` and `solution_test_case_results`
+have no such key — a stale row there would silently interleave with the new owner's rather
+than collide — so for them the claim is the only guard, applied through
+`_DatabaseBase._insert_claimed_row`.
+
+Custom-validator validation jobs need none of this: they are already idempotent through the
+candidate token, which the worker re-checks before promoting or updating a revision.
+
+Profiling and solution-test runs do not carry claims; they are outside the submission
+judgment tables and unaffected by this fencing.
+
 - Compile phase:
   - always uses a short-lived compile container
   - interpreted languages still go through the same abstraction, but may only syntax-check and return the source as the artifact
@@ -67,6 +146,23 @@
   - `uv run scripts/autojudge/smoke_test_judge.py` validates per-language integration through the same judge path using real sample solutions and test cases. It is the compatibility check for runtime wiring, compile/run images, and language-specific execution details.
 - The reaper scans stale inflight jobs and requeues them up to a configured retry limit.
 - The reconciler periodically (and at startup) re-scans the database for non-terminal jobs (QUEUED/DISPATCHED/JUDGING) that are missing from the Valkey queue and re-enqueues them. This recovers jobs lost between a producer's DB commit and its follow-up Valkey enqueue (the web/arena submission and rejudge paths commit first, then enqueue) without waiting for a worker restart.
+
+## Recovery boundary: reconciler vs reaper
+
+The two loops recover different failures and must not overlap:
+
+- **The reconciler rebuilds *missing* queue state.** Its discriminator is queue membership, never the database status. An initial snapshot can conservatively skip a known queued job for one pass, but every repair or enqueue reads current membership and mutates it in one Lua script. The script cannot interleave with a worker's atomic dequeue: an inflight or locked job is left alone, an already-queued job is never pushed twice, and only a job absent from every queue and unlocked is rebuilt and enqueued.
+- **The reaper reclaims *stale inflight* work.** It is the only loop that requeues a job a worker was executing. Candidate discovery from `judge:queue:inflight:times` is advisory; one Lua transition revalidates the current score and inflight membership before deleting a lock or requeueing. Multiple worker replicas therefore cannot requeue the same stale attempt twice, and an old candidate cannot delete a replacement attempt's fresh lock. When the reconciler finds an inflight job with no timestamp, it writes one without moving an existing score forward.
+
+The invariant that keeps the reaper from reclaiming *live* work is therefore **`REAPER_STALE_THRESHOLD_MINUTES` must exceed the longest legitimate run**. The reaper does not treat the lock as a liveness signal and deliberately deletes it when the timestamp goes stale. The separate `LOCK_TTL_SECONDS > REAPER_STALE_THRESHOLD_MINUTES * 60` assertion keeps the lock from expiring naturally before the reaper's stale decision; it does not protect live work from that decision.
+
+Successful dispatch cleanup is also one Lua transition. Each lock contains an attempt-specific token prefixed by the worker id, and cleanup removes the hash, inflight entry, timestamp, and lock only when that exact token still owns the lock. An expired worker can therefore finish late without deleting a replacement attempt's state.
+
+## Terminal-state fence on dispatch
+
+`set_judgment_dispatched`, `set_arena_judgment_dispatched`, `set_solution_test_dispatched` and `set_profiling_dispatched` all reset the row and delete its partial per-test-case rows, so each first runs a status-filtered `UPDATE ... WHERE status IN (QUEUED, DISPATCHED, JUDGING/RUNNING)` and raises `JobNotDispatchable` (a `LookupError` subclass) when it matches nothing — before deleting anything. `dispatch_job` treats that as "this job cannot be processed", cleans up the job's Valkey state, and counts it as `lookup_error`.
+
+This is a **fence, not a claim**: `DISPATCHED`/`JUDGING` are accepted so a legitimate retry after a reaper requeue still works, and two workers holding the same active job would both pass it. Mutual exclusion comes from the queue protocol and the Valkey lock. What the fence guarantees is narrower: a dequeue that races with the job's own completion can no longer reset the row or delete the results it already produced. Because the fence is a `LookupError` *subclass*, the legacy web→Arena fallback in `dispatch_job` can tell "this id is not a web submission" apart from "this web judgment is already terminal", and does not retry the latter in the Arena domain.
 - The worker writes detailed judgment state transitions and audit entries back to PostgreSQL.
 # Custom validator validation
 

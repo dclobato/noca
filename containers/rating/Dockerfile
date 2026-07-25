@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=/tmp/uv-cache \
 COPY shared /app/shared
 COPY rating /app/rating
 COPY migrations /app/migrations
-COPY scripts/run_migrations.py /app/scripts/run_migrations.py
+COPY scripts/wait_for_migrations.py /app/scripts/wait_for_migrations.py
 COPY containers/rating/entrypoint.sh /app/entrypoint.sh
 
 RUN chmod +x /app/entrypoint.sh

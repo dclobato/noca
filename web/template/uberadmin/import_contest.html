@@ -1,0 +1,64 @@
+{% extends "_base.html" %}
+{% block title_suffix %}— Import contest{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+            <div>
+                <h2 class="h4 mb-1">Import contest backup</h2>
+                <p class="text-muted mb-0 small">Restore a contest from a backup ZIP under a new name and slug.</p>
+            </div>
+            <a href="{{ request.url_for("uberadmin_dashboard") }}"
+               class="btn btn-outline-secondary btn-sm">Back to dashboard</a>
+        </div>
+        {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <p class="text-muted small">
+                    The restored contest is a faithful historical copy: verdicts, timings, and timestamps are
+                    replayed verbatim and nothing is re-judged. A restored custom validator is display-only until
+                    re-staged. The exported active state and past timing are preserved under the new name and slug.
+                </p>
+                <div class="alert alert-info small" role="alert">
+                    Operational data was never archived, so the restored contest starts with no solution-test runs,
+                    no Auto-Limit profiling runs, and no problem-limit change batches.
+                </div>
+                <form method="post"
+                      action="{{ request.url_for("uberadmin_import_contest") }}"
+                      enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label class="form-label" for="new_name">New contest name</label>
+                        <input class="form-control"
+                               type="text"
+                               name="new_name"
+                               id="new_name"
+                               value="{{ form_data.new_name }}"
+                               maxlength="128"
+                               required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="new_slug">New contest slug</label>
+                        <input class="form-control"
+                               type="text"
+                               name="new_slug"
+                               id="new_slug"
+                               value="{{ form_data.new_slug }}"
+                               placeholder="my-contest-2026"
+                               maxlength="80"
+                               required>
+                        <div class="form-text">Lowercase letters, numbers, and hyphens (e.g. my-contest-2026).</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="backup_file">Backup ZIP</label>
+                        <input class="form-control"
+                               type="file"
+                               name="backup_file"
+                               id="backup_file"
+                               accept=".zip"
+                               required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Restore contest</button>
+                </form>
+            </div>
+        </div>
+    </div>
+{% endblock %}

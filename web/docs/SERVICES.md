@@ -41,10 +41,10 @@ Main types:
 - `ClarificationHiddenError` — answer or acquire attempted on a hidden clarification
 
 Main entrypoints:
-- `create_clarification(session, contest, actor, *, problem_id, question) -> Clarification` — TEAM only; contest must be running; question is immutable
-- `create_announcement(session, contest, actor, *, problem_id, announcement) -> Clarification` — ADMIN/JUDGE only; contest must be running; creates a clarification pre-answered with `question="Announcement"`, `is_contest_public=True`; actor is recorded as both team and judge
+- `create_clarification(session, contest, actor, *, problem_id, question) -> Clarification` — TEAM only; contest must be running; question is immutable; `problem_id=None` creates a general, contest-wide clarification
+- `create_announcement(session, contest, actor, *, problem_id, announcement) -> Clarification` — ADMIN/JUDGE only; contest must be running; `problem_id=None` publishes a general, contest-wide announcement; creates a clarification pre-answered with `question="Announcement"`, `is_contest_public=True`; actor is recorded as both team and judge
 - `get_clarification(session, contest, clarification_id) -> Clarification | None` — contest-scoped lookup; no actor; caller is responsible for authorization
-- `list_clarifications(session, contest, actor, lock_client) -> tuple[list[ClarificationView], bool]` — merges PostgreSQL rows with Valkey lock state; bool indicates whether lock coordination is available for the UI
+- `list_clarifications(session, contest, actor, lock_client, sort_by="time_desc") -> tuple[list[ClarificationView], bool]` — orders Time or Problem in SQL (general clarifications group last in both problem directions), merges PostgreSQL rows with Valkey lock state, and returns whether lock coordination is available for the UI
 - `acquire_clarification(session, contest, actor, clarification, lock_client) -> Clarification` — JUDGE or ADMIN; acquires a Valkey TTL lock keyed by contest and clarification id
 - `release_clarification(session, contest, actor, clarification, lock_client) -> Clarification` — JUDGE may release own lock; ADMIN/UBERADMIN may force-release any lock through Valkey
 - `answer_clarification(session, contest, actor, clarification, lock_client, *, answer, is_contest_public) -> Clarification` — JUDGE or ADMIN; enforces the Valkey lock when available; in degraded mode the DB remains authoritative for answer validity and judge identity
@@ -64,7 +64,7 @@ Notes:
 - services flush, never commit; routes are responsible for `await session.commit()`
 - contest membership validation is the caller's responsibility (routes enforce this via `get_actor_from_token` in `dependencies.py`); the service trusts the caller has passed a correctly-scoped actor
 - `question` and `answer` are immutable after creation/answering respectively; the service enforces this via guard exceptions, not column constraints
-- `list_clarifications` joins through `Problem` to scope by `contest_id`; there is no direct contest FK on `Clarification`
+- there is no contest FK on `Clarification`, and `problem_id` is nullable for general clarifications, so contest scoping joins through the author (`Clarification.team_id` → `users.contest_id`) — the same total scoping path the SOS-task queries use; every contest-scoped consumer (reaper, dashboards, counters, timeline export, backup export, contest removal) must scope this way or it silently drops general rows
 - `is_contest_public` is the only public-visibility flag on the model; setting it `True` when answering makes the Q&A visible to all teams
 - active clarification locks live only in Valkey; PostgreSQL now keeps the durable clarification state and answering judge identity
 
@@ -246,6 +246,47 @@ Notes:
   only after they resolve a real actor from the database
 - skips refresh on login and logout endpoints to avoid overwriting route-owned
   cookie changes
+
+---
+
+## `contest_removal_service.py` and `contest_removal_files.py`
+
+Purpose:
+
+- permanently remove one inactive contest across PostgreSQL, Valkey, and the
+  problem-artifact filesystem
+- collect the complete contest-owned identifier set before cleanup
+- quarantine PDF, Markdown, and test-case artifacts until the database
+  transaction commits
+- retain global languages, global problem categories, UberAdmins, unrelated
+  contests, and existing security events
+
+Main entrypoints:
+
+- `remove_inactive_contest(session, *, contest_id, actor_uberadmin_id,
+  valkey_runtime, statement_dir, testcase_dir) -> ContestRemovalResult` locks
+  and rechecks the contest, strictly purges its runtime state, quarantines its
+  files, deletes its database graph, writes one sanitized warning audit event,
+  and commits
+- `quarantine_problem_files(problem_ids, *, statement_dir, testcase_dir) ->
+  ContestFileQuarantine` moves guarded artifacts to same-root quarantine
+  directories for rollback or final erasure
+- `ContestRemovalTargets` and `ContestRemovalResult` expose typed cleanup input
+  and result data
+- `ContestRemovalNotFoundError`, `ContestRemovalActiveError`, and
+  `ContestRemovalError` expose actionable failure classes
+
+Notes:
+
+- the route must reconfirm the acting UberAdmin password before calling the
+  service; passwords never enter the service or audit record
+- Valkey cleanup runs before files or PostgreSQL are changed and must verify
+  that queue entries, job hashes, locks, buffered commands, and scoreboard
+  variants are absent
+- failures before commit roll back PostgreSQL and restore every quarantined
+  artifact; successful commits erase the quarantine
+- the retained `contest_deleted` security event stores only the acting
+  UberAdmin ID and deleted contest ID
 
 ---
 
@@ -486,16 +527,55 @@ Do not reimplement:
 
 Purpose:
 - enforce per-team submission rate limits using a PostgreSQL sliding-window count
+- enforce the independent per-actor budget for non-scoring solution-test runs
 
 Main entrypoints:
 - `acquire_submission_rate_lock(session, team_id)` — acquires a transaction-scoped PostgreSQL advisory lock keyed on `team_id`; no-op on non-PostgreSQL dialects so SQLite test fixtures work without patching
 - `check_submission_rate_limit(session, team_id, window_seconds, max_submissions) -> tuple[bool, datetime | None]` — acquires the lock, counts submissions in the rolling window, returns `(True, None)` if within limit or `(False, next_allowed_at)` when the limit is reached
+- `check_solution_test_rate_limit(session, actor_key, window_seconds, max_runs) -> tuple[bool, datetime | None]` — the same shape over `solution_test_runs`. `actor_key` is `"user:<id>"` or `"uberadmin:<id>"`, and the advisory lock is namespaced (`hashtext('solution_test:' || actor_key)`) so it neither collides across the two actor id spaces nor serializes against team submissions. A judge's tests never consume a team's allowance.
 
 Reuse this module when:
 - adding rate limiting to any web submission endpoint
 
 Do not reimplement:
 - the advisory-lock + count pattern (use this service directly)
+- the namespaced-lock trick for a second budget over a different table
+
+---
+
+## `solution_test_service.py`
+
+Purpose:
+- create, list, and enqueue non-scoring solution-test runs for JUDGE/ADMIN/UBERADMIN actors
+
+Runs live in `solution_test_runs` / `solution_test_case_results` rather than behind a flag on
+`submissions`. A flag would make correctness depend on every present and future consumer
+remembering `WHERE is_test = false`, and one missed filter silently corrupts standings.
+Separate tables make leakage into standings, balloons, Runs, reports, feeds, and exports
+**structurally impossible** rather than test-enforced.
+
+The run status reuses `JudgmentStatus` (`QUEUED/DISPATCHED/JUDGING/DONE/FAILED`) instead of a
+third enum: the status machine mirrors submissions so the autojudge state machine is reused
+verbatim. This deliberately couples staff tooling to submission status semantics; revisit only
+if the reuse becomes painful.
+
+Main types:
+- `SolutionTestRateLimitError(next_allowed_at)` — the actor exceeded their independent budget
+- `RUNS_PER_PAGE = 50`
+
+Main entrypoints:
+- `actor_key(actor) -> str` — `"user:<id>"` or `"uberadmin:<id>"`; the two are separate id spaces
+- `create_solution_test_run(session, actor, contest, *, problem_id, language_id, source_code, source_hash, source_size, rate_limit_window_seconds, rate_limit_max_runs) -> SolutionTestRun` — rate-limits, validates judgeability, snapshots `triggered_by_label`, inserts and flushes. Does **not** commit; the caller owns the transaction
+- `get_solution_test_run(session, contest, run_id, *, restrict_to_user_id=None) -> SolutionTestRun | None` — `restrict_to_user_id` scopes a JUDGE to their own runs, so the route can answer 404 rather than 403
+- `list_solution_test_runs_paginated(session, contest, *, page, per_page, problem_id=None, restrict_to_user_id=None) -> Pagination[SolutionTestRun]`
+- `enqueue_solution_test_job(valkey, run, contest, *, priority)` — pushes a `SolutionTestJob` onto the ordinary contestant queues with the same `priority=contest.is_running` rule
+
+Reuse this module when:
+- adding any staff-facing "run this code for real, but do not score it" workflow
+
+Do not reimplement:
+- the contest scope (there is no `contest_id` column — join `problems`, as profiling does)
+- the judgeability gate (validator available, test cases exist, outputs present)
 
 ---
 
@@ -509,9 +589,11 @@ Purpose:
 Main types:
 - `DuplicateSubmissionError`
 - `SubmissionRateLimitError`
+- `SubmissionFilters` — optional Problem, Team, Autojudge verdict, and Final verdict predicates for server-side Runs filtering
 
 Main entrypoints:
-- `list_submissions(session, contest, actor) -> list[Submission]` — TEAM users see only their own submissions; other allowed roles see all contest submissions with eager-loaded team, team site, judgments, judge confirmations, judge sites, overrides, and reviewer site
+- `list_submissions(session, contest, actor, sort_by="time_desc", *, filters=None) -> list[Submission]` — applies role visibility, optional `SubmissionFilters`, and Time or Problem SQL ordering, with eager-loaded team, team site, judgments, judge confirmations, judge sites, overrides, and reviewer site
+- `list_submission_teams(session, contest) -> list[User]` — returns teams that have contest submissions for an independently populated Team filter
 - `create_submission(session, actor, contest, problem_id, language_id, source_code, source_hash, source_size, *, rate_limit_window_seconds=60, rate_limit_max_submissions=3) -> tuple[Submission, SubmissionJudgment]` — checks the per-team rate limit (raises `SubmissionRateLimitError` if exceeded), refuses the submission with a `ValueError` when the problem cannot be judged (a configured custom validator that has not compiled, or **no test cases at all** — every problem needs at least one, interactive or not), creates `Submission` plus initial `SubmissionJudgment(status=QUEUED)`, and inserts the explicit WEB audit row
 - `build_team_submissions_zip(session, contest, team, *, statement_dir) -> tuple[str, bytes]` — builds a ZIP archive of a team's submissions organized by problem with statement PDFs/MDs, AC/PE solutions in an `AC/` folder, and other submissions in `Other/`; ZIP assembly runs via `anyio.to_thread.run_sync` for request safety
 
@@ -614,6 +696,62 @@ Notes:
 - uses `assorted_utils.render_prettytable()` with per-column `max_width`, top vertical alignment, and right-aligned time column so wrapped cells remain readable within the 90-character width budget
 - includes contest boundary rows for start, scoreboard freeze, answer freeze, and end even when no user-generated events exist at those moments
 - problem labels reuse `_label()` from `contest_admin_problem_helpers.py` for consistency with admin UI problem lettering
+
+---
+
+## `contest_backup_service/`
+
+This package creates and restores bounded historical-replay archives.
+
+Purpose:
+
+- exports the historical replay dataset (problems, users, submissions, judgment
+  history, clarifications, staff tasks, sites, and optional media/password hashes)
+  into one portable ZIP and restores it under a new name and slug
+- restores verdicts, timings, and timestamps verbatim without re-judging
+
+Internal structure:
+
+- `models.py` — format constants, size ceilings, DTOs, `ContestBackupError`, and
+  the shared `remap_optional` id helper
+- `serialization.py` — column-driven row-to-JSON and insert conversion
+- `export_payload.py` — queries the replay dataset and renders the JSON members
+- `export.py` — writes metadata first, then appends and releases one problem
+  package at a time; only finished or inactive contests are accepted
+- `validation.py` — bounded member reads, strict manifest/row-list parsing, safe
+  names, size ceilings, slug validation, and fail-closed language checks
+- `row_validation.py` — generic table-driven row/identifier validation primitives
+- `integrity.py` — composes the primitives into contest-scope, foreign-key, and
+  manifest-to-payload checks across the whole archive graph before restore
+- `restore.py` — coordinates the one-transaction Core restore and rollback cleanup
+- `restore_problems.py` — restores problem rows and lazily reads their files
+- `restore_history.py` — restores submissions, judgments, clarifications, and tasks
+- `importing.py` — coordinates validation and restoration
+
+Main entrypoints:
+
+- `build_contest_backup(...)` — writes a temporary archive off the event loop
+- `import_contest_backup(...) -> ContestImportResult` — validates, then restores
+
+Reuse this module when:
+
+- adding archival/replay export-import flows for whole contests
+- changing the format; bump `FORMAT_VERSION` and update the format document
+
+Notes:
+
+- password hashes and user media are optional; hash export additionally requires
+  password reconfirmation, and each sensitive opt-in (hashes or media) writes its
+  own admin-action audit event after archive creation
+- restored custom validators contain data only and aren't compiled
+- unknown language identifiers reject the whole import
+- the HTTP upload has a compressed-size ceiling; expanded payloads are read one
+  member at a time and remain subject to per-member and total ceilings
+- profiling runs and problem-limit change batches are operational history and are
+  explicitly outside the historical replay format
+
+See the [contest backup format](../../docs/CONTEST_BACKUP_FORMAT.md) for the
+archive layout and fidelity notes.
 
 ---
 
@@ -722,7 +860,7 @@ Constants:
 ## `contest_user_service/`
 
 Purpose:
-- contest user validation, lookup, creation, update, removal, photo-mutation authorization, batch import, and user export shaping
+- contest user validation, lookup, creation, update, removal, media-mutation authorization, batch import, and user export shaping
 
 Internal structure:
 - `models.py` — DTOs and shared constants for grouped users and batch-import results
@@ -747,6 +885,7 @@ Main entrypoints:
 - `parse_single_user_role(raw_role) -> RoleEnum`
 - `validate_create_user_form(username, fullname, raw_role, email) -> tuple[...]`
 - `validate_edit_user_form(fullname, email) -> tuple[...]`
+- `validate_edit_credentials_form(email) -> tuple[str | None, list[str]]` — email-only validation for the post-contest credentials edit path
 - `role_requires_site(role) -> bool`
 - `validate_role_site_requirement(role, site_id) -> None`
 - `resolve_site_for_user(session, contest, *, role, site_id) -> Site | None`
@@ -757,13 +896,14 @@ Main entrypoints:
 - `ensure_contest_user_add_or_edit_allowed(contest) -> None`
 - `ensure_contest_user_remove_allowed(contest) -> None`
 - `ensure_user_edit_allowed(actor, target_user) -> None`
-- `ensure_user_photo_upload_allowed(actor, target_user) -> None`
-- `ensure_user_photo_removal_allowed(actor, target_user) -> None`
+- `ensure_user_media_upload_allowed(actor, target_user) -> None`
+- `ensure_user_media_removal_allowed(actor, target_user) -> None`
 - `get_contest_user_groups(session, contest) -> ContestUserGroups`
 - `get_user_in_contest(session, contest, user_id) -> User | None`
 - `get_user_by_username_in_contest(session, contest, username) -> User | None`
 - `create_user(session, contest, actor, *, username, fullname, role, password, email=None, site_id=None) -> tuple[User, str]`
 - `update_user(session, contest, user, *, fullname, role, password=None, email=..., site_id=None) -> str | None`
+- `update_user_credentials(session, contest, user, *, email=..., password=None) -> str | None` — updates only the email and optional password; permitted even after the contest ends (unlike `update_user`, it skips the `is_past` guard and never touches profile fields). The edit route dispatches here when `contest.is_past`.
 - `list_contest_sites_for_form(session, contest) -> list[tuple[str, str]]`
 - `list_users_for_export(session, contest) -> list[User]`
 - `remove_user(session, contest, user) -> None`
@@ -784,6 +924,9 @@ Do not reimplement:
 
 Notes:
 - `TEAM` and `STAFF` users must always have a site assigned; other roles may keep `site_id=None`.
+- cross-service implementations import the defining `contest_user_service`
+  submodule directly instead of the package re-export surface, avoiding
+  package-initialization cycles
 - batch import accepts optional `email` and `site` in JSON and CSV headers (`username,fullname,role,password[,email][,site][,location]`).
 - batch import creates missing contest sites on demand using case-insensitive uniqueness (`sitename_normalized`).
 - `build_user_export_row` intentionally omits passwords and emits a JSON row compatible with the batch import route, including optional `email`, `site`, and `location`.
@@ -843,6 +986,8 @@ Main types:
 
 Main entrypoints:
 - `generate_diceware_password(*, wordlist_path=None, size=None) -> str`
+- `password_matches(actor, password) -> bool` — validates non-empty password
+  reconfirmation against a Werkzeug-compatible actor hash
 - `PasswordPolicy.validate_new_password(password) -> None`
 - `PasswordPolicy.policy_hint -> str` — returns the current policy description for UI display
 
@@ -993,16 +1138,38 @@ Main entrypoints:
 - `update_fullname(session, user, fullname) -> None`
 - `update_email(session, user, email) -> None`
 - `update_password(session, user, new_password, *, current_password=None) -> str | None`
-- `update_photo(session, user, result) -> None`
-- `remove_photo(session, user) -> None`
 
 Reuse this module when:
 - implementing current-user profile changes
-- applying processed `ImageProcessingResult` objects to a user
 
 Do not reimplement:
 - current-password verification
-- profile photo field mutation
+
+---
+
+## `user_media_service.py`
+
+Purpose:
+- validate and persist contest-user photo and audio media
+
+Main types:
+- `AudioProcessingResult`
+
+Main entrypoints:
+- `process_audio_upload(upload, max_file_size=DEFAULT_AUDIO_MAX_FILE_SIZE) -> AudioProcessingResult`
+- `get_user_media(session, user_id) -> UserMedia | None`
+- `update_photo(session, user, result) -> UserMedia`
+- `remove_photo(session, user) -> UserMedia | None`
+- `update_audio(session, user, result) -> UserMedia`
+- `remove_audio(session, user) -> UserMedia | None`
+
+Reuse this module when:
+- reading or mutating media stored in `users_media`
+- validating MP3, OGG, or WAV uploads for contest users
+
+Do not reimplement:
+- the configurable audio limit, its 5 MiB hard cap, or file-signature validation
+- base64 encoding and media-row creation
 
 ---
 

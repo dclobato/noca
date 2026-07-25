@@ -10,7 +10,7 @@
 {% block content %}
     <div class="container py-5">
         <div class="row justify-content-center">
-            <div class="col-md-8 col-lg-6">
+            <div class="col-md-10 col-lg-8">
                 <div class="mb-4">
                     {% if is_uberadmin %}
                         <a href="{{ request.url_for("uberadmin_dashboard") }}"
@@ -32,21 +32,31 @@
                     <div class="card-header fw-semibold">Profile</div>
                     <div class="card-body">
                         {% if photo_error %}<div class="alert alert-danger py-2 small" role="alert">{{ photo_error }}</div>{% endif %}
+                        {% if audio_error %}<div class="alert alert-danger py-2 small" role="alert">{{ audio_error }}</div>{% endif %}
                         {% if fullname_error %}<div class="alert alert-danger py-2 small" role="alert">{{ fullname_error }}</div>{% endif %}
                         {% if email_error %}<div class="alert alert-danger py-2 small" role="alert">{{ email_error }}</div>{% endif %}
                         <div class="row g-3 align-items-start">
                             <!-- Photo column (contest users only) -->
                             {% if not is_uberadmin %}
-                                <div class="col-auto">
+                                <div class="col-12 col-md-auto noca-profile-media-panel">
+                                    <div class="d-flex align-items-center gap-2 mb-2">
+                                        <span class="fw-semibold small">Photo</span>
+                                        <span id="profilePhotoUnsaved"
+                                              class="badge text-bg-warning d-none"
+                                              role="status"
+                                              aria-live="polite">Unsaved</span>
+                                    </div>
                                     {% if current_user.role == RoleEnum.TEAM.value %}
-                                        <img src="/user/{{ current_user.id }}/photo?v={{ current_user.dta_foto or '0' }}"
+                                        <img id="profilePhotoPreview"
+                                             src="/user/{{ current_user.id }}/photo?v={{ user_media.photo_cache_version if user_media else 0 }}"
                                              width="128"
                                              height="80"
                                              class="rounded object-fit-cover border d-block mb-2"
                                              alt="Profile photo"
                                              title="16:10 landscape">
                                     {% else %}
-                                        <img src="/user/{{ current_user.id }}/photo?v={{ current_user.dta_foto or '0' }}"
+                                        <img id="profilePhotoPreview"
+                                             src="/user/{{ current_user.id }}/photo?v={{ user_media.photo_cache_version if user_media else 0 }}"
                                              width="60"
                                              height="90"
                                              class="rounded object-fit-cover border d-block mb-2"
@@ -62,17 +72,21 @@
                                                    class="form-control form-control-sm mb-2"
                                                    id="foto_input"
                                                    name="team"
+                                                   data-photo-preview-id="profilePhotoPreview"
+                                                   data-unsaved-indicator-id="profilePhotoUnsaved"
                                                    accept="image/jpeg,image/png,image/webp">
                                         {% else %}
                                             <input type="file"
                                                    class="form-control form-control-sm mb-2"
                                                    id="foto_input"
                                                    name="foto"
+                                                   data-photo-preview-id="profilePhotoPreview"
+                                                   data-unsaved-indicator-id="profilePhotoUnsaved"
                                                    accept="image/jpeg,image/png,image/webp">
                                         {% endif %}
                                         <div class="d-flex gap-2">
                                             <button type="submit" class="btn btn-primary btn-sm">Save photo</button>
-                                            {% if current_user.com_foto %}
+                                            {% if user_media and user_media.com_foto %}
                                                 <button type="button"
                                                         class="btn btn-outline-danger btn-sm"
                                                         data-bs-toggle="modal"
@@ -82,10 +96,55 @@
                                     </form>
                                     <div class="text-muted small mt-2">
                                         {% if current_user.role == RoleEnum.TEAM.value %}
-                                            JPEG, PNG, WEBP — 16:10
+                                            JPEG, PNG, or WebP · up to {{ "%.1f"|format(image_max_file_size_mib|default(2.0) ) }} MiB · up to {{ image_max_width|default(2048) }} × {{ image_max_height|default(2048) }} px · 16:10 crop
                                         {% else %}
-                                            JPEG, PNG, WEBP — 2:3
+                                            JPEG, PNG, or WebP · up to {{ "%.1f"|format(image_max_file_size_mib|default(2.0) ) }} MiB · up to {{ image_max_width|default(2048) }} × {{ image_max_height|default(2048) }} px · 2:3 crop
                                         {% endif %}
+                                    </div>
+                                    <div class="border-top pt-3 mt-3">
+                                        <div class="d-flex align-items-center gap-2 mb-2">
+                                            <span class="fw-semibold small">Audio clip</span>
+                                            <span id="profileAudioUnsaved"
+                                                  class="badge text-bg-warning d-none"
+                                                  role="status"
+                                                  aria-live="polite">Unsaved</span>
+                                        </div>
+                                        <audio id="profileAudioPreview"
+                                               controls
+                                               preload="metadata"
+                                               class="noca-audio-player mb-2 {% if not user_media or not user_media.audio_base64 %}d-none{% endif %}"
+                                               {% if user_media and user_media.audio_base64 %}src="{{ request.url_for('user_audio_by_id', user_id=current_user.id) }}?v={{ user_media.audio_cache_version }}"{% endif %}>
+                                            Your browser does not support audio playback.
+                                        </audio>
+                                        {% if not user_media or not user_media.audio_base64 %}
+                                            <p id="profileAudioEmptyState" class="text-muted small mb-2">No audio clip uploaded.</p>
+                                        {% endif %}
+                                        <form method="post"
+                                              action="{{ request.url_for('user_audio_submit', user_id=current_user.id) }}"
+                                              enctype="multipart/form-data"
+                                              novalidate>
+                                            <input type="file"
+                                                   class="form-control form-control-sm mb-2"
+                                                   id="audio_clip"
+                                                   name="audio_clip"
+                                                   data-audio-preview-id="profileAudioPreview"
+                                                   data-audio-empty-state-id="profileAudioEmptyState"
+                                                   data-unsaved-indicator-id="profileAudioUnsaved"
+                                                   accept="audio/mpeg,audio/ogg,audio/wav,.mp3,.ogg,.wav"
+                                                   required>
+                                            <div class="d-flex gap-2">
+                                                <button type="submit" class="btn btn-primary btn-sm">Save audio</button>
+                                                {% if user_media and user_media.audio_base64 %}
+                                                    <button type="button"
+                                                            class="btn btn-outline-danger btn-sm"
+                                                            data-bs-toggle="modal"
+                                                            data-bs-target="#removeAudioModal">Remove</button>
+                                                {% endif %}
+                                            </div>
+                                        </form>
+                                        <div class="text-muted small mt-2">
+                                            MP3, OGG, or WAV · up to {{ "%.1f"|format(audio_max_file_size_mib|default(2.0) ) }} MiB
+                                        </div>
                                     </div>
                                 </div>
                             {% endif %}
@@ -193,7 +252,7 @@
                         </div>
                     </div>
                     <!-- Remove photo confirmation modal -->
-                    {% if current_user.com_foto %}
+                    {% if user_media and user_media.com_foto %}
                         <div class="modal fade"
                              id="removePhotoModal"
                              tabindex="-1"
@@ -217,6 +276,36 @@
                                                 data-bs-dismiss="modal">Cancel</button>
                                         <form method="post"
                                               action="{{ request.url_for('user_photo_remove', user_id=current_user.id) }}"
+                                              class="d-inline">
+                                            <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endif %}
+                    {% if user_media and user_media.audio_base64 %}
+                        <div class="modal fade"
+                             id="removeAudioModal"
+                             tabindex="-1"
+                             aria-labelledby="removeAudioModalLabel"
+                             aria-hidden="true">
+                            <div class="modal-dialog modal-sm">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title" id="removeAudioModalLabel">Remove audio clip</h5>
+                                        <button type="button"
+                                                class="btn-close"
+                                                data-bs-dismiss="modal"
+                                                aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body small">Are you sure you want to remove your audio clip?</div>
+                                    <div class="modal-footer">
+                                        <button type="button"
+                                                class="btn btn-secondary btn-sm"
+                                                data-bs-dismiss="modal">Cancel</button>
+                                        <form method="post"
+                                              action="{{ request.url_for('user_audio_remove', user_id=current_user.id) }}"
                                               class="d-inline">
                                             <button type="submit" class="btn btn-danger btn-sm">Remove</button>
                                         </form>
@@ -272,6 +361,7 @@
 {% block extra_script %}
     {% if not is_uberadmin %}
         <script src="{{ request.url_for('static_vendor', path='cropper.min.js') }}"></script>
-        <script src="{{ request.url_for('static_js', path='image-cropper.js') }}?v={{ app_version }}-r2"></script>
+        <script src="{{ request.url_for('static_js', path='image-cropper.js') }}?v={{ app_version }}-r3"></script>
+        <script src="{{ request.url_for('static_js', path='user-media-preview.js') }}?v={{ app_version }}"></script>
     {% endif %}
 {% endblock %}

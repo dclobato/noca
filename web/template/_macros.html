@@ -35,7 +35,32 @@
     {% set final_classes = base_classes + (['material-symbols-filled'] if filled else []) %}
     <span class="material-symbols-outlined {{ final_classes | join(" ") }}">{{ icon }}</span>
 {% endmacro %}
-{% macro render_flash_messages(dismissible=True, with_icons=True, full_width=False) %}
+{# Server-side sortable column header. `sort_by` is the page's current combined
+   "<field>_<asc|desc>" value; `base_url` is the *full page* URL the link should
+   point at (never a partial/htmx-only route), so clicking always does a normal
+   navigation that re-renders the whole page with the new sort_by. #}
+{% macro sort_link(label, field, sort_by, base_url) %}
+    {% set is_active = sort_by in (field ~ '_asc', field ~ '_desc') %}
+    {% set next_dir = 'desc' if sort_by == field ~ '_asc' else 'asc' %}
+    <a href="{{ base_url.include_query_params(sort_by=field ~ '_' ~ next_dir) }}"
+       class="text-decoration-none text-reset d-inline-flex align-items-center gap-1">
+        {{ label }}
+        {% if is_active and sort_by == field ~ '_asc' %}
+            {{ render_icon(icon='arrow_upward', classes='noca-sort-icon noca-sort-icon--active') }}
+        {% elif is_active %}
+            {{ render_icon(icon='arrow_downward', classes='noca-sort-icon noca-sort-icon--active') }}
+        {% else %}
+            {{ render_icon(icon='unfold_more', classes='noca-sort-icon noca-sort-icon--idle') }}
+        {% endif %}
+    </a>
+{% endmacro %}
+{% macro render_flash_messages(
+    dismissible=True,
+    with_icons=True,
+    full_width=False,
+    auto_dismiss_success_ms=none,
+    verdict_submission_id=none
+    ) %}
     {% set _flashed = get_flashed_messages(with_categories=True) %}
     {% if _flashed %}
         <div class="container-fluid px-3 pt-3">
@@ -43,6 +68,7 @@
                 <div class="col-12 {{ '' if full_width else 'col-lg-6' }}">
                     {% for category, message in _flashed %}
                         <div class="alert alert-{{ category }} py-4 small d-flex align-items-center gap-2 mb-2"
+                             {% if category == 'success' and auto_dismiss_success_ms and verdict_submission_id %} data-auto-dismiss-ms="{{ auto_dismiss_success_ms }}" data-verdict-submission-id="{{ verdict_submission_id }}" {% endif %}
                              role="alert">
                             {% if with_icons %}
                                 {% if category == 'success' %}

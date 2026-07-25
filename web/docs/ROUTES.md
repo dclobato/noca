@@ -4,10 +4,14 @@
 
 ## Assets (`web/routes/assets.py`)
 
-| Method | URL                                              | Description                                                                                                                                                                                                                                                                         |
-|--------|--------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `GET` | `/assets/balloon/{color}`                        | Returns an inline SVG balloon. `color` is a 3 or 6 digit hex color (e.g. `00ff00`). Stroke color is auto-picked as black or white based on luminance.                                                                                                                               |
-| `GET` | `/assets/star/{color}`                           | Returns an inline SVG star. `color` is a 3 or 6 digit hex color (e.g. `00ff00`). Stroke color is auto-picked as black or white based on luminance.                                                                                                                                  |
+These public routes generate color-customized balloon and star SVG images.
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| `GET` | `/assets/balloon/{color}` | Returns an inline SVG balloon. `color` is a 3 or 6 digit hex color, such as `00ff00`. |
+| `GET` | `/assets/balloon/{color}/{letter}` | Returns a balloon with the first ASCII letter from `letter` centered inside it and rendered uppercase. The letter is black or white, whichever has more contrast with `color`. A segment containing anything other than ASCII letters returns `400`. |
+| `GET` | `/assets/star/{color}` | Returns an inline SVG star. `color` is a 3 or 6 digit hex color, such as `00ff00`. |
+| `GET` | `/assets/star/{color}/{letter}` | Returns a star with the first ASCII letter from `letter` centered inside it and rendered uppercase. The letter is black or white, whichever has more contrast with `color`. A segment containing anything other than ASCII letters returns `400`. |
 
 ---
 
@@ -67,10 +71,15 @@ All routes in this group require a valid UberAdmin JWT (`noca_access_token` cook
 | `POST` | `/uberadmin/uberadmins/credentials.json` | Returns the given `username`/`password` form fields as a downloadable JSON file (`noca-credentials-<username>.json`). Intended for use immediately after UberAdmin creation. |
 | `GET` | `/uberadmin/contests/new` | Renders the Create Contest form (contest metadata + allowed-language checkboxes + initial admin credentials). Loads all active languages from DB to populate the checkbox panel. |
 | `POST` | `/uberadmin/contests/new` | Validates form (including `language_ids[]` — at least one required), atomically creates a Contest, its initial admin User (role: admin), and `contest_languages` rows, and re-renders the page with the generated credentials on success or an error message on failure. Owner email and password are optional; a blank password triggers auto-generation. Includes `allow_print_requests` metadata (default enabled). Contest creation copy now makes clear that allowed languages remain editable until contest start. |
-| `GET` | `/uberadmin/contests/inactive` | Lists inactive contests for UberAdmins. This is read-only and does not restore or manage inactive contests. |
+| `GET` | `/uberadmin/contests/inactive` | Lists inactive contests for UberAdmins. Each card provides export and permanent-removal actions. Removal opens a password-confirmation modal. |
 | `POST` | `/uberadmin/contests/{contest_id}/deactivate` | Marks an active past contest inactive and redirects back to `/uberadmin`. Running, upcoming, missing, and already inactive contests are left unchanged. |
+| `POST` | `/uberadmin/contests/{contest_id}/remove` | Permanently removes an inactive contest after reconfirming the current UberAdmin password. The synchronous operation requires verified Valkey cleanup, quarantines problem files until the PostgreSQL transaction commits, and redirects to the inactive list with a success or danger flash. Active, missing, and duplicate targets are harmless failures. Route lives in `web/routes/uberadmin_contest_removal.py`. |
 | `POST` | `/uberadmin/contests/credentials.json` | Returns the contest admin credentials (`contest_slug`, `username`, `password`) as a downloadable JSON file (`noca-credentials-<slug>-<username>.json`). Intended for use immediately after contest creation. |
 | `POST` | `/uberadmin/contests/credentials/email` | Sends a credentials email for the just-created contest owner when an email is available. Uses the configured web email provider and the standard plain-text NOCA credentials template. |
+| `GET` | `/uberadmin/contests/{contest_id}/export` | Renders the contest backup export form for a finished or inactive contest, with optional user-media and password-hash controls. |
+| `POST` | `/uberadmin/contests/{contest_id}/export` | Builds and streams the contest backup ZIP from a temporary file. Password-hash exports require password reconfirmation and record an audit row only after archive creation succeeds. |
+| `GET` | `/uberadmin/contests/import` | Renders the contest backup import form (upload + new name + new slug). |
+| `POST` | `/uberadmin/contests/import` | Applies compressed and expanded size ceilings, validates the complete archive graph, and restores it under a new name/slug in one transaction. |
 
 ---
 
@@ -81,7 +90,7 @@ Routes require a valid contest-scoped JWT or UberAdmin JWT (`noca_access_token` 
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/c/{slug}` | Renders the contest user dashboard with role-appropriate module cards. Returns 404 for inactive contests. |
-| `GET` | `/c/{slug}/clock` | Returns contest clock data as SSE (`text/event-stream`, pushes every 30 s) or plain JSON (polling fallback). Payload: `{server_now_ms, start_ms, end_ms, state}`. Accepts both contest-scoped and UberAdmin tokens. |
+| `GET` | `/c/{slug}/clock` | Returns a JSON contest clock snapshot for browser polling every 60 seconds. Payload: `{server_now_ms, start_ms, end_ms, state}`. Accepts both contest-scoped and UberAdmin tokens. |
 
 ---
 
@@ -127,6 +136,10 @@ handle a task — see [Permission Model](#permission-model) below.
 | `POST` | `/c/{slug}/submissions/{submission_id}/acquire-review` | j, a | `contest_submissions.py` |
 | `POST` | `/c/{slug}/submissions/{submission_id}/confirm` | j, a | `contest_submissions.py` |
 | `POST` | `/c/{slug}/submissions/{submission_id}/rejudge` | chief judge, admin, uberadmin | `contest_submissions.py` |
+| `GET` | `/c/{slug}/solution-tests/` | ua, a, j | `contest_solution_tests.py` |
+| `POST` | `/c/{slug}/solution-tests/submit` | ua, a, j | `contest_solution_tests.py` |
+| `GET` | `/c/{slug}/solution-tests/{run_id}` | ua, a, j | `contest_solution_tests.py` |
+| `GET` | `/c/{slug}/solution-tests/{run_id}/status` | ua, a, j | `contest_solution_tests.py` |
 | `GET` | `/c/{slug}/tasks/` | ua, a, cj, s, t (after-start for cj/s/t) | `contest_tasks.py` |
 | `GET` | `/c/{slug}/tasks/list` | ua, a, cj, s, t (after-start for cj/s/t) | `contest_tasks.py` |
 | `POST` | `/c/{slug}/tasks/sos` | t | `contest_tasks.py` |
@@ -165,7 +178,7 @@ Post-contest behavior:
 
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
-| `GET` | `/c/{slug}/scoreboard/` | ua, a, j, t, s | Full scoreboard page. Shows ICPC ranking table with per-problem balloon colors and penalty times. During the contest: admin/judge see live verdicts; others see frozen state (pending) after `contest.stop_updating_scoreboard`. After contest ends: if released, shows final standings with "Contest Final Scoreboard" badge; if not released, shows frozen view for all roles. HTMX auto-refresh every 30 s while the contest is running and not frozen. |
+| `GET` | `/c/{slug}/scoreboard/` | ua, a, j, t, s | Full scoreboard page. Shows ICPC ranking table with per-problem balloon colors and penalty times. In contests with multiple sites, the optional `site_id` query parameter filters rows on the server while preserving global ranks. Users assigned to a site switch between **All sites** and **My site only** buttons; users without a site and uberadmins select all teams or any contest site from a combobox. Single-site contests show no site filter. Missing, stale, foreign-contest, and disallowed site IDs use the all-sites view. During the contest: admin/judge see live verdicts; others see frozen state (pending) after `contest.stop_updating_scoreboard`. After contest ends: if released, shows final standings with "Contest Final Scoreboard" badge; if not released, shows frozen view for all roles. HTMX auto-refresh every 30 s while the contest is running and not frozen and preserves the selected site. |
 
 ---
 
@@ -201,8 +214,8 @@ Route ownership is split across `contest_clarifications.py`,
 
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
-| `GET` | `/c/{slug}/clarifications/` | ua, a, j, t | Full page. Shows clarification list and (team only) a submission form. Flash messages shown via `get_flashed_messages`. Loads `htmx.min.js`, `highlight-row.js`, `refresh-timer.js`, and `clarifications.js`. |
-| `GET` | `/c/{slug}/clarifications/list` | ua, a, j, t | HTMX partial. Returns `#clarifications-list-wrapper` div with the current clarification table. Polled every 60 s by team browsers. |
+| `GET` | `/c/{slug}/clarifications/` | ua, a, j, t | Full page. Shows clarification list and (team only) a submission form. `sort_by` orders Time or Problem in SQL and defaults to newest first. Flash messages shown via `get_flashed_messages`. Loads `htmx.min.js`, `highlight-row.js`, `refresh-timer.js`, and `clarifications.js`. |
+| `GET` | `/c/{slug}/clarifications/list` | ua, a, j, t | HTMX partial. Returns `#clarifications-list-wrapper` with the clarification table in the requested server-side `sort_by` order. Polled every 60 s by team browsers. |
 | `POST` | `/c/{slug}/clarifications/new` | t | Submit a new clarification. Form fields: `problem_id`, `question` (max 1024 chars). Collects all validation errors at once. On success redirects to `/c/{slug}/clarifications/#{id}` (303). On error flashes all errors and redirects (303). Implemented in `contest_clarifications_submit.py`. |
 | `POST` | `/c/{slug}/clarifications/announcement` | a, j | Create a public announcement. Form fields: `problem_id`, `announcement` (max 1024 chars). Creates a clarification with `question="Announcement"`, `is_contest_public=True`, already answered. Contest must be running. On success flashes and redirects to `/c/{slug}/clarifications/#{id}` (303). On error flashes and redirects (303). Implemented in `contest_clarifications_submit.py`. |
 | `POST` | `/c/{slug}/clarifications/acquire` | j, a | Acquire a Valkey-backed clarification lock so a judge or admin may answer it. Form field: `clarification_id`. On success redirects to `GET /answer?id={id}` (303). If Valkey is unavailable, flashes a degraded-mode warning and redirects to the answer form anyway. Implemented in `contest_clarifications_judge.py`. |
@@ -256,13 +269,39 @@ and `contest_runs_events.py`.
 
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
-| `GET` | `/c/{slug}/runs/` | ua, a, j, t | Full page. TEAM sees a submission form (problem, language, file upload) while the contest is running, plus their own submission list. Non-TEAM sees all contest submissions without the form. Flash messages shown via `get_flashed_messages`. Loads `htmx.min.js` and `refresh-timer.js`. |
-| `GET` | `/c/{slug}/runs/list` | ua, a, j, t | HTMX partial. Returns `#runs-list-wrapper` div with the current submission table. Polled every 60 s by team browsers. |
+| `GET` | `/c/{slug}/runs/` | ua, a, j, t | Full page. TEAM sees a submission form while the contest is running, plus their own submissions. Non-TEAM sees all contest submissions. `filter_problem_id`, `filter_autojudge`, `filter_final_verdict`, and privileged-only `filter_team_id` narrow the SQL query. `sort_by` orders Time or Problem in SQL and defaults to newest first. The optional `queued_submission` query parameter identifies the success flash for a new submission; the page dismisses that flash after its final-verdict event or after five seconds. Loads `htmx.min.js`, `refresh-timer.js`, and `runs-sse.js` while live updates are available. |
+| `GET` | `/c/{slug}/runs/list` | ua, a, j, t | HTMX partial. Applies the same server-side filters and ordering as the full page, then returns `#runs-list-wrapper`. Filter changes trigger this endpoint, and live refreshes retain the active query parameters. |
 | `GET` | `/c/{slug}/runs/language-info` | ua, a, j, t | HTMX partial. Returns compile and run command info for `?language_id=`. Used by the submission form language dropdown. Returns empty fragment for unknown/empty language_id. |
-| `GET` | `/c/{slug}/runs/events` | ua, a, j, t | SSE stream (`text/event-stream`). Subscribes to verdict events and emits contest-scoped payloads plus heartbeat pings. Clients should trigger an HTMX refresh of the runs list on each message. Implemented in `contest_runs_events.py`. |
-| `POST` | `/c/{slug}/runs/submit` | t | Submit a solution. Form fields: `problem_id`, `language_id`, `source_file` (multipart). Validates: contest running, non-empty selections, problem belongs to contest, language is active, non-empty file, file size within `contest.max_problem_file_size_bytes` (0 = unlimited). Computes SHA-256 for duplicate detection. On duplicate flashes "Duplicated submission" (danger). On success creates `Submission` + `SubmissionJudgment` (QUEUED), commits, and asks Valkey runtime to enqueue `JudgeJob`. If Valkey is temporarily unavailable, enqueue is buffered in-memory and replayed after reconnect. Redirects to `GET /runs` (303) with success flash. Implemented in `contest_runs_review.py`. |
+| `GET` | `/c/{slug}/runs/events` | ua, a, j, t | SSE stream (`text/event-stream`). Subscribes to verdict events and emits contest-scoped payloads plus heartbeat pings. Live-visibility payloads include the submission ID so the page can associate a verdict with the queued-submission flash. Frozen-scoreboard payloads remain fully redacted. Clients trigger an HTMX refresh of the runs list on each message. Implemented in `contest_runs_events.py`. |
+| `POST` | `/c/{slug}/runs/submit` | t | Submit a solution. Form fields: `problem_id`, `language_id`, `source_file` (multipart). Validates: contest running, non-empty selections, problem belongs to contest, language is active, non-empty file, file size within `contest.max_problem_file_size_bytes` (0 = unlimited). Computes SHA-256 for duplicate detection. On duplicate flashes "Duplicated submission" (danger). On success creates `Submission` + `SubmissionJudgment` (QUEUED), commits, and asks Valkey runtime to enqueue `JudgeJob`. If Valkey is temporarily unavailable, enqueue is buffered in-memory and replayed after reconnect. Redirects to `GET /runs?queued_submission={submission_id}` (303) with a success flash. Implemented in `contest_runs_review.py`. |
 | `POST` | `/c/{slug}/runs/{submission_id}/override` | chief judge, admin | Override the effective final verdict of a DONE submission. Form fields: `new_verdict`, `reason` (10-1000 chars). On success creates a `VerdictOverride`, commits, publishes a `VerdictEvent` to `judge:results`, flashes success, and redirects to the submission review page. Implemented in `contest_runs_review.py`. |
 | `GET` | `/c/{slug}/runs/{submission_id}/judging-history` | ua, a, j, s | Returns JSON `JudgingHistoryResponse` for one submission. Includes judgment creation and verdict-change audit rows plus explicit override rows; excludes status-only transitions. TEAM users are forbidden. Implemented in `contest_runs_events.py`. |
+
+---
+
+## Contest Solution Tests (`web/routes/contest_solution_tests.py`)
+
+Non-scoring runs of a candidate solution against a problem's real compiler, sandbox,
+limits, test cases, and custom validator. Runs live in their own tables
+(`solution_test_runs`, `solution_test_case_results`), never in `submissions`, so they
+cannot reach standings, balloons, Runs, reports, the live feed, or exports.
+
+Routes require a valid contest-scoped or UberAdmin JWT plus role `ua`, `a`, or `j`.
+`get_contest_by_slug` already 404s on an inactive contest; access is otherwise permitted
+before, during, and after the contest. Visibility is role-scoped:
+- `j`: only runs they triggered themselves
+- `ua`/`a`: every run in the contest
+
+A judge opening another actor's `run_id` gets **404, not 403**, so a run's existence does
+not leak. JUDGE, ADMIN, and UBERADMIN are trusted with this contest's test data, so
+diagnostics are shown without redaction.
+
+| Method | URL | Allowed | Description |
+|--------|-----|---------|-------------|
+| `GET` | `/c/{slug}/solution-tests/` | ua, a, j | Full page: upload form plus paginated run history (50/page). `problem_id` filters the history and preselects the form's problem; `page` paginates. |
+| `POST` | `/c/{slug}/solution-tests/submit` | ua, a, j | Queue one run. Form fields: `problem_id`, `language_id`, `source_file` (multipart). Validates in order: problem belongs to contest → language available for contest → non-empty file → size within `contest.max_problem_file_size_bytes` (0 = unlimited) → no NUL bytes → judgeability (validator available, test cases exist). Enforces an independent per-actor rate limit (see `rate_limit_service.py`). On success commits and enqueues a `SolutionTestJob` with `priority=contest.is_running`. Publishes **no** `SubmissionEvent` and **no** `VerdictEvent`. Redirects (303) to the run detail page. |
+| `GET` | `/c/{slug}/solution-tests/{run_id}` | ua, a, j | Run detail: status panel, per-case results (with interactive transcripts), and the submitted source. |
+| `GET` | `/c/{slug}/solution-tests/{run_id}/status` | ua, a, j | HTMX partial `#solution-test-status`. Self-terminating poll: the `hx-*` attributes are emitted only while the run is non-terminal, so the swap rendering the terminal state stops the poll. |
 
 ---
 
@@ -308,6 +347,27 @@ Route ownership is split across `contest_admin.py`,
 | `GET` | `/c/{slug}/admin/export-animeitor` | ua, a | Downloads a ZIP file compatible with the `maratona-animeitor` consumer. Contains `contest`, `runs`, `time`, `version`, and `icpc` files in the legacy BOCA webcast format. Returns 303 redirect with flash error if the contest has no teams or no problems. Implemented in `contest_admin_export.py`. |
 | `GET` | `/c/{slug}/admin/export-events` | ua, a | Downloads a markdown report containing a wrapped fixed-width text table of persisted contest events. Best-effort only: transient lock-only acquisitions are omitted because they are not historically stored. Implemented in `contest_admin_export.py`. |
 | `GET` | `/c/{slug}/admin/users-per-site-report` | ua, a | Downloads a markdown report of contest users grouped by site. Sites are ordered A-Z; users within each site and role are ordered by username. Includes users with no site assigned, chief judge annotation, and contest header with rules summary. Implemented in `contest_admin_export.py`. |
+
+---
+
+## Contest Animator Administration (`web/routes/contest_admin_animator.py`)
+
+Dedicated page (kept off the already large metadata page) for enabling the animator,
+editing all site medal bands in one form, and managing operator credentials. Same
+authorization as the rest of contest administration: a valid UberAdmin JWT **or** a
+contest JWT with role `a` (admin); other contest roles get 403. Reuses the shared
+`site_service` animator wrappers — no new service. A freshly generated operator token
+is shown **exactly once** in an HTMX partial, optionally emailed to the administrator,
+and never persisted or flashed; only its digest is stored and no digest is ever
+rendered.
+
+| Method | URL | Allowed | Description |
+|--------|-----|---------|-------------|
+| `GET` | `/c/{slug}/admin/animator/` | ua, a | Renders the animator settings page with the `animator_enabled` toggle, one bulk medal-cutoff table, and one digest-free operator-credential table for site-scoped and contest-global secrets. Implemented in `contest_admin_animator.py`. |
+| `POST` | `/c/{slug}/admin/animator/settings` | ua, a | Updates `contests.animator_enabled` from the `animator_enabled` switch (`yes`/absent). Audited via `admin_action`. Redirects to the settings page (303). Implemented in `contest_admin_animator.py`. |
+| `POST` | `/c/{slug}/admin/animator/medals` | ua, a | Validates dynamic `gold_cutoff_{site_id}`, `silver_cutoff_{site_id}`, and `bronze_cutoff_{site_id}` fields for every site before updating any row. Invalid input flashes the site-specific error and changes nothing; success commits all rows once. Redirects (303). Implemented in `contest_admin_animator.py`. |
+| `POST` | `/c/{slug}/admin/animator/secrets` | ua, a | Creates a site-scoped or global operator credential from the `scope` and `label` fields and records the action in the shared admin audit log in the same transaction. Returns the `admin/animator_operators.html` HTMX partial with the plaintext token shown once and email-delivery feedback. Invalid input returns the same swappable partial with an inline error and HTTP 200. Implemented in `contest_admin_animator.py`. |
+| `POST` | `/c/{slug}/admin/animator/secrets/{secret_id}/revoke` | ua, a | Revokes a site or global credential owned by the contest, records the action in the shared admin audit log in the same transaction, and returns the updated HTMX operators partial. A missing or foreign `secret_id` changes nothing and returns the partial with an inline error and HTTP 200. Implemented in `contest_admin_animator.py`. |
 
 ---
 
@@ -414,8 +474,8 @@ Route ownership is split across `contest_admin_user.py`,
 | `POST` | `/c/{slug}/admin/users/batch/results.json` | ua, a | Returns the provided batch results JSON as a downloadable file (`noca-batch-{slug}.json`). Implemented in `contest_admin_user_batch.py`. |
 | `POST` | `/c/{slug}/admin/users/batch/credentials/email` | ua, a | Sends credential emails in batch for created/updated rows that include both `password` and `email`, and re-renders the results view with a delivery summary. Implemented in `contest_admin_user_batch.py`. |
 | `GET` | `/c/{slug}/admin/users/export.json` | ua, a | Downloads all contest users as import-compatible JSON (`noca-users-{slug}.json`). Passwords are omitted; each row includes `username`, `fullname`, `role`, and optional `email`, `site`, `location`. Implemented in `contest_admin_user_edit.py`. |
-| `GET` | `/c/{slug}/admin/users/{user_id}/edit` | ua, a | Renders the Edit User form pre-filled with the user's current data. Returns 404 if the user is not found in this contest. Implemented in `contest_admin_user_edit.py`. |
-| `POST` | `/c/{slug}/admin/users/{user_id}/edit` | ua, a | Validates and updates a user's fullname, optional email, site, location, and optionally password. Role is shown as read-only and cannot be changed after creation. `TEAM` and `STAFF` users must keep a site assigned. Redirects back to the edit page on success. Implemented in `contest_admin_user_edit.py`. |
+| `GET` | `/c/{slug}/admin/users/{user_id}/edit` | ua, a | Renders the Edit User form with identity fields plus photo and audio preview, upload, replacement, and removal controls. After the contest ends the profile fields (full name, site, location) and media mutations are disabled, but the email and password inputs stay editable. Returns 404 if the user is not found in this contest. Implemented in `contest_admin_user_edit.py`. |
+| `POST` | `/c/{slug}/admin/users/{user_id}/edit` | ua, a | Validates and updates a user's fullname, optional email, site, location, and optionally password. Role is shown as read-only and cannot be changed after creation. `TEAM` and `STAFF` users must keep a site assigned. After the contest ends the request takes a credentials-only path that applies just the email and password (via `update_user_credentials`) and ignores any posted profile fields. Redirects back to the edit page on success. Implemented in `contest_admin_user_edit.py`. |
 | `POST` | `/c/{slug}/admin/users/{user_id}/remove` | ua, a | Deletes a contest user. Returns 403 if the contest is running or finished. Returns 404 if the user is not found. Redirects to `/c/{slug}/admin/users` on success. Implemented in `contest_admin_user_edit.py`. |
 
 ---
@@ -436,20 +496,29 @@ Route ownership is split across `contest_admin_user.py`,
 
 ---
 
-## Profile (`web/routes/profile.py`)
+## Profile and user media
 
-Current-user profile routes accept either a valid contest JWT or UberAdmin JWT (`noca_access_token` cookie) and redirect unauthenticated requests to `/login`. The `/user/{user_id}/avatar`, `/user/{user_id}/photo`, and `/user/{user_id}/photo/remove` routes accept either a contest-scoped viewer from the same contest or an UberAdmin viewer. Upload remains self-only.
+Current-user profile routes accept either a valid contest JWT or UberAdmin JWT
+(`noca_access_token` cookie) and redirect unauthenticated requests to `/login`.
+User media routes accept a contest-scoped viewer from the same contest or an
+UberAdmin viewer. Contest users can manage their own media; contest admins and
+UberAdmins can manage another user's media while that contest remains editable.
+Identity and password routes live in `web/routes/profile.py`; photo and audio
+routes live in `web/routes/user_media.py`.
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `GET` | `/profile` | Profile page with display name, email, password, photo forms, and read-only site information for contest users. |
+| `GET` | `/profile` | Profile page with display name, email, password, photo, audio clip, and read-only site information for contest users. |
 | `POST` | `/profile/fullname` | Update display name; flashes success and redirects to `/profile`. |
 | `POST` | `/profile/email` | Update current-user email (`USER` email is optional; `UberAdmin` email cannot be blank); flashes success and redirects to `/profile`. |
 | `POST` | `/profile/password` | Change password (requires current password); empty `new_password` = no change; flashes success and redirects to `/profile`. |
 | `GET` | `/user/{user_id}/avatar` | User avatar (SVG fallback if no photo); cache: `public` (real photo) or `private` (fallback). Contest-scoped viewers are limited to their own contest; UberAdmins can view any user. |
 | `GET` | `/user/{user_id}/photo` | User full photo; same cache policy and contest visibility rules as avatar. |
-| `POST` | `/user/{user_id}/photo` | Upload cropped photo for the authenticated contest user. Self-only. Enforces aspect ratio: 16:10 (team), 2:3 (others). |
+| `POST` | `/user/{user_id}/photo` | Upload a cropped photo. Self-service and authorized admin edits are supported. Enforces aspect ratio: 16:10 (team), 2:3 (others). Multipart streaming stops when aggregate file bytes exceed `NOCA_IMAGE_MAX_FILE_SIZE`; API clients receive 413, while browser forms redirect back with a warning. |
 | `POST` | `/user/{user_id}/photo/remove` | Remove photo. Self-service flashes success and redirects to `/profile`; admin/UberAdmin removals from the edit screen redirect back to that user edit page. |
+| `GET` | `/user/{user_id}/audio` | Serve a stored MP3, OGG, or WAV audio clip. Returns 404 when no clip exists and applies the same contest visibility rules as photo routes. |
+| `POST` | `/user/{user_id}/audio` | Upload or replace an audio clip. Validates the file signature and stops multipart streaming at `NOCA_AUDIO_MAX_FILE_SIZE`. API clients receive HTTP 413; browser forms return to the same page with a warning. |
+| `POST` | `/user/{user_id}/audio/remove` | Remove a stored audio clip and return to the self-service profile or admin edit page. |
 
 Site note:
 - contest users cannot self-edit their assigned site from `/profile`; the page displays it as administrator-managed read-only information.

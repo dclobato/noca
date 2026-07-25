@@ -38,6 +38,12 @@
     display: inline-block;
 }
 
+/* Balloon thumbnail size used across the contest reports page */
+.noca-balloon-report {
+    width: 35px;
+    height: 53px;
+}
+
 .noca-first-balloon {
     filter:
         drop-shadow(0 0 4px rgba(255, 214, 76, 0.95))

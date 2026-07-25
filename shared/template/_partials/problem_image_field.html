@@ -58,10 +58,12 @@
        id="image"
        name="image"
        data-image-preview
-       accept=".png,.jpg,.jpeg,.webp"
+       accept=".gif,.png,.jpg,.jpeg,.webp"
        {% if img_form %}form="{{ img_form }}"{% endif %}
        {% if img_disabled %}disabled{% endif %}>
-<div class="form-text">PNG, JPEG or WebP; max 2 MB.</div>
+<div class="form-text">
+    GIF, JPEG, PNG, or WebP · up to {{ "%.1f"|format(problem_image_max_file_size_mib|default(2.0) ) }} MiB · up to {{ problem_image_max_width|default(2048) }} × {{ problem_image_max_height|default(2048) }} px
+</div>
 <label class="form-label mt-2" for="image_caption">Image caption (optional)</label>
 <input type="text"
        class="form-control"

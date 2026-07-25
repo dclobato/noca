@@ -22,6 +22,7 @@ from pydantic import DirectoryPath, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from shared.enumerations import Environment
+from shared.services.imageprocessing_service import MAX_IMAGE_FILE_SIZE
 from shared.services.testcase_files import ARENA_TC_SUBDIR
 
 
@@ -238,10 +239,10 @@ class Settings(BaseSettings):
         description="Generated avatar max size in pixels for uploaded images.",
     )
     IMAGE_MAX_FILE_SIZE: int = Field(
-        default=5 * 1024 * 1024,
+        default=2 * 1024 * 1024,
         gt=0,
-        le=5 * 1024 * 1024,
-        description="Maximum allowed uploaded image size in bytes.",
+        le=MAX_IMAGE_FILE_SIZE,
+        description="Maximum allowed uploaded image size in bytes (up to 5 MiB).",
     )
     IMAGE_MAX_WIDTH: int = Field(
         default=2048,

@@ -281,11 +281,12 @@ Sliding-session notes:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOCA_IMAGE_AVATAR_SIZE` | `64` | Maximum size in pixels for generated avatars from uploaded images (up to 256) |
-| `NOCA_IMAGE_MAX_FILE_SIZE` | `5242880` | Maximum allowed upload size in bytes (default 5 MiB) |
-| `NOCA_IMAGE_MAX_WIDTH` | `2048` | Maximum allowed upload width in pixels (up to 4096) |
-| `NOCA_IMAGE_MAX_HEIGHT` | `2048` | Maximum allowed upload height in pixels (up to 4096) |
+| `NOCA_IMAGE_MAX_FILE_SIZE` | `2097152` | Maximum allowed image upload size in bytes. The value must not exceed the shared 5 MiB hard limit (`5242880`). Web and Arena photo streams stop as soon as selected image bytes exceed this value. API clients receive HTTP 413; browser forms return to the same page with a warning. Arena logos and problem images use fixed 2 MiB limits. |
+| `NOCA_IMAGE_MAX_WIDTH` | `2048` | Maximum allowed upload width in pixels (up to 4096). Problem images instead use a fixed 2048-pixel limit so packages remain portable between deployments. |
+| `NOCA_IMAGE_MAX_HEIGHT` | `2048` | Maximum allowed upload height in pixels (up to 4096). Problem images instead use a fixed 2048-pixel limit so packages remain portable between deployments. |
 | `NOCA_IMAGE_FONT_DIR` | *(empty)* | Optional directory containing fonts used by generated placeholder images |
 | `NOCA_IMAGE_RESPONSE_CACHE_MAX_AGE` | `3600` | `Cache-Control: max-age` value for image responses in seconds |
+| `NOCA_AUDIO_MAX_FILE_SIZE` | `2097152` | Maximum allowed Web audio upload size in bytes. The value must not exceed the 5 MiB hard limit (`5242880`). The Web audio stream stops as soon as uploaded file bytes exceed this value. API clients receive HTTP 413; browser forms return to the same page with a warning. |
 
 ---
 
@@ -328,8 +329,8 @@ Sliding-session notes:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOCA_WEB_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS` | `60` | Rolling window length in seconds for per-team submission rate limiting. Only TEAM users are subject to this limit; staff and admin roles cannot reach the submission route. |
-| `NOCA_WEB_SUBMISSION_RATE_LIMIT_MAX_SUBMISSIONS` | `3` | Maximum number of submissions a team may send within the rate-limit window. |
+| `NOCA_WEB_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS` | `60` | Rolling window length in seconds. It bounds two independent budgets: per-team contest submissions, and per-actor non-scoring solution-test runs (JUDGE/ADMIN/UBERADMIN, `/c/{slug}/solution-tests/submit`). |
+| `NOCA_WEB_SUBMISSION_RATE_LIMIT_MAX_SUBMISSIONS` | `3` | Maximum runs allowed within the window, applied separately to each budget. Solution-test runs are counted independently per actor, so a judge's tests never consume a team's submission allowance and vice versa. |
 
 ### UberAdmin Bootstrap
 
@@ -584,7 +585,7 @@ Timeout formulas:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOCA_JUDGE_LOCK_TTL_SECONDS` | `660` | TTL in seconds for the per-judgment Redis idempotency lock (`judge:lock:<id>`). Must be strictly greater than `NOCA_JUDGE_REAPER_STALE_THRESHOLD_MINUTES x 60` so that a slow-but-alive worker keeps its lock past the reaper's requeue window. Default of 660 s = 600 s stale threshold + 60 s margin. |
+| `NOCA_JUDGE_LOCK_TTL_SECONDS` | `660` | TTL in seconds for the per-judgment Redis idempotency lock (`judge:lock:<id>`). Must be strictly greater than `NOCA_JUDGE_REAPER_STALE_THRESHOLD_MINUTES x 60` so that the lock cannot expire naturally before the reaper makes its atomic stale decision. Default of 660 s = 600 s stale threshold + 60 s margin. |
 
 ### Reaper
 
@@ -670,6 +671,7 @@ The web and arena container entrypoints run `scripts/bootstrap_languages.py` on 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOCA_SEED_LANGUAGES` | `false` | Set to `true` to seed the built-in language definitions into the database on startup |
+| `NOCA_WAIT_FOR_MIGRATIONS_TIMEOUT` | `300` | Max seconds a worker container (autojudge/rating/aiassistant) waits for `web`/`arena` to migrate the schema to head before its entrypoint fails. Web and arena still run migrations directly. |
 
 ---
 

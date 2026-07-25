@@ -1,0 +1,196 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Self-terminating HTMX poll: the polling attributes are emitted only while the
+  run is non-terminal, so the swap that renders the terminal state stops the poll.
+
+  JUDGE, ADMIN and UBERADMIN are trusted with this contest's test data, so
+  diagnostics are shown unredacted. Escaping here is an XSS control, not a
+  confidentiality one — never use `|safe` on run output.
+#}
+{% from "_macros.html" import render_icon with context %}
+<div id="solution-test-status"
+     {% if not run.is_terminal %} hx-get="{{ request.url_for('contest_solution_test_status_partial', slug=contest.login_slug, run_id=run.id) }}" hx-trigger="every 2s" hx-swap="outerHTML" {% endif %}>
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header d-flex flex-wrap gap-2 align-items-center justify-content-between">
+            <span class="fw-semibold">Result</span>
+            <span class="text-muted small">Status: {{ run.status.value }}</span>
+        </div>
+        <div class="card-body">
+            {% if not run.is_terminal %}
+                <div class="alert alert-info small py-2 mb-0 d-flex align-items-center gap-2">
+                    {{ render_icon(icon="hourglass_top") }}
+                    The judge is working on this solution test. This panel refreshes automatically.
+                </div>
+            {% else %}
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">Verdict</dt>
+                    <dd class="col-sm-9">
+                        {% if run.verdict %}
+                            <span class="badge {{ 'text-bg-success' if run.verdict.value == 'AC' else 'text-bg-danger' }}">{{ run.verdict.value }}</span>
+                        {% else %}
+                            <span class="badge text-bg-secondary">No verdict</span>
+                        {% endif %}
+                    </dd>
+                    <dt class="col-sm-3">Executed at</dt>
+                    <dd class="col-sm-9">
+                        {{ run.finished_at.strftime("%Y-%m-%d %H:%M:%S UTC") if run.finished_at else '—' }}
+                        <span class="text-muted small d-block">Results are a snapshot of the configuration used at
+                        execution time; later limit, validator or test-case edits never recompute them.</span>
+                    </dd>
+                    <dt class="col-sm-3">Peak time</dt>
+                    <dd class="col-sm-9">
+                        {{ run.max_wall_time_ms ~ ' ms' if run.max_wall_time_ms is not none else '—' }}
+                    </dd>
+                    <dt class="col-sm-3">Peak memory</dt>
+                    <dd class="col-sm-9">
+                        {{ run.max_memory_kb ~ ' kB' if run.max_memory_kb is not none else '—' }}
+                    </dd>
+                </dl>
+                {% if run.error_message %}
+                    <div class="alert alert-danger small mt-3 mb-0">
+                        <div class="fw-semibold mb-1">Judge error</div>
+                        <pre class="mb-0 text-wrap">{{ run.error_message }}</pre>
+                    </div>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+    {% if run.is_terminal and run.compile_log %}
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header p-0">
+                <div class="accordion" id="solution-test-compile-log-accordion">
+                    <div class="accordion-item border-0">
+                        <h2 class="accordion-header" id="solution-test-compile-log-heading">
+                            <button class="accordion-button collapsed fw-semibold text-danger bg-transparent shadow-none"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#solution-test-compile-log-collapse"
+                                    aria-expanded="false"
+                                    aria-controls="solution-test-compile-log-collapse">Compile Log</button>
+                        </h2>
+                        <div id="solution-test-compile-log-collapse"
+                             class="accordion-collapse collapse"
+                             aria-labelledby="solution-test-compile-log-heading"
+                             data-bs-parent="#solution-test-compile-log-accordion">
+                            <div class="accordion-body bg-body-tertiary">
+                                <pre class="mb-0 small text-danger-emphasis">{{ run.compile_log }}</pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+    {% if run.is_terminal and run.case_results %}
+        <div class="card shadow-sm border-0">
+            <div class="card-header fw-semibold">Test Case Results</div>
+            <div class="card-body p-0" id="solution-test-case-details-group">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Test #</th>
+                                <th>Verdict</th>
+                                <th>Wall time ms</th>
+                                <th>Memory KB</th>
+                                <th>Exit</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for case in run.case_results %}
+                                <tr>
+                                    <td>
+                                        {{ case.ordinal }}
+                                        {% if case.attempt_number is not none %}
+                                            <span class="text-muted small d-block">Attempt {{ case.attempt_number }}</span>
+                                        {% endif %}
+                                        {% if case.test_case_deleted %}<span class="text-muted small d-block">Test case since deleted</span>{% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge {{ 'text-bg-success' if case.verdict.value == 'AC' else 'text-bg-danger' }}">{{ case.verdict.value }}</span>
+                                    </td>
+                                    <td>{{ case.wall_time_ms if case.wall_time_ms is not none else '—' }}</td>
+                                    <td>{{ case.memory_kb if case.memory_kb is not none else '—' }}</td>
+                                    <td>
+                                        {% if case.exit_signal is not none %}
+                                            <span class="badge bg-danger-subtle text-danger-emphasis">Signal {{ case.exit_signal }}</span>
+                                        {% elif case.exit_code is not none %}
+                                            {{ case.exit_code }}
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary"
+                                                type="button"
+                                                data-bs-toggle="collapse"
+                                                data-bs-target="#solution-test-case-details-{{ case.id }}"
+                                                aria-expanded="false"
+                                                aria-controls="solution-test-case-details-{{ case.id }}">
+                                            View details
+                                        </button>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% for case in run.case_results %}
+                    <div class="collapse border-top"
+                         id="solution-test-case-details-{{ case.id }}"
+                         data-bs-parent="#solution-test-case-details-group">
+                        <div class="p-3">
+                            <h3 class="h6 mb-3">
+                                Test {{ case.ordinal }}
+                                {% if case.attempt_number is not none %}— Attempt {{ case.attempt_number }}{% endif %}
+                            </h3>
+                            {% if case.transcript %}
+                                {% with transcript = case.transcript %}
+                                    {% include "_partials/transcript_table.html" %}
+                                {% endwith %}
+                            {% endif %}
+                            <div class="row g-3 {% if case.transcript %}mt-0{% endif %}">
+                                <div class="col-lg-4">
+                                    <div class="card border-0 bg-body-tertiary h-100">
+                                        <div class="card-header fw-semibold small">Problem input</div>
+                                        <div class="card-body">
+                                            <pre class="bg-body p-3 rounded small mb-0 noca-sample-pre">{{ case.input_excerpt if case.input_excerpt is not none else 'Not available for this run.' }}</pre>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="card border-0 bg-body-tertiary h-100">
+                                        <div class="card-header fw-semibold small">Problem expected output</div>
+                                        <div class="card-body">
+                                            <pre class="bg-body p-3 rounded small mb-0 noca-sample-pre">{{ case.expected_output_excerpt if case.expected_output_excerpt is not none else 'Not available for this run.' }}</pre>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-4">
+                                    <div class="card border-0 bg-body-tertiary h-100">
+                                        <div class="card-header fw-semibold small">Submission output</div>
+                                        <div class="card-body">
+                                            <pre class="bg-body p-3 rounded small mb-0 noca-sample-pre">{{ case.stdout_excerpt if case.stdout_excerpt is not none else 'No output recorded.' }}</pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% if case.stderr_excerpt %}
+                                <div class="mt-3">
+                                    <div class="fw-semibold small mb-1">Submission stderr</div>
+                                    <pre class="bg-body-tertiary rounded p-3 mb-0 noca-pre-wrap-sm">{{ case.stderr_excerpt }}</pre>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+</div>

@@ -12,14 +12,15 @@ Mixin for judgment state machine transitions and balloon task creation.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select, true
 from sqlalchemy.exc import IntegrityError
 
-from autojudge.db._base import _DatabaseBase, _utcnow
-from autojudge.types import QueuedSubmission
+from autojudge.db._base import JUDGMENT_DISPATCHABLE_STATUSES, AttemptClaim, _DatabaseBase, _utcnow
+from autojudge.types import JobNotDispatchable, JudgmentOwnershipLost, QueuedSubmission
 from shared.db_schema import submission_interactive_attempts as _submission_interactive_attempt
 from shared.db_schema import submission_judgments as _submission_judgment
 from shared.db_schema import submission_test_results as _submission_test_result
@@ -27,6 +28,8 @@ from shared.db_schema import submissions as _submission
 from shared.db_schema import tasks as _task
 from shared.enumerations import JudgmentStatus, TaskType, Verdict
 from shared.timing import compute_timestamp_seconds
+
+logger = logging.getLogger(__name__)
 
 
 class _JudgmentMixin(_DatabaseBase):
@@ -36,33 +39,45 @@ class _JudgmentMixin(_DatabaseBase):
         self,
         judgment_id: str,
         worker_id: str,
+        attempt_token: str,
         contest_start_time: datetime | None = None,
     ) -> None:
         """
-        Mark judgment as picked up by this worker (DISPATCHED).
+        Mark judgment as picked up by this attempt (DISPATCHED) and claim it.
 
         Retry-safe: clears partial per-test-case rows and stale runtime
         metadata so the same judgment can be processed again from scratch.
 
+        Fenced on a non-terminal status, and the fence runs *before* the
+        deletes: a dequeue that raced with the judgment's own completion must
+        not reset the row or delete its finished results. That fence is
+        deliberately not a claim — ``DISPATCHED``/``JUDGING`` are accepted,
+        because taking a judgment over from a stalled attempt is exactly what
+        the reaper's requeue is for. ``attempt_token`` is the claim: stamping it
+        here revokes any older attempt's right to write, since every later write
+        of an attempt is fenced on the token it stamped.
+
         Args:
             judgment_id: UUID of the judgment.
             worker_id: Stable worker identity string.
+            attempt_token: Attempt-scoped claim for this dispatch.
             contest_start_time: Used for audit timestamp_seconds computation.
+
+        Raises:
+            LookupError: If the judgment already reached a terminal status.
         """
         now = _utcnow()
         state = await self._get_judgment_state(judgment_id)
-        await self._conn.execute(
-            delete(_submission_test_result).where(_submission_test_result.c.judgment_id == judgment_id)
-        )
-        await self._conn.execute(
-            delete(_submission_interactive_attempt).where(_submission_interactive_attempt.c.judgment_id == judgment_id)
-        )
-        await self._conn.execute(
+        result = await self._conn.execute(
             _submission_judgment.update()
-            .where(_submission_judgment.c.id == judgment_id)
+            .where(
+                _submission_judgment.c.id == judgment_id,
+                _submission_judgment.c.status.in_(JUDGMENT_DISPATCHABLE_STATUSES),
+            )
             .values(
                 status=JudgmentStatus.DISPATCHED,
                 worker_id=worker_id,
+                attempt_token=attempt_token,
                 started_at=now,
                 finished_at=None,
                 autojudge_verdict=None,
@@ -74,6 +89,16 @@ class _JudgmentMixin(_DatabaseBase):
                 min_memory_kb=None,
                 error_message=None,
             )
+        )
+        if result.rowcount == 0:
+            await self._conn.rollback()
+            raise JobNotDispatchable(f"Judgment {judgment_id} is no longer dispatchable (status {state['status']})")
+
+        await self._conn.execute(
+            delete(_submission_test_result).where(_submission_test_result.c.judgment_id == judgment_id)
+        )
+        await self._conn.execute(
+            delete(_submission_interactive_attempt).where(_submission_interactive_attempt.c.judgment_id == judgment_id)
         )
         await self._insert_judgment_audit(
             judgment_id=judgment_id,
@@ -91,6 +116,7 @@ class _JudgmentMixin(_DatabaseBase):
     async def set_judgment_judging(
         self,
         judgment_id: str,
+        attempt_token: str,
         contest_start_time: datetime | None = None,
     ) -> None:
         """
@@ -98,14 +124,21 @@ class _JudgmentMixin(_DatabaseBase):
 
         Args:
             judgment_id: UUID of the judgment.
+            attempt_token: Claim stamped by this attempt's dispatch.
             contest_start_time: Used for audit timestamp_seconds computation.
+
+        Raises:
+            JudgmentOwnershipLost: If another attempt has claimed the judgment.
         """
         state = await self._get_judgment_state(judgment_id)
-        await self._conn.execute(
+        result = await self._conn.execute(
             _submission_judgment.update()
-            .where(_submission_judgment.c.id == judgment_id)
+            .where(self._claim_predicate(AttemptClaim(_submission_judgment, judgment_id, attempt_token)))
             .values(status=JudgmentStatus.JUDGING)
         )
+        if result.rowcount == 0:
+            await self._conn.rollback()
+            raise JudgmentOwnershipLost(f"Judgment {judgment_id} was claimed by another attempt")
         await self._insert_judgment_audit(
             judgment_id=judgment_id,
             submission_id=state["submission_id"],
@@ -125,6 +158,7 @@ class _JudgmentMixin(_DatabaseBase):
         verdict: Verdict,
         *,
         autojudge_only: bool,
+        attempt_token: str,
         contest_start_time: datetime | None = None,
         compile_log: str | None = None,
         max_wall_time_ms: int | None = None,
@@ -135,22 +169,31 @@ class _JudgmentMixin(_DatabaseBase):
         """
         Write final verdict and mark judgment as DONE.
 
+        Fenced on this attempt's claim, so a verdict is only ever written by the
+        attempt that owns the judgment. Without the fence a stalled attempt
+        finishing late would overwrite its replacement's verdict and append a
+        second terminal audit row.
+
         Args:
             judgment_id: UUID of the judgment.
             verdict: The autojudge verdict to persist.
             autojudge_only: Whether to also set final_verdict immediately.
+            attempt_token: Claim stamped by this attempt's dispatch.
             contest_start_time: Used for audit timestamp_seconds computation.
             compile_log: Compiler output to persist (may be None).
             max_wall_time_ms: Worst-case wall time across test cases.
             max_memory_kb: Peak memory across test cases.
             min_wall_time_ms: Best-case wall time across test cases.
             min_memory_kb: Minimum memory across test cases.
+
+        Raises:
+            JudgmentOwnershipLost: If another attempt has claimed the judgment.
         """
         now = _utcnow()
         state = await self._get_judgment_state(judgment_id)
-        await self._conn.execute(
+        result = await self._conn.execute(
             _submission_judgment.update()
-            .where(_submission_judgment.c.id == judgment_id)
+            .where(self._claim_predicate(AttemptClaim(_submission_judgment, judgment_id, attempt_token)))
             .values(
                 status=JudgmentStatus.DONE,
                 autojudge_verdict=verdict,
@@ -163,6 +206,9 @@ class _JudgmentMixin(_DatabaseBase):
                 finished_at=now,
             )
         )
+        if result.rowcount == 0:
+            await self._conn.rollback()
+            raise JudgmentOwnershipLost(f"Judgment {judgment_id} was claimed by another attempt")
         await self._insert_judgment_audit(
             judgment_id=judgment_id,
             submission_id=state["submission_id"],
@@ -181,6 +227,7 @@ class _JudgmentMixin(_DatabaseBase):
         judgment_id: str,
         error_message: str,
         contest_start_time: datetime | None = None,
+        attempt_token: str | None = None,
     ) -> None:
         """
         Mark judgment as FAILED due to an internal judge error.
@@ -188,10 +235,20 @@ class _JudgmentMixin(_DatabaseBase):
         Not a CE — the contestant is not at fault. The submission can be
         rejudged once the underlying issue is resolved.
 
+        Fenced twice. On a non-terminal status, so a losing attempt cannot stamp
+        ``FAILED`` over a verdict already committed; and, when the caller knows
+        its ``attempt_token``, on a claim that is either this attempt's or absent
+        — a judgment claimed by *another* attempt is that attempt's to finish,
+        while an unclaimed one (the job failed before dispatch could stamp it)
+        is legitimately ours to fail. A fenced-out call is a logged no-op, and
+        writes no audit row for a transition that did not happen.
+
         Args:
             judgment_id: UUID of the judgment.
             error_message: Internal error description for admins.
             contest_start_time: Used for audit timestamp_seconds computation.
+            attempt_token: Claim stamped by this attempt's dispatch, when it got
+                as far as dispatching.
         """
         # A prior statement (e.g. a poison-pill INSERT) may have left the
         # transaction aborted; roll back so the state read and UPDATE below run
@@ -199,11 +256,31 @@ class _JudgmentMixin(_DatabaseBase):
         await self._conn.rollback()
         now = _utcnow()
         state = await self._get_judgment_state(judgment_id)
-        await self._conn.execute(
+        claim_filter = (
+            or_(
+                _submission_judgment.c.attempt_token.is_(None),
+                _submission_judgment.c.attempt_token == attempt_token,
+            )
+            if attempt_token is not None
+            else true()
+        )
+        result = await self._conn.execute(
             _submission_judgment.update()
-            .where(_submission_judgment.c.id == judgment_id)
+            .where(
+                _submission_judgment.c.id == judgment_id,
+                _submission_judgment.c.status.in_(JUDGMENT_DISPATCHABLE_STATUSES),
+                claim_filter,
+            )
             .values(status=JudgmentStatus.FAILED, error_message=error_message, finished_at=now)
         )
+        if result.rowcount == 0:
+            logger.warning(
+                "Judgment %s already terminal; not overwriting it with FAILED: %s",
+                judgment_id,
+                error_message,
+            )
+            await self._conn.commit()
+            return
         await self._insert_judgment_audit(
             judgment_id=judgment_id,
             submission_id=state["submission_id"],

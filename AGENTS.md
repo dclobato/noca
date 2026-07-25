@@ -43,6 +43,8 @@ Everytime you create/update/remove a service, update SERVICES.md on area/docs or
 
 Check if you change requires updating ARCHITECTURE.md or CONFIG.md, and update them if required/relevant (changes in architecture, on how the app works, or any new configuration variable for app modules)
 
+Everytime you create a new table, analyze its write pattern and decide whether it needs a custom per-table autovacuum tuning migration (like `migrations/versions/202607180003_tune_autovacuum.py`). High-churn tables — those with heavy INSERT/UPDATE (e.g. the submission/judging pipeline) or append-then-bulk-delete tables pruned by a retention/reaper loop — should get tightened `autovacuum_*` storage parameters instead of relying on the server-wide defaults. Low-churn/reference tables do not need it.
+
 All source file must have a copyright header like the sample below
 
 ```python

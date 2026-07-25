@@ -124,6 +124,31 @@ class IsolateError(RuntimeError):
     """Raised when isolate itself fails or its meta file is unusable."""
 
 
+class JobNotDispatchable(LookupError):
+    """Raised when a dequeued job's database row is already in a terminal state.
+
+    A ``LookupError`` so ``dispatch_job`` treats it as "this job cannot be
+    processed" and cleans up, but a distinct type so the web-submission path
+    does not mistake it for "not a web submission" and retry the id against the
+    Arena domain.
+    """
+
+
+class JudgmentOwnershipLost(RuntimeError):
+    """Raised when this attempt no longer holds the judgment's claim.
+
+    A reaper requeue can hand a judgment to a replacement attempt while the
+    original one is still running, and the replacement's dispatch overwrites the
+    claim. From that moment the older attempt must not write anything: its
+    results, verdict, and even its failures belong to work another attempt has
+    taken over.
+
+    This is not a fault, so ``dispatch_job`` aborts the attempt quietly instead
+    of persisting a terminal ``FAILED`` — stamping one would bury the verdict the
+    new owner is about to produce.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Worker types (job processing)
 # ---------------------------------------------------------------------------
@@ -187,6 +212,17 @@ class QueuedProfilingRun:
 
 
 @dataclass(frozen=True)
+class QueuedSolutionTestRun:
+    """Non-scoring solution-test run payload loaded from the database."""
+
+    solution_test_run_id: str
+    contest_id: str
+    problem_id: str
+    language_id: str
+    source_code: str
+
+
+@dataclass(frozen=True)
 class ArenaQueuedTestCase:
     """Arena test case payload loaded from database text columns."""
 
@@ -226,6 +262,14 @@ class RecoverableProfilingJob:
 
     status: ProfilingStatus
     payload: QueuedProfilingRun
+
+
+@dataclass(frozen=True)
+class RecoverableSolutionTestJob:
+    """A non-terminal solution-test run that can be re-enqueued at startup."""
+
+    status: JudgmentStatus
+    payload: QueuedSolutionTestRun
 
 
 @dataclass(frozen=True)

@@ -13,21 +13,53 @@
     vertical-align: middle;
 }
 
+/* min-height on a <td> is not reliably respected by every browser's table
+   layout algorithm, so every problem-cell branch wraps its content in this
+   block-level flex container instead — flexbox min-height/centering is
+   universally solid, guaranteeing solved/pending/attempted/empty cells all
+   reserve the same row height regardless of content. */
+.noca-problem-cell-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 5rem;
+}
+
 .problem-header {
     text-align: center;
     vertical-align: middle;
 }
 
-.solved-cell {
-    background-color: #d1e7dd;
-}
-
-.pending-cell {
-    background-color: #fff3cd;
-}
-
 .team-link {
     cursor: pointer;
+}
+
+/* Team's own row on the scoreboard: a persistent (non-fading) highlight.
+   Bootstrap's table CSS paints `background-color: var(--bs-table-bg)` on
+   every <td>/<th> directly (not the <tr>), so a background set on the row
+   itself is painted over by its own cells — target the cells instead.
+   Uses --bs-primary-rgb (the base primary color, not the dark-remapped
+   *-bg-subtle token) at low alpha so it composites visibly over both the
+   light and the dark table background instead of needing a separate
+   dark-mode override. */
+.noca-own-team-row > td {
+    background-color: rgba(var(--bs-primary-rgb), 0.2) !important;
+}
+
+.noca-back-to-top-btn {
+    position: fixed;
+    right: 1.5rem;
+    bottom: 1.5rem;
+    z-index: 1030;
+    width: 3rem;
+    height: 3rem;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 /* `.noca-icon-btn`, `.noca-drag-handle`, `.noca-sortable-*`, and

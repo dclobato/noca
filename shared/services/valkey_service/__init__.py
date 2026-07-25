@@ -23,7 +23,15 @@ from shared.services.valkey_service.constants import (
     QUEUE_PRIORITY_KEY,
     QUEUE_PROFILING_KEY,
     QUEUE_RESULTS_CHANNEL,
+    QUEUE_SUBMISSIONS_CHANNEL,
     QUEUE_UNKNOWN_CONTEST,
+)
+from shared.services.valkey_service.contest_purge import (
+    ContestValkeyPurgeError,
+    ContestValkeyPurgeResult,
+    ContestValkeyTargets,
+    contest_runtime_keys,
+    purge_contest_with_client,
 )
 from shared.services.valkey_service.pool import create_valkey_pool
 from shared.services.valkey_service.queue_metrics import (
@@ -56,11 +64,13 @@ from shared.services.valkey_service.queue_ops import (
     enqueue_custom_validator_validation_job,
     enqueue_job,
     enqueue_profiling_job,
+    enqueue_solution_test_job,
     get_ai_review_job_hash,
     get_ai_review_queued_ids,
     get_all_contest_queue_metrics,
     get_contest_queue_metrics,
     get_stale_ai_review_job_ids,
+    publish_submission,
     publish_verdict,
     remove_from_ai_review_inflight,
     remove_from_inflight,
@@ -90,6 +100,9 @@ from shared.services.valkey_service.queue_ops import (
     enqueue_profiling_job_with_client as _enqueue_profiling_job_with_client,
 )
 from shared.services.valkey_service.queue_ops import (
+    enqueue_solution_test_job_with_client as _enqueue_solution_test_job_with_client,
+)
+from shared.services.valkey_service.queue_ops import (
     get_ai_review_job_hash_with_client as _get_ai_review_job_hash_with_client,
 )
 from shared.services.valkey_service.queue_ops import (
@@ -100,6 +113,9 @@ from shared.services.valkey_service.queue_ops import (
 )
 from shared.services.valkey_service.queue_ops import (
     publish_arena_verdict_with_client as _publish_arena_verdict_with_client,
+)
+from shared.services.valkey_service.queue_ops import (
+    publish_submission_with_client as _publish_submission_with_client,
 )
 from shared.services.valkey_service.queue_ops import (
     publish_verdict_with_client as _publish_verdict_with_client,
@@ -145,6 +161,9 @@ __all__ = [
     "AI_BATCH_TURNAROUND_STATS_KEY",
     "ARENA_RESULTS_CHANNEL",
     "CommandVerdict",
+    "ContestValkeyPurgeError",
+    "ContestValkeyPurgeResult",
+    "ContestValkeyTargets",
     "LivePauseFlag",
     "PendingCommand",
     "WorkerCommandType",
@@ -160,6 +179,7 @@ __all__ = [
     "QUEUE_PRIORITY_KEY",
     "QUEUE_PROFILING_KEY",
     "QUEUE_RESULTS_CHANNEL",
+    "QUEUE_SUBMISSIONS_CHANNEL",
     "QUEUE_UNKNOWN_CONTEST",
     "ValkeyRuntime",
     "WORKER_PRESENCE_PREFIX",
@@ -174,6 +194,7 @@ __all__ = [
     "_enqueue_custom_validator_validation_job_with_client",
     "_enqueue_job_with_client",
     "_enqueue_profiling_job_with_client",
+    "_enqueue_solution_test_job_with_client",
     "_get_ai_review_job_hash_with_client",
     "_get_ai_review_queued_ids_with_client",
     "_get_ai_review_queue_size_with_client",
@@ -182,6 +203,7 @@ __all__ = [
     "_get_contest_queue_metrics_with_client",
     "_get_stale_ai_review_job_ids_with_client",
     "_publish_arena_verdict_with_client",
+    "_publish_submission_with_client",
     "_publish_verdict_with_client",
     "_read_job_hashes_for_ids_with_client",
     "_read_queue_ids_with_client",
@@ -190,6 +212,7 @@ __all__ = [
     "build_command",
     "claim_nonce",
     "complete_arena_ai_review_job",
+    "contest_runtime_keys",
     "create_valkey_pool",
     "dequeue_arena_ai_review_job_id",
     "dequeue_job_id",
@@ -198,6 +221,7 @@ __all__ = [
     "enqueue_custom_validator_validation_job",
     "enqueue_job",
     "enqueue_profiling_job",
+    "enqueue_solution_test_job",
     "get_ai_review_job_hash",
     "get_ai_review_queued_ids",
     "get_all_contest_queue_metrics",
@@ -207,9 +231,11 @@ __all__ = [
     "list_workers",
     "mark_worker_offline",
     "publish_command",
+    "publish_submission",
     "publish_verdict",
     "publish_worker_last_job",
     "publish_worker_presence",
+    "purge_contest_with_client",
     "reconcile_worker_pause_state",
     "remove_from_ai_review_inflight",
     "remove_from_inflight",

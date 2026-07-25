@@ -226,6 +226,7 @@ async def send_batch_credentials_email(
         event_type="credential_email_batch_completed",
         severity="warning" if failed else "info",
         actor_user_id=ctx.actor.id,
+        actor_label=ctx.actor.username,
         metadata={
             "scope": "contest_user_batch",
             "contest_slug": ctx.contest.login_slug,

@@ -15,8 +15,8 @@
  *   - Past contest     : "The contest is over"
  *   - When < 5 minutes remain (either phase), seconds are included.
  *
- * Time source: prefer SSE from `data-clock-url`; fall back to polling every
- * 30 seconds when SSE is unavailable or repeatedly fails.
+ * Time source: poll `data-clock-url` every 60 seconds to stay synchronized
+ * with the server while rendering the countdown locally every second.
  *
  * Display logic (formatDuration, countdownText) lives in contest-clock-utils.js,
  * which must be loaded before this file.
@@ -39,10 +39,7 @@
   let offsetMs       = 0;      // serverNow - clientNow at last sync
   let startMs        = 0;      // contest start (epoch ms)
   let endMs          = 0;      // contest end   (epoch ms)
-  let lastState      = null;   // "upcoming" | "running" | "past"
-  let eventSource    = null;   // EventSource when SSE is active
   let pollingStarted = false;
-  let sseFailures    = 0;
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -56,11 +53,6 @@
     offsetMs = data.server_now_ms - measuredAtMs;
     startMs  = data.start_ms;
     endMs    = data.end_ms;
-
-    const newState = data.state;
-    if (newState !== lastState) {
-      lastState = newState;
-    }
 
     render();
   }
@@ -88,48 +80,7 @@
     setInterval(sync, RESYNC_INTERVAL_MS);
   }
 
-  function fallbackToPolling() {
-    if (eventSource) {
-      eventSource.close();
-      eventSource = null;
-    }
-    startPolling();
-  }
-
-  function startSse() {
-    if (!("EventSource" in window)) {
-      startPolling();
-      return;
-    }
-
-    eventSource = new window.EventSource(clockUrl, { withCredentials: true });
-    let sawFirstMessage = false;
-
-    eventSource.onmessage = function (event) {
-      let data;
-      try {
-        data = JSON.parse(event.data);
-      } catch (_) {
-        sseFailures += 1;
-        if (sseFailures >= 3) fallbackToPolling();
-        return;
-      }
-      sawFirstMessage = true;
-      sseFailures = 0;
-      applyClockData(data, Date.now());
-    };
-
-    eventSource.onerror = function () {
-      sseFailures += 1;
-      if (!sawFirstMessage || sseFailures >= 3) {
-        fallbackToPolling();
-      }
-    };
-
-    setInterval(render, TICK_INTERVAL_MS);
-  }
-
   // ── Bootstrap ────────────────────────────────────────────────────────────────
 
-  startSse();
+  startPolling();
 })();

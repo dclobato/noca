@@ -17,6 +17,36 @@
     }
   }
 
+  function closeSubmissionAlert(alert) {
+    if (!alert || alert.getAttribute('data-dismissed') === 'true') return;
+
+    alert.setAttribute('data-dismissed', 'true');
+    if (window.bootstrap && window.bootstrap.Alert) {
+      window.bootstrap.Alert.getOrCreateInstance(alert).close();
+      return;
+    }
+    alert.remove();
+  }
+
+  function initializeSubmissionAlert() {
+    var alert = document.querySelector('[data-verdict-submission-id]');
+    if (!alert) return null;
+
+    var delay = Number.parseInt(alert.getAttribute('data-auto-dismiss-ms'), 10);
+    if (Number.isFinite(delay) && delay >= 0) {
+      window.setTimeout(function () {
+        closeSubmissionAlert(alert);
+      }, delay);
+    }
+    return alert;
+  }
+
+  function dismissAlertForVerdict(alert, eventPayload) {
+    if (!alert || !eventPayload || !eventPayload.submission_id) return;
+    if (alert.getAttribute('data-verdict-submission-id') !== eventPayload.submission_id) return;
+    closeSubmissionAlert(alert);
+  }
+
   function getWrapper() {
     return document.getElementById('runs-list-wrapper');
   }
@@ -117,6 +147,7 @@
     }));
   }
 
+  var submissionAlert = initializeSubmissionAlert();
   var wrapper = getWrapper();
   if (!wrapper) return;
 
@@ -132,6 +163,7 @@
     var parsedEvent = parseVerdictEvent(e.data);
     if (!parsedEvent) return;
 
+    dismissAlertForVerdict(submissionAlert, parsedEvent);
     document.dispatchEvent(new CustomEvent('runs:verdict-received', { detail: parsedEvent }));
 
     var currentWrapper = getWrapper();

@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.enumerations import RoleEnum
+from shared.enumerations import RoleEnum, Verdict
 from shared.queue_schema import VerdictEvent
 from shared.services.lock_service import get_locks
 from web.models.contest import Contest
@@ -24,6 +24,7 @@ from web.models.problem import Problem
 from web.models.submission import Submission
 from web.models.users import UberAdmin, User
 from web.routes.contest_admin_problem_helpers import _label
+from web.services.assorted_utils import format_site_identity
 from web.services.first_solve_service import first_accepted_submission_ids_by_problem
 from web.services.judgment_utils import get_active_judgment
 from web.services.valkey_service import ValkeyRuntime
@@ -51,6 +52,7 @@ def _shape_sse_payload(event: VerdictEvent, actor: UberAdmin | User, contest: Co
         payload: dict[str, str | None] = {
             "kind": "verdict-update",
             "update_kind": event.update_kind,
+            "submission_id": event.submission_id,
             "team_id": event.team_id,
             "problem_id": event.problem_id,
             "verdict": event.verdict,
@@ -116,6 +118,41 @@ def _access_blocked(actor: UberAdmin | User, contest: Contest) -> bool:
 
 def _team_runs_are_blind(actor: UberAdmin | User, contest: Contest) -> bool:
     return isinstance(actor, User) and actor.role == RoleEnum.TEAM and contest.are_submissions_blind
+
+
+def _can_filter_runs_by_team(actor: UberAdmin | User, contest: Contest) -> bool:
+    """Return whether the actor may see and use the Runs team filter."""
+    if actor.role in (RoleEnum.UBERADMIN, RoleEnum.ADMIN):
+        return True
+    return (
+        isinstance(actor, User)
+        and actor.role == RoleEnum.JUDGE
+        and contest.chief_judge_id is not None
+        and actor.id == contest.chief_judge_id
+    )
+
+
+def _normalize_verdict_filter(value: str) -> Verdict | None:
+    """Return a valid verdict filter, or no filter for unknown values."""
+    try:
+        return Verdict(value)
+    except ValueError:
+        return None
+
+
+def _build_team_filter_options(teams: list[User]) -> list[tuple[str, str]]:
+    """Return Runs team filter options ordered by their display labels."""
+    options = [
+        (
+            team.id,
+            format_site_identity(
+                team.site.sitename if team.site is not None else None,
+                team.fullname or team.username,
+            ),
+        )
+        for team in teams
+    ]
+    return sorted(options, key=lambda option: (option[1].casefold(), option[0]))
 
 
 async def _build_problem_map(session: AsyncSession, contest: Contest) -> dict[str, str]:

@@ -155,6 +155,7 @@ async def test_record_admin_action_writes_structured_metadata(session) -> None:
         _request(),
         module="web",
         actor_user_id="admin-1",
+        actor_label="admin",
         action="delete",
         target_type="contest_user",
         target_id="user-9",
@@ -166,6 +167,7 @@ async def test_record_admin_action_writes_structured_metadata(session) -> None:
     assert len(rows) == 1
     row = rows[0]
     assert row.actor_user_id == "admin-1"
+    assert row.actor_label == "admin"
     assert row.client_ip == "203.0.113.9"
     assert row.source_port == 54321
     assert row.request_id == "11111111-2222-3333-4444-555555555555"

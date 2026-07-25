@@ -58,6 +58,13 @@
                 {% endif %}
             </h1>
             <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+            {% if problem and current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value] %}
+                <a class="btn btn-secondary btn-sm mt-2"
+                   href="{{ request.url_for('contest_solution_tests', slug=contest.login_slug) }}?problem_id={{ problem.id }}">
+                    {{ render_icon(icon="science") }}
+                    Test a solution
+                </a>
+            {% endif %}
         </div>
         {% for err in errors %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endfor %}
         {% if not is_edit_allowed %}

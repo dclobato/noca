@@ -17,7 +17,9 @@ RUN --mount=type=cache,target=/tmp/uv-cache \
 COPY shared /app/shared
 COPY autojudge /app/autojudge
 COPY migrations /app/migrations
-COPY scripts/run_migrations.py /app/scripts/run_migrations.py
+COPY scripts/wait_for_migrations.py /app/scripts/wait_for_migrations.py
+COPY scripts/autojudge/probe_sandbox_limits.py /app/scripts/autojudge/probe_sandbox_limits.py
+COPY scripts/autojudge/smoke_test_judge.py /app/scripts/autojudge/smoke_test_judge.py
 COPY containers/autojudge/entrypoint.sh /app/entrypoint.sh
 
 RUN chmod +x /app/entrypoint.sh
