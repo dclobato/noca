@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -30,7 +30,9 @@ from shared.language_configs import (
     LUA_PATH,
     LUAC_PATH,
     NODE_PATH,
+    OCAMLOPT_PATH,
     PERL_PATH,
+    PHP_PATH,
     PYTHON3_PATH,
     SANDBOX_DIR,
     STDERR_PATH,
@@ -53,7 +55,9 @@ __all__ = [
     "LUA_PATH",
     "LUAC_PATH",
     "NODE_PATH",
+    "OCAMLOPT_PATH",
     "PERL_PATH",
+    "PHP_PATH",
     "PYTHON3_PATH",
     "SANDBOX_DIR",
     "STDERR_PATH",
@@ -151,6 +155,9 @@ def highlightjs_language_for_language_id(language_id: str) -> str:
         "ruby": "ruby",
         "bash": "bash",
         "perl": "perl",
+        "scala": "scala",
+        "ocaml": "ocaml",
+        "php": "php",
     }
     return mapping.get(language_id, "plaintext")
 
@@ -181,6 +188,9 @@ def ace_mode_for_language_id(language_id: str) -> str:
         "ruby": "ruby",
         "bash": "sh",
         "perl": "perl",
+        "scala": "scala",
+        "ocaml": "ocaml",
+        "php": "php",
     }
     return mapping.get(language_id, "text")
 

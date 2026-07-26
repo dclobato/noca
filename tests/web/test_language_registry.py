@@ -158,6 +158,93 @@ def test_new_language_config_perl() -> None:
     assert "perl" in highlight_asset_languages()
 
 
+def test_new_language_config_scala() -> None:
+    registry = default_language_registry()
+
+    scala = registry["scala"]
+    assert scala.source_filename == "Main.scala"
+    assert scala.default_extension == ".scala"
+    assert scala.compile_image == "noca/judge-scala:compile"
+    assert scala.run_image == "noca/judge-scala:run"
+    # Compiled to a self-contained fat jar, so the run command is a plain JRE
+    # invocation identical to Kotlin's and the artifact is the jar, not the source.
+    assert scala.run_cmd == ["/opt/java/openjdk/bin/java", "-Xss64m", "-Xmx256m", "-jar", "/sandbox/solution.jar"]
+    assert scala.artifact_path == "/sandbox/solution.jar"
+    assert scala.artifact_is_source is False
+
+    assert scala.compile_cmd is not None
+    assert scala.compile_cmd[:2] == ["sh", "-c"]
+    compile_script = scala.compile_cmd[2]
+    assert "scalac -d /sandbox/classes /sandbox/Main.scala" in compile_script
+    # The Scala runtime jars must be folded in, or the artifact will not run on a plain JRE.
+    assert "scala3-library_3-*.jar" in compile_script
+    assert "jar cfe /sandbox/solution.jar Main" in compile_script
+
+    seed_ids = {str(row["id"]) for row in default_language_seed_rows()}
+    assert "scala" in seed_ids
+
+    assert highlightjs_language_for_language_id("scala") == "scala"
+    assert "scala" in highlightjs_languages_for_registry()
+    assert "scala" in highlight_asset_languages()
+
+
+def test_new_language_config_ocaml() -> None:
+    registry = default_language_registry()
+
+    ocaml = registry["ocaml"]
+    assert ocaml.source_filename == "source.ml"
+    assert ocaml.default_extension == ".ml"
+    assert ocaml.compile_image == "noca/judge-ocaml:compile"
+    assert ocaml.run_image == "noca/judge-ocaml:run"
+    # ocamlopt (native), not ocamlc (bytecode): the artifact is a standalone binary.
+    assert ocaml.compile_cmd == ["/usr/local/bin/ocamlopt", "-o", "/sandbox/solution", "/sandbox/source.ml"]
+    assert ocaml.run_cmd == ["/sandbox/solution"]
+    assert ocaml.artifact_path == "/sandbox/solution"
+    assert ocaml.artifact_is_source is False
+    # "-O2" is flambda-only and this is a stock source build; it must not creep back in.
+    assert "-O2" not in ocaml.compile_cmd
+
+    seed_ids = {str(row["id"]) for row in default_language_seed_rows()}
+    assert "ocaml" in seed_ids
+
+    assert highlightjs_language_for_language_id("ocaml") == "ocaml"
+    assert "ocaml" in highlightjs_languages_for_registry()
+    assert "ocaml" in highlight_asset_languages()
+
+
+def test_new_language_config_php() -> None:
+    registry = default_language_registry()
+
+    php = registry["php"]
+    assert php.source_filename == "source.php"
+    assert php.default_extension == ".php"
+    assert php.compile_image == "noca/judge-php:compile"
+    assert php.run_image == "noca/judge-php:run"
+    assert php.compile_cmd == ["/usr/local/bin/php", "-l", "/sandbox/source.php"]
+    assert php.run_cmd == ["/usr/local/bin/php", "/sandbox/source.php"]
+    assert php.artifact_path == "/sandbox/source.php"
+    assert php.artifact_is_source is True
+
+    seed_ids = {str(row["id"]) for row in default_language_seed_rows()}
+    assert "php" in seed_ids
+
+    assert highlightjs_language_for_language_id("php") == "php"
+    assert "php" in highlightjs_languages_for_registry()
+    assert "php" in highlight_asset_languages()
+
+
+def test_stdout_flush_hints_have_balanced_code_spans() -> None:
+    """Arena splits the hint on backticks to alternate code/prose spans.
+
+    An odd count silently inverts which half renders as code, so every hint must
+    carry an even number of backticks.
+    """
+    for language in default_language_registry().values():
+        hint = language.stdout_flush_hint
+        assert hint, f"{language.id} has no stdout flush hint"
+        assert hint.count("`") % 2 == 0, f"{language.id} hint has unbalanced backticks: {hint!r}"
+
+
 def test_submission_highlight_assets_support_javascript() -> None:
     assert submission_highlight_assets("javascript") == {
         "highlight_language_path": "highlight/languages/javascript.min.js",

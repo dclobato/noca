@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -68,8 +68,12 @@ group "release" {
     "judge-kotlin-run",
     "judge-lua-compile",
     "judge-lua-run",
+    "judge-ocaml-compile",
+    "judge-ocaml-run",
     "judge-perl-compile",
     "judge-perl-run",
+    "judge-php-compile",
+    "judge-php-run",
     "judge-prolog-compile",
     "judge-prolog-run",
     "judge-python3-compile",
@@ -78,6 +82,8 @@ group "release" {
     "judge-ruby-run",
     "judge-rust-compile",
     "judge-rust-run",
+    "judge-scala-compile",
+    "judge-scala-run",
     "judge-swift-compile",
     "judge-swift-run",
   ]
@@ -878,6 +884,108 @@ target "judge-perl-run" {
         "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-perl:run",
         "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-perl:run-${VERSION}",
       ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}judge-perl:run"]
+    ) : [],
+  )
+}
+
+target "judge-scala-compile" {
+  inherits = ["_plain-compile-consumer"]
+  context = "containers/languages/scala/compile"
+  tags = concat(
+    VERSION != "" ? [
+      "${REPO}${NAME_SEPARATOR}judge-scala:compile",
+      "${REPO}${NAME_SEPARATOR}judge-scala:compile-${VERSION}",
+    ] : ["${REPO}${NAME_SEPARATOR}judge-scala:compile"],
+    ALT_REPO != "" ? (
+      VERSION != "" ? [
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-scala:compile",
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-scala:compile-${VERSION}",
+      ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}judge-scala:compile"]
+    ) : [],
+  )
+}
+
+target "judge-scala-run" {
+  inherits = ["_run-consumer"]
+  context = "containers/languages/scala/run"
+  tags = concat(
+    VERSION != "" ? [
+      "${REPO}${NAME_SEPARATOR}judge-scala:run",
+      "${REPO}${NAME_SEPARATOR}judge-scala:run-${VERSION}",
+    ] : ["${REPO}${NAME_SEPARATOR}judge-scala:run"],
+    ALT_REPO != "" ? (
+      VERSION != "" ? [
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-scala:run",
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-scala:run-${VERSION}",
+      ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}judge-scala:run"]
+    ) : [],
+  )
+}
+
+target "judge-ocaml-compile" {
+  inherits = ["_native-compile-consumer"]
+  context = "containers/languages/ocaml/compile"
+  tags = concat(
+    VERSION != "" ? [
+      "${REPO}${NAME_SEPARATOR}judge-ocaml:compile",
+      "${REPO}${NAME_SEPARATOR}judge-ocaml:compile-${VERSION}",
+    ] : ["${REPO}${NAME_SEPARATOR}judge-ocaml:compile"],
+    ALT_REPO != "" ? (
+      VERSION != "" ? [
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-ocaml:compile",
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-ocaml:compile-${VERSION}",
+      ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}judge-ocaml:compile"]
+    ) : [],
+  )
+}
+
+target "judge-ocaml-run" {
+  inherits = ["_run-consumer"]
+  context = "containers/languages/ocaml/run"
+  tags = concat(
+    VERSION != "" ? [
+      "${REPO}${NAME_SEPARATOR}judge-ocaml:run",
+      "${REPO}${NAME_SEPARATOR}judge-ocaml:run-${VERSION}",
+    ] : ["${REPO}${NAME_SEPARATOR}judge-ocaml:run"],
+    ALT_REPO != "" ? (
+      VERSION != "" ? [
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-ocaml:run",
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-ocaml:run-${VERSION}",
+      ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}judge-ocaml:run"]
+    ) : [],
+  )
+}
+
+target "judge-php-compile" {
+  inherits = ["_plain-compile-consumer"]
+  context = "containers/languages/php/compile"
+  tags = concat(
+    VERSION != "" ? [
+      "${REPO}${NAME_SEPARATOR}judge-php:compile",
+      "${REPO}${NAME_SEPARATOR}judge-php:compile-${VERSION}",
+    ] : ["${REPO}${NAME_SEPARATOR}judge-php:compile"],
+    ALT_REPO != "" ? (
+      VERSION != "" ? [
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-php:compile",
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-php:compile-${VERSION}",
+      ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}judge-php:compile"]
+    ) : [],
+  )
+}
+
+target "judge-php-run" {
+  inherits = ["_run-consumer"]
+  context = "containers/languages/php/run"
+  tags = concat(
+    VERSION != "" ? [
+      "${REPO}${NAME_SEPARATOR}judge-php:run",
+      "${REPO}${NAME_SEPARATOR}judge-php:run-${VERSION}",
+    ] : ["${REPO}${NAME_SEPARATOR}judge-php:run"],
+    ALT_REPO != "" ? (
+      VERSION != "" ? [
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-php:run",
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}judge-php:run-${VERSION}",
+      ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}judge-php:run"]
     ) : [],
   )
 }

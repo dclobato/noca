@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+## [14.3.0] - 2026-07-26
+
+### Features
+
+- **arena**: Assign problems to teacher problem sets — a judge-only accordion on
+  the problem detail page groups current assignments, links each set to its
+  management page, and offers eligible targets from owned ongoing classes through
+  safely serialized dependent selectors. A dedicated assignment service and POST
+  route revalidate exact role, ownership, class dates, deadline, problem
+  existence and non-membership; problem-list return state is preserved, GET and
+  POST eligibility use consistent UTC dates, and zero-row duplicate races are
+  reported as stale-selection warnings rather than false success. The
+  create-problem-set start field defaults to two minutes ahead in the teacher's
+  timezone so minute-precision submissions do not immediately fail past-time
+  validation
+- **languages**: Add Scala 3.3.8 LTS, OCaml 4.14.4 and PHP 8.5.8 as judge
+  languages, bringing the registry to 21. Scala compiles with `scalac` and folds
+  the Scala runtime jars into a self-contained `solution.jar`, so its run image is
+  the same plain Temurin JRE that Kotlin uses and the sandbox needs only the
+  existing JVM binds. OCaml is built from source (Debian bookworm ships only
+  4.14.1) and compiles natively with `ocamlopt`, so the run image carries no OCaml
+  runtime and needs no sandbox binds, matching the Go/Rust model. PHP is
+  interpreted, syntax-checked with `php -l`, and runs from source. Each language
+  ships editor stubs, highlight.js/Ace modes, a devicon, a stdout flush hint, and
+  sample solutions for both the token-compared and custom-validator problems
+
+### Fixes
+
+- **smoke-test**: Point `scripts/autojudge/smoke_test_judge.py` at
+  `sample_question/token_validator/`. The sample tree had been reorganized into
+  `token_validator/` and `custom_validator/` subdirectories, leaving the script
+  resolving every source, input and expected-output path against a directory that
+  no longer held them
+
 ## [14.2.0] - 2026-07-25
 
 ### Features

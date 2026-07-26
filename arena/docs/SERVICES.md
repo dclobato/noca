@@ -1556,6 +1556,21 @@ Freezing and reading the post-deadline rating snapshot.
 | `list_snapshot_user_totals(session, *, actor_id, actor_role, set_id)` | Teacher/admin only. Per-user frozen totals. |
 | `list_snapshot_ratings(session, *, actor_id, actor_role, set_id)` | Teacher/admin only. Per (user, problem) frozen AC ratings. |
 
+### `arena_problem_assignment_service.py`
+
+Teacher-facing queries and mutation validation for the problem-detail
+assignment card.
+
+**Dataclasses:** `ProblemSetAssignment`, `ProblemSetAssignmentGroup`,
+`ProblemAssignmentOverview`.
+
+| Function | Description |
+|----------|-------------|
+| `get_problem_assignment_overview(session, *, actor_id, actor_role, problem_id, today, now)` | Returns `None` unless the actor is exactly `ARENA_JUDGE` and owns a class whose end date is today or later. Groups existing assignments and eligible targets by teacher-owned class, with classes ordered by latest start date. Existing sets use earliest-deadline order with open deadlines last. Eligible targets have no past deadline and do not already contain the problem; their start date does not restrict eligibility. |
+| `add_problem_to_problem_set(session, *, actor_id, actor_role, arena_number, problem_set_id, today, now)` | Revalidates the exact judge role, enabled problem existence, set existence, ownership, class end date, deadline, and non-membership against current database state. Calls the shared `add_problems_to_set` membership operation after validation. The caller owns commit and rollback. |
+
+---
+
 ### `arena_problem_set_management_service.py`
 
 Teacher-facing query helpers used by the class-scoped problem-set management

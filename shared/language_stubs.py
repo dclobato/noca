@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -235,6 +235,39 @@ _DEFAULT_STUBS: dict[str, str] = {
     ),
     "swift": ("while let line = readLine(strippingNewline: true) {\n    print(line)\n}\n"),
     "perl": ("use strict;\nuse warnings;\n\nwhile (my $line = <STDIN>) {\n    print $line;\n}\n"),
+    "scala": (
+        "import scala.io.StdIn\n"
+        "\n"
+        "object Main {\n"
+        "  def main(args: Array[String]): Unit = {\n"
+        "    var line = StdIn.readLine()\n"
+        "    while (line != null) {\n"
+        "      println(line)\n"
+        "      line = StdIn.readLine()\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    ),
+    "ocaml": (
+        "let () =\n"
+        "  try\n"
+        "    while true do\n"
+        "      print_endline (input_line stdin)\n"
+        "    done\n"
+        "  with End_of_file -> ()\n"
+    ),
+    # The comment deliberately says "closing tag" rather than showing one: a literal
+    # closing tag inside a // comment ends PHP mode and breaks the file.
+    "php": (
+        "<?php\n"
+        "// Keep this tag first. PHP starts in output mode, so any text before the tag\n"
+        "// is printed verbatim, and a file without it prints its own source instead of\n"
+        "// running. No closing tag is needed: end of file ends code mode.\n"
+        "\n"
+        "while (($line = fgets(STDIN)) !== false) {\n"
+        "    echo $line;\n"
+        "}\n"
+    ),
 }
 
 

@@ -58,7 +58,7 @@ Built from `containers/isolate-base/` as context.
 
 ### `noca/judge-compile-base`
 
-Shared base for the native-toolchain compile images (`gcc-c17`, `gcc-cpp23`, `fpc-pascal`, `haskell`, `lua`, `prolog`, `fortran`).
+Shared base for the native-toolchain compile images (`gcc-c17`, `gcc-cpp23`, `fpc-pascal`, `haskell`, `lua`, `prolog`, `fortran`, `ocaml`).
 Encodes the `judge` system user and `/sandbox` ownership/permissions boilerplate. Each consumer
 installs its own toolchain on top via `USER root` → apt-get → `USER judge`.
 
@@ -75,7 +75,7 @@ images are needed and builds them as prerequisites **before** the target loop:
    `aiassistant`, or `healthmonitor` is selected
 2. `assets-base` — when `webapp`, `arena`, or `healthmonitor` is selected
 3. `isolate-base` — when any language with a `run/` directory is selected
-4. `judge-compile-base` — when any of `gcc-c17`, `gcc-cpp23`, `fpc-pascal`, `haskell`, `lua`, `prolog`, or `fortran` is selected
+4. `judge-compile-base` — when any of `gcc-c17`, `gcc-cpp23`, `fpc-pascal`, `haskell`, `lua`, `prolog`, `fortran`, or `ocaml` is selected
 
 In script `--push` mode, `build.sh` delegates to
 `containers/docker-bake.hcl`. Bake resolves `app-base`, `assets-base`, `isolate-base`, and
@@ -178,6 +178,9 @@ The script supports the following targets:
 - `fortran`
 - `swift`
 - `perl`
+- `scala`
+- `ocaml`
+- `php`
 
 If no targets are provided, the script builds all app images plus all judge language images.
 

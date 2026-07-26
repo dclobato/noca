@@ -39,7 +39,7 @@ Use this endpoint for runtime health probes.
 | `GET /legal/terms` | `arena_terms_of_service` | — | `legal.py` |
 | `GET /legal/privacy` | `arena_privacy_policy` | — | `legal.py` |
 
-## Public Problem Routes (`arena/routes/problems.py`)
+## Problem routes (`arena/routes/problems.py`, `arena/routes/problem_problem_sets.py`)
 
 | `url_for` call | Generated path | Notes |
 |---|---|---|
@@ -51,6 +51,7 @@ Use this endpoint for runtime health probes.
 | `request.url_for('arena_problem_statistics_data', arena_number=N)` | `/problems/{N}/statistics.json` | Returns the precomputed statistics payload, or `{}` |
 | `request.url_for('arena_problem_sample_testcases_zip', arena_number=N)` | `/problems/{N}/sample-testcases.zip` | Returns `application/zip` download of public sample test cases (Layout A) |
 | `request.url_for('arena_problem_submit', arena_number=N)` | `/problems/{N}/submit` | POST only; requires auth; form fields `language_id`, `source_code`, and optional `problem_set_id` (ties the submission to a problem set so its teacher can see it; omitted = private) |
+| `request.url_for('arena_problem_problem_set_add', arena_number=N)` | `/problems/{N}/problem-sets` | POST only; exact `ARENA_JUDGE` role and teacher-owned eligible set required; form field `problem_set_id`, with optional problem-list return-state fields |
 | `request.url_for('arena_problem_toggle_favorite', arena_number=N)` | `/problems/{N}/favorite` | POST only; requires auth; returns `{"is_favorite": bool}`; guests get 401 |
 | `request.url_for('arena_problem_request_removal', arena_number=N)` | `/problems/{N}/request-removal` | POST only; requires auth; owner without edit rights only; notifies all ARENA_ADMINs |
 

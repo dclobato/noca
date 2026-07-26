@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -14,7 +14,12 @@ This is a worker-layer smoke test only:
 
 It exercises the real compile containers, run containers, pool warmup, and the
 current `isolate`-backed `run_test_case()` path using the files in
-`sample_question/`.
+`sample_question/token_validator/`.
+
+That sample is the token-compared (non-interactive) problem, so it is the only
+one carrying matching `in/` and `out/` pairs. The `custom_validator/` sample has
+inputs only — it is judged by an interactive validator rather than by comparing
+against a stored expected output — so it cannot drive this pipeline.
 
 Usage:
     uv run scripts/autojudge/smoke_test_judge.py
@@ -43,10 +48,12 @@ from shared.enumerations import Verdict
 from shared.language_registry import LanguageConfig, default_language_registry, get_language
 
 REPO_ROOT = Path(__file__).parents[2]
-SAMPLE_DIR = REPO_ROOT / "sample_question"
+SAMPLE_DIR = REPO_ROOT / "sample_question" / "token_validator"
 INPUT_DIR = SAMPLE_DIR / "in"
 OUTPUT_DIR = SAMPLE_DIR / "out"
 
+# Perl and Prolog share the ".pl" extension, so the sample tree spells Perl's
+# solution out as "main.perl" to keep the two files distinct.
 SOURCE_FILES: dict[str, Path] = {
     "gcc-c17": SAMPLE_DIR / "main.c",
     "gcc-cpp23": SAMPLE_DIR / "main.cpp",
@@ -66,6 +73,9 @@ SOURCE_FILES: dict[str, Path] = {
     "ruby": SAMPLE_DIR / "main.rb",
     "bash": SAMPLE_DIR / "main.bash",
     "perl": SAMPLE_DIR / "main.perl",
+    "scala": SAMPLE_DIR / "main.scala",
+    "ocaml": SAMPLE_DIR / "main.ml",
+    "php": SAMPLE_DIR / "main.php",
 }
 
 DEFAULT_LANGUAGES = list(SOURCE_FILES.keys())

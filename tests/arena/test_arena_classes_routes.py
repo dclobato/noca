@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -600,6 +601,7 @@ async def test_problem_set_list_page_renders_rows(session: AsyncSession) -> None
     await session.commit()
 
     app = _build_app(session)
+    request_started_at = datetime.now(UTC)
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://testserver",
@@ -611,6 +613,13 @@ async def test_problem_set_list_page_renders_rows(session: AsyncSession) -> None
     assert "Week 1" in response.text
     assert "Intro list" in response.text
     assert "Add new problem set" in response.text
+    start_match = re.search(
+        r'id="problem_set_starts_on"[^>]*value="([^"]+)"',
+        response.text,
+    )
+    assert start_match is not None
+    default_start = datetime.fromisoformat(start_match.group(1)).replace(tzinfo=UTC)
+    assert timedelta(minutes=1) <= default_start - request_started_at <= timedelta(minutes=2)
 
 
 @pytest.mark.asyncio

@@ -124,6 +124,113 @@
         </span>
     </div>
 {% endif %}
+{% if problem_set_assignments %}
+    {# ── Teacher problem-set assignment ──────────────────────────────── #}
+    <section class="arena-card accordion mb-3"
+             aria-labelledby="problem-set-assignment-title"
+             data-problem-set-assignment>
+        <div class="accordion-item border-0 bg-transparent">
+            <h2 class="accordion-header" id="problem-set-assignment-title">
+                <button class="accordion-button collapsed bg-transparent p-0 shadow-none"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#problem-set-assignment-body"
+                        aria-expanded="false"
+                        aria-controls="problem-set-assignment-body">
+                    <span class="d-flex align-items-center gap-2">
+                        {{ render_icon(icon="playlist_add") }}
+                        <span class="arena-card-title">Problem set assignment</span>
+                    </span>
+                </button>
+            </h2>
+            <div id="problem-set-assignment-body"
+                 class="accordion-collapse collapse"
+                 aria-labelledby="problem-set-assignment-title">
+                <div class="accordion-body px-0 pb-0">
+                    <div class="row g-4">
+                        <div class="col-12 col-lg-6">
+                            <h3 class="h6">Current assignments</h3>
+                            {% if problem_set_assignments.existing %}
+                                <div class="d-flex flex-column gap-3">
+                                    {% for group in problem_set_assignments.existing %}
+                                        <div>
+                                            <p class="fw-semibold mb-1">{{ group.class_name }}</p>
+                                            <p class="small text-muted mb-2">{{ group.starts_on }} &ndash; {{ group.finishes_on }}</p>
+                                            <ul class="list-group list-group-flush">
+                                                {% for assigned_set in group.problem_sets %}
+                                                    <li class="list-group-item px-0 py-1 d-flex flex-wrap justify-content-between gap-2">
+                                                        <a href="{{ request.url_for('arena_class_problem_set_manage', class_id=group.class_id, set_id=assigned_set.set_id) }}">{{ assigned_set.name }}</a>
+                                                        <span class="small text-muted">
+                                                            {% if assigned_set.deadline %}
+                                                                Due
+                                                                {{ arena_format_datetime(assigned_set.deadline, current_user) }}
+                                                            {% else %}
+                                                                Open deadline
+                                                            {% endif %}
+                                                        </span>
+                                                    </li>
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% else %}
+                                <p class="text-muted small mb-0">This problem is not assigned to any of your ongoing classes.</p>
+                            {% endif %}
+                        </div>
+                        <div class="col-12 col-lg-6">
+                            <h3 class="h6">Add to another problem set</h3>
+                            {% if problem_set_assignments.eligible %}
+                                <form method="post"
+                                      action="{{ request.url_for('arena_problem_problem_set_add', arena_number=problem.arena_number) }}"
+                                      data-problem-set-assignment-form>
+                                    <input type="hidden" name="back_page" value="{{ back_page }}">
+                                    <input type="hidden" name="back_search" value="{{ back_search }}">
+                                    <input type="hidden" name="back_sort_by" value="{{ back_sort_by }}">
+                                    {% for category_slug in back_category_slugs %}
+                                        <input type="hidden" name="back_category_slugs" value="{{ category_slug }}">
+                                    {% endfor %}
+                                    <div class="mb-3">
+                                        <label class="form-label" for="assignment-class-select">Class</label>
+                                        <select class="form-select form-select-sm"
+                                                id="assignment-class-select"
+                                                data-assignment-class-select>
+                                            <option value="">Select a class</option>
+                                            {% for group in problem_set_assignments.eligible %}
+                                                <option value="{{ group.class_id }}">{{ group.class_name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="assignment-problem-set-select">Problem set</label>
+                                        <select class="form-select form-select-sm"
+                                                id="assignment-problem-set-select"
+                                                name="problem_set_id"
+                                                required
+                                                disabled
+                                                data-assignment-problem-set-select>
+                                            <option value="">Select a class first</option>
+                                        </select>
+                                    </div>
+                                    <button class="btn btn-primary btn-sm d-inline-flex align-items-center gap-1"
+                                            type="submit"
+                                            disabled
+                                            data-assignment-submit>
+                                        {{ render_icon(icon="add") }}
+                                        Add to problem set
+                                    </button>
+                                </form>
+                                <script type="application/json" id="problem-set-assignment-options">{{ problem_set_assignment_options | tojson }}</script>
+                            {% else %}
+                                <p class="text-muted small mb-0">No other open problem set is available in your ongoing classes.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+{% endif %}
 {# ── Main resizable two-column layout ──────────────────────────────── #}
 <div class="arena-problem-workspace flex-grow-1" data-problem-workspace>
     {# ── Left: problem statement ──────────────────────────────────── #}
@@ -587,6 +694,10 @@
         <script src="{{ request.url_for('arena_static_js', path='problem-favorite-toggle.js') }}?v={{ app_version }}"
                 defer></script>
         <script src="{{ request.url_for('arena_static_js', path='problem-editor-resizer.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
+    {% if problem_set_assignments and problem_set_assignments.eligible %}
+        <script src="{{ request.url_for('arena_static_js', path='problem-set-assignment.js') }}?v={{ app_version }}"
                 defer></script>
     {% endif %}
 {% endblock %}

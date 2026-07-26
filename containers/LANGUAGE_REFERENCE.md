@@ -37,6 +37,9 @@ The source of truth is:
 | `ruby` | `source.rb` | `ruby:4.0-slim-bookworm` | `ruby:4.0-slim-bookworm` | Ruby 4.0 standard library only |
 | `bash` | `source.sh` | `debian:bookworm-slim` | `debian:bookworm-slim` | Bash 5.2 built-ins and standard POSIX utilities included in the base image |
 | `perl` | `source.pl` | `perl:5.42.2-slim-bookworm` | `perl:5.42.2-slim-bookworm` | Perl 5.42.2 core modules only |
+| `scala` | `Main.scala` | `eclipse-temurin:25.0.3+9-jdk` + `scala3-3.3.8` (GitHub release) | `eclipse-temurin:25.0.3+9-jre` | Scala 3.3.8 LTS / Scala + JVM standard library sealed into the produced jar |
+| `ocaml` | `source.ml` | `debian:bookworm-slim` + `ocaml-4.14.4` (source build) | `debian:bookworm-slim` | OCaml 4.14.4 standard library only, native (`ocamlopt`) builds |
+| `php` | `source.php` | `php:8.5.8-cli-bookworm` | `php:8.5.8-cli-bookworm` | PHP 8.5.8 standard library and bundled extensions only |
 
 ## Pinned Image Families
 
@@ -59,6 +62,9 @@ The source of truth is:
 | `gfortran=4:12.2.0-3` (Debian bookworm) | gfortran 12.2.0 |
 | `swift:6.3.2` | Swift 6.3.2 official Linux toolchain |
 | `swift-6.3.2-RELEASE_static-linux-0.1.0` | Swift Static Linux SDK (musl) |
+| `scala3-3.3.8` (GitHub release from scala/scala3) | Scala 3.3.8 LTS |
+| `ocaml-4.14.4` (source build from the ocaml/ocaml tag) | OCaml 4.14.4 |
+| `php:8.5.8-cli-bookworm` | PHP 8.5.8 CLI on Debian bookworm |
 
 ## Why Alpine Was Removed
 
@@ -351,6 +357,84 @@ uniform, and simplifies the worker's runtime bind logic.
 - Not available:
   - third-party CPAN modules (no network at build time)
 
+### Scala (`scala`)
+
+- Compile: `scalac` writes classes to `/sandbox/classes`, then the Scala runtime jars
+  (`scala3-library_3`, `scala-library`) are unpacked alongside them and the whole tree is
+  sealed into `/sandbox/solution.jar` with `jar cfe … Main`.
+- Run command:
+  - `/opt/java/openjdk/bin/java -Xss64m -Xmx256m -jar /sandbox/solution.jar`
+- Base images: compile `eclipse-temurin:25-jdk` + Scala 3.3.8; run `eclipse-temurin:25-jre`
+- Pinned: `scala3-3.3.8` (LTS) from the official `scala/scala3` GitHub release. Debian ships
+  no Scala 3 package, and `scalac` is only a launcher over the jars in `lib/`.
+- Because the runtime is folded into the jar, the run image is a plain JRE with no Scala
+  installed — the same image shape Kotlin uses.
+- The compile image sets `JAVA_OPTS=--sun-misc-unsafe-memory-access=allow`. Without it,
+  `scala.runtime.LazyVals` triggers a JVM terminal-deprecation warning on stderr, which the
+  judge would surface as compile-log noise on every successful submission.
+- Available:
+  - Scala 3.3.8 compiler (`scalac`) and standard library
+  - Java 25 standard library
+- Not available:
+  - sbt, Mill, or Coursier
+  - external dependencies
+- **Entry-point contract**: the source file must define `object Main` with
+  `def main(args: Array[String]): Unit`, because the jar's manifest entry point is `Main`.
+
+### OCaml (`ocaml`)
+
+- Compile command:
+  - `ocamlopt -o /sandbox/solution /sandbox/source.ml`
+- Run command:
+  - `/sandbox/solution`
+- Base images: compile `debian:bookworm-slim` + OCaml 4.14.4; run `debian:bookworm-slim`
+- Pinned: `ocaml-4.14.4` built from the official `ocaml/ocaml` GitHub tag with the stock
+  `./configure && make world.opt` (Debian bookworm's `ocaml` package tops out at 4.14.1).
+  The build toolchain stays in a throwaway builder stage, but the compile image still keeps
+  `gcc` and `binutils`: `ocamlopt` shells out to the assembler and linker at judge time.
+- Native compilation (`ocamlopt`), not bytecode (`ocamlc`), so the artifact is an ordinary
+  binary, the run image carries no OCaml runtime, and the sandbox needs no directory binds —
+  the same model as Go and Rust.
+- Available:
+  - OCaml 4.14.4 native compiler and standard library (`List`, `Array`, `Hashtbl`, `Printf`,
+    `Scanf`, etc.)
+- Not available:
+  - opam, dune, or third-party packages
+  - `-O2` and the other flambda optimizer flags (this is a stock, non-flambda build)
+
+### PHP (`php`)
+
+- Compile step is a syntax check only:
+  - `/usr/local/bin/php -l /sandbox/source.php`
+- Run command:
+  - `/usr/local/bin/php /sandbox/source.php`
+- Base image: `php:8.5.8-cli-bookworm` for both compile and run
+- Available:
+  - PHP 8.5.8 CLI interpreter, standard library, and the extensions bundled in the official image
+- Not available:
+  - Composer or third-party packages
+  - PECL extensions beyond those already compiled into the image
+- **Opening-tag contract**: begin the file with `<?php`, with nothing before it.
+
+  PHP is a templating language, so a file starts in *output* mode, not code mode: everything
+  outside `<?php … ?>` is echoed verbatim. `<?php` is the switch into code mode. A file without it
+  does not run at all — it simply prints its own source. A stray blank line, BOM, or comment before
+  the tag is likewise prepended to the program's output.
+
+  The closing `?>` switches back to output mode, which a contest solution never needs, and
+  end-of-file ends code mode implicitly — so open the file with the tag and never close it.
+  - A leading `#!` shebang line is the one tolerated exception — the CLI SAPI strips it — and `<?=`
+    is also a valid opening tag.
+  - `php -l` does **not** catch any of this. A file with no PHP tag at all passes the syntax check
+    and then simply echoes itself, so the failure surfaces as a wrong answer, never as a
+    compile error.
+  - If you do close the tag anyway, PHP swallows exactly one newline immediately after `?>`;
+    anything else (a second newline, or trailing spaces) becomes trailing output and can fail a
+    strict comparison. This is the trap that omitting the tag avoids.
+  - A `?>` written inside a `//` or `#` one-line comment **also** ends code mode — the rest of
+    that line and every following line are then echoed as text. A `?>` inside a `/* … */` block
+    comment is safe. This too passes `php -l`, so avoid writing a closing tag even in prose.
+
 ## Practical Guidance For Teams
 
 - If your solution needs a third-party package manager, assume it will not work.
@@ -365,3 +449,6 @@ uniform, and simplifies the worker's runtime bind logic.
 - For Ruby, rely only on the standard library bundled with Ruby 4.0.
 - For Bash, rely on Bash built-ins and standard POSIX utilities from the base image.
 - For Perl, rely only on the core modules bundled with the interpreter (no CPAN).
+- For Scala, define `object Main` with a `def main(args: Array[String]): Unit` entry point, and rely only on the Scala and JDK standard libraries.
+- For OCaml, submit a single `.ml` file and rely only on the standard library; the compiler is a stock (non-flambda) build, so flambda flags like `-O2` do not apply.
+- For PHP, let nothing precede the opening `<?php` tag (anything before it is echoed into your output, and `php -l` will not warn you), omit the closing `?>`, and rely only on the standard library and the extensions bundled in the official image (no Composer).

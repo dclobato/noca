@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -224,7 +224,7 @@ def _isolate_base_cmd(box_id: int) -> list[str]:
 
 def _runtime_isolate_dirs(language: LanguageConfig) -> list[str]:
     """Return extra read-only directory bindings needed by runtime-based languages."""
-    if language.id in {"python3", "javascript", "c-sharp"}:
+    if language.id in {"python3", "javascript", "c-sharp", "php"}:
         return [
             "--dir=/etc=/etc",
             "--dir=/lib=/lib",
@@ -232,7 +232,9 @@ def _runtime_isolate_dirs(language: LanguageConfig) -> list[str]:
             "--dir=/usr=/usr",
         ]
 
-    if language.id in {"java", "kotlin"}:
+    # Scala ships a self-contained fat jar, so it needs exactly the JVM bind set and
+    # nothing Scala-specific. OCaml compiles to a native binary and needs no binds at all.
+    if language.id in {"java", "kotlin", "scala"}:
         return [
             "--dir=/etc=/etc",
             "--dir=/lib=/lib",

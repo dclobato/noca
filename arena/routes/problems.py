@@ -46,6 +46,7 @@ from arena.models.arena_users import ArenaUser
 from arena.services import (
     admin_problem_interaction_service,
     arena_favorite_service,
+    arena_problem_assignment_service,
     problem_browse_service,
     problem_stats_service,
     problem_tc_export_service,
@@ -350,11 +351,33 @@ async def arena_problem_detail(
     )
     if solved_at is not None:
         relative_solved = _relative_time(solved_at)
+    now = datetime.now(UTC)
     accepting_set = await problem_accepting_set_for_user(
         session,
         problem_id=problem.id,
         user_id=current_user.id,
-        now=datetime.now(UTC),
+        now=now,
+    )
+    problem_set_assignments = await arena_problem_assignment_service.get_problem_assignment_overview(
+        session,
+        actor_id=current_user.id,
+        actor_role=current_user.role,
+        problem_id=problem.id,
+        today=now.date(),
+        now=now,
+    )
+    problem_set_assignment_options = (
+        [
+            {
+                "class_id": group.class_id,
+                "problem_sets": [
+                    {"set_id": problem_set.set_id, "name": problem_set.name} for problem_set in group.problem_sets
+                ],
+            }
+            for group in problem_set_assignments.eligible
+        ]
+        if problem_set_assignments is not None
+        else []
     )
 
     # Resolve the optional ?continue=<submission_id> prefill
@@ -426,10 +449,16 @@ async def arena_problem_detail(
                 "relative_solved": relative_solved,
                 "is_favorite": is_favorite,
                 "back_url": back_url,
+                "back_page": back_page,
+                "back_search": back_search,
+                "back_sort_by": back_sort_by,
+                "back_category_slugs": back_category_slugs,
                 "rating_history_url": rating_history_url,
                 "prefill_source_code": prefill_source_code,
                 "prefill_language_id": prefill_language_id,
                 "accepting_set": accepting_set,
+                "problem_set_assignments": problem_set_assignments,
+                "problem_set_assignment_options": problem_set_assignment_options,
                 "has_custom_validator": status_view(problem.custom_validator).configured,
                 "prev_problem_url": prev_problem_url,
                 "next_problem_url": next_problem_url,

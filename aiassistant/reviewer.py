@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -136,6 +136,9 @@ _EXTENSION_FALLBACK: dict[str, str] = {
     ".f90": ".txt",
     ".f95": ".txt",
     ".swift": ".txt",
+    # ".scala" needs no entry — OpenAI accepts it natively (see the supported set above).
+    ".ml": ".txt",
+    ".php": ".txt",
 }
 
 

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -33,6 +33,10 @@ SWIPL_PATH = "/usr/bin/swipl"
 RUBY_PATH = "/usr/local/bin/ruby"
 PERL_PATH = "/usr/local/bin/perl"
 BASH_PATH = "/bin/bash"
+PHP_PATH = "/usr/local/bin/php"
+OCAMLOPT_PATH = "/usr/local/bin/ocamlopt"
+SCALA_CLASSES_DIR = f"{SANDBOX_DIR}/classes"
+SCALA_LIB_DIR = "/opt/scala3/lib"
 
 
 @dataclass(frozen=True)
@@ -611,6 +615,106 @@ def default_language_configs() -> list[LanguageConfig]:
             profiling_repetitions_default=3,
             version="This is perl 5, version 42, subversion 2 (v5.42.2)",
             stdout_flush_hint="`use IO::Handle; STDOUT->flush();` or set `$| = 1;`",
+        ),
+        LanguageConfig(
+            id="scala",
+            name="Scala",
+            icon="devicon-scala-plain",
+            highlightjs_language="scala",
+            ace_mode="scala",
+            compile_image="noca/judge-scala:compile",
+            run_image="noca/judge-scala:run",
+            # scalac emits bare class files that still need the Scala runtime, and unlike
+            # kotlinc it has no `-include-runtime`. The Scala library jars are therefore
+            # unpacked alongside the compiled classes and the whole tree is sealed into one
+            # self-contained jar, so the run image stays a plain JRE (identical to Kotlin's)
+            # and the sandbox needs no Scala-specific binds. `jar` is the JDK's own tool, so
+            # the compile image ships no archive utility of its own.
+            compile_cmd=[
+                "sh",
+                "-c",
+                (
+                    f"mkdir -p {SCALA_CLASSES_DIR} && "
+                    f"scalac -d {SCALA_CLASSES_DIR} {SANDBOX_DIR}/Main.scala && "
+                    f"cd {SCALA_CLASSES_DIR} && "
+                    f"for lib in {SCALA_LIB_DIR}/scala3-library_3-*.jar "
+                    f'{SCALA_LIB_DIR}/scala-library-*.jar; do jar xf "$lib"; done && '
+                    # The library jars carry their own manifest and module descriptor;
+                    # both would collide with the entry point written by `jar cfe`.
+                    "rm -rf META-INF module-info.class && "
+                    f"jar cfe {JAR_PATH} Main -C {SCALA_CLASSES_DIR} ."
+                ),
+            ],
+            run_cmd=[
+                JAVA_PATH,
+                "-Xss64m",
+                "-Xmx256m",
+                "-jar",
+                JAR_PATH,
+            ],
+            source_filename="Main.scala",
+            default_extension=".scala",
+            artifact_path=JAR_PATH,
+            compile_timeout_s=180.0,
+            profiling_repetitions_default=10,
+            profiled_pids_floor=32,
+            version="Scala compiler version 3.3.8 (JRE 25.0.3+9-LTS)",
+            stdout_flush_hint="`Console.flush()` or `System.out.flush()`",
+        ),
+        LanguageConfig(
+            id="ocaml",
+            name="OCaml",
+            icon="devicon-ocaml-plain",
+            highlightjs_language="ocaml",
+            ace_mode="ocaml",
+            compile_image="noca/judge-ocaml:compile",
+            run_image="noca/judge-ocaml:run",
+            # ocamlopt (native) rather than ocamlc (bytecode): the result is an ordinary
+            # ELF binary, so the run image carries no OCaml runtime and needs no sandbox
+            # directory binds — the same model as Go and Rust.
+            # No `-O2`: that flag exists only in a flambda-configured compiler, and this
+            # one is a stock source build. Plain ocamlopt already emits optimized native code.
+            compile_cmd=[
+                OCAMLOPT_PATH,
+                "-o",
+                BINARY_PATH,
+                f"{SANDBOX_DIR}/source.ml",
+            ],
+            run_cmd=[BINARY_PATH],
+            source_filename="source.ml",
+            default_extension=".ml",
+            artifact_path=BINARY_PATH,
+            compile_timeout_s=60.0,
+            profiling_repetitions_default=10,
+            profiled_pids_floor=32,
+            version="The OCaml native-code compiler, version 4.14.4",
+            stdout_flush_hint="`flush stdout`",
+        ),
+        LanguageConfig(
+            id="php",
+            name="PHP",
+            icon="devicon-php-plain",
+            highlightjs_language="php",
+            ace_mode="php",
+            compile_image="noca/judge-php:compile",
+            run_image="noca/judge-php:run",
+            compile_cmd=[
+                PHP_PATH,
+                "-l",
+                f"{SANDBOX_DIR}/source.php",
+            ],
+            run_cmd=[
+                PHP_PATH,
+                f"{SANDBOX_DIR}/source.php",
+            ],
+            source_filename="source.php",
+            default_extension=".php",
+            artifact_path=f"{SANDBOX_DIR}/source.php",
+            artifact_is_source=True,
+            compile_timeout_s=10.0,
+            profiling_repetitions_default=3,
+            version="PHP 8.5.8 (cli)",
+            stdout_flush_hint="`flush();` (call `ob_flush();` first if output buffering is enabled)",
         ),
     ]
 

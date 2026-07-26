@@ -8,7 +8,7 @@
 
 import logging
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -20,21 +20,28 @@ from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
 from jinja2 import ChoiceLoader, FileSystemLoader
 from jwtservice import JWTService, load_token_config_from_dict
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
+import arena.models.arena_problem_sets  # noqa: F401
 import arena.models.arena_problems  # noqa: F401
 import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
 from arena.config import settings as arena_settings
 from arena.middleware.auth_middleware import ArenaAuthMiddleware
+from arena.models.arena_classes import ArenaClass
+from arena.models.arena_problem_sets import ArenaProblemSet
 from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.routes.legal import router as arena_legal_router
+from arena.routes.problem_problem_sets import router as arena_problem_problem_sets_router
 from arena.routes.problems import router as arena_problems_router
 from arena.services import admin_problem_interaction_service, admin_problem_service, admin_problem_tc_service
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
+from arena.services.user_timezone_service import format_user_datetime
+from shared.db_schema.arena import arena_problem_set_problems
 from shared.enumerations import ArenaRole, CustomValidatorActiveState
 from shared.services.sample_interactions import parse_interaction_text
 from web.models.language import Language
@@ -61,6 +68,7 @@ def _build_problem_detail_app(session: AsyncSession) -> FastAPI:
     templates.env.globals["app_version"] = "test"
     templates.env.globals["next_rating_update_text"] = lambda request: None
     templates.env.globals["arena_role_labels"] = ARENA_ROLE_DISPLAY
+    templates.env.globals["arena_format_datetime"] = format_user_datetime
     setup_flash(templates)
     app.state.arena_templates = templates
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
@@ -151,6 +159,13 @@ def _build_problem_detail_app(session: AsyncSession) -> FastAPI:
     async def _classes_manage() -> Response:
         return Response("classes manage")
 
+    @app.get(
+        "/classes/{class_id}/problem-sets/{set_id}/problems",
+        name="arena_class_problem_set_manage",
+    )
+    async def _problem_set_manage(class_id: str, set_id: str) -> Response:
+        return Response(f"manage {class_id} {set_id}")
+
     @app.get("/ranking", name="arena_ranking_index")
     async def _ranking() -> Response:
         return Response("ranking")
@@ -171,6 +186,7 @@ def _build_problem_detail_app(session: AsyncSession) -> FastAPI:
     async def _notifications() -> Response:
         return Response("[]", media_type="application/json")
 
+    app.include_router(arena_problem_problem_sets_router)
     app.include_router(arena_problems_router)
     app.include_router(arena_legal_router)
     return app
@@ -267,6 +283,36 @@ async def _create_enabled_problem(
     return problem
 
 
+async def _create_problem_set(
+    session: AsyncSession,
+    *,
+    teacher: ArenaUser,
+    name: str,
+    deadline: datetime | None,
+    starts_on: datetime | None = None,
+    class_name: str = "Teacher class",
+) -> tuple[ArenaClass, ArenaProblemSet]:
+    """Create an ongoing teacher-owned class and one problem set."""
+    today = date.today()
+    arena_class = ArenaClass(
+        name=class_name,
+        teacher_id=teacher.id,
+        starts_on=today - timedelta(days=7),
+        finishes_on=today + timedelta(days=30),
+    )
+    session.add(arena_class)
+    await session.flush()
+    problem_set = ArenaProblemSet(
+        class_id=arena_class.id,
+        name=name,
+        starts_on=starts_on,
+        deadline=deadline,
+    )
+    session.add(problem_set)
+    await session.commit()
+    return arena_class, problem_set
+
+
 @pytest.mark.asyncio
 async def test_problem_detail_renders_resizable_workspace(session: AsyncSession) -> None:
     """Problem detail includes the accessible desktop column resizer."""
@@ -293,6 +339,249 @@ async def test_problem_detail_renders_resizable_workspace(session: AsyncSession)
     assert 'role="separator"' in response.text
     assert 'aria-controls="problem-statement-panel solution-panel"' in response.text
     assert "problem-column-resizer.js?v=test" in response.text
+
+
+@pytest.mark.asyncio
+async def test_problem_detail_renders_teacher_assignment_card(session: AsyncSession) -> None:
+    """A judge sees grouped assignments, safe target data, and the external controller."""
+    app = _build_problem_detail_app(session)
+    teacher = await _create_user(
+        session,
+        name="Assignment Teacher",
+        email="assignment-teacher@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    problem = await _create_enabled_problem(session, teacher)
+    now = datetime.now(UTC)
+    arena_class, assigned_set = await _create_problem_set(
+        session,
+        teacher=teacher,
+        name="Assigned set",
+        deadline=now + timedelta(days=2),
+        class_name="Algorithms",
+    )
+    target_name = "Target </script><script>alert(1)</script>"
+    target_set = ArenaProblemSet(
+        class_id=arena_class.id,
+        name=target_name,
+        starts_on=now + timedelta(days=5),
+        deadline=None,
+    )
+    session.add(target_set)
+    await session.execute(
+        arena_problem_set_problems.insert().values(
+            problem_set_id=assigned_set.id,
+            problem_id=problem.id,
+        )
+    )
+    await session.commit()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, teacher)},
+    ) as client:
+        response = await client.get(
+            f"/problems/{problem.arena_number}",
+            params=[
+                ("back_page", "3"),
+                ("back_search", "graphs"),
+                ("back_sort_by", "rating_desc"),
+                ("back_category_slugs", "dp"),
+                ("back_category_slugs", "graphs"),
+            ],
+        )
+
+    assert response.status_code == 200
+    body = response.text
+    assert body.index("Problem set assignment") < body.index("data-problem-workspace")
+    assert 'class="accordion-button collapsed' in body
+    assert 'aria-expanded="false"' in body
+    assert 'class="accordion-collapse collapse"' in body
+    assert 'class="accordion-collapse collapse show"' not in body
+    assert "Current assignments" in body
+    assert "Algorithms" in body
+    assert "Assigned set" in body
+    assert (f'href="http://testserver/classes/{arena_class.id}/problem-sets/{assigned_set.id}/problems"') in body
+    assert "Open deadline" not in body
+    assert "problem-set-assignment-options" in body
+    assert "\\u003c/script\\u003e" in body
+    assert "</script><script>alert(1)</script>" not in body
+    assert "problem-set-assignment.js?v=test" in body
+    assert 'name="back_page" value="3"' in body
+    assert body.count('name="back_category_slugs"') == 2
+
+
+@pytest.mark.asyncio
+async def test_problem_detail_hides_assignment_card_from_admin_and_user(
+    session: AsyncSession,
+) -> None:
+    """Arena admins and regular users do not receive teacher assignment controls."""
+    app = _build_problem_detail_app(session)
+    teacher = await _create_user(
+        session,
+        name="Card Teacher",
+        email="card-teacher@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    admin = await _create_user(
+        session,
+        name="Card Admin",
+        email="card-admin@test.example",
+        role=ArenaRole.ARENA_ADMIN,
+    )
+    user = await _create_user(
+        session,
+        name="Card User",
+        email="card-user@test.example",
+        role=ArenaRole.ARENA_USER,
+    )
+    problem = await _create_enabled_problem(session, teacher)
+    await _create_problem_set(
+        session,
+        teacher=teacher,
+        name="Teacher target",
+        deadline=None,
+    )
+
+    for actor in (admin, user):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://testserver",
+            cookies={"arena_access_token": _login_token(app, actor)},
+        ) as client:
+            response = await client.get(f"/problems/{problem.arena_number}")
+        assert response.status_code == 200
+        assert "Problem set assignment" not in response.text
+        assert "problem-set-assignment.js" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_problem_assignment_post_inserts_and_preserves_return_state(
+    session: AsyncSession,
+) -> None:
+    """A valid POST inserts membership, flashes success, and preserves list state."""
+    app = _build_problem_detail_app(session)
+    teacher = await _create_user(
+        session,
+        name="Post Teacher",
+        email="post-teacher@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    problem = await _create_enabled_problem(session, teacher)
+    _arena_class, problem_set = await _create_problem_set(
+        session,
+        teacher=teacher,
+        name="Future target",
+        starts_on=datetime.now(UTC) + timedelta(days=5),
+        deadline=None,
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, teacher)},
+    ) as client:
+        response = await client.post(
+            f"/problems/{problem.arena_number}/problem-sets",
+            data={
+                "problem_set_id": problem_set.id,
+                "back_page": "4",
+                "back_search": "trees",
+                "back_sort_by": "title_desc",
+                "back_category_slugs": ["graphs", "trees"],
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert response.headers["location"].endswith(
+            f"/problems/{problem.arena_number}"
+            "?back_page=4&back_search=trees&back_sort_by=title_desc"
+            "&back_category_slugs=graphs&back_category_slugs=trees"
+        )
+        detail = await client.get(response.headers["location"])
+
+    membership = await session.scalar(
+        select(arena_problem_set_problems.c.problem_id).where(
+            arena_problem_set_problems.c.problem_set_id == problem_set.id,
+            arena_problem_set_problems.c.problem_id == problem.id,
+        )
+    )
+    assert membership == problem.id
+    assert "Problem added to the problem set." in detail.text
+
+
+@pytest.mark.asyncio
+async def test_problem_assignment_post_maps_authorization_missing_and_stale(
+    session: AsyncSession,
+) -> None:
+    """POST returns 403/404 and warning redirects without duplicate membership."""
+    app = _build_problem_detail_app(session)
+    teacher = await _create_user(
+        session,
+        name="Mutation Teacher",
+        email="mutation-teacher@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    other = await _create_user(
+        session,
+        name="Mutation Other",
+        email="mutation-other@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    problem = await _create_enabled_problem(session, teacher)
+    _owned_class, populated_set = await _create_problem_set(
+        session,
+        teacher=teacher,
+        name="Populated",
+        deadline=None,
+    )
+    _foreign_class, foreign_set = await _create_problem_set(
+        session,
+        teacher=other,
+        name="Foreign",
+        deadline=None,
+    )
+    await session.execute(
+        arena_problem_set_problems.insert().values(
+            problem_set_id=populated_set.id,
+            problem_id=problem.id,
+        )
+    )
+    await session.commit()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, teacher)},
+    ) as client:
+        foreign = await client.post(
+            f"/problems/{problem.arena_number}/problem-sets",
+            data={"problem_set_id": foreign_set.id},
+        )
+        missing = await client.post(
+            "/problems/2000000000/problem-sets",
+            data={"problem_set_id": populated_set.id},
+        )
+        stale = await client.post(
+            f"/problems/{problem.arena_number}/problem-sets",
+            data={"problem_set_id": populated_set.id},
+            follow_redirects=True,
+        )
+
+    assert foreign.status_code == 403
+    assert missing.status_code == 404
+    assert stale.status_code == 200
+    assert "already in the selected problem set" in stale.text
+    memberships = await session.scalar(
+        select(func.count())
+        .select_from(arena_problem_set_problems)
+        .where(
+            arena_problem_set_problems.c.problem_set_id == populated_set.id,
+            arena_problem_set_problems.c.problem_id == problem.id,
+        )
+    )
+    assert memberships == 1
 
 
 @pytest.mark.asyncio

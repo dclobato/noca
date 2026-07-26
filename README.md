@@ -128,7 +128,7 @@ submissions, clarifications, operational tasks, and scoreboards.
 Its main features include:
 
 - Support for every active language in the shared NOCA language registry. The
-  built-in registry currently defines 18 languages.
+  built-in registry currently defines 21 languages.
 - Multiple concurrent contests with isolated users, problems, schedules,
   rules, and scoreboards.
 - Contest-scoped role-based access control for administrators, judges, staff,
@@ -240,7 +240,7 @@ test cases, and persists the judgment and test results.
 Its main capabilities include:
 
 - **Language registry:** AutoJudge uses the database-backed registry shared by
-  Contest and Arena. NOCA currently ships definitions for 18 languages, and
+  Contest and Arena. NOCA currently ships definitions for 21 languages, and
   deployments can activate the required subset.
 - **Container-based isolation:** Each submission runs in isolated Docker
   containers. `isolate` is the authoritative inner sandbox for time, memory,

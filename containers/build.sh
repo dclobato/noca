@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # NOCA -- Next Online Contest Administrator
-# Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+# Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -60,6 +60,44 @@ JUDGE_ISOLATE_TAG="${JUDGE_ISOLATE_TAG:-v2.6}"
 BUILDX_BUILDER="${NOCA_BUILDX_BUILDER:-noca-builder}"
 # Extra args appended to the bake command to target an isolated builder, when needed.
 BAKE_BUILDER_ARGS=()
+
+# The application images, as opposed to the per-language judge images.
+APP_TARGETS=(webapp arena autojudge rating aiassistant healthmonitor)
+
+# Languages whose compile image is built FROM noca/judge-compile-base. Single source
+# of truth for both the prerequisite detection and the per-language build loop below;
+# every other language builds its compile image from its own upstream base.
+COMPILE_BASE_LANGUAGES=(gcc-c17 gcc-cpp23 fpc-pascal haskell lua prolog fortran ocaml)
+
+# The available languages are whatever has a directory under languages/, so adding a
+# language means adding its directory — never editing an inventory in this script.
+AVAILABLE_LANGUAGES=()
+for _lang_dir in "$SCRIPT_DIR"/languages/*/; do
+    [[ -d "$_lang_dir" ]] && AVAILABLE_LANGUAGES+=("$(basename "$_lang_dir")")
+done
+unset _lang_dir
+
+contains_element() {
+    local needle="$1"
+    shift
+    local item
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+is_app_target() {
+    contains_element "$1" "${APP_TARGETS[@]}"
+}
+
+is_language() {
+    contains_element "$1" "${AVAILABLE_LANGUAGES[@]}"
+}
+
+uses_compile_base() {
+    contains_element "$1" "${COMPILE_BASE_LANGUAGES[@]}"
+}
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -146,16 +184,17 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --all-languages)
-            TARGETS+=(bash gcc-c17 gcc-cpp23 python3 java javascript kotlin fpc-pascal go ruby rust c-sharp haskell lua prolog fortran swift perl)
-            shift
-            ;;
-        webapp|arena|autojudge|rating|aiassistant|healthmonitor|bash|gcc-c17|gcc-cpp23|python3|java|javascript|kotlin|fpc-pascal|go|ruby|rust|c-sharp|haskell|lua|prolog|fortran|swift|perl)
-            TARGETS+=("$1")
+            TARGETS+=("${AVAILABLE_LANGUAGES[@]}")
             shift
             ;;
         *)
-            echo "Unknown argument: $1"
-            exit 1
+            if is_app_target "$1" || is_language "$1"; then
+                TARGETS+=("$1")
+                shift
+            else
+                echo "Unknown argument: $1"
+                exit 1
+            fi
             ;;
     esac
 done
@@ -178,16 +217,8 @@ esac
 
 # Default: build app images and all languages that have a directory
 if [ ${#TARGETS[@]} -eq 0 ]; then
-    TARGETS+=("webapp")
-    TARGETS+=("arena")
-    TARGETS+=("autojudge")
-    TARGETS+=("rating")
-    TARGETS+=("aiassistant")
-    TARGETS+=("healthmonitor")
-    for d in "$SCRIPT_DIR"/languages/*/; do
-        lang=$(basename "$d")
-        TARGETS+=("$lang")
-    done
+    TARGETS+=("${APP_TARGETS[@]}")
+    TARGETS+=("${AVAILABLE_LANGUAGES[@]}")
 fi
 
 USE_BUILDX=0
@@ -471,8 +502,7 @@ for target in "${TARGETS[@]}"; do
     if [[ -d "$lang_dir/run" ]]; then
         NEED_ISOLATE_BASE=1
     fi
-    if [[ "$target" == "gcc-c17" || "$target" == "gcc-cpp23" || "$target" == "fpc-pascal" \
-       || "$target" == "haskell" || "$target" == "lua" || "$target" == "prolog" || "$target" == "fortran" ]]; then
+    if uses_compile_base "$target"; then
         NEED_JUDGE_COMPILE_BASE=1
     fi
 done
@@ -579,8 +609,7 @@ for target in "${TARGETS[@]}"; do
     fi
 
     if [ -d "$dir/compile" ]; then
-        if [[ "$lang" == "gcc-c17" || "$lang" == "gcc-cpp23" || "$lang" == "fpc-pascal" \
-           || "$lang" == "haskell" || "$lang" == "lua" || "$lang" == "prolog" || "$lang" == "fortran" ]]; then
+        if uses_compile_base "$lang"; then
             build_image "$(image_name "judge-${lang}"):compile" "$dir/compile" "" \
                 "JUDGE_COMPILE_BASE_REF=${JUDGE_COMPILE_BASE_REF}"
         else

@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any, cast
 from urllib.parse import urlencode
 
@@ -123,12 +123,13 @@ async def _render_problem_set_list_page(
     direction: str | None,
 ) -> HTMLResponse:
     """Render the teacher problem-set list page."""
+    now = datetime.now(UTC)
     pagination = await arena_problem_set_management_service.list_problem_sets_paginated(
         session,
         actor_id=current_user.id,
         actor_role=current_user.role,
         class_id=class_detail.class_id,
-        now=datetime.now(UTC),
+        now=now,
         params=build_pagination_params(page, per_page=25),
         sort=arena_problem_set_management_service.normalize_problem_set_sort(sort, "deadline"),
         direction=arena_problem_set_management_service.normalize_sort_dir(direction, "desc"),
@@ -144,6 +145,7 @@ async def _render_problem_set_list_page(
                 "pagination": pagination,
                 "sort": sort or "deadline",
                 "direction": direction or "desc",
+                "problem_set_default_starts_on": now + timedelta(minutes=2),
             },
         )
     )

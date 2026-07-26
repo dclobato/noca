@@ -50,11 +50,14 @@ Check if you change requires updating ARCHITECTURE.md or CONFIG.md/.env.full, an
 
 Everytime you create a new table, analyze its write pattern and decide whether it needs a custom per-table autovacuum tuning migration (like `migrations/versions/202607180003_tune_autovacuum.py`). High-churn tables — those with heavy INSERT/UPDATE (e.g. the submission/judging pipeline) or append-then-bulk-delete tables pruned by a retention/reaper loop — should get tightened `autovacuum_*` storage parameters instead of relying on the server-wide defaults. Low-churn/reference tables do not need it.
 
-All source file must have a copyright header like the sample below
+Every new source file must use the copyright header below. When modifying an
+existing source file, update its copyright header to this form as part of the
+same change. Do not modify otherwise unchanged files solely to replace their
+existing copyright header.
 
 ```python
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.

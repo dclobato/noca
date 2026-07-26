@@ -107,7 +107,7 @@ uv run noca-web
 9. Build the judge images if they are not present locally:
 
 ```bash
-./containers/build.sh gcc-c17 gcc-cpp23 python3 java javascript kotlin fpc-pascal go rust c-sharp
+./containers/build.sh gcc-c17 gcc-cpp23 python3 java javascript kotlin fpc-pascal go rust c-sharp scala ocaml php
 ```
 
 10. Start the worker:
