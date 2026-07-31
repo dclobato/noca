@@ -1,0 +1,100 @@
+# cliff.toml — configuração do git-cliff para o workspace Noca
+# https://git-cliff.org/docs/configuration
+
+[changelog]
+# Cabeçalho no padrão Keep a Changelog
+header = """
+# Changelog
+
+Todas as mudanças relevantes deste projeto são documentadas aqui.
+O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
+e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
+"""
+
+# Corpo renderizado para cada release
+#
+# Mudanças incompatíveis (commits com "!" ou rodapé BREAKING CHANGE) aparecem
+# duas vezes de propósito: em uma seção própria no topo do release, com a
+# descrição completa da quebra, e marcadas com **[BREAKING]** dentro do grupo
+# normal (Features, Refactoring, ...), para que nenhuma leitura do changelog
+# passe por elas sem perceber.
+body = """
+{% if version -%}
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+## [Não lançado]
+{% endif -%}
+{% set breaking_commits = commits | filter(attribute="breaking", value=true) -%}
+{% if breaking_commits | length > 0 %}
+### ⚠ Breaking Changes
+{% for commit in breaking_commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+{{ commit.message | split(pat="\n") | first | upper_first | trim }}\
+{% set summary = commit.message | split(pat="\n") | first | trim -%}
+{% set description = commit.breaking_description | default(value="") | trim -%}
+{% if description and description != summary %}
+{% for line in description | split(pat="\n") %}
+  {{ line | trim }}\
+{% endfor %}\
+{% endif %}\
+{% endfor %}
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {% if commit.breaking %}**[BREAKING]** {% endif %}\
+{% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+{{ commit.message | split(pat="\n") | first | upper_first | trim }}\
+{% endfor %}
+{% endfor %}\n
+"""
+
+# Precisa ser false: com trim=true o git-cliff remove a indentação de cada linha,
+# e a descrição da quebra deixa de ser um parágrafo de continuação do item.
+trim = false
+# Remove os marcadores de ordenação "<!-- N -->" dos títulos de grupo
+postprocessors = [
+  { pattern = '<!-- \d+ -->', replace = "" },
+]
+
+[git]
+conventional_commits = true
+# Não descarta commits fora do padrão: eles caem no grupo "Other" (rede de segurança)
+filter_unconventional = false
+# Garante que breaking changes nunca sejam filtrados
+protect_breaking_commits = true
+
+commit_parsers = [
+  # Commits de release e de dependências não entram no changelog
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^chore\\(deps\\)",    skip = true },
+  { message = "^Merge",              skip = true },
+
+  { message = "^feat",     group = "<!-- 0 -->Features" },
+  { message = "^fix",      group = "<!-- 1 -->Bug Fixes" },
+  { message = "^perf",     group = "<!-- 2 -->Performance" },
+  { message = "^refactor", group = "<!-- 3 -->Refactoring" },
+  { message = "^docs",     group = "<!-- 4 -->Documentation" },
+
+  # Ruído de manutenção fica fora do changelog público.
+  # Troque skip=true por um group=... se quiser exibi-los.
+  { message = "^test",  skip = true },
+  { message = "^ci",    skip = false },
+  { message = "^build", skip = false },
+  { message = "^style", skip = true },
+  { message = "^chore", skip = true },
+
+  # Qualquer outra coisa: não perde nada
+  { message = "^.*", group = "<!-- 5 -->Other" },
+]
+
+# Casa com suas tags v<versão>
+tag_pattern = "v[0-9].*"
+
+sort_commits = "oldest"
+topo_order = false
+
+[bump]
+# feat -> minor, fix -> patch, breaking (!) -> major
+features_always_bump_minor = true
+breaking_always_bump_major = true

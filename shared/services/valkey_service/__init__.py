@@ -25,6 +25,9 @@ from shared.services.valkey_service.constants import (
     QUEUE_RESULTS_CHANNEL,
     QUEUE_SUBMISSIONS_CHANNEL,
     QUEUE_UNKNOWN_CONTEST,
+    REVEAL_LOCK_KEY_PREFIX,
+    REVEAL_STATE_KEY_PREFIX,
+    REVELATION_CHANNEL_PREFIX,
 )
 from shared.services.valkey_service.contest_purge import (
     ContestValkeyPurgeError,
@@ -126,6 +129,14 @@ from shared.services.valkey_service.queue_ops import (
 from shared.services.valkey_service.queue_ops import (
     remove_from_inflight_with_client as _remove_from_inflight_with_client,
 )
+from shared.services.valkey_service.revelation import (
+    InvalidRevelationScopeError,
+    publish_revelation_with_client,
+    reveal_lock_key,
+    reveal_state_key,
+    revelation_channel,
+    validate_component,
+)
 from shared.services.valkey_service.runtime import PendingCommand, ValkeyRuntime
 from shared.services.valkey_service.worker_commands import (
     CommandVerdict,
@@ -164,6 +175,7 @@ __all__ = [
     "ContestValkeyPurgeError",
     "ContestValkeyPurgeResult",
     "ContestValkeyTargets",
+    "InvalidRevelationScopeError",
     "LivePauseFlag",
     "PendingCommand",
     "WorkerCommandType",
@@ -181,6 +193,9 @@ __all__ = [
     "QUEUE_RESULTS_CHANNEL",
     "QUEUE_SUBMISSIONS_CHANNEL",
     "QUEUE_UNKNOWN_CONTEST",
+    "REVEAL_LOCK_KEY_PREFIX",
+    "REVEAL_STATE_KEY_PREFIX",
+    "REVELATION_CHANNEL_PREFIX",
     "ValkeyRuntime",
     "WORKER_PRESENCE_PREFIX",
     "WorkerClass",
@@ -231,8 +246,12 @@ __all__ = [
     "list_workers",
     "mark_worker_offline",
     "publish_command",
+    "publish_revelation_with_client",
     "publish_submission",
     "publish_verdict",
+    "reveal_lock_key",
+    "reveal_state_key",
+    "revelation_channel",
     "publish_worker_last_job",
     "publish_worker_presence",
     "purge_contest_with_client",
@@ -241,6 +260,7 @@ __all__ = [
     "remove_from_inflight",
     "remove_worker",
     "resolve_worker_id",
+    "validate_component",
     "verify_command",
     "worker_command_key",
     "worker_command_loop",

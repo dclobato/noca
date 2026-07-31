@@ -1,0 +1,117 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% block title_suffix %}&mdash; Reveal{% endblock %}
+{# The projector fills the window exactly: the board scrolls, the page never does. #}
+{% block main_class %}animator-root ceremony-root{% endblock %}
+{% block extra_head %}
+    <link href="{{ request.url_for('animator_static_css', path='ceremony.css') }}?v={{ app_version }}"
+          rel="stylesheet">
+{% endblock %}
+{% block content %}
+    {# Spectator projection. The shell embeds no ceremony state: the transport
+       fetches the authoritative projection and the renderer draws it. The single
+       team modal below is reused for every team — it is never recreated, so
+       Bootstrap's data-API focus restoration keeps working across teams. #}
+    <div id="ceremony-app"
+         class="ceremony-app"
+         data-scope="{{ scope }}"
+         data-meta-url="{{ meta_url }}"
+         data-state-url="{{ state_url }}"
+         data-events-url="{{ events_url }}"
+         data-photo-base="{{ photo_base }}"
+         data-audio-base="{{ audio_base }}"
+         data-balloon-base="{{ balloon_base }}"
+         data-star-base="{{ star_base }}"
+         data-medal-base="{{ medal_base }}"
+         data-phase="none">
+        <header class="animator-header">
+            <h1 class="animator-title">{{ contest_name }}</h1>
+            <p class="animator-status-line">
+                {% if site_name %}
+                    <span class="ceremony-site">{{ site_name }}</span>
+                {% else %}
+                    <span class="ceremony-site">All sites</span>
+                {% endif %}
+                <span id="ceremony-phase" class="ceremony-phase" data-phase="none">Idle</span>
+                <span id="ceremony-progress" class="ceremony-progress" aria-live="off"></span>
+                <span id="ceremony-status"
+                      class="animator-state"
+                      role="status"
+                      aria-live="polite">Loading ceremony state&hellip;</span>
+            </p>
+        </header>
+        <div id="ceremony-empty" class="ceremony-empty">The ceremony has not started yet.</div>
+        <div class="ceremony-board-scroll" hidden>
+            <table id="ceremony-board" class="animator-scoreboard ceremony-board">
+                <caption class="visually-hidden">
+                    Reveal standings, ranked by problems solved and penalty time. Select a team name to see its photo.
+                </caption>
+                <thead>
+                    <tr id="ceremony-header-row">
+                        <th scope="col" class="animator-col-rank ceremony-col-rank">#</th>
+                        <th scope="col" class="animator-col-team ceremony-col-team">Team</th>
+                        <th scope="col" class="animator-col-solved ceremony-col-solved">Solved</th>
+                        <th scope="col" class="animator-col-time ceremony-col-time">Time</th>
+                    </tr>
+                </thead>
+                <tbody id="ceremony-standings">
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="modal fade"
+         id="ceremony-team-modal"
+         tabindex="-1"
+         aria-labelledby="ceremony-team-modal-label"
+         aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered ceremony-team-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="ceremony-team-modal-label">Team</h5>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body ceremony-modal-body">
+                    <img id="ceremony-team-photo" class="ceremony-team-photo" alt="" hidden>
+                    {# Shown only if the photo request itself fails. The server
+                       always resolves an in-scope team to some image, but a
+                       network failure or a deleted team must not leave broken
+                       image chrome on a projector. #}
+                    <p id="ceremony-photo-fallback" class="ceremony-photo-fallback" hidden>No photo available for this team.</p>
+                    {# No src: it is assigned per team after the modal is shown, and
+                       removed on close so playback and any in-flight download stop. #}
+                    <audio id="ceremony-team-audio"
+                           class="ceremony-team-audio"
+                           controls
+                           preload="none"
+                           hidden>Your browser does not support audio playback.</audio>
+                    <p id="ceremony-audio-status"
+                       class="ceremony-audio-status"
+                       role="status"
+                       aria-live="polite"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block page_scripts %}
+    {# The live-scoreboard client is deliberately not loaded here: this page has
+       no live scoreboard DOM for it to drive. Its pure renderer is shared so
+       both presentations build identical balloon headers. #}
+    <script src="{{ request.url_for('animator_static_js', path='cell-format.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='animator-keyed-rows.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='animator-render.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='animator-animate.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='ceremony-transport.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='ceremony-render.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='ceremony-modal.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='ceremony.js') }}?v={{ app_version }}"></script>
+{% endblock %}

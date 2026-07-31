@@ -24,8 +24,8 @@ Purpose:
 Provides:
 
 - `MonitoredService` — frozen dataclass: `worker_class`, `title`, `icon`
-- `MONITORED_SERVICES` — display-ordered tuple covering all five runtime
-  modules (web, arena, autojudge, rating, aiassistant)
+- `MONITORED_SERVICES` — display-ordered tuple covering all six runtime
+  modules (web, arena, autojudge, rating, aiassistant, animator)
 
 ---
 

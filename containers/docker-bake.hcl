@@ -44,6 +44,7 @@ group "release" {
     "rating",
     "aiassistant",
     "healthmonitor",
+    "animator",
     "judge-bash-compile",
     "judge-bash-run",
     "judge-c-sharp-compile",
@@ -272,6 +273,23 @@ target "healthmonitor" {
         "${ALT_REPO}${ALT_NAME_SEPARATOR}healthmonitor",
         "${ALT_REPO}${ALT_NAME_SEPARATOR}healthmonitor:${VERSION}",
       ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}healthmonitor"]
+    ) : [],
+  )
+}
+
+target "animator" {
+  inherits = ["_app-consumer", "_assets-consumer"]
+  dockerfile = "containers/animator/Dockerfile"
+  tags = concat(
+    VERSION != "" ? [
+      "${REPO}${NAME_SEPARATOR}animator",
+      "${REPO}${NAME_SEPARATOR}animator:${VERSION}",
+    ] : ["${REPO}${NAME_SEPARATOR}animator"],
+    ALT_REPO != "" ? (
+      VERSION != "" ? [
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}animator",
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}animator:${VERSION}",
+      ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}animator"]
     ) : [],
   )
 }

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -19,6 +19,24 @@ def test_validate_md_content_accepts_latex_and_mermaid() -> None:
     """Allowed authoring features remain valid."""
     errors = validate_md_content("$x^2 + y^2 = z^2$\n\n```mermaid\ngraph TD\n    A-->B\n```")
     assert errors == []
+
+
+def test_validate_md_content_accepts_noca_directives() -> None:
+    """Presentation directives remain valid plain Markdown at save time."""
+    markdown = """::: table-border off
+::: table-align center
+| Name | Score |
+| --- | ---: |
+| Ada | 100 |
+
+::: align center
+
+Centered paragraph.
+
+The price is \\$10.
+"""
+
+    assert validate_md_content(markdown) == []
 
 
 def test_validate_md_content_rejects_oversized_markdown() -> None:

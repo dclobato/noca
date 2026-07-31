@@ -8,7 +8,7 @@ Valkey.
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `GET` | `/` | Public environment status page. Shows one Available/Unavailable/Unknown card per monitored service (web, arena, autojudge, rating, aiassistant), read live from the Valkey worker-presence keys at request time. Renders Unknown for every service when Valkey is unreachable. Endpoint name: `healthmon_status`. |
+| `GET` | `/` | Public environment status page. Shows one Available/Unavailable/Unknown card per monitored service (web, arena, autojudge, rating, aiassistant, animator), read live from the Valkey worker-presence keys at request time. Renders Unknown for every service when Valkey is unreachable. Endpoint name: `healthmon_status`. |
 
 ---
 

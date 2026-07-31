@@ -34,6 +34,7 @@
             {{ dashboard_card(request.url_for('import_export', slug=contest.login_slug) , "upload", "Export/Import", "Data exchange", True, filled=True) }}
             {{ dashboard_card(request.url_for('users_per_site_report', slug=contest.login_slug) , "place", "Users per site", "Site assignment report", True, filled=True) }}
             {{ dashboard_card(request.url_for('contest_admin_counters', slug=contest.login_slug) , "monitoring", "Counters", "Contest operational metrics", True, filled=True) }}
+            {{ dashboard_card(request.url_for('animator_settings', slug=contest.login_slug) , "slideshow", "Animator", "Reveal access, medals & credentials", True, filled=True) }}
             {% if contest.is_past %}
                 {% if not contest.release_scoreboard_after_end %}
                     <div class="col-sm-6 col-md-4 col-lg-3">

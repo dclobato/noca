@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -171,6 +171,8 @@
         <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
                 defer></script>
         <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='markdown-directives.js') }}?v={{ app_version }}"
                 defer></script>
         <script src="{{ request.url_for('arena_static_js', path='problem-detail.js') }}?v={{ app_version }}"
                 defer></script>

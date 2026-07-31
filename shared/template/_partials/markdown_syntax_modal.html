@@ -1,0 +1,131 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Shared syntax reference for the Arena and Contest problem-statement editors.
+#}
+<div class="modal fade"
+     id="syntaxModal"
+     tabindex="-1"
+     aria-labelledby="syntaxModalLabel"
+     aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="syntaxModalLabel">Markdown Syntax Examples</h2>
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h3 class="fs-6 fw-semibold">LaTeX</h3>
+                        <p class="small text-muted">
+                            Use inline math with single <code>$</code>:
+                        </p>
+                        <pre class="small bg-body-tertiary p-2 rounded">$x^2 + y^2 = z^2$</pre>
+                        <p class="small text-muted">
+                            Use double <code>$$</code> for display math:
+                        </p>
+                        <pre class="small bg-body-tertiary p-2 rounded">$$x^2 + y^2 = z^2$$</pre>
+                        <p class="small text-muted">
+                            Escape a literal dollar sign with <code>\$</code>:
+                        </p>
+                        <pre class="small bg-body-tertiary p-2 rounded">The price is \$10.</pre>
+                        <p class="small text-muted mb-2">Common symbols:</p>
+                        <div class="small">
+                            <div>
+                                <code>\frac{a}{b}</code> → fraction
+                            </div>
+                            <div>
+                                <code>x_2</code> → subscript
+                            </div>
+                            <div>
+                                <code>\neq, \le, \ge</code> → ≠, ≤, ≥
+                            </div>
+                            <div>
+                                <code>\alpha, \beta, \Omega</code> → Greek letters
+                            </div>
+                            <div>
+                                <code>\sum, \int</code> → Σ, ∫
+                            </div>
+                            <div>
+                                <code>\sqrt{x}</code> → square root
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h3 class="fs-6 fw-semibold">Mermaid</h3>
+                        <p class="small text-muted">
+                            Use a fenced code block with <code>mermaid</code>:
+                        </p>
+                        <pre class="small bg-body-tertiary p-2 rounded"><code>```mermaid&#10;graph TD&#10;    A[Start] --&gt; B{Decision}&#10;    B --&gt;|Yes| C[End]&#10;    B --&gt;|No| D[Loop]&#10;    D --&gt; B&#10;```</code></pre>
+                        <p class="small text-muted mb-2">Keywords:</p>
+                        <div class="small">
+                            <div>
+                                <code>flowchart, sequenceDiagram, classDiagram</code>
+                            </div>
+                            <div>
+                                <code>-->, ---, ==></code> → arrows
+                            </div>
+                            <div>
+                                <code>[], {}, ()</code> → shapes
+                            </div>
+                            <div>
+                                <code>|text|</code> → labels
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <hr class="my-4">
+                <h3 class="fs-6 fw-semibold">NOCA directives</h3>
+                <p class="small text-muted">
+                    Put each directive on its own line. Blank lines are optional; the renderer
+                    separates valid directives automatically. Each directive applies only to the
+                    next table or paragraph.
+                </p>
+                <p class="small text-muted">
+                    The editor toolbar inserts a starter table with
+                    <code>table-border on</code> and <code>table-align left</code>, and can apply
+                    paragraph alignment directives at the cursor.
+                </p>
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <h4 class="fs-6">Table borders</h4>
+                        <pre class="small bg-body-tertiary p-2 rounded"><code>::: table-border off&#10;&#10;| Name | Score |&#10;| --- | ---: |&#10;| Ada | 100 |</code></pre>
+                        <p class="small text-muted mb-0">
+                            Use <code>off</code> for a borderless table or <code>on</code> to
+                            explicitly enable borders. Borders are on by default.
+                        </p>
+                    </div>
+                    <div class="col-md-4">
+                        <h4 class="fs-6">Table alignment</h4>
+                        <pre class="small bg-body-tertiary p-2 rounded"><code>::: table-align center&#10;&#10;| Name | Score |&#10;| --- | ---: |&#10;| Ada | 100 |</code></pre>
+                        <p class="small text-muted mb-0">
+                            Flush the whole table <code>left</code>, <code>center</code>, or
+                            <code>right</code>.
+                        </p>
+                    </div>
+                    <div class="col-md-4">
+                        <h4 class="fs-6">Paragraph alignment</h4>
+                        <pre class="small bg-body-tertiary p-2 rounded"><code>::: align center&#10;&#10;This paragraph is centered.</code></pre>
+                        <p class="small text-muted mb-0">
+                            Accepted alignment values are <code>left</code>, <code>center</code>,
+                            and <code>right</code>.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button"
+                        class="btn btn-secondary btn-sm"
+                        data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>

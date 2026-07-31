@@ -1,0 +1,206 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% block title_suffix %}&mdash; Reveal control{% endblock %}
+{% block extra_head %}
+    <link href="{{ request.url_for('animator_static_css', path='ceremony.css') }}?v={{ app_version }}"
+          rel="stylesheet">
+{% endblock %}
+{% block content %}
+    {# The operator secret is never rendered, never placed in a URL, and never
+       stored: it is typed below, held in JavaScript memory, and sent only in an
+       Authorization header. Reloading this page requires entering it again. #}
+    <div id="control-app"
+         class="control-app"
+         data-initial-scope="{{ initial_scope }}"
+         data-meta-url="{{ meta_url }}"
+         data-state-url="{{ state_url }}"
+         data-start-url="{{ start_url }}"
+         data-step-url="{{ step_url }}"
+         data-back-url="{{ back_url }}"
+         data-reset-url="{{ reset_url }}"
+         data-jump-url="{{ jump_url }}">
+        <header class="animator-header">
+            <h1 class="animator-title">{{ contest_name }}</h1>
+            <p class="animator-status-line">
+                <span class="ceremony-site">Reveal control</span>
+                <span id="control-status"
+                      class="animator-state"
+                      role="status"
+                      aria-live="polite">Enter the operator secret to begin.</span>
+            </p>
+        </header>
+        <div id="control-error" class="control-error" role="alert" hidden></div>
+        <form id="control-secret-form" class="control-secret-form">
+            <label class="form-label" for="control-secret">Operator secret</label>
+            <div class="control-secret-row">
+                <input id="control-secret"
+                       class="form-control"
+                       type="password"
+                       autocomplete="off"
+                       spellcheck="false"
+                       required>
+                <button type="submit" class="btn btn-primary btn-sm">Unlock</button>
+            </div>
+            <p class="control-hint">
+                The secret is kept in memory only. It is never stored in this page, in the address bar, or in
+                browser storage, so reloading requires entering it again.
+            </p>
+        </form>
+        <section id="control-panel"
+                 class="control-panel"
+                 aria-label="Ceremony commands"
+                 hidden>
+            <div class="control-row">
+                <label class="form-label" for="control-scope">Ceremony</label>
+                <select id="control-scope" class="form-select form-select-sm">
+                    <option value="">Global ceremony</option>
+                </select>
+                <span id="control-scope-label" class="form-label fw-semibold" hidden></span>
+                <button type="button" id="control-start" class="btn btn-primary btn-sm">Start reveal</button>
+                <button type="button"
+                        id="control-start-over"
+                        class="btn btn-outline-danger btn-sm"
+                        hidden>Start over&hellip;</button>
+                <button type="button"
+                        id="control-reset"
+                        class="btn btn-outline-danger btn-sm"
+                        hidden>Reset to idle&hellip;</button>
+            </div>
+            <div class="control-row">
+                <button type="button"
+                        id="control-back-ten"
+                        class="btn btn-outline-secondary btn-sm"
+                        hidden>&larr; Back 10</button>
+                <button type="button"
+                        id="control-back"
+                        class="btn btn-secondary btn-sm"
+                        hidden>&larr; Back</button>
+                <button type="button" id="control-step" class="btn btn-primary btn-sm" hidden>Step &rarr;</button>
+                <button type="button"
+                        id="control-step-ten"
+                        class="btn btn-outline-primary btn-sm"
+                        hidden>Step 10 &rarr;</button>
+            </div>
+            <div class="control-row" id="control-jump-row" hidden>
+                <label class="form-label" for="control-jump-team">Jump to team</label>
+                <select id="control-jump-team" class="form-select form-select-sm" disabled>
+                    <option value="">No ceremony loaded</option>
+                </select>
+                <button type="button"
+                        id="control-jump"
+                        class="btn btn-secondary btn-sm"
+                        disabled>Jump</button>
+            </div>
+            <dl id="control-state" class="control-state">
+                <div class="control-state-item">
+                    <dt>Phase</dt>
+                    <dd id="control-state-phase">
+                        &mdash;
+                    </dd>
+                </div>
+                <div class="control-state-item">
+                    <dt>Scope</dt>
+                    <dd id="control-state-scope">
+                        &mdash;
+                    </dd>
+                </div>
+                <div class="control-state-item">
+                    <dt>Revealed</dt>
+                    <dd id="control-state-revealed">
+                        &mdash;
+                    </dd>
+                </div>
+                <div class="control-state-item">
+                    <dt>Focused team</dt>
+                    <dd id="control-state-focus">
+                        &mdash;
+                    </dd>
+                </div>
+            </dl>
+            <p class="control-hint">
+                Keyboard: <kbd>&rarr;</kbd> step, <kbd>&larr;</kbd> back. Shortcuts are ignored while a form control
+                has focus.
+            </p>
+            <aside class="alert alert-warning mt-4"
+                   role="note"
+                   aria-labelledby="control-recovery-title">
+                <h2 id="control-recovery-title" class="h5 alert-heading">Recovery actions</h2>
+                <p>
+                    Do not use these actions during normal operation. Use them only when the panel reports an
+                    unreadable state, a failed state load, or an unknown command outcome.
+                </p>
+                <div class="control-row mb-0">
+                    <button type="button" id="control-rebuild" class="btn btn-danger btn-sm">Rebuild state&hellip;</button>
+                    <button type="button" id="control-reload" class="btn btn-secondary btn-sm">Reload state</button>
+                </div>
+            </aside>
+            <section aria-labelledby="control-action-help-title">
+                <h2 id="control-action-help-title" class="h5 mt-4">What each action does</h2>
+                <dl class="mb-0">
+                    <dt>Start reveal</dt>
+                    <dd>
+                        Starts a new ceremony, or resumes an idle ceremony using its existing frozen snapshot.
+                    </dd>
+                    <dt>Start over</dt>
+                    <dd>
+                        Discards the current ceremony, rebuilds it from current contest data, and starts revealing.
+                    </dd>
+                    <dt>Rebuild state</dt>
+                    <dd>
+                        Replaces unreadable stored state with a new snapshot from current contest data, then starts
+                        revealing.
+                    </dd>
+                    <dt>Reset to idle</dt>
+                    <dd>
+                        Clears reveal progress while preserving the original frozen snapshot. It does not start the
+                        ceremony.
+                    </dd>
+                    <dt>Reload state</dt>
+                    <dd>
+                        Reads the authoritative stored state without changing it. Use it when a command may have
+                        completed but its response was lost.
+                    </dd>
+                </dl>
+            </section>
+        </section>
+        <div class="modal fade"
+             id="control-confirmation-modal"
+             tabindex="-1"
+             aria-labelledby="control-confirmation-modal-label"
+             aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="control-confirmation-modal-label">Confirm action</h5>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p id="control-confirmation-message"></p>
+                        <p id="control-confirmation-counts" class="fw-semibold mb-0" hidden></p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="button"
+                                id="control-confirmation-confirm"
+                                class="btn btn-danger btn-sm">Confirm</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+{% block page_scripts %}
+    <script src="{{ request.url_for('animator_static_js', path='cell-format.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='control.js') }}?v={{ app_version }}"></script>
+{% endblock %}

@@ -1,0 +1,107 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% macro contest_card(contest, state, state_label, timing_label, timing_value, timing_iso) %}
+    <a class="animator-home-card"
+       data-state="{{ state }}"
+       href="{{ request.url_for('animator_contest_page', slug=contest.login_slug) }}">
+        <span class="animator-home-card-topline">
+            <span class="animator-home-state">
+                <span class="animator-home-state-dot" aria-hidden="true"></span>
+                {{ state_label }}
+            </span>
+            <span class="animator-home-arrow" aria-hidden="true">&nearr;</span>
+        </span>
+        <span class="animator-home-card-name">{{ contest.contest_name }}</span>
+        <span class="animator-home-card-time">
+            {{ timing_label }}
+            <time datetime="{{ timing_iso }}">{{ timing_value }}</time>
+        </span>
+    </a>
+{% endmacro %}
+{% block title_suffix %}&mdash; Contests{% endblock %}
+{% block skip_label %}Skip to contests{% endblock %}
+{% block main_class %}animator-root animator-home-root{% endblock %}
+{% block extra_head %}
+    <link href="{{ request.url_for('animator_static_css', path='animator-home.css') }}?v={{ app_version }}"
+          rel="stylesheet">
+{% endblock %}
+{% block content %}
+    <div class="animator-home">
+        <header class="animator-home-hero">
+            <div class="animator-home-heading">
+                <p class="animator-home-eyebrow">{{ brand_name }}</p>
+                <h1>Presentation desk</h1>
+                <p>Choose a contest to open its scoreboards and revelation controls.</p>
+            </div>
+            <aside class="animator-home-signal" aria-label="Animator contest count">
+                <span class="animator-home-signal-label">Animator signal</span>
+                <strong>{{ contest_groups.total }}</strong>
+                <span>{{ "contest" if contest_groups.total == 1 else "contests" }} available</span>
+            </aside>
+        </header>
+        {% if contest_groups.total %}
+            {% if contest_groups.live %}
+                <section class="animator-home-section" aria-labelledby="animator-live-heading">
+                    <div class="animator-home-section-heading">
+                        <div>
+                            <p class="animator-home-kicker">On air</p>
+                            <h2 id="animator-live-heading">Live now</h2>
+                        </div>
+                        <p>Contests currently in progress.</p>
+                    </div>
+                    <div class="animator-home-grid">
+                        {% for contest in contest_groups.live %}
+                            {{ contest_card(contest, "live", "Live", "Ends", contest.end_label, contest.end_iso) }}
+                        {% endfor %}
+                    </div>
+                </section>
+            {% endif %}
+            {% if contest_groups.upcoming %}
+                <section class="animator-home-section"
+                         aria-labelledby="animator-upcoming-heading">
+                    <div class="animator-home-section-heading">
+                        <div>
+                            <p class="animator-home-kicker">Next in queue</p>
+                            <h2 id="animator-upcoming-heading">Upcoming</h2>
+                        </div>
+                        <p>Animator-enabled contests waiting to begin.</p>
+                    </div>
+                    <div class="animator-home-grid">
+                        {% for contest in contest_groups.upcoming %}
+                            {{ contest_card(contest, "upcoming", "Scheduled", "Starts", contest.start_label, contest.start_iso) }}
+                        {% endfor %}
+                    </div>
+                </section>
+            {% endif %}
+            {% if contest_groups.past %}
+                <section class="animator-home-section" aria-labelledby="animator-past-heading">
+                    <div class="animator-home-section-heading">
+                        <div>
+                            <p class="animator-home-kicker">Still available</p>
+                            <h2 id="animator-past-heading">Past contests</h2>
+                        </div>
+                        <p>Finished contests remain here until they are archived.</p>
+                    </div>
+                    <div class="animator-home-grid">
+                        {% for contest in contest_groups.past %}
+                            {{ contest_card(contest, "past", "Finished", "Ended", contest.end_label, contest.end_iso) }}
+                        {% endfor %}
+                    </div>
+                </section>
+            {% endif %}
+        {% else %}
+            <section class="animator-home-empty" aria-labelledby="animator-empty-heading">
+                <p class="animator-home-kicker">Stand by</p>
+                <h2 id="animator-empty-heading">No presentations available</h2>
+                <p>Enable Animator for a non-archived contest to make it appear here.</p>
+            </section>
+        {% endif %}
+    </div>
+{% endblock %}
+{% block page_scripts %}{% endblock %}

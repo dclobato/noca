@@ -37,14 +37,23 @@
 	}
 }
 
+# The upstream ports follow the same NOCA_*_PORT variables the applications bind,
+# so a reconfigured port stays consistent end to end. Compose must pass those
+# variables into this container as well -- Caddy resolves {$VAR:default} from its
+# own environment, and would otherwise silently fall back to the defaults below.
+# The published listener ports (80-83) are unrelated and stay fixed.
 :80 {
-	import noca-upstream web:8000 web
+	import noca-upstream web:{$NOCA_WEB_PORT:8000} web
 }
 
 :81 {
-	import noca-upstream arena:8001 arena
+	import noca-upstream arena:{$NOCA_ARENA_PORT:8001} arena
 }
 
 :82 {
-	import noca-upstream healthmonitor:8002 healthmonitor
+	import noca-upstream healthmonitor:{$NOCA_HEALTHMON_PORT:8002} healthmonitor
+}
+
+:83 {
+	import noca-upstream animator:{$NOCA_ANIMATOR_PORT:8003} animator
 }

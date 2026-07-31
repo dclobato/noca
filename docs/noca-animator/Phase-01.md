@@ -39,8 +39,7 @@ Add the following database behavior:
 
 - Add non-null `contests.animator_enabled` with Python and server defaults of
   `false`.
-- Add `gold_cutoff`, `silver_cutoff`, `bronze_cutoff`, and nullable `style` to
-  `sites`.
+- Add `gold_cutoff`, `silver_cutoff`, and `bronze_cutoff` to `sites`.
 - Enforce positive, ordered cutoffs: gold is less than or equal to silver, and
   silver is less than or equal to bronze.
 - Create `site_secrets` with `id`, `contest_id`, nullable `site_id`,

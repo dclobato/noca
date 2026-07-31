@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -9,10 +9,10 @@
 All arena service modules should import JWT utilities from this module
 so that the token contract is defined in one place.
 
-The ``ArenaTokenAction`` enum mirrors ``arena.main.ArenaTokenAction``; both
-must stay in sync.  The ``JWTService`` instance stored in ``app.state``
-must be initialised with ``action_enum=ArenaTokenAction`` so that token
-action claims are resolved correctly during validation.
+``ArenaTokenAction`` is the canonical enum imported by Arena services and
+``arena.main``. The ``JWTService`` instance stored in ``app.state`` must be
+initialized with ``action_enum=ArenaTokenAction`` so that token action claims
+are resolved correctly during validation.
 """
 
 from enum import StrEnum
@@ -28,7 +28,6 @@ from jwtservice import (  # noqa: F401 — deliberately re-exported
 )
 
 __all__ = [
-    "ARENA_JWT_ISSUER",
     "ArenaTokenAction",
     "JWTService",
     "JWTServiceError",
@@ -43,7 +42,6 @@ _TWO_FA_SESSION_TIMEOUT = 90
 _PASSWORD_CHANGE_TIMEOUT = 300
 _EMAIL_VALIDATION_TIMEOUT = 86_400  # 24 hours
 _RESET_PASSWORD_TIMEOUT = 3_600  # 1 hour
-ARENA_JWT_ISSUER = "noca-arena"
 
 
 class ArenaTokenAction(StrEnum):

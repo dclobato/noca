@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -177,6 +179,14 @@ contests = Table(
         server_default="false",
         comment="Unfreeze scoreboard after the contest ends, reveling final score.",
     ),
+    Column(
+        "animator_enabled",
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="Gate for the animator module: only enabled contests expose snapshot/events/reveal.",
+    ),
     _created_at_column(),
     _updated_at_column(),
 )
@@ -192,10 +202,81 @@ sites = Table(
         "sitename_normalized", String(128), nullable=False, comment="Lowercased site name for contest-scoped uniqueness"
     ),
     Column("contest_id", String(36), ForeignKey("contests.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column(
+        "gold_cutoff",
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+        comment="Maximum ranking position (inclusive) awarded a gold medal in this site.",
+    ),
+    Column(
+        "silver_cutoff",
+        Integer,
+        nullable=False,
+        default=2,
+        server_default="2",
+        comment="Maximum ranking position (inclusive) awarded a silver medal in this site.",
+    ),
+    Column(
+        "bronze_cutoff",
+        Integer,
+        nullable=False,
+        default=3,
+        server_default="3",
+        comment="Maximum ranking position (inclusive) awarded a bronze medal in this site.",
+    ),
     _created_at_column(),
     _updated_at_column(),
     UniqueConstraint("contest_id", "id", name="uq_sites_contest_id_id"),
     UniqueConstraint("contest_id", "sitename_normalized", name="uq_sites_contest_sitename_normalized"),
+    CheckConstraint(
+        "gold_cutoff >= 1 AND gold_cutoff <= silver_cutoff AND silver_cutoff <= bronze_cutoff",
+        name="ck_sites_medal_cutoffs_ordered",
+    ),
+)
+
+site_secrets = Table(
+    "site_secrets",
+    metadata,
+    _id_column(),
+    Column(
+        "contest_id",
+        String(36),
+        ForeignKey("contests.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        comment="Contest this operator secret authorizes. Always required, even for a global secret.",
+    ),
+    Column(
+        "site_id",
+        String(36),
+        nullable=True,
+        index=True,
+        comment="Site this secret authorizes. NULL means a contest-global control secret.",
+    ),
+    Column(
+        "secret_digest",
+        String(64),
+        nullable=False,
+        comment="Fixed-length digest of the operator token. The plaintext is never stored.",
+    ),
+    Column(
+        "label",
+        String(200),
+        nullable=False,
+        comment="Human-readable label for the secret, e.g. 'Operador SP' or 'Global'.",
+    ),
+    _created_at_column(),
+    _updated_at_column(),
+    ForeignKeyConstraint(
+        ["contest_id", "site_id"],
+        ["sites.contest_id", "sites.id"],
+        ondelete="CASCADE",
+        name="fk_site_secrets_contest_site",
+    ),
+    UniqueConstraint("contest_id", "secret_digest", name="uq_site_secrets_contest_secret_digest"),
+    CheckConstraint("length(secret_digest) = 64", name="ck_site_secrets_digest_length"),
 )
 
 contest_languages = Table(

@@ -1,0 +1,98 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% block title_suffix %}&mdash; Presentations{% endblock %}
+{% block skip_label %}Skip to presentations{% endblock %}
+{% block main_class %}animator-root animator-index-root{% endblock %}
+{% block extra_head %}
+    <link href="{{ request.url_for('animator_static_css', path='contest-index.css') }}?v={{ app_version }}"
+          rel="stylesheet">
+{% endblock %}
+{% block content %}
+    <div class="animator-index">
+        <header class="animator-index-header">
+            <div class="animator-index-heading">
+                <p class="animator-index-eyebrow">{{ brand_name }}</p>
+                <h1 class="animator-index-title">{{ contest_name }}</h1>
+                <p class="animator-index-intro">Choose a presentation scope and the screen you want to open.</p>
+            </div>
+            <section class="animator-index-clock" aria-label="Contest clock">
+                <p class="animator-index-clock-label">Contest clock</p>
+                <div class="animator-index-clock-value"
+                     id="contest-index-clock"
+                     data-start-ms="{{ start_ms }}"
+                     data-end-ms="{{ end_ms }}"
+                     aria-live="polite"
+                     aria-atomic="true">Loading contest clock&hellip;</div>
+            </section>
+        </header>
+        <section class="animator-index-global" aria-labelledby="global-presentations">
+            <div>
+                <p class="animator-index-kicker">All sites</p>
+                <h2 id="global-presentations" class="animator-index-section-title">Global presentations</h2>
+                <p class="animator-index-description">Open the combined contest view for every participating site.</p>
+            </div>
+            <div class="animator-index-actions">
+                <a class="btn btn-light animator-index-action"
+                   href="{{ global_links.scoreboard_url }}">
+                    <span class="animator-index-action-label">Animated scoreboard</span>
+                    <span class="animator-index-action-detail">Projector</span>
+                </a>
+                <a class="btn btn-light animator-index-action"
+                   href="{{ global_links.projector_url }}">
+                    <span class="animator-index-action-label">Ceremony</span>
+                    <span class="animator-index-action-detail">Projector</span>
+                </a>
+                <a class="btn btn-light animator-index-action"
+                   href="{{ global_links.controller_url }}">
+                    <span class="animator-index-action-label">Ceremony</span>
+                    <span class="animator-index-action-detail">Controller</span>
+                </a>
+            </div>
+        </section>
+        <section class="animator-index-sites" aria-labelledby="site-presentations">
+            <div class="animator-index-sites-heading">
+                <p class="animator-index-kicker">Local ceremonies</p>
+                <h2 id="site-presentations" class="animator-index-section-title">Sites</h2>
+            </div>
+            {% if sites %}
+                <div class="animator-index-grid">
+                    {% for site in sites %}
+                        <article class="animator-index-card">
+                            <div class="animator-index-card-heading">
+                                <h3>{{ site.name }}</h3>
+                                <span>{{ site.team_count }} {{ "team" if site.team_count == 1 else "teams" }}</span>
+                            </div>
+                            <nav class="animator-index-card-links"
+                                 aria-label="{{ site.name }} presentations">
+                                <a href="{{ site.scoreboard_url }}">
+                                    <span>Animated scoreboard</span>
+                                    <span aria-hidden="true">&nearr;</span>
+                                </a>
+                                <a href="{{ site.projector_url }}">
+                                    <span>Ceremony projector</span>
+                                    <span aria-hidden="true">&nearr;</span>
+                                </a>
+                                <a href="{{ site.controller_url }}">
+                                    <span>Ceremony controller</span>
+                                    <span aria-hidden="true">&nearr;</span>
+                                </a>
+                            </nav>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="animator-index-empty">No sites are configured for this contest.</p>
+            {% endif %}
+        </section>
+    </div>
+{% endblock %}
+{% block page_scripts %}
+    <script src="{{ request.url_for('static_shared_js', path='contest-clock-utils.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='contest-index-clock.js') }}?v={{ app_version }}"></script>
+{% endblock %}

@@ -11,24 +11,18 @@ from __future__ import annotations
 from base64 import b64encode
 from dataclasses import dataclass
 
-import puremagic
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.audio_signature import (
+    UnrecognizedAudioError,
+    UnsupportedAudioError,
+    detect_audio_mime,
+)
 from shared.services.imageprocessing_service import ImageProcessingResult
 from web.audio_upload_limits import DEFAULT_AUDIO_MAX_FILE_SIZE, MAX_AUDIO_FILE_SIZE
 from web.models._base import _utcnow
 from web.models.users import User, UserMedia
-
-_AUDIO_MIME_TYPES = {
-    "audio/mpeg": "audio/mpeg",
-    "audio/mp3": "audio/mpeg",
-    "audio/ogg": "audio/ogg",
-    "application/ogg": "audio/ogg",
-    "audio/wav": "audio/wav",
-    "audio/x-wav": "audio/wav",
-    "audio/wave": "audio/wav",
-}
 
 
 @dataclass(frozen=True)
@@ -66,14 +60,15 @@ async def process_audio_upload(
         maximum_megabytes = max_file_size / (1024 * 1024)
         raise ValueError(f"Audio file too large. Maximum allowed: {maximum_megabytes:.1f} MB.")
 
+    # The accepted-format policy is shared with the animator, which re-validates
+    # the same bytes before serving them; only the wording of a refusal is
+    # Web's own, because it is rendered on the upload form.
     try:
-        detected_mime = puremagic.from_string(content, mime=True)
-    except (puremagic.PureError, ValueError) as exc:
+        canonical_mime = detect_audio_mime(content)
+    except UnrecognizedAudioError as exc:
         raise ValueError("The selected file is not a recognized MP3, OGG, or WAV audio clip.") from exc
-
-    canonical_mime = _AUDIO_MIME_TYPES.get(detected_mime)
-    if canonical_mime is None:
-        raise ValueError("Unsupported audio format. Use MP3, OGG, or WAV.")
+    except UnsupportedAudioError as exc:
+        raise ValueError("Unsupported audio format. Use MP3, OGG, or WAV.") from exc
     return AudioProcessingResult(content=content, mime_type=canonical_mime)
 
 

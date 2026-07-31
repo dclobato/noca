@@ -17,7 +17,8 @@ All names are stable — changing a route's path no longer breaks templates.
 
 ## Generated assets
 
-These public routes generate SVG images from path parameters.
+These public routes serve shared SVG images selected or customized by path
+parameters.
 
 | `url_for` call | Generated path | Endpoint name |
 |---|---|---|
@@ -25,6 +26,7 @@ These public routes generate SVG images from path parameters.
 | `request.url_for('balloon', color='<hex>', letter='<letters>')` | `/assets/balloon/<hex>/<letters>` | `balloon` |
 | `request.url_for('star', color='<hex>')` | `/assets/star/<hex>` | `star` |
 | `request.url_for('star', color='<hex>', letter='<letters>')` | `/assets/star/<hex>/<letters>` | `star` |
+| `request.url_for('medal', band='<band>')` | `/assets/medal/<band>` | `medal` |
 
 ## Public / Auth Routes (`auth.py`, `root.py`)
 

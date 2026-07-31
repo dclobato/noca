@@ -24,6 +24,9 @@ class Site(Base):
     sitename: Mapped[str]
     sitename_normalized: Mapped[str]
     contest_id: Mapped[str]
+    gold_cutoff: Mapped[int]
+    silver_cutoff: Mapped[int]
+    bronze_cutoff: Mapped[int]
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 

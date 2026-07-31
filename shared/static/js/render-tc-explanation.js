@@ -1,5 +1,5 @@
 // NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+// Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -23,7 +23,10 @@ document.addEventListener('DOMContentLoaded', function () {
   nodes.forEach(function (el) {
     // textContent already holds the decoded explanation (newlines preserved).
     var rawMarkdown = el.textContent || '';
-    var rawHtml = marked.parse(rawMarkdown);
+    var preparedMarkdown = window.NocaMarkdownDirectives
+      ? window.NocaMarkdownDirectives.prepareMarkdown(rawMarkdown)
+      : rawMarkdown;
+    var rawHtml = marked.parse(preparedMarkdown);
     el.innerHTML = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(rawHtml) : rawHtml;
 
     if (typeof renderMathInElement === 'function') {

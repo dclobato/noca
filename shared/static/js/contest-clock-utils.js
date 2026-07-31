@@ -1,8 +1,8 @@
-// NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  NOCA -- Next Online Contest Administrator
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 /**
  * contest-clock-utils.js
@@ -19,7 +19,7 @@
  *     Returns the appropriate countdown string for the current moment
  *     given contest start/end times (all in epoch milliseconds).
  *
- * This file must be loaded before contest-clock.js and contest-login-clock.js.
+ * This file must be loaded before each page-specific contest clock driver.
  */
 
 /* global window */

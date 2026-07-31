@@ -1,0 +1,557 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* Shared cross-module styles (Web/Arena/animator). */
+@import url("../shared-css/common.css");
+
+.animator-body {
+    display: flex;
+    height: 100dvh;
+    min-height: 100vh;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.animator-root {
+    --animator-problem-column-width: 5.25rem;
+    --animator-row-motion-duration: 1s;
+    --animator-row-motion-easing: ease;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: auto;
+    padding: 1.5rem clamp(1rem, 3vw, 3rem);
+}
+
+.animator-footer {
+    flex: 0 0 auto;
+}
+
+.icon-github,
+.icon-x,
+.icon-fastapi,
+.icon-python {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    background-color: currentColor;
+    mask-position: center;
+    mask-repeat: no-repeat;
+    mask-size: contain;
+    -webkit-mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-size: contain;
+}
+
+.icon-github {
+    mask-image: url("../img/github.svg");
+    -webkit-mask-image: url("../img/github.svg");
+}
+
+.icon-x {
+    mask-image: url("../img/x.svg");
+    -webkit-mask-image: url("../img/x.svg");
+}
+
+.icon-fastapi {
+    mask-image: url("../img/fastapi.svg");
+    -webkit-mask-image: url("../img/fastapi.svg");
+}
+
+.icon-python {
+    mask-image: url("../img/python.svg");
+    -webkit-mask-image: url("../img/python.svg");
+}
+
+.animator-skip-link {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 1080;
+}
+
+.animator-app {
+    max-width: 100%;
+    margin: 0 auto;
+}
+
+/* The scoreboard owns the viewport and gives its remaining height to the table
+   scroller. Without a bounded vertical scroll container, sticky <th> cells use
+   the horizontally scrolling wrapper as their containing block but have no
+   vertical scroll movement to follow. */
+.animator-scoreboard-root {
+    box-sizing: border-box;
+    height: auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.animator-scoreboard-app {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* ── Header / status line ──────────────────────────────────────────────── */
+.animator-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.animator-title {
+    margin: 0;
+    font-family: var(--noca-font-heading);
+    font-weight: 900;
+    font-size: clamp(1.5rem, 3vw, 2.5rem);
+    line-height: 1.1;
+}
+
+.animator-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.animator-subtitle {
+    margin: 0;
+    font-family: var(--noca-font-heading);
+    font-weight: 600;
+    font-size: clamp(0.9rem, 1.5vw, 1.15rem);
+    color: var(--noca-on-surface-variant);
+}
+
+.animator-status-line {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.animator-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.7rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    background: var(--noca-surface-container);
+    color: var(--noca-on-surface-variant);
+}
+
+.animator-state:empty {
+    display: none;
+}
+
+.animator-state[hidden] {
+    display: none;
+}
+
+.animator-state[data-state="running"] {
+    background: var(--bs-success-bg-subtle);
+    color: var(--bs-success-text-emphasis);
+}
+
+.animator-state[data-state="final"] {
+    background: var(--bs-success-bg-subtle);
+    color: var(--bs-success-text-emphasis);
+}
+
+.animator-state[data-state="frozen"] {
+    background: var(--bs-info-bg-subtle);
+    color: var(--bs-info-text-emphasis);
+}
+
+.animator-state[data-state="ended"] {
+    background: var(--noca-surface-container-high);
+    color: var(--noca-on-surface);
+}
+
+.animator-timer {
+    font-family: var(--noca-font-mono);
+    font-size: clamp(1.25rem, 2.5vw, 2rem);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+}
+
+/* ── Connection status pill ────────────────────────────────────────────────
+   Non-blocking live-connection indicator with a politely announced label and
+   silent elapsed timer. It never hides the scoreboard; it only annotates
+   whether updates arrive over SSE, are reconnecting, or use fallback polling. */
+.animator-connection {
+    display: inline-grid;
+    grid-template-areas:
+        "icon label"
+        "icon timer";
+    grid-template-columns: auto auto;
+    align-items: center;
+    column-gap: 0.35rem;
+    row-gap: 0.05rem;
+    position: relative;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: var(--noca-surface-container);
+    color: var(--noca-on-surface-variant);
+}
+
+.animator-connection::before {
+    content: "\1F5A7";
+    grid-area: icon;
+    display: inline-block;
+    font-size: 0.9rem;
+    line-height: 1;
+    position: relative;
+    z-index: 1;
+}
+
+.animator-connection::after {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    left: 1.05rem;
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.animator-connection-label {
+    grid-area: label;
+    line-height: 1.1;
+}
+
+.animator-connection-elapsed {
+    grid-area: timer;
+    font-family: var(--noca-font-mono);
+    font-size: 0.68rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: 0.04em;
+}
+
+.animator-connection[data-status="live"] {
+    background: var(--bs-success-bg-subtle);
+    color: var(--bs-success-text-emphasis);
+}
+
+.animator-connection[data-status="live"]::after {
+    animation: animator-live-dot-glow 1.2s ease-in-out infinite;
+}
+
+.animator-connection[data-status="reconnecting"] {
+    background: var(--bs-warning-bg-subtle);
+    color: var(--bs-warning-text-emphasis);
+}
+
+.animator-connection[data-status="polling"] {
+    background: var(--bs-info-bg-subtle);
+    color: var(--bs-info-text-emphasis);
+}
+
+@keyframes animator-live-dot-glow {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 0.5rem color-mix(in srgb, currentColor 22%, transparent);
+    }
+}
+
+/* ── Status blocks ─────────────────────────────────────────────────────── */
+.animator-loading,
+.animator-empty {
+    padding: 2rem 1rem;
+    text-align: center;
+    color: var(--noca-on-surface-variant);
+    font-size: 1.1rem;
+}
+
+.animator-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 1.5rem 1rem;
+    text-align: center;
+    color: var(--bs-danger-text-emphasis);
+    font-size: 1.1rem;
+}
+
+/* ── Pending-submission list ───────────────────────────────────────────── */
+/* Authoritative, newest-first list of teams currently awaiting a verdict. It is
+   rebuilt from every /snapshot, so it disappears (hidden) once nothing is
+   pending. Sits above the scoreboard so a glance shows who is waiting. */
+.animator-pending {
+    margin: 0 0 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    background: var(--bs-warning-bg-subtle);
+    border-left: 3px solid var(--bs-warning);
+}
+
+.animator-pending-heading {
+    margin: 0 0 0.5rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--noca-on-surface-variant);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.animator-pending-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.animator-pending-item {
+    font-size: 1.05rem;
+    line-height: 1.4;
+}
+
+/* ── Scoreboard table ──────────────────────────────────────────────────── */
+/* The board consumes the remaining viewport and scrolls in both directions.
+   This keeps the column header pinned while teams pass underneath it. */
+.animator-board-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.animator-scoreboard {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: clamp(0.95rem, 1.4vw, 1.15rem);
+}
+
+.animator-scoreboard th,
+.animator-scoreboard td {
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--noca-border);
+    white-space: nowrap;
+    text-align: center;
+}
+
+.animator-scoreboard thead th {
+    position: sticky;
+    top: 0;
+    background-color: var(--noca-surface-container);
+    color: var(--noca-on-surface);
+    font-weight: 700;
+    z-index: 2;
+}
+
+.animator-col-rank {
+    width: 3.5rem;
+}
+
+.animator-col-team,
+.animator-scoreboard th[scope="row"] {
+    text-align: left;
+    max-width: 22ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Team cell: the full name is the prominent first line; the login id follows as
+   a muted second line. */
+.animator-team-primary {
+    display: block;
+    font-weight: 600;
+    max-width: 22ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.animator-team-secondary {
+    display: block;
+    font-size: 0.8em;
+    font-family: inherit;
+    font-weight: 400;
+    color: var(--noca-on-surface-variant);
+    max-width: 22ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.animator-col-solved,
+.animator-col-time {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+/* Per-problem balloon header swatch. */
+.animator-problem-col {
+    box-sizing: border-box;
+    width: var(--animator-problem-column-width);
+    min-width: var(--animator-problem-column-width);
+    max-width: var(--animator-problem-column-width);
+}
+
+/* Balloon/star artwork is an <img> served by the animator /assets route, with
+   the problem letter baked into the SVG. The source viewBox is taller than it
+   is wide, so height drives the size and width follows the aspect ratio. */
+.animator-balloon {
+    display: inline-block;
+    width: auto;
+    height: 2.4rem;
+    vertical-align: middle;
+    margin-right: 0.25rem;
+}
+
+/* ── Problem cell states ───────────────────────────────────────────────── */
+.animator-cell {
+    box-sizing: border-box;
+    width: var(--animator-problem-column-width);
+    min-width: var(--animator-problem-column-width);
+    max-width: var(--animator-problem-column-width);
+    font-variant-numeric: tabular-nums;
+    vertical-align: middle;
+    transition-property: background-color, box-shadow;
+    transition-duration: 0.45s;
+    transition-timing-function: ease;
+}
+
+/* The same compact stack used by Web's scoreboard: result artwork, solve time,
+   and attempt penalty occupy stable lines without changing column width. */
+.noca-problem-cell-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 5rem;
+}
+
+.animator-cell-result-balloon {
+    display: block;
+    width: 23px;
+    height: 35px;
+}
+
+.animator-cell--solved {
+    background-color: transparent;
+}
+
+.animator-cell--attempted {
+    background-color: transparent;
+}
+
+.animator-cell--pending {
+    background: var(--bs-warning-bg-subtle);
+    color: var(--bs-warning-text-emphasis);
+}
+
+.animator-cell--first {
+    outline: 2px solid var(--noca-brand);
+    outline-offset: -2px;
+}
+
+/* Semantic cell and badge colors use Bootstrap's theme-responsive emphasis
+   variables (`--bs-*-text-emphasis` over `--bs-*-bg-subtle`), which the runtime
+   remaps for the dark theme, so no separate `[data-bs-theme="dark"]` overrides
+   are needed to keep text contrast above 4.5:1. */
+
+/* ── Live update transitions ───────────────────────────────────────────────
+   Rank movement uses FLIP: animator-animate.js inverts a moved row to its old
+   position with an inline transform, then releases it so this transition plays
+   it back to the natural position. The transient highlight classes below apply a
+   *static* inset ring (not an animation), so reduced-motion viewers still see
+   which rows and cells changed even though the FLIP transform is neutralized. The
+   base box-shadow transition only smooths the fade-out for motion-enabled viewers. */
+.animator-scoreboard tbody tr {
+    transition-property: transform, background-color, box-shadow;
+    transition-duration: var(--animator-row-motion-duration), 0.45s, 0.45s;
+    transition-timing-function: var(--animator-row-motion-easing), ease, ease;
+}
+
+.animator-row--rank-up {
+    box-shadow: inset 3px 0 0 0 var(--bs-success);
+}
+
+.animator-row--rank-down {
+    box-shadow: inset 3px 0 0 0 var(--bs-danger);
+}
+
+/* Transient highlights use an *inset* ring (drawn inside the cell), so they are
+   never clipped by the horizontal-scroll container nor covered by neighbouring
+   cells the way an outer box-shadow would be. The ring is a static box-shadow
+   (not an animation), so reduced-motion viewers still see the change; the base
+   `box-shadow` transition only smooths its fade for motion-enabled viewers. */
+.animator-cell--flash-solved {
+    box-shadow: inset 0 0 0 3px var(--bs-success);
+}
+
+.animator-cell--flash-attempts {
+    box-shadow: inset 0 0 0 3px var(--bs-danger);
+}
+
+.animator-cell--flash-pending {
+    box-shadow: inset 0 0 0 3px var(--bs-warning);
+}
+
+/* Distinct from the persistent `.animator-cell--first` outline: a high-contrast
+   brand-colored inset ring for the moment a first balloon is (re)assigned. It
+   pairs with the balloon-pop below so the first-solver change is unmistakable. */
+.animator-cell--flash-first {
+    box-shadow: inset 0 0 0 3px var(--noca-brand);
+}
+
+/* The in-cell star marks the first solve at a glance, in the problem color. On
+   the transient flash it pops in (motion only; the ring alone remains under
+   reduced motion). */
+.animator-cell-star {
+    transform-origin: center;
+}
+
+.animator-cell--flash-first .animator-cell-star {
+    animation: animator-balloon-pop 0.5s ease-out;
+}
+
+@keyframes animator-balloon-pop {
+    0% {
+        transform: scale(0.2);
+    }
+
+    60% {
+        transform: scale(1.35);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────── */
+/* Any transition/animation added in later phases is neutralized here so the
+   presentation stays usable for reduced-motion viewers from the first version. */
+@media (prefers-reduced-motion: reduce) {
+    .animator-app *,
+    .animator-app *::before,
+    .animator-app *::after {
+        transition: none !important;
+        animation: none !important;
+        scroll-behavior: auto !important;
+    }
+}

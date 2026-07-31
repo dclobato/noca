@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -38,8 +38,9 @@ class WorkerClass(StrEnum):
 
     The worker classes (autojudge, aiassistant, rating) are displayed by the
     Arena administration dashboard and participate in the pause machinery.
-    The HTTP server classes (web, arena) are presence-only: they are monitored
-    by the healthmonitor module and must never appear in pause/dashboard UIs.
+    The HTTP server classes (web, arena, animator) are presence-only: they are
+    monitored by the healthmonitor module and must never appear in
+    pause/dashboard UIs.
     """
 
     AUTOJUDGE = "autojudge"
@@ -47,6 +48,7 @@ class WorkerClass(StrEnum):
     RATING = "rating"
     WEB = "web"
     ARENA = "arena"
+    ANIMATOR = "animator"
 
 
 @dataclass(frozen=True, slots=True)

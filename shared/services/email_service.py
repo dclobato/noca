@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -24,7 +24,7 @@ class EmailSettings(Protocol):
     EMAIL_PROVIDER: str
     EMAIL_SENDER: str
     EMAIL_SENDER_NAME: str | None
-    APP_NAME: str
+    BRAND_NAME: str
     SMTP_SERVER: str | None
     SMTP_PORT: int
     SMTP_USERNAME: str | None
@@ -79,7 +79,7 @@ class EmailConfig:
             send_email=settings.SEND_EMAIL,
             provider_type=settings.EMAIL_PROVIDER,
             default_from_email=settings.EMAIL_SENDER,
-            default_from_name=settings.EMAIL_SENDER_NAME or settings.APP_NAME,
+            default_from_name=settings.EMAIL_SENDER_NAME or settings.BRAND_NAME,
             smtp_server=settings.SMTP_SERVER,
             smtp_port=settings.SMTP_PORT,
             smtp_username=settings.SMTP_USERNAME,

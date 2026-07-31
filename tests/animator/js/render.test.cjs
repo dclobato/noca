@@ -1,0 +1,450 @@
+//  NOCA -- Next Online Contest Administrator
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+// Browser-independent DOM test for animator-render.js. It runs the real render
+// functions against realistic /meta and /snapshot payloads using a tiny DOM
+// shim (no jsdom dependency), covering the field-mapping regression class,
+// every problem-cell state, empty standings, hostile labels, long names, and
+// the timer projection. Executed by tests/animator/test_render_js.py via Node.
+
+"use strict";
+
+const assert = require("assert");
+const path = require("path");
+
+const render = require(
+  path.join(__dirname, "..", "..", "..", "animator", "static", "js", "animator-render.js"),
+);
+
+// ── Minimal DOM shim ────────────────────────────────────────────────────────
+class El {
+  constructor(tag) {
+    this.tagName = tag;
+    this.attributes = {};
+    this.childNodes = [];
+    this._text = "";
+    this.classList = {
+      _list: [],
+      add: (c) => {
+        if (this.classList._list.indexOf(c) === -1) {
+          this.classList._list.push(c);
+        }
+      },
+      remove: (c) => {
+        this.classList._list = this.classList._list.filter((x) => x !== c);
+      },
+      contains: (c) => this.classList._list.indexOf(c) !== -1,
+    };
+  }
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+  }
+  getAttribute(name) {
+    return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
+  }
+  appendChild(node) {
+    // Match DOM move semantics: re-appending an existing child relocates it to
+    // the end rather than duplicating it (relied on by keyed reconciliation).
+    const i = this.childNodes.indexOf(node);
+    if (i !== -1) {
+      this.childNodes.splice(i, 1);
+    }
+    this.childNodes.push(node);
+    return node;
+  }
+  removeChild(node) {
+    this.childNodes = this.childNodes.filter((n) => n !== node);
+    return node;
+  }
+  replaceChildren() {
+    this.childNodes = [];
+  }
+  get children() {
+    return this.childNodes;
+  }
+  get lastChild() {
+    return this.childNodes[this.childNodes.length - 1];
+  }
+  set textContent(value) {
+    this._text = String(value);
+    this.childNodes = [];
+  }
+  get textContent() {
+    if (this.childNodes.length === 0) {
+      return this._text;
+    }
+    return this._text + this.childNodes.map((n) => n.textContent).join("");
+  }
+  get className() {
+    return this.getAttribute("class") || "";
+  }
+  hasClass(c) {
+    return this.classList.contains(c) || this.className.split(/\s+/).indexOf(c) !== -1;
+  }
+}
+
+const doc = {
+  createElement: (tag) => new El(tag),
+  createElementNS: (_ns, tag) => new El(tag),
+};
+
+// The asset mount bases the page passes to extractProblems (data-*-base attrs).
+const ASSETS = { balloonBase: "/assets/balloon", starBase: "/assets/star" };
+
+// ── released final detection: ended + explicitly unfrozen snapshot ─────────
+(function testReleasedFinalDetection() {
+  const meta = { end_time: "2026-06-20T16:00:00Z" };
+  const afterEnd = Date.parse("2026-06-20T16:00:01Z");
+  const beforeEnd = Date.parse("2026-06-20T15:59:59Z");
+
+  assert.strictEqual(
+    render.isReleasedFinal(meta, { is_frozen: false }, afterEnd),
+    true,
+  );
+  assert.strictEqual(
+    render.isReleasedFinal(meta, { is_frozen: true }, afterEnd),
+    false,
+    "an ended but unreleased scoreboard stays frozen",
+  );
+  assert.strictEqual(
+    render.isReleasedFinal(meta, { is_frozen: false }, beforeEnd),
+    false,
+    "a release flag cannot make a running contest final",
+  );
+  assert.strictEqual(
+    render.isReleasedFinal({ end_time: "invalid" }, { is_frozen: false }, afterEnd),
+    false,
+  );
+})();
+
+function makeHeader() {
+  const header = new El("tr");
+  ["#", "Team", "Solved", "Time"].forEach((label) => {
+    const th = new El("th");
+    th.textContent = label;
+    header.appendChild(th);
+  });
+  return header;
+}
+
+function findByTag(node, tag) {
+  const out = [];
+  (function walk(n) {
+    if (n.tagName === tag) {
+      out.push(n);
+    }
+    (n.childNodes || []).forEach(walk);
+  })(node);
+  return out;
+}
+
+// ── extractProblems: no [object Object] ─────────────────────────────────────
+(function testExtractProblems() {
+  const meta = {
+    problems: [
+      { problem_id: "p1", ordinal: 1, label: "A", balloon_color: "ff0000" },
+      { problem_id: "p2", ordinal: 2, label: "B", balloon_color: "00ff00" },
+    ],
+  };
+  const problems = render.extractProblems(meta, ASSETS);
+  assert.deepStrictEqual(
+    problems.map((p) => p.label),
+    ["A", "B"],
+  );
+  assert.strictEqual(problems[0].problemId, "p1");
+  assert.strictEqual(problems[0].color, "ff0000");
+  assert.strictEqual(problems[0].balloonBase, "/assets/balloon");
+  assert.strictEqual(problems[0].starBase, "/assets/star");
+  problems.forEach((p) => assert.notStrictEqual(p.label, "[object Object]"));
+})();
+
+// ── renderHeader: balloon <img> src + alt + data hook ───────────────────────
+(function testRenderHeader() {
+  const header = makeHeader();
+  const problems = render.extractProblems(
+    { problems: [{ problem_id: "p1", ordinal: 1, label: "A", balloon_color: "ff0000" }] },
+    ASSETS,
+  );
+  render.renderHeader(doc, header, problems);
+  assert.strictEqual(header.children.length, 5); // 4 fixed + 1 problem
+  const th = header.lastChild;
+  assert.strictEqual(th.getAttribute("data-problem-id"), "p1");
+  const imgs = findByTag(th, "img");
+  assert.strictEqual(imgs.length, 1);
+  assert.strictEqual(imgs[0].getAttribute("src"), "/assets/balloon/ff0000/A");
+  assert.strictEqual(imgs[0].getAttribute("alt"), "Problem A");
+  // Re-render must not accumulate columns.
+  render.renderHeader(doc, header, problems);
+  assert.strictEqual(header.children.length, 5);
+})();
+
+// ── createBalloonImage: invalid color / missing base omit the src ───────────
+(function testBalloonImageFallback() {
+  const bad = render.createBalloonImage(doc, { color: "not-a-color", label: "A", balloonBase: "/assets/balloon" });
+  assert.strictEqual(bad.tagName, "img");
+  assert.strictEqual(bad.getAttribute("src"), null, "invalid color -> no src");
+
+  const noBase = render.createBalloonImage(doc, { color: "ff0000", label: "A", balloonBase: null });
+  assert.strictEqual(noBase.getAttribute("src"), null, "missing base -> no src");
+
+  const ok = render.createBalloonImage(doc, { color: "ff0000", label: "A", balloonBase: "/assets/balloon" });
+  assert.strictEqual(ok.getAttribute("src"), "/assets/balloon/ff0000/A");
+})();
+
+// ── Problem-cell states + label-keyed lookup (the P1 regression guard) ───────
+(function testProblemCellStates() {
+  const problems = render.extractProblems({
+    problems: [{ problem_id: "p1", ordinal: 1, label: "A", balloon_color: "ff0000" }],
+  });
+
+  const solved = render.buildRow(doc, problems, {
+    rank: 1,
+    team_id: "t1",
+    team_name: "Team",
+    team_fullname: "Team",
+    problems_solved: 1,
+    total_time: 20,
+    problems: {
+      A: {
+        solved: true,
+        attempts: 2,
+        solved_at_minutes: 15,
+        penalty: 40,
+        is_first_balloon: true,
+      },
+    },
+  });
+  // The cell must reflect the solved state, keyed by label "A" — not render as
+  // unattempted (which is what the pre-fix [object Object] key produced).
+  const solvedCell = solved.childNodes[4];
+  assert.ok(solvedCell.hasClass("animator-cell--solved"), "solved cell class");
+  assert.ok(solvedCell.hasClass("animator-cell--first"), "first-balloon class");
+  assert.ok(solvedCell.textContent.indexOf("+2 (40')") !== -1, "attempt penalty before solve");
+  assert.ok(solvedCell.textContent.indexOf("15'") !== -1, "solve time");
+  assert.ok(solvedCell.textContent.indexOf("first solve") !== -1, "a11y first-solve text");
+  assert.strictEqual(solvedCell.getAttribute("data-problem-id"), "p1");
+  // Row-level mapping uses problems_solved / total_time.
+  assert.strictEqual(solved.getAttribute("data-team-id"), "t1");
+  assert.strictEqual(solved.childNodes[2].textContent, "1"); // solved count
+  assert.strictEqual(solved.childNodes[3].textContent, "20"); // penalty
+
+  const pending = render.buildProblemCell(doc, problems[0], {
+    solved: false,
+    attempts: 1,
+    penalty: 20,
+    is_pending: true,
+  });
+  assert.ok(pending.hasClass("animator-cell--pending"));
+  assert.ok(pending.textContent.indexOf("? −1") !== -1);
+  assert.ok(pending.textContent.indexOf("(20')") !== -1);
+  assert.ok(pending.textContent.indexOf("pending") !== -1);
+
+  const attempted = render.buildProblemCell(doc, problems[0], {
+    solved: false,
+    attempts: 3,
+    penalty: 60,
+    is_pending: false,
+  });
+  assert.ok(attempted.hasClass("animator-cell--attempted"));
+  assert.ok(attempted.textContent.indexOf("−3") !== -1);
+  assert.ok(attempted.textContent.indexOf("(60')") !== -1);
+  assert.ok(attempted.textContent.indexOf("failed attempts") !== -1);
+
+  const none = render.buildProblemCell(doc, problems[0], undefined);
+  assert.ok(none.textContent.indexOf("no attempts") !== -1);
+  assert.ok(!none.hasClass("animator-cell--solved"));
+})();
+
+// ── Empty standings ─────────────────────────────────────────────────────────
+(function testEmptyStandings() {
+  const tbody = new El("tbody");
+  const hasRows = render.renderStandings(doc, tbody, [], []);
+  assert.strictEqual(hasRows, false);
+  assert.strictEqual(tbody.childNodes.length, 0);
+})();
+
+// ── Hostile label stays inert: no letter segment, alt is an attribute ────────
+(function testHostileLabel() {
+  const header = makeHeader();
+  const hostile = "<img src=x onerror=alert(1)>";
+  render.renderHeader(doc, header, [
+    { label: hostile, color: "ff0000", problemId: "p1", balloonBase: "/assets/balloon" },
+  ]);
+  const img = findByTag(header.lastChild, "img")[0];
+  // The label does not start with an ASCII letter, so it is never placed into
+  // the URL path: the src stays color-only. The label is carried only in alt,
+  // set via setAttribute (an attribute, never parsed as markup).
+  assert.strictEqual(img.getAttribute("src"), "/assets/balloon/ff0000");
+  assert.strictEqual(img.getAttribute("alt"), "Problem " + hostile);
+})();
+
+// ── Long team name still renders ────────────────────────────────────────────
+(function testLongName() {
+  const longName = "X".repeat(200);
+  const row = render.buildRow(doc, [], {
+    rank: 1,
+    team_id: "t1",
+    team_name: longName,
+    team_fullname: longName,
+    problems_solved: 0,
+    total_time: 0,
+    problems: {},
+  });
+  assert.ok(row.textContent.indexOf(longName) !== -1);
+})();
+
+// ── Team cell: full name on the first line, site on the second ───────────────
+(function testTeamCellOrder() {
+  const row = render.buildRow(doc, [], {
+    rank: 1,
+    team_id: "t1",
+    team_name: "team01", // login id
+    team_fullname: "Ada Lovelace", // full name
+    site_name: "Campus Centro",
+    problems_solved: 0,
+    total_time: 0,
+    problems: {},
+  });
+  const th = row.childNodes[1];
+  const spans = findByTag(th, "span");
+  assert.strictEqual(spans[0].getAttribute("class"), "animator-team-primary");
+  assert.strictEqual(spans[0].textContent, "Ada Lovelace", "first line is the full name");
+  assert.strictEqual(spans[1].getAttribute("class"), "animator-team-secondary");
+  assert.strictEqual(spans[1].textContent, "Campus Centro", "second line is the site");
+
+  // No full name or site: the login id is the single primary line.
+  const row2 = render.buildRow(doc, [], {
+    rank: 1,
+    team_id: "t2",
+    team_name: "team02",
+    team_fullname: "team02",
+    problems_solved: 0,
+    total_time: 0,
+    problems: {},
+  });
+  const spans2 = findByTag(row2.childNodes[1], "span");
+  assert.strictEqual(spans2.length, 1, "no second line when full name is absent");
+  assert.strictEqual(spans2[0].textContent, "team02");
+})();
+
+// ── Timer projection: all four states + invalid ─────────────────────────────
+(function testTimerView() {
+  const start = 1000000;
+  const end = start + 5 * 3600 * 1000;
+
+  const before = render.computeTimerView(start, end, false, start - 60000);
+  assert.strictEqual(before.state, "scheduled");
+  assert.strictEqual(before.running, true);
+
+  const during = render.computeTimerView(start, end, false, start + 3600000);
+  assert.strictEqual(during.state, "running");
+  assert.strictEqual(during.text, "01:00:00");
+  assert.strictEqual(during.running, true);
+
+  const frozen = render.computeTimerView(start, end, true, start + 3600000);
+  assert.strictEqual(frozen.state, "frozen");
+  assert.strictEqual(frozen.label, "Frozen");
+  assert.strictEqual(frozen.ended, false);
+
+  const frozenEnded = render.computeTimerView(start, end, true, end + 1);
+  assert.strictEqual(frozenEnded.state, "frozen");
+  assert.strictEqual(frozenEnded.label, "Frozen");
+  assert.strictEqual(frozenEnded.ended, true);
+  assert.strictEqual(frozenEnded.text, "05:00:00");
+  assert.strictEqual(frozenEnded.running, false);
+
+  const finalEnded = render.computeTimerView(start, end, false, end + 1);
+  assert.strictEqual(finalEnded.state, "final");
+  assert.strictEqual(finalEnded.label, "Final");
+  assert.strictEqual(finalEnded.ended, true);
+  assert.strictEqual(finalEnded.text, "05:00:00");
+  assert.strictEqual(finalEnded.running, false);
+
+  const invalid = render.computeTimerView(null, NaN, false, Date.now());
+  assert.strictEqual(invalid.state, "unknown");
+  assert.strictEqual(invalid.running, false);
+})();
+
+// ── Every solve has artwork; the first solver uses a star ────────────────────
+(function testStarInFirstSolverCell() {
+  const problems = render.extractProblems(
+    { problems: [{ problem_id: "p1", ordinal: 1, label: "A", balloon_color: "ff0000" }] },
+    ASSETS,
+  );
+  const first = render.buildProblemCell(doc, problems[0], {
+    problem_id: "p1",
+    solved: true,
+    attempts: 0,
+    solved_at_minutes: 12,
+    penalty: 0,
+    is_first_balloon: true,
+  });
+  const imgs = findByTag(first, "img");
+  assert.strictEqual(imgs.length, 1, "first-solver cell shows a star");
+  assert.strictEqual(imgs[0].getAttribute("src"), "/assets/star/ff0000", "star matches Web's color-only cell asset");
+  assert.ok(imgs[0].getAttribute("class").indexOf("animator-cell-star") !== -1, "star cell class");
+  assert.ok(first.hasClass("animator-cell--first"));
+  assert.ok(first.textContent.indexOf("12'") !== -1);
+  assert.ok(first.textContent.indexOf("+") === -1, "first-attempt solve has no solitary plus");
+  // A non-first solve carries a balloon rather than a star.
+  const plain = render.buildProblemCell(doc, problems[0], {
+    problem_id: "p1",
+    solved: true,
+    attempts: 0,
+    solved_at_minutes: 15,
+    penalty: 0,
+    is_first_balloon: false,
+  });
+  assert.strictEqual(findByTag(plain, "img").length, 1, "ordinary solve has a balloon");
+  assert.strictEqual(findByTag(plain, "img")[0].getAttribute("src"), "/assets/balloon/ff0000");
+})();
+
+// ── Keyed reconciliation preserves identity, order, removal, and transients ──
+(function testReconciliation() {
+  const tbody = new El("tbody");
+  const problems = render.extractProblems({
+    problems: [{ problem_id: "p1", ordinal: 1, label: "A", balloon_color: "ff0000" }],
+  });
+  const cell = (over) => Object.assign({ problem_id: "p1", solved: false, attempts: 0 }, over);
+  const row = (rank, id, extra) =>
+    Object.assign(
+      { rank: rank, team_id: id, team_name: id, team_fullname: id, problems_solved: 0, total_time: 0, problems: {} },
+      extra,
+    );
+
+  render.renderStandings(doc, tbody, problems, [
+    row(1, "t1", { problems_solved: 1, total_time: 10, problems: { A: cell({ solved: true }) } }),
+    row(2, "t2"),
+  ]);
+  assert.strictEqual(tbody.children.length, 2);
+  const t1First = tbody.children[0];
+  assert.strictEqual(t1First.getAttribute("data-team-id"), "t1");
+  // A transient flash a full rebuild would drop; reconciliation must keep it.
+  t1First.children[4].classList.add("animator-cell--flash-solved");
+
+  // t2 overtakes t1, a new t3 appears.
+  render.renderStandings(doc, tbody, problems, [
+    row(1, "t2", { problems_solved: 1, total_time: 5, problems: { A: cell({ solved: true }) } }),
+    row(2, "t1", { problems_solved: 1, total_time: 10, problems: { A: cell({ solved: true }) } }),
+    row(3, "t3"),
+  ]);
+  assert.deepStrictEqual(
+    tbody.children.map((r) => r.getAttribute("data-team-id")),
+    ["t2", "t1", "t3"],
+    "rows reordered into authoritative server order",
+  );
+  const t1Second = tbody.children[1];
+  assert.strictEqual(t1Second, t1First, "surviving row keeps element identity");
+  assert.ok(t1Second.children[4].hasClass("animator-cell--flash-solved"), "transient class survives re-render");
+  assert.strictEqual(t1Second.children[0].textContent, "2", "rank updated in place");
+
+  // t2 and t3 drop out; only t1 remains.
+  render.renderStandings(doc, tbody, problems, [row(1, "t1")]);
+  assert.strictEqual(tbody.children.length, 1);
+  assert.strictEqual(tbody.children[0].getAttribute("data-team-id"), "t1", "departed teams removed");
+})();
+
+console.log("animator-render DOM contract: all assertions passed");

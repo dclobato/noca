@@ -5,7 +5,7 @@
 - `uv run ruff format .`: format code
 - `uv run ruff check --fix .`: lint code
 - `uv run pytest`: run tests (full suite); use `uv run pytest tests/<module>` for one module's slice
-- `uv run mypy web shared autojudge arena rating aiassistant healthmonitor`: type check
+- `uv run mypy web shared autojudge arena rating aiassistant healthmonitor animator`: type check
 - `uv run python scripts/fetch_assets.py`: after fresh install, fetch shared web/arena assets
 - `uv run noca-web`: run web server
 - `uv run noca-arena`: run arena server
@@ -14,15 +14,16 @@
 - `uv run noca-healthmonitor`: run the health monitor server
 - `uv run djlint web/template --reformat`: format HTML templates
 
-NOTE: Full test suite takes over 5 minutes, so keep timeout above this value
+NOTE: Full test suite takes over 8 minutes, so keep timeout above this value
 
-The repo is a uv workspace with seven members: `shared`, `web`, `arena`, `autojudge`, `rating`,
-`aiassistant`, `healthmonitor`. Each
+The repo is a uv workspace with eight members: `shared`, `web`, `arena`, `autojudge`, `rating`,
+`aiassistant`, `healthmonitor`, `animator`. Each
 declares its own runtime deps in `<module>/pyproject.toml`. `uv sync --all-packages` installs
 the full developer environment; `uv sync --package noca-<module> --frozen --no-dev` installs
 just one module's slice (used by the per-module Docker images).
 The workspace packages are configured as live editable installs, so console-script entry points
-(`noca-autojudge`, `noca-arena`, `noca-web`, `noca-rating`, `noca-aiassistant`, `noca-healthmonitor`)
+(`noca-autojudge`, `noca-arena`, `noca-web`, `noca-rating`, `noca-aiassistant`, `noca-healthmonitor`,
+`noca-animator`)
 import source and templates directly from the
 workspace after a normal `uv sync --all-packages`.
 

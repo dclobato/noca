@@ -26,7 +26,7 @@ Related references:
 
 ## 1. High-level design
 
-NOCA is split into six main runtime modules:
+NOCA is split into seven main runtime modules:
 
 - `web/`: the FastAPI application that serves HTML pages, handles authentication, enforces authorization, manages contests/problems/users, and creates judging work
 - `autojudge/`: the asynchronous judge worker that consumes queued judgments, compiles and runs submissions inside containers, and writes results back
@@ -36,10 +36,13 @@ NOCA is split into six main runtime modules:
   uses the OpenAI Responses API for user-key reviews, uses the OpenAI Batch API
   for platform-key reviews, and stores feedback in the database
 - `healthmonitor/`: the public health-monitoring FastAPI server that probes the
-  other five modules through their Valkey worker-presence keys and renders an
+  other modules through their Valkey worker-presence keys and renders an
   environment status page plus a 30-day uptime heatmap dashboard
+- `animator/`: the standalone FastAPI presentation runtime (default port 8003) that reads
+  PostgreSQL and Valkey directly to serve a live scoreboard and post-freeze reveal
+  ceremony; it reuses the shared scoreboard projection and never imports `web`
 
-Those modules are intentionally separated. The web app owns contest-admin workflows; the autojudge owns untrusted-code execution and verdict production; the arena owns public participant registration and authentication; the rating worker owns periodic rating recomputation cycles so they run exactly once regardless of how many Arena replicas are deployed; the aiassistant worker owns external AI provider calls and cost recording; the health monitor owns availability observation and uptime history without participating in any business workflow.
+Those modules are intentionally separated. The web app owns contest-admin workflows; the autojudge owns untrusted-code execution and verdict production; the arena owns public participant registration and authentication; the rating worker owns periodic rating recomputation cycles so they run exactly once regardless of how many Arena replicas are deployed; the aiassistant worker owns external AI provider calls and cost recording; the health monitor owns availability observation and uptime history without participating in any business workflow; the animator owns public scoreboard and reveal presentation, reading the shared schema directly through SQLAlchemy Core.
 
 Between them there is one important shared module:
 
@@ -77,15 +80,19 @@ trust and ordering model.
 
 Runtime isolation:
 
-- **web**: FastAPI server with async database and Valkey connections, serving HTTP requests (port 8000)
+- **web**: FastAPI server with async database and Valkey connections, serving HTTP requests (default port 8000)
 - **autojudge**: Independent async worker process with fixed-width concurrency, processing judge jobs
-- **arena**: FastAPI server with async database and Valkey connections, serving the Arena platform (port 8001)
+- **arena**: FastAPI server with async database and Valkey connections, serving the Arena platform (default port 8001)
 - **rating**: Independent single-replica async worker running the Arena rating recomputation loops
 - **aiassistant**: Independent async worker dequeuing AI review jobs from
   Valkey, calling the OpenAI Responses API for online user-key reviews, and
   polling OpenAI Batch API jobs for platform-key reviews
 - **healthmonitor**: FastAPI server with a Valkey connection only (no database),
-  serving the public status and uptime dashboards (port 8002)
+  serving the public status and uptime dashboards (default port 8002)
+- **animator**: FastAPI server with async database (SQLAlchemy Core) and Valkey
+  connections, serving the public live scoreboard and reveal presentation (default port 8003).
+  Publishes a presence-only `WorkerClass.ANIMATOR` heartbeat from its lifespan, so
+  the health monitor shows it as its own service
 - No Python imports between modules; all communication goes through infrastructure
 
 ## 3. uv workspace and package layout
@@ -100,6 +107,7 @@ It provides shared development tooling and resolves these workspace packages:
 - `noca-rating` from `rating/`
 - `noca-aiassistant` from `aiassistant/`
 - `noca-healthmonitor` from `healthmonitor/`
+- `noca-animator` from `animator/`
 
 Each runtime module has its own `pyproject.toml`, build metadata, dependency list, and console script. The runtime entrypoints are:
 
@@ -109,12 +117,13 @@ Each runtime module has its own `pyproject.toml`, build metadata, dependency lis
 - `uv run noca-rating`
 - `uv run noca-aiassistant`
 - `uv run noca-healthmonitor`
+- `uv run noca-animator`
 
 The module packages use Hatchling `dev-mode-dirs = [".."]` and `packages = ["."]`
 so workspace installs are true live editable installs. Console scripts resolve
-`web`, `arena`, `shared`, `autojudge`, `rating`, `aiassistant`, and
-`healthmonitor` from the repository workspace rather than copied package
-directories in the virtual environment.
+`web`, `arena`, `shared`, `autojudge`, `rating`, `aiassistant`,
+`healthmonitor`, and `animator` from the repository workspace rather than copied
+package directories in the virtual environment.
 
 The runtime packages depend on `noca-shared` through the uv workspace source
 mapping. This keeps shared schema and service contracts importable without
@@ -138,7 +147,8 @@ stewardship is limited to the independently-deployable HTTP front doors: the `we
 and `arena` container entrypoints run `scripts/run_migrations.py` (`alembic upgrade
 head` under a PostgreSQL advisory lock that serializes concurrent attempts), so a
 Web-only or Arena-only install can still bring the schema to head on its own. The
-worker containers (`autojudge`, `rating`, `aiassistant`) are pure schema consumers:
+worker and presentation containers (`autojudge`, `rating`, `aiassistant`,
+`animator`) are pure schema consumers:
 their entrypoints instead run `scripts/wait_for_migrations.py`, which blocks until
 `alembic_version` is at or ahead of the head revision the worker image expects (a
 revision the image does not recognize counts as "ahead", i.e. newer than the
@@ -162,6 +172,19 @@ Contest-scoped programming language availability is stored in the `contest_langu
 junction table. The web layer uses `get_contest_languages(session, contest)` as the
 authoritative query for contest-scoped language lists; the autojudge continues to use
 all active languages from the registry.
+
+The animator module (public reveal/scoreboard presentation) is gated per contest by
+`contests.animator_enabled` (`Boolean`, default and server default `false`, NOT NULL): only
+enabled contests may expose animator snapshot/events/reveal, so a disabled contest is never
+reachable by guessing its slug. The existing `sites` table carries the reveal ceremony's
+per-site medal configuration — `gold_cutoff`, `silver_cutoff`, `bronze_cutoff` (positive and
+ordered by the `ck_sites_medal_cutoffs_ordered` CHECK). Reveal
+operators authenticate with a token whose fixed-length digest lives in `site_secrets`
+(the plaintext token is never stored); a row with `site_id` set authorizes one site, while
+`site_id = NULL` is a contest-global control secret. A composite foreign key
+`(contest_id, site_id) → (sites.contest_id, sites.id)` keeps a secret from referencing a site
+in another contest, and `(contest_id, secret_digest)` is unique. These three tables are
+low-churn configuration data and use the server-wide autovacuum defaults.
 
 Problem test-case content (both Web and Arena) lives on a single shared filesystem mount
 configured by `NOCA_PROBLEM_TESTCASE_DIR`, namespaced by identity domain:
@@ -363,12 +386,12 @@ pending/inflight queue presence and re-enqueues them.
 
 ### `healthmonitor/`
 
-The healthmonitor module is a standalone FastAPI server (port 8002) with no
+The healthmonitor module is a standalone FastAPI server (default port 8002) with no
 database access and no authentication — both of its pages are public. It reads
 the Valkey worker-presence keys published by all other runtime modules (the
-`web` and `arena` HTTP servers publish presence from their lifespans exactly
-like the workers do, under the presence-only `WorkerClass.WEB` / `ARENA`
-classes) and serves:
+`web`, `arena`, and `animator` HTTP servers publish presence from their
+lifespans exactly like the workers do, under the presence-only
+`WorkerClass.WEB` / `ARENA` / `ANIMATOR` classes) and serves:
 
 - `/` — the environment status page: one Available/Unavailable/Unknown card per
   service, read live at request time
@@ -383,6 +406,183 @@ is unreachable so monitor-side outages never count against the services. A
 reaper loop deletes slots older than `NOCA_HEALTHMON_RETENTION_DAYS`; slot keys
 also carry a TTL as a safety net. The presence-only classes never appear in the
 Arena admin dashboard or pause machinery.
+
+### `animator/`
+
+The animator module is a standalone FastAPI presentation runtime (default port
+8003) that owns the public live scoreboard and post-freeze reveal ceremony. It
+reads PostgreSQL (through SQLAlchemy Core over the shared schema) and Valkey
+directly across the same infrastructure boundary the other runtimes use, and
+reuses the shared scoreboard projection so its standings always agree with the
+official scoreboard. It defines no ORM mappings and never imports `web`.
+Configuration is isolated under the `NOCA_ANIMATOR_*` prefix
+(`NOCA_ANIMATOR_HOST`, `NOCA_ANIMATOR_PORT`, `NOCA_ANIMATOR_POLL_FALLBACK_SECONDS`,
+`NOCA_ANIMATOR_ENABLE_CONTROL`, `NOCA_ANIMATOR_BRAND_NAME`). The reveal control
+endpoints are gated per contest by `contests.animator_enabled` and can be
+disabled process-wide with the `NOCA_ANIMATOR_ENABLE_CONTROL` kill-switch.
+
+The animator exposes a presentation launcher at `GET /c/{slug}/`.
+It lists a prominent global scope and every contest site, with links to each
+scope's animated scoreboard, reveal projector, and reveal controller. The
+scoreboard shell lives at `GET /c/{slug}/scoreboard?scope=...`.
+
+The animator exposes a read-only public feed for one enabled contest:
+`GET /c/{slug}/meta` (contest identity, problem labels and balloon
+colors, start/end/freeze timing, freeze state, and per-site medal-cutoff
+summaries) and `GET /c/{slug}/snapshot?scope=...` (a shared
+`ScoreboardSnapshot` plus a server-generated refresh version). The snapshot
+defaults to the global scope; a validated site scope filters teams and
+submissions before scoring. Animator loads `release_scoreboard_after_end` into
+its immutable contest record: post-freeze submissions stay hidden while the
+contest runs and after an unreleased end, while an ended, released contest
+scores every final result and reports `is_frozen=false`, matching Web. The
+final presentation keeps the existing **Ended** timer state, hides the
+connection badge, and starts neither SSE nor polling. Both feeds resolve the
+contest through a single non-enumerating `get_enabled_contest` dependency, so a
+missing slug and an `animator_enabled=false` contest are indistinguishable
+(identical `404`). The
+feed reads the shared schema through SQLAlchemy Core in
+`animator/services/contest_feed_service.py`, loads only `RoleEnum.TEAM` users,
+selects the effective judgment deterministically (prefer `DONE`, then latest
+`created_at`, then id), and delegates all scoring to the shared `compute_icpc`
+so the animator standings agree with the official scoreboard.
+
+The animator also streams live change notifications over Server-Sent Events at
+`GET /c/{slug}/events` (native FastAPI `EventSourceResponse` / typed
+`ServerSentEvent`). A single `AnimatorEventStream` per process subscribes to the
+shared `judge:results` and `judge:submissions` Valkey channels and fans out
+`verdict`, `submission`, `scoreboard_refresh`, and `timer_tick` events to bounded
+per-client queues; FastAPI adds a native 15 s idle-only comment heartbeat. Verdict
+events are filtered by `contest_id` (legacy events without one are dropped) and
+redacted while a contest is frozen; `submission` events (a new-submission nudge)
+are filtered by `contest_id` and suppressed entirely while frozen. Per-client queues
+coalesce to a single pending refresh on overflow, and the stream carries no logs —
+PostgreSQL snapshots stay authoritative, so clients refetch `/snapshot` on
+`scoreboard_refresh` and on `submission`. The `/snapshot` response carries a
+freeze-safe `pending_submissions` array that is the authoritative source for the
+pending list; `judge:submissions` and `judge:results` are **not** mutually ordered,
+so a verdict arriving before its submission signal is reconciled by the next
+snapshot.
+
+The reveal ceremony is a **bottom-up sweep over every row** of the standings, not
+only the rows holding frozen runs. One `step` either reveals a single frozen run
+on the cursor's row or, when that row has nothing left, moves the highlight up
+one row; `back` undoes either kind. The cursor is a *screen position*: when a
+reveal lifts a team past others, the cursor holds its row and the team now on it
+comes into focus, while the lifted team is met again as the sweep climbs toward
+it. A single sweep therefore still resolves every relevant run, because revealing
+can only improve a team's score and the teams it overtakes fall at most onto the
+cursor's own row. The whole history is one ordered trail of steps
+(`RevealSessionState.step_log`), from which both the revealed set and the cursor
+are derived — which is what keeps `back()` an exact `pop` now that a step need
+not reveal anything. That trail is `state_version=3`; an older payload —
+version 1, recorded before the cursor existed, or version 2, recorded before
+command receipts did — is refused rather than replayed, and the operator recovers
+with `start-reveal` + `restart=true`.
+
+The post-freeze reveal ceremony persists its state in Valkey rather than process
+memory, so a ceremony survives a restart and can only be mutated by one writer per
+contest+scope at a time. `animator/services/reveal_session_store.py` serializes each
+mutation under a token-owned lock at `animator:reveal:lock:{contest_id}:{scope}` and
+writes the `RevealSessionState` at `animator:reveal:{contest_id}:{scope}` through a
+Lua **fenced** write (state persisted only while the lock still holds the writer's
+token, so an expired-then-reacquired lease can never clobber the new owner). State
+is saved before a `RevealStateChangedEvent` invalidation nudge is published on
+`revelation:events:{contest_id}:{scope}`; the event carries only metadata, so
+spectators refetch authoritative state and a missed nudge is harmless. The key TTL
+is contest end plus `NOCA_ANIMATOR_REVEAL_TTL_MARGIN_SECONDS`, refreshed on every
+mutation.
+
+That durability answers "did the ceremony survive?", but not "did my command
+apply?" — a `503` or a dropped connection can arrive *after* the fenced save
+committed, and re-sending a `step` in front of an audience is not an acceptable
+way to find out. Each mutating control command therefore accepts an optional
+`Idempotency-Key` header naming one *attempt*. The ceremony state carries a
+bounded ring of the last eight applied keys, written by the same fenced save and
+expiring with the same key, and a retry is resolved inside the scope lock before
+the engine runs: the most recent key is **replayed** (the stored state is
+re-projected and returned, with no save and no publish, because that state
+already is the command's result), an older or differently-used key is a stated
+`409`, and an unknown key applies normally. `restart=true` discards the ring with
+the rest of the old state. Without a key a command is applied exactly as sent,
+which is why the operator panel attaches a fresh one to every attempt and why an
+ambiguous outcome without one still requires reloading state instead of
+retrying.
+
+Spectators watch that ceremony through a **credential-free** public feed under
+`GET /c/{slug}/ceremony`, `/reveal/state`, and `/reveal/events`, plus
+the scoped team photo at `GET /c/{slug}/teams/{team_id}/photo`. A
+ceremony is selected by a validated `?scope=` query value — `global` or a site id
+of that contest — which grants nothing and is resolved *after* the enabled-contest
+gate, so an unknown site, another contest's site, and garbage all answer the same
+bare `404` an unknown slug does (a pattern-validated parameter would answer `422`
+first and prove the slug resolved). `/reveal/state` returns the *same*
+`RevealProjectionResponse` the control API does, produced by the same
+`control_service.load_projection`, wrapped in an envelope whose `has_session`
+flag distinguishes "no ceremony yet" from an `idle` one; `/reveal/events` streams
+only invalidation nudges, preceded by one `reveal_ready` event emitted **after**
+the Valkey subscription is live: reconciling there rather than on
+`EventSource.onopen` (which fires when the response headers are written, possibly
+before the subscribe) closes the window in which a publication would reach
+neither the client's fetch nor its subscription — pub/sub has no replay. The
+client's rule is therefore *fetch state, then subscribe*, refetching on every
+nudge and every `reveal_ready`, and retrying a failed state request with backoff
+so a transient failure cannot strand a projector. Team photos fall back photo → avatar → checked-in placeholder, honor
+`users_media.com_foto`, re-verify stored bytes by actually decoding them under
+explicit pixel limits (serving the validated format, never the stored MIME
+claim, so a truncated blob falls through instead of rendering broken), and are
+conditional on an `ETag` derived from the media kind and `dta_foto`.
+
+The projector page itself (`GET /c/{slug}/ceremony`) renders the frozen
+standings, the focused team, medal bands, and pending cells, and opens a single
+reusable Bootstrap modal on a team name showing that team's photo and playing its
+optional audio clip. The clip comes from `GET /c/{slug}/teams/{team_id}/audio`,
+which shares the photo route's scoped lookup and serves the MIME type **sniffed
+from the bytes** rather than the stored `audio_mime` claim; a missing,
+undecodable, or unrecognizable payload is a `404` (never a `500`), so the modal
+hides its player instead of rendering a broken one. Playback is started inside the
+user activation of the team click, and the three outcomes are distinguished
+explicitly: playing, refused by the browser's autoplay policy (native controls
+stay, with a status hint), or unusable media (player hidden). Closing the modal
+runs an idempotent teardown that stops playback *and* aborts any in-flight media
+download.
+
+Operators drive the ceremony from `GET /c/{slug}/control?scope=...`, a
+credential-free HTML shell gated by the same `animator_enabled` → kill-switch
+order as the command API and deliberately excluded from the control audit stream
+(fetching a page is not a command attempt). The **operator token lives in
+JavaScript memory only**: it is typed into a password field that is cleared on
+capture, sent solely as an `Authorization: Bearer` header, and never written to a
+URL, request body, cookie, `localStorage`, or `sessionStorage` — so a reload
+requires re-entry. The panel builds its ceremony selector from the public `/meta`
+feed, and the launcher's validated scope preselects the intended ceremony,
+because `start-reveal` requires a `site_id` exactly equal to the token's own
+scope. It also distinguishes *stated* refusals (`400/403/404/409/422`, which
+changed nothing and re-enable the controls at once) from *ambiguous* outcomes (a
+network failure or any `5xx`, including the store's `503`, which can arrive after
+a fenced save committed): an ambiguous outcome keeps the commands disabled until
+authoritative state is reloaded, so a failed `step` can never be replayed into a
+double reveal.
+
+Operators drive that ceremony through the authenticated control API under
+`GET|POST /c/{slug}/control/*` (`start-reveal`, `step`, `back`, `reset`,
+`jump-team`, `state`). Three gates apply in a fixed order: the per-contest
+`animator_enabled` gate, then the process-wide `NOCA_ANIMATOR_ENABLE_CONTROL`
+kill switch, then an `Authorization: Bearer` operator token resolved through
+`shared.services.animator_access_service` — the first two answer the same bare
+`404` an unknown slug does, so neither can be used to probe the others, and
+every credential failure is one generic `403`. Every attempt, accepted or
+rejected, is audited in one token-free structured log line. A site token authorizes exactly
+its own site and a global token (`site_secrets.site_id IS NULL`) exactly the
+global ceremony; only `start-reveal` reads a `site_id`, and only to require exact
+equality with the token's own scope. Every later command derives its scope from
+the credential and the stored session, so no request body can redirect a
+ceremony. Each successful mutation is exactly one fenced save plus one nudge,
+performed inside the per-scope lock; responses carry a projection (counts, phase,
+focus, derived team views), never the persisted `reveal_log` or
+`frozen_submission_ids`. See
+[animator/docs/ROUTES.md](../animator/docs/ROUTES.md) and
+[animator/docs/SERVICES.md](../animator/docs/SERVICES.md).
 
 ### `shared/`
 
@@ -500,15 +700,16 @@ no failing round to explain.
 
 ## 6. Summary
 
-NOCA is a six-process contest platform:
+NOCA is a seven-process contest platform:
 
-- `web` manages contest and business workflows (port 8000)
+- `web` manages contest and business workflows (default port 8000)
 - `autojudge` manages sandboxed compilation and execution
-- `arena` manages the public Arena participant platform (port 8001)
+- `arena` manages the public Arena participant platform (default port 8001)
 - `rating` manages the single-replica Arena rating recomputation cycles
 - `aiassistant` manages the Arena AI code review pipeline (OpenAI Responses API
   and Batch API)
-- `healthmonitor` manages the public availability dashboards (port 8002)
+- `healthmonitor` manages the public availability dashboards (default port 8002)
+- `animator` manages the public live scoreboard and reveal presentation (default port 8003)
 - `shared` defines the common contract between them
 
 The architecture is built around separation of concerns, a shared PostgreSQL schema

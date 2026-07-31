@@ -29,6 +29,14 @@ QUEUE_KEYS = (
 )
 QUEUE_UNKNOWN_CONTEST = "unknown_contest"
 
+# Reveal ceremony persistence and projection pub/sub (animator).
+# Keys and channels are built from *validated* contest and scope components by
+# shared/services/valkey_service/revelation.py; never format these prefixes with
+# raw, unvalidated strings.
+REVEAL_STATE_KEY_PREFIX = "animator:reveal"
+REVEAL_LOCK_KEY_PREFIX = "animator:reveal:lock"
+REVELATION_CHANNEL_PREFIX = "revelation:events"
+
 # AI review queue — separate namespace from the autojudge pipeline
 QUEUE_AI_REVIEW_PENDING_KEY = "ai:queue:pending"
 QUEUE_AI_REVIEW_INFLIGHT_KEY = "ai:queue:inflight"

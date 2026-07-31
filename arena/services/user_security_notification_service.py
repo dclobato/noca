@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -12,9 +12,39 @@ import logging
 
 from arena.models.arena_users import ArenaUser
 from arena.services.email_rendering import render_email as _render_email_template
+from shared.services.email_providers import EmailProviderError
 from shared.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
+
+
+def _notify(usuario: ArenaUser, email_service: EmailService, subject: str, body: str) -> bool:
+    """Send one notification, reporting provider failures instead of raising.
+
+    These notifications are advisory: the action they describe is already
+    committed, so a provider outage must never fail the request that triggered
+    them.
+
+    Args:
+        usuario: Recipient Arena user.
+        email_service: Configured email delivery service.
+        subject: Message subject line.
+        body: Rendered plain-text body.
+
+    Returns:
+        ``True`` when the provider reports successful delivery.
+    """
+    try:
+        result = email_service.send_email(
+            to_email=usuario.email,
+            to_name=usuario.nome,
+            subject=subject,
+            text_body=body,
+        )
+    except EmailProviderError as exc:
+        logger.warning("Notification email %r to user %s failed: %s", subject, usuario.id, exc)
+        return False
+    return result.success
 
 
 def send_password_changed_email(usuario: ArenaUser, email_service: EmailService) -> bool:
@@ -28,13 +58,7 @@ def send_password_changed_email(usuario: ArenaUser, email_service: EmailService)
         ``True`` when the provider reports successful delivery.
     """
     body = _render_email_template("password_changed.jinja2", nome=usuario.nome)
-    result = email_service.send_email(
-        to_email=usuario.email,
-        to_name=usuario.nome,
-        subject="Your Arena password was changed",
-        text_body=body,
-    )
-    return result.success
+    return _notify(usuario, email_service, "Your Arena password was changed", body)
 
 
 def send_2fa_enabled_email(usuario: ArenaUser, email_service: EmailService) -> bool:
@@ -48,13 +72,7 @@ def send_2fa_enabled_email(usuario: ArenaUser, email_service: EmailService) -> b
         ``True`` when the provider reports successful delivery.
     """
     body = _render_email_template("2fa_enabled.jinja2", nome=usuario.nome)
-    result = email_service.send_email(
-        to_email=usuario.email,
-        to_name=usuario.nome,
-        subject="Two-factor authentication enabled",
-        text_body=body,
-    )
-    return result.success
+    return _notify(usuario, email_service, "Two-factor authentication enabled", body)
 
 
 def send_2fa_disabled_self_email(usuario: ArenaUser, email_service: EmailService) -> bool:
@@ -68,13 +86,7 @@ def send_2fa_disabled_self_email(usuario: ArenaUser, email_service: EmailService
         ``True`` when the provider reports successful delivery.
     """
     body = _render_email_template("2fa_disabled_self.jinja2", nome=usuario.nome)
-    result = email_service.send_email(
-        to_email=usuario.email,
-        to_name=usuario.nome,
-        subject="Two-factor authentication disabled",
-        text_body=body,
-    )
-    return result.success
+    return _notify(usuario, email_service, "Two-factor authentication disabled", body)
 
 
 def send_backup_code_used_email(
@@ -97,13 +109,7 @@ def send_backup_code_used_email(
         nome=usuario.nome,
         remaining=str(remaining),
     )
-    result = email_service.send_email(
-        to_email=usuario.email,
-        to_name=usuario.nome,
-        subject="A backup code was used to access your account",
-        text_body=body,
-    )
-    return result.success
+    return _notify(usuario, email_service, "A backup code was used to access your account", body)
 
 
 def send_admin_2fa_disabled_email(usuario: ArenaUser, email_service: EmailService) -> bool:
@@ -117,13 +123,7 @@ def send_admin_2fa_disabled_email(usuario: ArenaUser, email_service: EmailServic
         ``True`` when the provider reports successful delivery.
     """
     body = _render_email_template("admin_2fa_disabled.jinja2", nome=usuario.nome)
-    result = email_service.send_email(
-        to_email=usuario.email,
-        to_name=usuario.nome,
-        subject="Two-factor authentication disabled",
-        text_body=body,
-    )
-    return result.success
+    return _notify(usuario, email_service, "Two-factor authentication disabled", body)
 
 
 def send_admin_password_change_required_email(
@@ -140,13 +140,7 @@ def send_admin_password_change_required_email(
         ``True`` when the provider reports successful delivery.
     """
     body = _render_email_template("admin_password_change_required.jinja2", nome=usuario.nome)
-    result = email_service.send_email(
-        to_email=usuario.email,
-        to_name=usuario.nome,
-        subject="Password change required",
-        text_body=body,
-    )
-    return result.success
+    return _notify(usuario, email_service, "Password change required", body)
 
 
 def send_ai_credits_topped_up_email(
@@ -172,10 +166,4 @@ def send_ai_credits_topped_up_email(
         quantity=str(quantity),
         balance=str(balance),
     )
-    result = email_service.send_email(
-        to_email=usuario.email,
-        to_name=usuario.nome,
-        subject="AI review credits added to your account",
-        text_body=body,
-    )
-    return result.success
+    return _notify(usuario, email_service, "AI review credits added to your account", body)

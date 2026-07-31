@@ -297,11 +297,13 @@ for the migrated services while new code imports from `shared.services.*` direct
 
 ### `arena/`
 
-The arena module is a second FastAPI server (~port 8001) that owns the public-facing Arena platform:
+The arena module is a second FastAPI server (default port 8001) that owns the public-facing Arena platform:
 
 **Core application (`arena/*.py`)**:
 - `main.py`: FastAPI application factory with lifespan management and service initialization
-- `config.py`: Pydantic `BaseSettings` (same `NOCA_` prefix as `web/config.py`); omits contest-admin and judge-queue settings; Arena JWT issuer is fixed to `"noca-arena"` so JWT issuer claims differ from the web module even when shared app-name settings are present
+- `config.py`: Pydantic `BaseSettings` (same `NOCA_` prefix as
+  `web/config.py`); omits contest-admin and judge-queue settings; Arena uses
+  `NOCA_ARENA_APP_NAME` (default `"noca-arena"`) as its JWT issuer
 - `database.py`: SQLAlchemy async engine and session factory; `ArenaBase` shares `shared_metadata` so Alembic manages all tables in one migration history
 
 **Models (`arena/models/`)**:
@@ -315,7 +317,9 @@ The arena module is a second FastAPI server (~port 8001) that owns the public-fa
 
 **Identity domain**:
 - Arena users (`ArenaUser`) are entirely separate from contest users (`User`) and uber-admins (`UberAdmin`)
-- Arena JWT tokens use fixed issuer `"noca-arena"`, preventing cross-module token acceptance with the web module's `"noca"` issuer
+- Arena JWT tokens use `NOCA_ARENA_APP_NAME` as their issuer. It must differ
+  from the web module's `NOCA_WEB_APP_NAME` so tokens aren't accepted across
+  modules
 - Arena signup and login apply LGPD age gates through `shared/age_check.py`: users under 13 are blocked, users from 13 to 17 require parent/legal guardian consent, and legacy users missing date of birth must regularise it before a session token is issued
 
 ### `rating/`
@@ -386,7 +390,7 @@ let the batch poller store results after OpenAI reaches a terminal state.
 
 ### `healthmonitor/`
 
-The healthmonitor module is a standalone FastAPI server (port 8002) with a
+The healthmonitor module is a standalone FastAPI server (default port 8002) with a
 Valkey connection only — no database, no JWT, no session handling. Both of its
 pages are public. Structure:
 
@@ -402,10 +406,35 @@ pages are public. Structure:
   window, retention TTL plus explicit reaping)
 - `services/loops.py`: the prober and reaper background loops
 
-The `web` and `arena` HTTP servers publish worker presence from their lifespans
-(`WorkerClass.WEB` / `WorkerClass.ARENA`) so the monitor can probe them the same
-way it probes the workers; those classes are presence-only and are excluded from
-the Arena admin dashboard and pause machinery.
+The `web`, `arena`, and `animator` HTTP servers publish worker presence from
+their lifespans (`WorkerClass.WEB` / `WorkerClass.ARENA` /
+`WorkerClass.ANIMATOR`) so the monitor can probe them the same way it probes the
+workers; those classes are presence-only and are excluded from the Arena admin
+dashboard and pause machinery.
+
+### `animator/`
+
+The animator module is a standalone FastAPI presentation server (default port 8003) with
+an async PostgreSQL connection (SQLAlchemy Core over the shared schema) and a
+Valkey connection. It defines no ORM mappings and never imports `web`.
+Structure:
+
+- `main.py`: FastAPI app, lifespan (database pool, Valkey runtime, event stream,
+  worker-presence heartbeat, templates, static mounts), `noca-animator`
+  entrypoint
+- `routes/`: the public scoreboard shell and `/meta` + `/snapshot` feeds, the SSE
+  event stream, the reveal projector and its public state feed, team photo and
+  audio media, the operator control page, and the authenticated control API
+- `services/`: the contest feed projection (delegating scoring to the shared
+  `compute_icpc`), the Valkey-backed event stream, the reveal engine, and the
+  fenced reveal session store
+
+Deployment: `containers/animator/Dockerfile` builds the `noca/animator` image
+from the animator workspace slice. Its entrypoint waits for PostgreSQL and
+Valkey, then blocks on `scripts/wait_for_migrations.py` — the animator is a pure
+schema consumer, never a steward. Caddy proxies it on host port 83; SSE passes
+through unbuffered because Caddy ignores `flush_interval` for
+`text/event-stream` responses.
 
 ## 2. Communication model between `web` and `autojudge`
 
@@ -813,14 +842,15 @@ expiration is retryable. After two such attempts, an Arena validator becomes
 removed from Valkey, and its owner receives one idempotent notification. Clean
 exit codes never trigger containment.
 
-In short, NOCA is a six-process contest platform:
+In short, NOCA is a seven-process contest platform:
 
-- `web` manages contest and business workflows (port 8000)
+- `web` manages contest and business workflows (default port 8000)
 - `autojudge` manages sandboxed compilation and execution
-- `arena` manages the public Arena participant platform (port 8001)
+- `arena` manages the public Arena participant platform (default port 8001)
 - `rating` manages the single-replica Arena rating recomputation cycles
 - `aiassistant` manages Arena AI code review execution and OpenAI batch polling
-- `healthmonitor` manages the public availability dashboards (port 8002)
+- `healthmonitor` manages the public availability dashboards (default port 8002)
+- `animator` manages the public live scoreboard and reveal presentation (default port 8003)
 - `shared` defines the common contract between them
 
 The runtime architecture is built around a strong separation of concerns, a shared

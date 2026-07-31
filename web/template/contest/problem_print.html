@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 <!DOCTYPE html>
 <html lang="en">
     {% from "_macros.html" import render_icon %}
@@ -191,6 +198,8 @@
             <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
                     defer></script>
             <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
+                    defer></script>
+            <script src="{{ request.url_for('static_shared_js', path='markdown-directives.js') }}?v={{ app_version }}"
                     defer></script>
         {% endif %}
         {% if has_md %}

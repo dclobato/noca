@@ -30,7 +30,7 @@ lifespan startup:
 2. async SQLAlchemy engine + session factory
 3. Arena Valkey runtime
 4. Valkey-backed JWT revocation store
-5. Arena JWT service (`issuer = "noca-arena"`)
+5. Arena JWT service (`issuer = settings.APP_NAME`, from `NOCA_ARENA_APP_NAME`)
 6. shared email service
 7. shared image processing service
 8. QR code service for TOTP onboarding

@@ -1,0 +1,338 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *
+ * Reveal ceremony styles: the spectator projection and the operator panel.
+ * animator.css (which imports the shared common.css) is always loaded first by
+ * _base.html, so this file only adds what the ceremony needs and reuses the
+ * shared tokens and Bootstrap utilities for everything else.
+ */
+
+/* ── Projection shell ──────────────────────────────────────────────────── */
+/* The projector owns the whole window. `.animator-root` sizes itself with
+   `min-height: 100vh` *plus* its own padding, which on this page would push the
+   document past the viewport and leave the window scrolling. Here it is pinned
+   to the window instead, and only the board scrolls — so the header never
+   leaves the screen and there is no dead space under the table.
+   `dvh` rather than `vh` so mobile browser chrome does not leave a gap either. */
+.ceremony-root {
+    --animator-row-motion-duration: 3s;
+    --animator-row-motion-easing: cubic-bezier(0.22, 1, 0.36, 1);
+    box-sizing: border-box;
+    height: auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.ceremony-app {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    max-width: 100%;
+    /* A bounded height, not a minimum: a `min-height` would let a long table
+       push the container past the window, so the *page* would scroll and the
+       header would leave the screen instead of the board scrolling under it. */
+    height: 100%;
+    margin: 0 auto;
+}
+
+.ceremony-site {
+    font-family: var(--noca-font-heading);
+    font-weight: 700;
+    font-size: clamp(1rem, 1.6vw, 1.5rem);
+}
+
+.ceremony-phase {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.7rem;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.8rem;
+    background-color: var(--bs-secondary-bg);
+}
+
+.ceremony-phase[data-phase="revealing"] {
+    background-color: var(--bs-warning-bg-subtle);
+    color: var(--bs-warning-text-emphasis);
+}
+
+.ceremony-phase[data-phase="done"] {
+    background-color: var(--bs-success-bg-subtle);
+    color: var(--bs-success-text-emphasis);
+}
+
+.ceremony-progress {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+.ceremony-empty {
+    padding: 2rem 0;
+    font-size: clamp(1rem, 2vw, 1.5rem);
+    color: var(--bs-secondary-color);
+}
+
+/* The board scrolls inside its own container so the page never scrolls
+   sideways, and the projector keeps the header visible on a 16:9 screen. */
+/* Grows into the space the header leaves instead of claiming a fixed slice of
+   the viewport. `min-height: 0` is what actually lets it scroll: without it a
+   flex item refuses to shrink below its content, so the table would push the
+   page taller rather than scrolling inside this box. */
+.ceremony-board-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+}
+
+/* Table geometry, typography, header, and the four leading columns come from
+   `.animator-scoreboard` and `.animator-col-*` in animator.css. Only
+   ceremony-specific states belong in this file. */
+
+.ceremony-team-name {
+    padding: 0;
+    border: 0;
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    text-decoration: none;
+    color: inherit;
+    background: none;
+}
+
+.ceremony-team-name:hover,
+.ceremony-team-name:focus-visible {
+    text-decoration: underline;
+}
+
+/* ── Rank, focus, and medal watermarks ─────────────────────────────────── */
+.ceremony-row {
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+/* The reveal renderer replaces the tbody after every authoritative state.
+   ceremony.js reads the shared row-motion tokens above and applies FLIP
+   transforms that keep each team at its previous screen position first. */
+.ceremony-board tbody tr {
+    will-change: transform;
+}
+
+.ceremony-row--focused {
+    outline: 3px solid var(--bs-primary);
+    outline-offset: -3px;
+    background-color: var(--bs-primary-bg-subtle);
+}
+
+.ceremony-cell-team {
+    position: relative;
+    overflow: hidden;
+}
+
+/* The last row of each band gets a heavier rule, so the medal boundary is
+   legible from the back of a room without tinting the entire row. */
+.ceremony-row--band-end {
+    border-bottom: 3px solid var(--bs-emphasis-color);
+}
+
+.ceremony-cell-team .animator-team-primary,
+.ceremony-cell-team .animator-team-secondary {
+    position: relative;
+    z-index: 1;
+}
+
+.ceremony-medal-watermark {
+    position: absolute;
+    z-index: 0;
+    top: 50%;
+    inset-inline-end: -2.8rem;
+    width: 7rem;
+    height: 7rem;
+    opacity: 0.25;
+    object-fit: contain;
+    pointer-events: none;
+    transform: translateY(-50%);
+    user-select: none;
+}
+
+/* ── Problem cells ─────────────────────────────────────────────────────── */
+.ceremony-cell {
+    font-variant-numeric: tabular-nums;
+    border-radius: 0.3rem;
+}
+
+/* A cell still holding an unrevealed frozen submission: the whole point of the
+   ceremony, so it is the strongest non-medal signal on the board. */
+.ceremony-cell--pending {
+    background-color: var(--bs-warning-bg-subtle);
+    color: var(--bs-warning-text-emphasis);
+    box-shadow: inset 0 0 0 2px var(--bs-warning-border-subtle);
+}
+
+.ceremony-cell--first {
+    box-shadow: inset 0 0 0 2px var(--bs-success);
+}
+
+/* The cell the next step will resolve: a continuous glow, so a room full of
+   people knows where to look *before* anything changes. It pulses rather than
+   sitting static because on a projector a static highlight competes with the
+   medal watermarks and the focused-row outline already on screen.
+
+   `background-color` and `box-shadow` are both animatable and composite cheaply;
+   the rule is deliberately last among the cell states so it wins over the
+   pending background without needing !important. */
+@keyframes ceremony-next-glow {
+    0%,
+    100% {
+        background-color: var(--bs-warning-bg-subtle);
+        box-shadow: inset 0 0 0 2px var(--bs-warning-border-subtle);
+    }
+
+    50% {
+        background-color: var(--bs-warning-bg-subtle);
+        box-shadow:
+            inset 0 0 0 3px var(--bs-warning),
+            0 0 14px color-mix(in srgb, var(--bs-warning) 70%, transparent);
+    }
+}
+
+.ceremony-cell--next {
+    animation: ceremony-next-glow 1.4s ease-in-out infinite;
+    /* Keep the glyph legible at both ends of the pulse. */
+    color: var(--bs-emphasis-color);
+    font-weight: 700;
+}
+
+/* ── Team modal ────────────────────────────────────────────────────────── */
+.ceremony-team-dialog {
+    max-width: min(calc(75vw + 2rem), calc(100vw - 2rem));
+}
+
+.ceremony-modal-body {
+    max-height: 80vh;
+    overflow-y: auto;
+    text-align: center;
+}
+
+.ceremony-team-photo {
+    max-width: min(75vw, 100%);
+    height: auto;
+    border-radius: 0.5rem;
+}
+
+.ceremony-team-photo--placeholder {
+    width: 75vw;
+}
+
+.ceremony-photo-fallback {
+    margin: 2rem 0;
+    font-size: 1.1rem;
+    color: var(--bs-secondary-color);
+}
+
+.ceremony-team-audio {
+    display: block;
+    width: 100%;
+    margin-top: 1rem;
+}
+
+.ceremony-audio-status {
+    margin: 0.5rem 0 0;
+    font-size: 0.9rem;
+    color: var(--bs-secondary-color);
+}
+
+/* ── Operator control panel ────────────────────────────────────────────── */
+.control-app {
+    max-width: 60rem;
+    margin: 0 auto;
+}
+
+.control-error {
+    margin-bottom: 1rem;
+    padding: 0.6rem 0.9rem;
+    border-radius: 0.4rem;
+    background-color: var(--bs-danger-bg-subtle);
+    color: var(--bs-danger-text-emphasis);
+}
+
+.control-secret-form {
+    max-width: 32rem;
+    margin-bottom: 1.5rem;
+}
+
+.control-secret-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.control-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.control-row .form-label {
+    margin: 0;
+}
+
+.control-row .form-select {
+    width: auto;
+    min-width: 14rem;
+}
+
+.control-state {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    margin: 1.5rem 0 0.5rem;
+}
+
+.control-state-item dt {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--bs-secondary-color);
+}
+
+.control-state-item dd {
+    margin: 0;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.control-hint {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+    color: var(--bs-secondary-color);
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────── */
+/* Mirrors animator.css: motion is removed, but every state signal above is a
+   static color/outline/border, so a reduced-motion viewer loses nothing. */
+@media (prefers-reduced-motion: reduce) {
+    .ceremony-app *,
+    .ceremony-app *::before,
+    .ceremony-app *::after,
+    .control-app *,
+    #ceremony-team-modal * {
+        transition: none !important;
+        animation: none !important;
+        scroll-behavior: auto !important;
+    }
+
+    /* The next-cell glow is the only state signal expressed *through* motion,
+       so removing the animation would erase the information as well. Reduced
+       motion therefore gets the same emphasis as a static, non-pulsing state. */
+    .ceremony-cell--next {
+        background-color: var(--bs-warning-bg-subtle);
+        box-shadow: inset 0 0 0 3px var(--bs-warning);
+    }
+}

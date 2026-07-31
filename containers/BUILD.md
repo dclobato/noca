@@ -7,6 +7,7 @@ This repository provides:
 - a `rating` worker image under `containers/rating/`
 - an `aiassistant` worker image under `containers/aiassistant/`
 - a `healthmonitor` server image under `containers/healthmonitor/`
+- an `animator` presentation image under `containers/animator/`
 - language-specific judge images under `containers/languages/`
 
 For contestant-facing runtime/compiler details, see:
@@ -23,8 +24,8 @@ not runtime contract images** — nothing in the application references them at 
 
 ### `noca/app-base`
 
-Shared base for `webapp`, `arena`, `autojudge`, `rating`, `aiassistant`, and
-`healthmonitor`. Holds the Python + uv
+Shared base for `webapp`, `arena`, `autojudge`, `rating`, `aiassistant`,
+`healthmonitor`, and `animator`. Holds the Python + uv
 install, the common ENV block, and the workspace `pyproject.toml` copies that drive
 `uv sync`. Each service image inherits this base and adds only its own
 `uv sync --package` and source COPY steps.
@@ -33,9 +34,10 @@ Built from the repo root as context (`containers/app-base/Dockerfile`).
 
 ### `noca/assets-base`
 
-Shared static-asset base for `webapp` and `arena`. It fetches vendored CSS, JavaScript,
-fonts, and other shared web assets once, then `webapp` and `arena` copy only
-`/app/shared/static/vendor` and `/app/shared/static/webfonts` from it.
+Shared static-asset base for `webapp`, `arena`, `healthmonitor`, and `animator`.
+It fetches vendored CSS, JavaScript, fonts, and other shared web assets once,
+then each presentation image copies only `/app/shared/static/vendor` and
+`/app/shared/static/webfonts` from it.
 
 The assets are platform-independent, so this base is built for `linux/amd64` and reused by
 all target platforms.
@@ -72,8 +74,9 @@ In non-push modes, `build.sh` automatically detects which base
 images are needed and builds them as prerequisites **before** the target loop:
 
 1. `app-base` — when any of `webapp`, `arena`, `autojudge`, `rating`,
-   `aiassistant`, or `healthmonitor` is selected
-2. `assets-base` — when `webapp`, `arena`, or `healthmonitor` is selected
+   `aiassistant`, `healthmonitor`, or `animator` is selected
+2. `assets-base` — when `webapp`, `arena`, `healthmonitor`, or `animator` is
+   selected
 3. `isolate-base` — when any language with a `run/` directory is selected
 4. `judge-compile-base` — when any of `gcc-c17`, `gcc-cpp23`, `fpc-pascal`, `haskell`, `lua`, `prolog`, `fortran`, or `ocaml` is selected
 
@@ -138,10 +141,15 @@ The healthmonitor server image is tagged as:
 - path naming: `<prefix>/healthmonitor`
 - flat naming: `<prefix>-healthmonitor`
 
+The Animator presentation image is tagged as:
+- path naming: `<prefix>/animator`
+- flat naming: `<prefix>-animator`
+
 ## Runtime UID/GID
 
 The `webapp`, `arena`, `autojudge`, `rating`, `aiassistant`, and
-`healthmonitor` images honor these runtime environment variables:
+`healthmonitor`, and `animator` images honor these runtime environment
+variables:
 - `PUID` (default: `1000`)
 - `PGID` (default: `100`)
 
@@ -160,6 +168,7 @@ The script supports the following targets:
 - `rating`
 - `aiassistant`
 - `healthmonitor`
+- `animator`
 - `bash`
 - `gcc-c17`
 - `gcc-cpp23`
@@ -325,9 +334,11 @@ docker buildx inspect noca-builder   # Platforms line should list linux/arm64, e
 Images are tagged as:
 - path naming: `<prefix>/webapp`, `<prefix>/arena`, `<prefix>/autojudge`,
   `<prefix>/rating`, `<prefix>/aiassistant`, `<prefix>/healthmonitor`,
+  `<prefix>/animator`,
   `<prefix>/judge-<language>:compile`, `<prefix>/judge-<language>:run`
 - flat naming: `<prefix>-webapp`, `<prefix>-arena`, `<prefix>-autojudge`,
   `<prefix>-rating`, `<prefix>-aiassistant`, `<prefix>-healthmonitor`,
+  `<prefix>-animator`,
   `<prefix>-judge-<language>:compile`, `<prefix>-judge-<language>:run`
 
 Prefix configuration, in order:
@@ -404,6 +415,12 @@ Build only rating worker:
 Build only aiassistant worker:
 ```bash
 ./containers/build.sh aiassistant
+```
+
+Build only Animator:
+
+```bash
+./containers/build.sh animator
 ```
 
 Build webapp plus selected judge images:
@@ -542,6 +559,8 @@ docker buildx imagetools inspect <prefix>-judge-gcc-c17:run
   only to avoid duplicate batch submissions.
 - The `healthmonitor` image is built from `containers/healthmonitor/Dockerfile`.
   It serves the public status pages and uses Valkey only.
+- The `animator` image is built from `containers/animator/Dockerfile`. It serves
+  the Contest presentation UI and connects directly to PostgreSQL and Valkey.
 - Runtime images copy only their target module source plus `shared`; unrelated
   workspace member source is not included. They still copy workspace member
   `pyproject.toml` files for `uv` workspace resolution and migration assets for

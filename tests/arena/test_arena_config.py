@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,11 +8,73 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
 from arena.config import Settings
 from shared.services.imageprocessing_service import MAX_IMAGE_FILE_SIZE
+
+
+def _make_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **extra: str) -> Settings:
+    """Build arena settings from a clean NOCA_ environment plus the given overrides."""
+    for key in list(os.environ):
+        if key.startswith("NOCA_"):
+            monkeypatch.delenv(key, raising=False)
+    required = {
+        "NOCA_DB_USER": "user",
+        "NOCA_DB_PASSWORD": "pass",
+        "NOCA_DB_SERVER": "localhost",
+        "NOCA_DB_NAME": "noca",
+        "NOCA_JWT_SECRET_KEY": "secret",
+        "NOCA_PROBLEM_TESTCASE_DIR": str(tmp_path),
+    }
+    for key, value in {**required, **extra}.items():
+        monkeypatch.setenv(key, value)
+    return Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_host_and_port_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Arena binds every interface on 8001 unless configured otherwise."""
+    settings = _make_settings(monkeypatch, tmp_path)
+
+    assert settings.HOST == "0.0.0.0"
+    assert settings.PORT == 8001
+
+
+def test_host_and_port_resolve_without_double_prefix(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The fields bind to NOCA_ARENA_* (no NOCA_NOCA_ARENA_* double prefix)."""
+    settings = _make_settings(
+        monkeypatch,
+        tmp_path,
+        NOCA_ARENA_HOST="127.0.0.1",
+        NOCA_ARENA_PORT="9001",
+    )
+
+    assert settings.HOST == "127.0.0.1"
+    assert settings.PORT == 9001
+
+
+def test_double_prefixed_host_and_port_are_ignored(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A doubly prefixed name is not the configured variable and changes nothing."""
+    settings = _make_settings(
+        monkeypatch,
+        tmp_path,
+        NOCA_NOCA_ARENA_HOST="10.0.0.1",
+        NOCA_NOCA_ARENA_PORT="9999",
+    )
+
+    assert settings.HOST == "0.0.0.0"
+    assert settings.PORT == 8001
+
+
+@pytest.mark.parametrize("port", ["0", "70000", "-1"])
+def test_port_range_is_validated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, port: str) -> None:
+    """A port outside 1-65535 is refused at startup rather than at bind time."""
+    with pytest.raises(ValidationError):
+        _make_settings(monkeypatch, tmp_path, NOCA_ARENA_PORT=port)
 
 
 def test_image_max_file_size_defaults_to_two_mebibytes(

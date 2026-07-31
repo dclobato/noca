@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -54,3 +54,19 @@ def test_healthcheck_is_healthy_rejects_request_failure(monkeypatch) -> None:
     monkeypatch.setattr(healthcheck_module.urllib.request, "urlopen", _raise)
 
     assert healthcheck_module.healthcheck_is_healthy() is False
+
+
+def test_healthcheck_probes_the_configured_port(monkeypatch) -> None:
+    """The loopback probe follows NOCA_WEB_PORT instead of a hardcoded 8000."""
+    from web.config import settings
+
+    captured: dict[str, object] = {}
+
+    def _capture(url: str, *args, **kwargs) -> _FakeResponse:
+        captured["url"] = url
+        return _FakeResponse(200, {"status": "ok"})
+
+    monkeypatch.setattr(healthcheck_module.urllib.request, "urlopen", _capture)
+
+    assert healthcheck_module.healthcheck_is_healthy() is True
+    assert captured["url"] == f"http://127.0.0.1:{settings.PORT}/health"

@@ -94,6 +94,27 @@ async def test_letter_asset_rejects_non_ascii_letters(
     assert response.json() == {"detail": "Invalid letter format"}
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("band", ["gold", "silver", "bronze"])
+async def test_medal_asset_is_cacheable_svg(client: AsyncClient, band: str) -> None:
+    """Each supported medal band is served through the shared asset route."""
+    response = await client.get(f"/assets/medal/{band}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert response.headers["cache-control"] == (f"public, max-age={settings.IMAGE_RESPONSE_CACHE_MAX_AGE}")
+    assert response.text.lstrip().startswith("<svg")
+
+
+@pytest.mark.asyncio
+async def test_medal_asset_rejects_unknown_band(client: AsyncClient) -> None:
+    """Unknown medal bands return the asset router's standard HTTP 400."""
+    response = await client.get("/assets/medal/platinum")
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Invalid medal band"}
+
+
 def test_asset_routes_reverse_with_and_without_letters() -> None:
     """Both variants remain available through their established route names."""
     app = FastAPI()
@@ -103,3 +124,4 @@ def test_asset_routes_reverse_with_and_without_letters() -> None:
     assert str(app.url_path_for("balloon", color="fff", letter="A")) == "/assets/balloon/fff/A"
     assert str(app.url_path_for("star", color="fff")) == "/assets/star/fff"
     assert str(app.url_path_for("star", color="fff", letter="A")) == "/assets/star/fff/A"
+    assert str(app.url_path_for("medal", band="gold")) == "/assets/medal/gold"

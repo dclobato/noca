@@ -134,6 +134,13 @@ uv run noca-rating
 uv run noca-aiassistant
 ```
 
+14. Start the animator presentation server (optional; serves only contests with
+    `animator_enabled=true`):
+
+```bash
+uv run noca-animator
+```
+
 ### Full container runtime
 
 ```bash
@@ -206,7 +213,7 @@ uv run noca-web
 
 What happens:
 
-1. `web.main:main()` starts Uvicorn on `0.0.0.0:8000`.
+1. `web.main:main()` starts Uvicorn on `NOCA_WEB_HOST`:`NOCA_WEB_PORT`, which default to `0.0.0.0:8000`.
 2. Uvicorn parses `X-Forwarded-*` headers only from trusted proxies configured in `NOCA_FORWARDED_ALLOW_IPS`.
 3. Reload is enabled automatically when `NOCA_ENVIRONMENT=development`.
 4. During FastAPI lifespan startup, the app:
@@ -449,7 +456,7 @@ Operational consequence:
 
 ## Versioning
 
-All six workspace members derive their version from the root `pyproject.toml` via
+All eight workspace members derive their version from the root `pyproject.toml` via
 Hatchling's `regex` version source. There is one place to bump the version:
 
 ```toml
@@ -475,7 +482,7 @@ version changes):
 uv sync --all-packages --reinstall-package noca-shared --reinstall-package noca-web \
   --reinstall-package noca-arena --reinstall-package noca-autojudge \
   --reinstall-package noca-rating --reinstall-package noca-aiassistant \
-  --reinstall-package noca-healthmonitor
+  --reinstall-package noca-healthmonitor --reinstall-package noca-animator
 ```
 
 ---
@@ -489,10 +496,13 @@ The current bootstrap behavior is defined in:
 - `rating/worker.py` for host-run rating worker startup
 - `aiassistant/worker.py` for host-run AI assistant startup
 - `healthmonitor/main.py` for host-run health monitor startup
+- `animator/main.py` for host-run animator startup
 - `autojudge/worker.py` for host-run autojudge worker startup
 - `containers/webapp/entrypoint.sh` for containerized web bootstrap
 - `containers/arena/entrypoint.sh` for containerized arena bootstrap
 - `containers/rating/entrypoint.sh` for containerized rating worker bootstrap
 - `containers/aiassistant/entrypoint.sh` for containerized AI assistant bootstrap
 - `containers/autojudge/entrypoint.sh` for containerized autojudge worker bootstrap
+- `containers/animator/entrypoint.sh` for containerized animator bootstrap (a
+  schema consumer: it waits for `web`/`arena` to migrate, and never migrates)
 - `CONFIG.md` for environment variable definitions

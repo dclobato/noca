@@ -4,6 +4,20 @@ This session lets a contest administrator create, edit, and clear the optional
 team presentation profiles introduced in Phase 16. It doesn't change the public
 team response contract.
 
+## Status: optional (backlog), not on the required path
+
+This phase is **deferred to the backlog** and isn't a prerequisite for any later
+phase. The required sequence goes from [Phase 14](Phase-14.md) straight to
+[Phase 18](Phase-18.md). It's the write path for [Phase 16](Phase-16.md), so it
+can't precede that phase and inherits its deferral.
+
+A separate `/profiles` administration area would also create a second place to
+administer one team: `web/template/admin/users/edit.html` already manages the
+team's name, site, location, photo, derived avatar, and audio clip. If
+presentation fields are ever needed, add a **Presentation** section to that
+existing screen instead of building a parallel workflow. A separate table can
+still back those fields if operational identity and branding must stay apart.
+
 ## Source-plan coverage
 
 This phase completes the operational write path for unified-plan sections 6.2

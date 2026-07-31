@@ -75,7 +75,7 @@ Ao final das fases principais, o NOCA deve ter:
 - consumo de PostgreSQL e Valkey sem dependência direta do `web`
 - placar animado em tempo real
 - conceito de sedes com filtragem de times e medalhas por sede
-- reveleitor pós-freeze com suporte a sedes
+- cerimônia de revelação pós-freeze com suporte a sedes
 - autenticação de operador por secret por sede
 - endpoints para dados de time e controle de sessão
 
@@ -163,7 +163,7 @@ Variáveis iniciais sugeridas:
 
 Variáveis adicionais que serão necessárias na Fase 5:
 
-- `NOCA_ANIMATOR_ENABLE_CONTROL` — habilita endpoints de controle do reveleitor
+- `NOCA_ANIMATOR_ENABLE_CONTROL` — habilita endpoints de controle da cerimônia
 
 Resultado esperado:
 
@@ -314,8 +314,8 @@ Arquivo:
 
 Endpoints iniciais:
 
-- `GET /animator/c/{slug}/snapshot`
-- `GET /animator/c/{slug}/meta`
+- `GET /c/{slug}/snapshot`
+- `GET /c/{slug}/meta`
 
 Conteúdo mínimo:
 
@@ -377,7 +377,7 @@ Arquivo:
 
 Endpoint:
 
-- `GET /animator/c/{slug}/events`
+- `GET /c/{slug}/events`
 
 Eventos mínimos:
 
@@ -410,7 +410,7 @@ Recomendação:
 
 Objetivo: reaproveitar o conceito de **Site** que já é cidadão de primeira classe do
 domínio do NOCA (a "Sede" deste plano **é** o Site existente) e estendê-lo com o que
-falta para o reveal por sede: cutoffs de medalha, estilo opcional e secrets de operador.
+falta para o reveal por sede: cutoffs de medalha e secrets de operador.
 Este trabalho é inteiramente no módulo `web/` e em `shared/`, e pode ser executado em
 paralelo com as Fases 1-3.
 
@@ -432,7 +432,7 @@ paralelo com as Fases 1-3.
 > o que já existe. A abordagem de regex do `revelator-noca.md` fica descartada em favor da
 > associação por FK que o NOCA já modela.
 
-### 4.1. Estender a tabela `sites` com medalhas e estilo
+### 4.1. Estender a tabela `sites` com medalhas
 
 Arquivo:
 
@@ -445,7 +445,6 @@ antigas):
 gold_cutoff    Integer default 1     # posição máxima para ouro
 silver_cutoff  Integer default 2     # posição máxima para prata
 bronze_cutoff  Integer default 3     # posição máxima para bronze
-style          String(100) nullable  # classe CSS opcional para a sede
 ```
 
 #### Flag de habilitação no contest
@@ -481,7 +480,7 @@ para `sites`.
 
 Resultado esperado:
 
-- os sites passam a carregar cutoffs de medalha, estilo e secrets de operador
+- os sites passam a carregar cutoffs de medalha e secrets de operador
 - o contest tem gate de habilitação e um secret de controle global opcional
 
 ### 4.2. Criar migration Alembic
@@ -491,7 +490,7 @@ Arquivo novo:
 - `/home/dclobato/noca/migrations/versions/TIMESTAMP_extend_sites_for_animator.py`
 
 Migration com `upgrade()` e `downgrade()` para: (a) `ALTER TABLE sites ADD COLUMN` das
-quatro colunas de medalha/estilo; (b) `ALTER TABLE contests ADD COLUMN animator_enabled`;
+três colunas de medalha; (b) `ALTER TABLE contests ADD COLUMN animator_enabled`;
 (c) `CREATE TABLE site_secrets` (com `site_id` nullable e `contest_id` NOT NULL). O
 `downgrade()` derruba `site_secrets` e remove todas as colunas adicionadas.
 
@@ -504,8 +503,8 @@ Arquivo:
 O CRUD de sites (`list_contest_sites`, `create_site`, `remove_site`, `sync_contest_sites`,
 `get_site_in_contest`) **já existe** — reaproveitar. Adicionar apenas as funções novas:
 
-- `update_site_medals(session, site, gold, silver, bronze, style) → Site` — atualiza
-  cutoffs e estilo de um site existente
+- `update_site_medals(session, site, gold, silver, bronze) → Site` — atualiza
+  cutoffs de um site existente
 - `list_site_secrets(session, site_id) → list[SiteSecret]`
 - `create_site_secret(session, site, label) → str` — gera e persiste o secret de sede,
   retorna o valor em claro para exibição única
@@ -528,7 +527,7 @@ As sedes já são administradas na página de metadados do contest
 essa admin existente:
 
 - toggle `animator_enabled` do contest
-- campos de cutoff (ouro/prata/bronze) e estilo por sede
+- campos de cutoff (ouro/prata/bronze) por sede
 - subseção de secrets: gerar novo secret de sede **ou** global (exibindo o valor **uma
   única vez**) e revogar secret
 
@@ -742,17 +741,17 @@ Arquivo novo:
 Todos os endpoints exigem que o contest tenha `animator_enabled=True` (senão `404`) e um
 `secret` válido (senão `403`).
 
-- `POST /animator/c/{slug}/control/start-reveal` — inicia sessão de reveal
+- `POST /c/{slug}/control/start-reveal` — inicia sessão de reveal
   - parâmetros: `sede_id` (opcional), `secret`
-- `POST /animator/c/{slug}/control/step` — avança um passo
+- `POST /c/{slug}/control/step` — avança um passo
   - parâmetro: `secret`
-- `POST /animator/c/{slug}/control/back` — volta um passo
+- `POST /c/{slug}/control/back` — volta um passo
   - parâmetro: `secret`
-- `POST /animator/c/{slug}/control/reset` — reseta sessão
+- `POST /c/{slug}/control/reset` — reseta sessão
   - parâmetro: `secret`
-- `POST /animator/c/{slug}/control/jump-team` — pula para time específico
+- `POST /c/{slug}/control/jump-team` — pula para time específico
   - parâmetros: `team_id`, `secret`
-- `GET /animator/c/{slug}/control/state` — estado atual da sessão
+- `GET /c/{slug}/control/state` — estado atual da sessão
   - parâmetro: `secret`
 
 #### Autenticação por secret
@@ -795,14 +794,14 @@ Pub/sub para a projeção (espectadores):
 A cada `step`/`back`/`jump`/`reset` o animator: (a) grava o novo estado na chave, e (b)
 publica o novo payload de views no canal; o SSE repassa aos espectadores conectados.
 
-### 5.5. Criar UI de reveleitor
+### 5.5. Criar UI da cerimônia
 
 Arquivos novos:
 
-- `/home/dclobato/noca/animator/template/reveleitor.html`
+- `/home/dclobato/noca/animator/template/ceremony.html`
 - `/home/dclobato/noca/animator/template/control.html`
-- `/home/dclobato/noca/animator/static/js/reveleitor.js`
-- `/home/dclobato/noca/animator/static/css/reveleitor.css`
+- `/home/dclobato/noca/animator/static/js/ceremony.js`
+- `/home/dclobato/noca/animator/static/css/ceremony.css`
 
 Funcionalidades mínimas:
 
@@ -813,48 +812,72 @@ Funcionalidades mínimas:
 - destacar time em foco
 - exibir faixas de medalha (ouro/prata/bronze) conforme cutoffs da sede
 - exibir nome da sede, se aplicável
-- **abrir um modal com a foto do time ao clicar no nome do time** (ver 5.5.1)
+- **abrir um modal com a foto do time ao clicar no nome do time e reproduzir
+  automaticamente seu clipe de áudio opcional** (ver 5.5.1)
 
-#### 5.5.1. Modal de foto do time
+#### 5.5.1. Modal de foto e áudio do time
 
-Durante a cerimônia, clicar no **nome de um time** (na projeção do reveleitor) abre um modal
-com a foto daquele time.
+Durante a cerimônia, clicar no **nome de um time** (na projeção da cerimônia)
+abre um modal com a foto daquele time e tenta reproduzir seu clipe de áudio
+opcional.
 
-- O nome do time no placar vira um elemento clicável (`data-team-id`); o handler vive em
-  `reveleitor.js` (sem JS inline), e o markup do modal é um modal **Bootstrap** reutilizando
-  os estilos já disponíveis — estilos próprios do reveleitor ficam em `reveleitor.css`, sem
-  estilos inline (conforme CLAUDE.md).
-- O modal exibe a foto via uma tag `<img>` apontando para o endpoint de foto abaixo;
-  título do modal = nome do time (e sede, se aplicável).
+- O nome do time no placar vira um elemento clicável (`data-team-id`); o handler
+  vive em `ceremony.js` (sem JS inline), e o markup do modal é um modal
+  **Bootstrap** reutilizando os estilos já disponíveis — estilos próprios da
+  cerimônia ficam em `ceremony.css`, sem estilos inline (conforme CLAUDE.md).
+- O modal exibe a foto via uma tag `<img>` apontando para o endpoint de foto
+  abaixo; título do modal = nome do time (e sede, se aplicável).
 - **Fallback:** times sem foto (`users_media.com_foto = false` ou sem linha em
-  `users_media`) mostram `users_media.avatar_base64` ou um placeholder — o clique
-  nunca resulta em imagem quebrada.
-- A imagem é grande o suficiente para projeção; usar `max-width:100%` e deixar o modal
-  rolar se necessário (nada de overflow horizontal na página).
+  `users_media`) mostram `users_media.avatar_base64` ou um placeholder — o
+  clique nunca resulta em imagem quebrada.
+- A imagem é grande o suficiente para projeção; usar `max-width:100%` e deixar o
+  modal rolar se necessário (nada de overflow horizontal na página).
+- Após o clique abrir o modal, o handler tenta reproduzir automaticamente
+  `users_media.audio_base64` em um `<audio>` nativo. Se o navegador bloquear
+  autoplay, controles acessíveis permanecem disponíveis para reprodução
+  manual; áudio ausente ou inválido não quebra o modal.
+- Ao fechar o modal, o handler pausa o áudio, volta `currentTime` para zero e
+  remove a origem para interromper também qualquer download em andamento.
 
-Endpoint de foto (dependência — ver nota abaixo):
+Endpoints de mídia (dependência — ver nota abaixo):
 
-- `GET /animator/c/{slug}/teams/{team_id}/photo` — serve
-  `users_media.foto_base64` decodificado com `users_media.foto_mime`; honra o gate
-  `animator_enabled` (404 se desligado) e escopo de sede; usa
-  `users_media.dta_foto` para `Cache-Control`/`ETag` (mesmo padrão de cache que o
-  `web/` já aplica às fotos de usuário).
+- `GET /c/{slug}/teams/{team_id}/photo` — serve
+  `users_media.foto_base64` decodificado com `users_media.foto_mime`; honra o
+  gate `animator_enabled` (404 se desligado) e escopo de sede; usa
+  `users_media.dta_foto` para `Cache-Control`/`ETag` (mesmo padrão de cache que
+  o `web/` já aplica às fotos de usuário).
+- `GET /c/{slug}/teams/{team_id}/audio` — serve o clipe opcional com
+  MIME validado; honra o mesmo gate e escopo da foto, usa
+  `users_media.dta_audio` para `Cache-Control`/`ETag` e retorna `404` quando o
+  time não tem áudio utilizável.
 
-> **Dependência de fase:** este endpoint é o mesmo listado na Fase 6.1. Como o modal é
-> requisito da cerimônia (Fase 5), a versão **mínima e somente-leitura** do endpoint de foto
-> é antecipada para cá; a Fase 6.1 apenas o mantém junto das demais rotas de dados de time
-> (`/teams`, `/avatar`). Não duplicar: uma única implementação, consumida por ambas as fases.
+> **Dependência de fase:** estes endpoints são os mesmos listados na Fase 6.1.
+> Como foto e áudio são requisitos do modal da cerimônia (Fase 5), as versões
+> **mínimas e somente-leitura** são antecipadas para cá; a Fase 6.1 apenas os
+> mantém junto das demais rotas de dados de time (`/teams`, `/avatar`). Não
+> duplicar: uma única implementação de cada operação, consumida por ambas as
+> fases.
 
 Rotas de acesso:
 
-- `GET /animator/c/{slug}/reveleitor` — página dos espectadores (projeção)
-- `GET /animator/c/{slug}/control?secret={key}` — painel do operador
+- `GET /c/{slug}/ceremony` — página dos espectadores (projeção)
+- `GET /c/{slug}/control?secret={key}` — painel do operador
 
 ---
 
 ## Fase 6: Dados ricos de time
 
 Objetivo: suportar instituição, mídia e metadados de apresentação.
+
+> **Status: backlog opcional.** Toda a Fase 6 (fases de implementação
+> [15](Phase-15.md), [16](Phase-16.md) e [17](Phase-17.md)) saiu do caminho
+> obrigatório. As rotas de foto e áudio do time — a única parte com consumidor
+> real — **já foram entregues** nas fases de implementação 13 e 14, e o modal da
+> cerimônia monta suas próprias URLs de mídia a partir da projeção do reveal.
+> O que resta aqui (`/teams`, `/avatar`, `contest_team_profiles` e sua admin) não
+> tem cliente hoje. O caminho obrigatório vai da fase 14 direto para a
+> [18](Phase-18.md); veja cada documento de fase para o que justificaria
+> retomá-las.
 
 ### 6.1. Entregar MVP com dados existentes
 
@@ -872,12 +895,13 @@ Usar:
 
 Rotas:
 
-- `GET /animator/c/{slug}/teams`
-- `GET /animator/c/{slug}/teams/{team_id}/photo` — **já antecipado na Fase 5.5.1** (modal de
-  foto do reveleitor); aqui apenas fica junto das demais rotas de time
-- `GET /animator/c/{slug}/teams/{team_id}/avatar`
-- `GET /animator/c/{slug}/teams/{team_id}/audio` — serve o clipe opcional com
-  `users_media.audio_mime`; retorna 404 quando não há áudio
+- `GET /c/{slug}/teams`
+- `GET /c/{slug}/teams/{team_id}/photo` — **já antecipado na Fase
+  5.5.1** (modal de foto da cerimônia); aqui apenas fica junto das demais rotas
+  de time
+- `GET /c/{slug}/teams/{team_id}/avatar`
+- `GET /c/{slug}/teams/{team_id}/audio` — **já antecipado na Fase
+  5.5.1** (modal da cerimônia); aqui apenas fica junto das demais rotas de time
 
 ### 6.2. Definir modelo complementar de perfil de apresentação
 
@@ -1003,15 +1027,15 @@ animator/
 │   └── reveal_session.py
 ├── template/
 │   ├── animator.html
-│   ├── reveleitor.html
+│   ├── ceremony.html
 │   └── control.html
 └── static/
     ├── css/
     │   ├── animator.css
-    │   └── reveleitor.css
+    │   └── ceremony.css
     └── js/
         ├── animator.js
-        └── reveleitor.js
+        └── ceremony.js
 ```
 
 ## Ordem concreta de execução
@@ -1036,7 +1060,7 @@ animator/
 
 ### Etapa 4 (Fase 4 — pode ser paralela a Etapa 2 e 3)
 
-- estender a tabela `sites` existente com cutoffs de medalha e estilo
+- estender a tabela `sites` existente com cutoffs de medalha
 - criar a tabela `site_secrets`
 - criar migration Alembic
 - estender `web/services/site_service.py` (medalhas + secrets + `get_site_by_secret`)
@@ -1047,15 +1071,19 @@ animator/
 - implementar `reveal_engine.py` com suporte a sedes
 - implementar rotas de controle com auth por secret
 - implementar pub/sub de revelação no Valkey
-- implementar `reveleitor.html` e `control.html` com medalhas
-- implementar o modal de foto do time (clique no nome) + endpoint de foto do time
+- implementar `ceremony.html` e `control.html` com medalhas
+- implementar o modal de foto e áudio do time (clique no nome) + endpoints de
+  foto e áudio do time
 
 ### Etapa 6 (Fases 6 + 7)
 
-- integrar foto, avatar e clipe de áudio de `users_media`
-- adicionar metadados ricos de time, se necessário
 - persistir sessão de reveal em Valkey
 - endurecer operação e testes
+
+Backlog opcional (fora do caminho obrigatório, ver o aviso da Fase 6):
+
+- integrar os endpoints de foto e áudio com um feed de times e adicionar avatar
+- adicionar metadados ricos de time, se necessário
 
 ## Arquivos existentes com maior chance de mudança
 
@@ -1095,7 +1123,7 @@ animator/
 
 - estender `web/services/site_service.py` (medalhas + secrets + `get_site_by_secret`)
 - estender a admin de sedes existente em `web/routes/contest_admin_metadata.py` (e seus
-  templates de metadados) com cutoffs, estilo e subseção de secrets
+  templates de metadados) com cutoffs e subseção de secrets
 - opcional: extrair `web/routes/contest_admin_site_secrets.py` + templates se a admin de
   metadados crescer demais
 
@@ -1105,7 +1133,7 @@ animator/
 
 ### Criação em migration
 
-- `migrations/versions/TIMESTAMP_extend_sites_for_animator.py` — colunas de medalha/estilo
+- `migrations/versions/TIMESTAMP_extend_sites_for_animator.py` — colunas de medalha
   em `sites` + tabela `site_secrets`
 
 ## Critério de sucesso por fase
@@ -1129,7 +1157,7 @@ animator/
 
 ### Fase 4 concluída
 
-- sedes (Sites) já criáveis/editáveis via admin passam a ter cutoffs de medalha e estilo
+- sedes (Sites) já criáveis/editáveis via admin passam a ter cutoffs de medalha
 - o contest tem o toggle `animator_enabled`
 - secrets de sede e global podem ser gerados e revogados
 - admin exibe valor do secret uma única vez ao gerar
@@ -1141,7 +1169,9 @@ animator/
 - reveal pode ser global ou filtrado por sede
 - operador se autentica por secret (de sede ou global); contest sem `animator_enabled` dá 404
 - UI exibe faixas de medalha conforme cutoffs da sede
-- clicar no nome de um time abre um modal com a foto do time (fallback para avatar/placeholder)
+- clicar no nome de um time abre um modal com a foto do time (fallback para
+  avatar/placeholder), tenta reproduzir o clipe de áudio opcional e interrompe
+  o áudio ao fechar
 
 ### Fase 6 concluída
 
@@ -1162,7 +1192,6 @@ animator/
 | Nome `revelation/` para o módulo | Consolidado como `animator/` para cobrir live scoreboard + reveal num módulo só |
 | Entrypoint `noca-revelation` | Usa `noca-animator` |
 | Config com `env_prefix="NOCA_"` genérico | Usa prefixo `NOCA_ANIMATOR_` para isolamento |
-| Rotas sob `/c/{slug}/` diretamente | Usa prefixo `/animator/c/{slug}/` para evitar conflito com o `web/` |
 | `scoreboard_builder.py` separado | A lógica de score fica em `shared/services/scoreboard_projection.py` |
 | Sedes com regex `codes` casando `username` | O NOCA já associa time → sede por FK (`users.site_id`); filtragem por query, sem regex |
 | Tabelas novas `contest_sedes` / `contest_sede_secrets` | Reusa a tabela `sites` existente (estendida) + nova `site_secrets` |
@@ -1178,6 +1207,7 @@ animator/
 | Autenticação de operador por secret | Fase 5 |
 | Persistência de estado de reveal em Valkey | Fase 7 |
 | Mapeamento de veredictos NOCA → Y/N | Fase 5 |
+| Rotas sob `/c/{slug}/` diretamente | O animator roda em processo, porta e vhost próprios (`:8003`), então não há conflito de namespace com o `web/`. O prefixo `/animator/` foi usado até a Fase 22 e removido em seguida; `/health`, `/assets/` e `/static/` já estavam na raiz. |
 
 ## Recomendação final
 

@@ -59,6 +59,7 @@ class Contest(Base):
     accept_pe: Mapped[bool]
     ce_adds_penalty: Mapped[bool]
     release_scoreboard_after_end: Mapped[bool]
+    animator_enabled: Mapped[bool]
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 

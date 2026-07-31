@@ -4,9 +4,16 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""ICPC scoreboard service package."""
+"""ICPC scoreboard service package.
 
-from .models import ProblemResult, ScoreboardSnapshot, TeamStanding
+The scoreboard DTOs and the pure scoring implementation live in
+``shared/services/scoreboard_projection.py``; this package only adapts web
+queries, caching, and orchestration, re-exporting the shared DTOs for
+backwards compatibility.
+"""
+
+from shared.services.scoreboard_projection import ProblemResult, ScoreboardSnapshot, TeamStanding
+
 from .service import ScoreboardService
 
 __all__ = [

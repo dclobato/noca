@@ -4,12 +4,12 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Framework-agnostic balloon and star SVG rendering.
+"""Framework-agnostic contest presentation SVG assets.
 
-This is the cross-module source of truth for the small balloon/star artwork
-drawn with an optional centered problem letter. It has no web-framework
-dependency: invalid input raises ``ValueError`` and each caller maps that to its
-own HTTP error. Web and animator expose thin routes that delegate here.
+This is the cross-module source of truth for the balloon, star, and medal
+artwork. It has no web-framework dependency: invalid input raises ``ValueError``
+and each caller maps that to its own HTTP error. Web and animator expose thin
+routes that delegate here.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from pathlib import Path
 _ASSETS_DIR = Path(__file__).parent / "assets"
 _BALLOON_TEMPLATE = (_ASSETS_DIR / "balloontemplate.svg").read_text(encoding="utf-8")
 _STAR_TEMPLATE = (_ASSETS_DIR / "startemplate.svg").read_text(encoding="utf-8")
+_MEDAL_SVGS = {band: (_ASSETS_DIR / f"{band}.svg").read_text(encoding="utf-8") for band in ("gold", "silver", "bronze")}
 
 
 def normalize_hex_color(color: str) -> str:
@@ -64,6 +65,24 @@ def normalize_letter(letter: str) -> str:
         raise ValueError("Invalid letter format")
 
     return letter[0].upper()
+
+
+def render_medal_svg(band: str) -> str:
+    """Return the SVG document for a medal band.
+
+    Args:
+        band: One of ``gold``, ``silver``, or ``bronze``.
+
+    Returns:
+        The corresponding medal SVG document.
+
+    Raises:
+        ValueError: If ``band`` is not a supported medal band.
+    """
+    try:
+        return _MEDAL_SVGS[band]
+    except KeyError as exc:
+        raise ValueError("Invalid medal band") from exc
 
 
 def _relative_luminance(fill_color: str) -> float:

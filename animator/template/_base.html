@@ -1,0 +1,60 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>{{ brand_name }}
+            {% block title_suffix %}{% endblock %}
+        </title>
+        {# Set the theme before stylesheets load so there is no light flash. #}
+        <script src="{{ request.url_for('animator_static_js', path='animator-theme-init.js') }}?v={{ app_version }}"></script>
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='bootstrap.min.css') }}">
+        <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"
+              rel="stylesheet">
+        {# ── Animator CSS (imports shared common.css) ── #}
+        <link href="{{ request.url_for('animator_static_css', path='animator.css') }}?v={{ app_version }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('animator_static_css', path='animator-events.css') }}?v={{ app_version }}"
+              rel="stylesheet">
+        {% block extra_head %}{% endblock %}
+    </head>
+    <body class="animator-body">
+        <a class="visually-hidden-focusable animator-skip-link"
+           href="#animator-main">
+            {% block skip_label %}Skip to content{% endblock %}
+        </a>
+        <main id="animator-main"
+              class="{% block main_class %}animator-root{% endblock %}">
+            {% block content %}{% endblock %}
+        </main>
+        {% include "_partials/_footer.html" %}
+        <script src="{{ request.url_for('static_vendor', path='bootstrap.bundle.min.js') }}"></script>
+        <script src="{{ request.url_for('static_shared_js', path='theme-toggle.js') }}?v={{ app_version }}"></script>
+        {# The live-scoreboard client. Pages that are not the scoreboard (the reveal
+           spectator shell) override this block so they do not load a renderer that
+           has no DOM to drive. Bootstrap above stays outside it: every page needs it. #}
+        {% block page_scripts %}
+            {# Helper modules load before the orchestrator, which reads them off window. #}
+            <script src="{{ request.url_for('animator_static_js', path='cell-format.js') }}?v={{ app_version }}"></script>
+            <script src="{{ request.url_for('animator_static_js', path='animator-keyed-rows.js') }}?v={{ app_version }}"></script>
+            <script src="{{ request.url_for('animator_static_js', path='animator-render.js') }}?v={{ app_version }}"></script>
+            <script src="{{ request.url_for('animator_static_js', path='animator-diff.js') }}?v={{ app_version }}"></script>
+            <script src="{{ request.url_for('animator_static_js', path='animator-animate.js') }}?v={{ app_version }}"></script>
+            <script src="{{ request.url_for('animator_static_js', path='animator-live.js') }}?v={{ app_version }}"></script>
+            <script src="{{ request.url_for('animator_static_js', path='animator-board.js') }}?v={{ app_version }}"></script>
+            <script src="{{ request.url_for('animator_static_js', path='animator-pending.js') }}?v={{ app_version }}"></script>
+            <script src="{{ request.url_for('animator_static_js', path='animator-connection-status.js') }}?v={{ app_version }}"></script>
+            <script src="{{ request.url_for('animator_static_js', path='animator-events.js') }}?v={{ app_version }}"></script>
+            <script src="{{ request.url_for('animator_static_js', path='animator.js') }}?v={{ app_version }}"></script>
+        {% endblock %}
+        {% block extra_script %}{% endblock %}
+    </body>
+</html>

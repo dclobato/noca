@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -13,6 +13,12 @@ from typing import Any
 def build_rfc5322_address(nome: str | None, email: str) -> str:
     """Build an RFC 5322 display-name + address string.
 
+    The display name is RFC 2047-encoded on its own when it is not ASCII, so the
+    literal ``<addr-spec>`` always survives header serialization. Building the raw
+    unicode form instead would make ``email.header`` encode the whole header value
+    as a single encoded word, and receiving MTAs then reject the message for having
+    no final ``@domain``.
+
     Args:
         nome: Optional display name.
         email: Email address (addr-spec).
@@ -21,11 +27,14 @@ def build_rfc5322_address(nome: str | None, email: str) -> str:
         Formatted address string, or bare ``email`` if the name is invalid.
     """
     from email.headerregistry import Address
+    from email.utils import formataddr
 
     try:
-        return str(Address(display_name=nome or "", addr_spec=email))
+        # Address() validates both parts and rejects CR/LF (header injection).
+        Address(display_name=nome or "", addr_spec=email)
     except ValueError, TypeError:
         return email
+    return formataddr((nome or "", email), "utf-8")
 
 
 @dataclass(frozen=True)

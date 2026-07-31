@@ -36,7 +36,7 @@ Complete these checks before editing code:
 
 Add these enabled-contest operations:
 
-- `GET /animator/c/{slug}/reveleitor` returns the spectator HTML shell.
+- `GET /animator/c/{slug}/ceremony` returns the spectator HTML shell.
 - `GET /animator/c/{slug}/reveal/state` returns the latest projection for a
   validated global or site scope.
 - `GET /animator/c/{slug}/reveal/events` streams projection changes for that

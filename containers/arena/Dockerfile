@@ -46,6 +46,8 @@ RUN --mount=type=cache,target=/tmp/uv-cache \
 COPY --from=assets /app/shared/static/vendor   /app/shared/static/vendor
 COPY --from=assets /app/shared/static/webfonts /app/shared/static/webfonts
 
+# Documentary only: EXPOSE cannot follow a runtime env var. When NOCA_ARENA_PORT is
+# overridden, the container still listens on that port and Caddy follows it.
 EXPOSE 8001
 
 ENTRYPOINT ["/app/entrypoint.sh"]

@@ -1,0 +1,129 @@
+{% extends "_base.html" %}
+{% block title_suffix %}
+    — Animator
+{% endblock title_suffix %}
+{% block extra_head %}
+    <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_js', path='animator-settings.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock extra_head %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+            {% endif %}
+            <li class="breadcrumb-item">
+                <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Animator</li>
+        </ol>
+    </nav>
+{% endblock breadcrumb %}
+{% block content %}
+    <div class="container py-5">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">Animator</h1>
+            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
+        </div>
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-body">
+                <h2 class="h5 card-title">Access</h2>
+                <form method="post"
+                      action="{{ request.url_for('animator_update_settings', slug=contest.login_slug) }}"
+                      class="d-flex flex-wrap gap-3 align-items-center">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input"
+                               type="checkbox"
+                               role="switch"
+                               id="animator_enabled"
+                               name="animator_enabled"
+                               value="yes"
+                               {% if contest.animator_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="animator_enabled">
+                            Enable animator snapshot, events, and reveal for this contest
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                </form>
+            </div>
+        </div>
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-body">
+                        <h2 class="h5 card-title">Medal cutoffs settings</h2>
+                        {% if sites %}
+                            <div class="small text-muted mb-3">
+                                <p class="mb-1">For example, cutoffs 2 / 5 / 8 mean:</p>
+                                <ul class="mb-2 ps-3">
+                                    <li>Positions 1–2: gold</li>
+                                    <li>Positions 3–5: silver</li>
+                                    <li>Positions 6–8: bronze</li>
+                                    <li>Position 9 onward: no medal</li>
+                                </ul>
+                                <p class="mb-0">Values must satisfy gold ≤ silver ≤ bronze.</p>
+                            </div>
+                            <form method="post"
+                                  action="{{ request.url_for('animator_update_all_medals', slug=contest.login_slug) }}">
+                                <div class="table-responsive mb-3">
+                                    <table class="table table-sm align-middle mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th scope="col">Site</th>
+                                                {% for band, label in [("gold", "Gold"), ("silver", "Silver"), ("bronze", "Bronze")] %}
+                                                    <th scope="col" class="text-center">
+                                                        <span class="animator-medal-heading">
+                                                            <img class="animator-medal-heading-image"
+                                                                 src="{{ request.url_for('medal', band=band) }}"
+                                                                 alt=""
+                                                                 aria-hidden="true">
+                                                            <span class="animator-medal-heading-label">{{ label }}</span>
+                                                        </span>
+                                                    </th>
+                                                {% endfor %}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for site in sites %}
+                                                <tr>
+                                                    <th scope="row">{{ site.sitename }}</th>
+                                                    {% for band in ["gold", "silver", "bronze"] %}
+                                                        <td class="text-center">
+                                                            <label class="visually-hidden" for="{{ band }}-cutoff-{{ site.id }}">{{ site.sitename }} {{ band }} cutoff</label>
+                                                            <input class="form-control form-control-sm animator-medal-input mx-auto"
+                                                                   type="number"
+                                                                   min="1"
+                                                                   id="{{ band }}-cutoff-{{ site.id }}"
+                                                                   name="{{ band }}_cutoff_{{ site.id }}"
+                                                                   value="{{ site | attr(band ~ '_cutoff') }}">
+                                                        </td>
+                                                    {% endfor %}
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-sm">Save medals settings</button>
+                            </form>
+                        {% else %}
+                            <p class="text-muted mb-0">
+                                This contest has no sites yet. Add sites from
+                                <a href="{{ request.url_for('edit_metadata', slug=contest.login_slug) }}">Edit metadata</a>.
+                            </p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">{% include "admin/animator_operators.html" %}</div>
+        </div>
+    </div>
+{% endblock content %}

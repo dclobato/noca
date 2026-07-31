@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -9,6 +9,9 @@
 from __future__ import annotations
 
 import dataclasses
+from email.generator import BytesGenerator
+from email.mime.text import MIMEText
+from io import BytesIO
 from unittest.mock import patch
 
 import pytest
@@ -41,6 +44,23 @@ def test_rfc5322_falls_back_to_bare_email_on_invalid_name() -> None:
     # A name containing a newline triggers an Address ValueError.
     result = build_rfc5322_address("Bad\nName", "x@example.com")
     assert result == "x@example.com"
+
+
+def test_rfc5322_encodes_only_the_non_ascii_display_name() -> None:
+    result = build_rfc5322_address("Adão Silva", "adao@example.com")
+    assert result.endswith("<adao@example.com>")
+    assert "Adão" not in result  # the name alone is RFC 2047-encoded
+    assert result.startswith("=?utf-8?")
+
+
+def test_rfc5322_non_ascii_name_survives_header_serialization() -> None:
+    # A raw unicode address would make email.header encode the whole header
+    # value as one encoded word, leaving the message with no final "@domain".
+    message = MIMEText("body", "plain", "utf-8")
+    message["To"] = build_rfc5322_address("Adão Silva", "adao@example.com")
+    buffer = BytesIO()
+    BytesGenerator(buffer, mangle_from_=False).flatten(message, linesep="\r\n")
+    assert b"<adao@example.com>" in buffer.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -463,7 +483,7 @@ def _email_settings(mbox_dir: str | None):
         EMAIL_PROVIDER="smtp",
         EMAIL_SENDER="no-reply@noca.local",
         EMAIL_SENDER_NAME=None,
-        APP_NAME="NOCA",
+        BRAND_NAME="NOCA",
         SMTP_SERVER="smtp.example.com",
         SMTP_PORT=587,
         SMTP_USERNAME="user",
@@ -481,6 +501,27 @@ def test_email_config_passes_mbox_log_dir_to_provider() -> None:
     provider = config.create_provider()
     assert isinstance(provider, SMTPProvider)
     assert provider._mbox_log_dir == "/var/log/noca/email"
+
+
+def test_email_config_uses_brand_name_as_sender_name_fallback() -> None:
+    """Use the public brand when no sender display name is configured."""
+    from shared.services.email_service import EmailConfig
+
+    config = EmailConfig.from_settings(_email_settings(None))
+
+    assert config.default_from_name == "NOCA"
+
+
+def test_email_config_prefers_explicit_sender_name() -> None:
+    """Keep an explicit sender display name ahead of the brand fallback."""
+    from shared.services.email_service import EmailConfig
+
+    settings = _email_settings(None)
+    settings.EMAIL_SENDER_NAME = "Contest Operations"
+
+    config = EmailConfig.from_settings(settings)
+
+    assert config.default_from_name == "Contest Operations"
 
 
 def test_email_config_default_mbox_log_dir_is_none() -> None:

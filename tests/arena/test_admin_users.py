@@ -49,6 +49,7 @@ from arena.services.user_timezone_service import format_user_datetime
 from shared.db_schema.arena import arena_user_statistics
 from shared.db_schema.arena.arena_rating_history import arena_user_rating_history
 from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_LABELS, ArenaBadge, ArenaRole
+from shared.services.email_providers import EmailProviderError
 from shared.services.email_service import EmailConfig, EmailService
 
 TEST_JWT_SECRET = "test-secret-key-for-admin-user-tests-32bytes!!"
@@ -1089,6 +1090,37 @@ async def test_admin_user_topup_credits_adds_balance_and_transaction(session: As
     assert tx.amount == 6
     assert tx.balance_after == 8
     assert tx.admin_id == admin.id
+    assert flashes
+
+
+@pytest.mark.asyncio
+async def test_admin_user_topup_credits_survives_email_provider_failure(session: AsyncSession) -> None:
+    app = _build_admin_app(session)
+    admin = await _create_arena_user(session, name="Admin", email="admin@test.example", role=ArenaRole.ARENA_ADMIN)
+    target = await _create_arena_user(session, name="Target", email="target@test.example")
+    target.ai_backend_credits = 2
+    await session.commit()
+    request = _make_request(app, f"/admin/users/{target.id}/topup-credits")
+    flashes: list[tuple[str, object]] = []
+
+    def _boom(message: object) -> None:
+        raise EmailProviderError("Error sending email via SMTP: (554, b\"Missing final '@domain'\")")
+
+    app.state.email_service.provider.send = _boom  # type: ignore[method-assign]
+
+    response = await admin_user_topup_credits(
+        request,
+        target.id,
+        lambda message, category: flashes.append((message, category)),
+        quantity="6",
+        nav=NavState(search="", page="1", per_page="25", role_filter=""),
+        admin=admin,
+        session=session,
+    )
+
+    assert response.status_code == 303
+    await session.refresh(target)
+    assert target.ai_backend_credits == 8
     assert flashes
 
 

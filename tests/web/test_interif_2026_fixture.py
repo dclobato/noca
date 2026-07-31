@@ -20,6 +20,7 @@ from werkzeug.security import check_password_hash
 from scripts.web.seed_interif_2026 import (
     ADMIN_PASSWORD,
     ADMIN_USERNAME,
+    FIXTURE_LANGUAGE_ID,
     JUDGE_PASSWORD,
     InterIF2026SeedError,
     remove_interif_2026,
@@ -36,6 +37,7 @@ from web.config import settings
 from web.database import Base
 from web.models.clarification import Clarification
 from web.models.contest import Contest, Task
+from web.models.language import Language
 from web.models.submission import Submission, SubmissionJudgment
 from web.models.users import UberAdmin, User
 from web.services.contest_backup_service import build_contest_backup, import_contest_backup
@@ -235,6 +237,7 @@ async def test_remove_interif_2026_deletes_only_the_seeded_contest(
     assert await session.scalar(select(Contest.id).where(Contest.id == contest_id)) is None
     assert await session.scalar(select(User.id).where(User.contest_id == contest_id)) is None
     assert await session.scalar(select(Submission.id).where(Submission.id.in_(submission_ids))) is None
+    assert await session.get(Language, FIXTURE_LANGUAGE_ID) is None
     assert all(not statement_path.exists() for statement_path in statement_paths)
     assert await remove_interif_2026(session) is False
 

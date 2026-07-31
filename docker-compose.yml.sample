@@ -8,12 +8,22 @@ services:
         condition: service_started
       healthmonitor:
         condition: service_started
+      animator:
+        condition: service_started
+    environment:
+      # Caddy resolves the {$VAR:default} upstream ports in containers/Caddyfile from
+      # its own environment, so these must mirror the values the services bind.
+      NOCA_WEB_PORT: ${NOCA_WEB_PORT:-8000}
+      NOCA_ARENA_PORT: ${NOCA_ARENA_PORT:-8001}
+      NOCA_HEALTHMON_PORT: ${NOCA_HEALTHMON_PORT:-8002}
+      NOCA_ANIMATOR_PORT: ${NOCA_ANIMATOR_PORT:-8003}
     ports:
       - "80:80"
       - "81:81"
       - "82:82"
+      - "83:83"
       # To enable automatic TLS later, also publish 443:443 and update
-      # containers/Caddyfile to use real hostnames instead of :80, :81 and :82.
+      # containers/Caddyfile to use real hostnames instead of ports 80-83.
     volumes:
       - ./containers/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${NOCA_DATA_ROOT:-./.docker}/caddy_logs:/var/log/caddy
@@ -32,6 +42,11 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-100}
       NOCA_ENVIRONMENT: ${NOCA_ENVIRONMENT:-production}
+      # Keep the bind address at 0.0.0.0 in this stack: Caddy reaches `web` over the
+      # container network, and the container healthcheck probes loopback. A narrower
+      # bind is only useful when running `uv run noca-web` directly on a host.
+      NOCA_WEB_HOST: ${NOCA_WEB_HOST:-0.0.0.0}
+      NOCA_WEB_PORT: ${NOCA_WEB_PORT:-8000}
       # In this compose stack, `web` is only reachable via the internal network behind Caddy.
       # Keep explicit values in production instead of '*' when direct access is possible.
       NOCA_FORWARDED_ALLOW_IPS: ${NOCA_FORWARDED_ALLOW_IPS:-*}
@@ -85,6 +100,11 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-100}
       NOCA_ENVIRONMENT: ${NOCA_ENVIRONMENT:-production}
+      # Keep the bind address at 0.0.0.0 in this stack: Caddy reaches `arena` over the
+      # container network. A narrower bind is only useful when running `uv run noca-arena`
+      # directly on a host.
+      NOCA_ARENA_HOST: ${NOCA_ARENA_HOST:-0.0.0.0}
+      NOCA_ARENA_PORT: ${NOCA_ARENA_PORT:-8001}
       # In this compose stack, `arena` is only reachable via the internal network behind Caddy.
       # Keep explicit values in production instead of '*' when direct access is possible.
       NOCA_FORWARDED_ALLOW_IPS: ${NOCA_FORWARDED_ALLOW_IPS:-*}
@@ -282,6 +302,14 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-100}
       NOCA_ENVIRONMENT: ${NOCA_ENVIRONMENT:-production}
+      # Keep the bind address at 0.0.0.0 in this stack: Caddy reaches `healthmonitor` over
+      # the container network and the healthcheck below probes loopback. A narrower bind is
+      # only useful when running `uv run noca-healthmonitor` directly on a host.
+      NOCA_HEALTHMON_HOST: ${NOCA_HEALTHMON_HOST:-0.0.0.0}
+      NOCA_HEALTHMON_PORT: ${NOCA_HEALTHMON_PORT:-8002}
+      # In this compose stack, `healthmonitor` is only reachable via the internal network
+      # behind Caddy. Keep explicit values in production when direct access is possible.
+      NOCA_FORWARDED_ALLOW_IPS: ${NOCA_FORWARDED_ALLOW_IPS:-*}
       NOCA_VALKEY_SERVER: ${NOCA_VALKEY_SERVER:-valkey}
       NOCA_VALKEY_PORT: ${NOCA_VALKEY_PORT:-6379}
       NOCA_VALKEY_DB: ${NOCA_VALKEY_DB:-0}
@@ -299,7 +327,67 @@ services:
       test:
         [
           "CMD-SHELL",
-          "curl -fsS http://localhost:8002/health >/dev/null",
+          "curl -fsS http://localhost:${NOCA_HEALTHMON_PORT:-8002}/health >/dev/null",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - noca-network
+    restart: unless-stopped
+
+  animator:
+    image: noca/animator
+    build:
+      context: .
+      dockerfile: containers/animator/Dockerfile
+    env_file:
+      - .env
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-100}
+      NOCA_ENVIRONMENT: ${NOCA_ENVIRONMENT:-production}
+      NOCA_DB_USER: ${NOCA_DB_USER:?NOCA_DB_USER is required}
+      NOCA_DB_PASSWORD: ${NOCA_DB_PASSWORD:?NOCA_DB_PASSWORD is required}
+      NOCA_DB_SERVER: postgres
+      NOCA_DB_PORT: 5432
+      NOCA_DB_NAME: ${NOCA_DB_NAME:?NOCA_DB_NAME is required}
+      NOCA_VALKEY_SERVER: valkey
+      NOCA_VALKEY_PORT: ${NOCA_VALKEY_PORT:-6379}
+      NOCA_VALKEY_DB: ${NOCA_VALKEY_DB:-0}
+      NOCA_VALKEY_USER: ${NOCA_VALKEY_USER:-}
+      NOCA_VALKEY_PASSWORD: ${NOCA_VALKEY_PASSWORD:-}
+      NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS: ${NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS:-5}
+      # Keep the bind address at 0.0.0.0 in this stack: Caddy reaches `animator` over the
+      # container network and the healthcheck below probes loopback. A narrower bind is
+      # only useful when running `uv run noca-animator` directly on a host.
+      NOCA_ANIMATOR_HOST: ${NOCA_ANIMATOR_HOST:-0.0.0.0}
+      NOCA_ANIMATOR_PORT: ${NOCA_ANIMATOR_PORT:-8003}
+      NOCA_ANIMATOR_POLL_FALLBACK_SECONDS: ${NOCA_ANIMATOR_POLL_FALLBACK_SECONDS:-15}
+      NOCA_ANIMATOR_ENABLE_CONTROL: ${NOCA_ANIMATOR_ENABLE_CONTROL:-false}
+      NOCA_ANIMATOR_REVEAL_TTL_MARGIN_SECONDS: ${NOCA_ANIMATOR_REVEAL_TTL_MARGIN_SECONDS:-3600}
+      NOCA_ANIMATOR_BRAND_NAME: ${NOCA_ANIMATOR_BRAND_NAME:-NOCA Animator}
+      NOCA_ANIMATOR_WORKER_ID: ${NOCA_ANIMATOR_WORKER_ID:-}
+      NOCA_ANIMATOR_WORKER_PRESENCE_INTERVAL_SECONDS: ${NOCA_ANIMATOR_WORKER_PRESENCE_INTERVAL_SECONDS:-30.0}
+      NOCA_ANIMATOR_WORKER_PRESENCE_TTL_SECONDS: ${NOCA_ANIMATOR_WORKER_PRESENCE_TTL_SECONDS:-60}
+      # Trust the Caddy reverse proxy so the reveal-control audit log records the
+      # operator IP rather than the proxy's.
+      NOCA_FORWARDED_ALLOW_IPS: ${NOCA_FORWARDED_ALLOW_IPS:-*}
+      NOCA_HEALTHMON_URL: ${NOCA_HEALTHMON_URL:-}
+      # The animator is a schema consumer: its entrypoint waits for web/arena to
+      # migrate rather than migrating itself.
+      NOCA_WAIT_FOR_MIGRATIONS_TIMEOUT: ${NOCA_WAIT_FOR_MIGRATIONS_TIMEOUT:-300}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://localhost:${NOCA_ANIMATOR_PORT:-8003}/health >/dev/null",
         ]
       interval: 15s
       timeout: 5s

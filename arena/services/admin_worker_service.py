@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -54,8 +54,8 @@ _CARD_METADATA = {
 }
 
 # Worker classes shown on the admin dashboard (card display order). The
-# presence-only classes (web, arena) are monitored by healthmonitor and must
-# never gain dashboard cards or pause controls.
+# presence-only classes (web, arena, animator) are monitored by healthmonitor
+# and must never gain dashboard cards or pause controls.
 DASHBOARD_CLASSES = (
     WorkerClass.AUTOJUDGE,
     WorkerClass.AIASSISTANT,

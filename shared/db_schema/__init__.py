@@ -45,7 +45,7 @@ from .arena import (
     arena_worker_pause_state,
 )
 from .clarification import clarifications
-from .contest import contest_languages, contests, sites, tasks
+from .contest import contest_languages, contests, site_secrets, sites, tasks
 from .language import languages
 from .problem import (
     problem_categories,
@@ -124,6 +124,7 @@ __all__ = [
     "profiling_runs",
     "security_events",
     "problems",
+    "site_secrets",
     "sites",
     "solution_test_case_results",
     "solution_test_runs",

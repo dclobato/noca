@@ -1,5 +1,5 @@
 /* NOCA -- Next Online Contest Administrator */
-/* Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org> */
+/* Copyright (c) 2026 The NOCA Authors (see AUTHORS) */
 /* This program is distributed in the hope that it will be useful, */
 /* but WITHOUT ANY WARRANTY; without even the implied warranty of */
 /* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. */
@@ -21,6 +21,90 @@
 
 /* Dark-mode overrides for shared third-party components (highlight.js, EasyMDE). */
 @import url("/static/shared-css/components-dark.css");
+
+/* ── Block quotations ────────────────────────────────────────────────────────
+   Bootstrap's reset removes the browser's indentation from <blockquote>, while
+   Markdown renderers emit the semantic element without Bootstrap's optional
+   `.blockquote` class. Keep quotations distinct everywhere shared Markdown is
+   displayed, using logical properties for both text directions. */
+blockquote {
+    padding-block: 0.25rem;
+    padding-inline-start: 1rem;
+    border-inline-start: 0.25rem solid var(--noca-brand);
+    color: var(--bs-secondary-color);
+}
+
+blockquote > :last-child {
+    margin-bottom: 0;
+}
+
+/* Marked emits classless tables, so Bootstrap's `.table` spacing does not
+   apply. Preserve a standard text gap before the next Markdown block. */
+:where(
+    #md-statement-rendered,
+    #legal-markdown-rendered,
+    #ai-review-rendered,
+    [data-tc-explanation],
+    .editor-preview
+) table:not(:last-child) {
+    margin-bottom: 1rem;
+}
+
+/* GFM tables carry no presentation classes. Give rendered and previewed
+   Markdown the same readable grid while retaining theme-aware borders. */
+:where(
+    #md-statement-rendered,
+    #legal-markdown-rendered,
+    #ai-review-rendered,
+    [data-tc-explanation]
+) table > :not(caption) > * > *,
+.editor-preview table > :not(caption) > * > * {
+    padding: 0.5rem;
+    border: 1px solid var(--bs-border-color);
+}
+
+:where(
+    #md-statement-rendered,
+    #legal-markdown-rendered,
+    #ai-review-rendered,
+    [data-tc-explanation]
+) table.noca-markdown-table-borderless > :not(caption) > * > *,
+.editor-preview table.noca-markdown-table-borderless > :not(caption) > * > * {
+    border: 0;
+}
+
+.noca-markdown-table-align-left {
+    margin-inline: 0 auto;
+}
+
+.noca-markdown-table-align-center {
+    margin-inline: auto;
+}
+
+.noca-markdown-table-align-right {
+    margin-inline: auto 0;
+}
+
+.noca-markdown-align-left {
+    text-align: left;
+}
+
+.noca-markdown-align-center {
+    text-align: center;
+}
+
+.noca-markdown-align-right {
+    text-align: right;
+}
+
+/* Keep the compact table/alignment toolbar group together on narrow editors.
+   Horizontal overflow is preferable to orphaned controls on centered rows. */
+.EasyMDEContainer .editor-toolbar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    text-align: left;
+}
 
 /* ── Navbar brand ────────────────────────────────────────────────────────────
    Shared brand wordmark used by both modules' top navigation: same font, size and

@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 <!DOCTYPE html>
 {% from "_macros.html" import render_icon, render_flash_messages with context %}
 <html lang="en">
@@ -23,7 +30,9 @@
         })();
         </script>
         <script src="{{ request.url_for('static_shared_js', path='theme-toggle.js') }}?v={{ app_version }}-r1"></script>
-        <script src="{{ request.url_for('static_js', path='contest-clock-utils.js') }}"
+        <script src="{{ request.url_for('static_shared_js', path='markdown-directives.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='contest-clock-utils.js') }}?v={{ app_version }}"
                 defer></script>
     </head>
     <body class="d-flex flex-column min-vh-100">

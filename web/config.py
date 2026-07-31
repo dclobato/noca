@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -31,6 +31,22 @@ class Settings(BaseSettings):
     DB_SERVER: str
     DB_PORT: int = Field(default=5432, gt=0, le=65535, description="Port number for the database server (1 to 65535)")
     DB_NAME: str
+
+    HOST: str = Field(
+        default="0.0.0.0",
+        validation_alias="NOCA_WEB_HOST",
+        description=(
+            "Bind address for the web HTTP server. Container deployments must keep 0.0.0.0: "
+            "the reverse proxy reaches the service over the container network."
+        ),
+    )
+    PORT: int = Field(
+        default=8000,
+        gt=0,
+        le=65535,
+        validation_alias="NOCA_WEB_PORT",
+        description="TCP port for the web HTTP server (1-65535; default 8000).",
+    )
 
     APP_NAME: str = Field(default="noca", validation_alias="NOCA_WEB_APP_NAME")
     BRAND_NAME: str = Field(
@@ -83,7 +99,7 @@ class Settings(BaseSettings):
     )
     EMAIL_SENDER_NAME: str | None = Field(
         default=None,
-        description="Optional default sender display name (falls back to APP_NAME)",
+        description="Optional default sender display name (falls back to BRAND_NAME)",
     )
     SMTP_SERVER: str | None = Field(default=None, description="SMTP server hostname")
     SMTP_PORT: int = Field(default=587, gt=0, le=65535, description="SMTP server port (1 to 65535)")

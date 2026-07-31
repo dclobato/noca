@@ -13,8 +13,22 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from scripts import run_migrations
+
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_migration_graph_has_single_head() -> None:
+    """Alembic's default ``upgrade head`` target must remain unambiguous."""
+    config = Config(str(_REPOSITORY_ROOT / "alembic.ini"))
+    script = ScriptDirectory.from_config(config)
+
+    heads = script.get_heads()
+
+    assert len(heads) == 1, f"Expected one Alembic head, found: {', '.join(heads)}"
 
 
 class _FakeConnection:

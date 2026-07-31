@@ -1,10 +1,10 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Health monitor FastAPI application (port 8002).
+"""Health monitor FastAPI application (default port 8002).
 
 Serves two public pages: the environment status page (``/``) and the uptime
 dashboard with per-service 30-day heatmaps (``/dashboard``). Two background
@@ -175,11 +175,12 @@ def main() -> None:
     reload_enabled = settings.ENVIRONMENT == Environment.DEVELOPMENT
     uvicorn.run(
         "healthmonitor.main:app",
-        host="0.0.0.0",
-        port=8002,
+        host=settings.HOST,
+        port=settings.PORT,
         reload=reload_enabled,
         reload_dirs=["healthmonitor", "shared"] if reload_enabled else None,
         proxy_headers=True,
+        forwarded_allow_ips=settings.FORWARDED_ALLOW_IPS,
         log_config=None,
         log_level="warning",
         timeout_graceful_shutdown=2,

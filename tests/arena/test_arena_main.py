@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -120,17 +120,17 @@ def _configure_lifespan_mocks(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_arena_jwt_issuer_is_fixed_even_when_app_name_is_shared(
+async def test_arena_jwt_issuer_follows_app_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Arena JWT issuer must not inherit the web module's shared app name."""
+    """Arena JWT issuer must come from NOCA_ARENA_APP_NAME."""
     _configure_lifespan_mocks(monkeypatch)
-    monkeypatch.setattr(main_module.settings, "APP_NAME", "noca")
+    monkeypatch.setattr(main_module.settings, "APP_NAME", "custom-arena")
 
     async with main_module.lifespan(main_module.app):
         jwt_service = main_module.app.state.jwt_service
 
-    assert jwt_service.kwargs["config"]["JWTSERVICE_ISSUER"] == "noca-arena"
+    assert jwt_service.kwargs["config"]["JWTSERVICE_ISSUER"] == "custom-arena"
 
 
 @pytest.mark.asyncio

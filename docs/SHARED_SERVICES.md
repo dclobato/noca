@@ -1,7 +1,8 @@
 # NOCA Shared Service Reference
 
 This document lists service modules under `shared/services/` that are used by more than one runtime
-module (`web`, `arena`, `autojudge`, `rating`, `aiassistant`, or `healthmonitor`).
+module (`web`, `arena`, `autojudge`, `rating`, `aiassistant`, `healthmonitor`, or
+`animator`).
 
 For web-specific services see [web/docs/SERVICES.md](../web/docs/SERVICES.md).
 For arena-specific services see [arena/docs/SERVICES.md](../arena/docs/SERVICES.md).
@@ -393,6 +394,68 @@ Paired presentation:
 - `shared/template/_partials/problem_image_field.html` (admin form field) and
   `shared/template/_partials/problem_image_figure.html` (public display), plus
   `problem-image-preview.js` and the `.noca-problem-*` rules in `common.css`
+
+---
+
+## `balloon_assets.py`
+
+Purpose:
+- render the small balloon and star SVG artwork with an optional problem letter and load the
+  fixed Gold, Silver, and Bronze medal SVGs as the framework-agnostic source of truth, so any
+  runtime can serve identical artwork from its own origin
+
+This module has no web-framework dependency: invalid input raises `ValueError`, and each caller
+maps that to its own HTTP error. The SVG templates ship alongside it under
+`shared/services/assets/`.
+
+Canonical location:
+- `shared/services/balloon_assets.py`
+
+Main entrypoints:
+- `normalize_hex_color(color) -> str` — normalize a 3- or 6-digit hex color (optional `#`) to
+  lowercase `#rrggbb`, else `ValueError`
+- `normalize_letter(letter) -> str` — validate ASCII letters and return the first, uppercased
+- `render_balloon_svg(fill_color, letter=None) -> str` / `render_star_svg(fill_color, letter=None) -> str`
+  — memoized renderers returning the SVG document string
+- `render_medal_svg(band) -> str` — return the Gold, Silver, or Bronze SVG, else `ValueError`
+
+Reused by:
+- `animator/routes/assets.py` and `web/routes/assets.py` (thin `/assets/balloon|star|medal`
+  routes with application-specific cache headers)
+
+---
+
+## `audio_signature.py`
+
+Purpose:
+- own, in one place, which audio formats NOCA accepts and how they are named, so the runtime
+  that *stores* a clip and the runtime that *serves* it can never disagree
+
+Two runtimes validate the same bytes at different times: Web validates an upload before storing
+it, and the animator re-validates the stored payload before serving it to a ceremony projector.
+If those two ever accepted different sets, a clip could be stored and then be unplayable — or be
+served under a type the uploader never validated. Detection is by **file signature**
+(`puremagic`), never from a caller-supplied MIME claim, because the bytes are the only
+trustworthy description of content the validating code did not produce.
+
+This module has no web-framework dependency: rejection raises, and each caller maps it to its own
+vocabulary.
+
+Canonical location:
+- `shared/services/audio_signature.py`
+
+Main entrypoints:
+- `detect_audio_mime(content) -> str` — canonical `audio/mpeg` / `audio/ogg` / `audio/wav`
+- `SUPPORTED_AUDIO_MIME_TYPES` — detected-to-canonical mapping (MP3, OGG, WAV only)
+- `AudioSignatureError` (a `ValueError`) with subclasses `UnrecognizedAudioError` (type could not
+  be identified, or empty content) and `UnsupportedAudioError` (identified but not accepted;
+  carries `detected_mime`)
+
+Reused by:
+- `web/services/user_media_service.py` — maps each subclass to the message its upload form
+  already renders
+- `animator/services/team_audio_service.py` — maps the base class to `None`, which its route
+  answers as `404`: a clip it cannot vouch for is treated as no clip at all
 
 ---
 
@@ -849,6 +912,63 @@ Do not reimplement:
 
 ---
 
+## `animator_access_service.py`
+
+Purpose:
+- own the reusable animator access-control domain logic so both Web
+  administration and the future animator runtime share it without importing each
+  other
+- update a site's validated medal cutoffs
+- manage the lifecycle of scoped operator credentials (site-scoped and
+  contest-global) for the reveal engine
+- resolve an operator token to its authorized scope in constant time
+
+Canonical location:
+- `shared/services/animator_access_service.py`
+
+Design:
+- operates over the shared SQLAlchemy Core tables `sites` and `site_secrets`;
+  never imports FastAPI or the Web ORM models
+- accepts any executor exposing `execute` (an `AsyncSession` from web or an
+  `AsyncConnection` from a worker), matching the other shared database services
+- generates at least 256 bits of entropy with `secrets.token_urlsafe(32)`;
+  persists only the fixed-length SHA-256 digest — the plaintext token exists
+  solely in the return value of a create operation
+- normalizes only transport whitespace on a token; never lowercases or otherwise
+  transforms it
+- an invalid token resolves to the single generic failure `None`, so callers
+  cannot learn whether a contest or site credential exists
+
+Main types:
+- `AnimatorAccessError` — raised for invalid medal or credential input
+- `SiteSecretMetadata` — digest-free DTO for listing/display (no `secret_digest`)
+- `ResolvedScope` — `contest_id` plus `site_id` (`None` for a global secret)
+
+Main entrypoints:
+- `generate_operator_token() -> str`
+- `normalize_token(raw_token) -> str`
+- `digest_token(raw_token) -> str`
+- `verify_digest(stored_digest, candidate_digest) -> bool` (constant-time)
+- `update_site_medals(executor, *, site_id, contest_id, gold, silver, bronze) -> None`
+- `list_site_secrets(executor, contest_id, site_id=None) -> list[SiteSecretMetadata]`
+- `create_site_secret(executor, *, contest_id, site_id, label) -> str`
+- `create_global_secret(executor, *, contest_id, label) -> str`
+- `revoke_secret(executor, *, contest_id, secret_id) -> bool` — contest-scoped so
+  one contest cannot revoke another's credential by id; returns whether a row was
+  removed
+- `resolve_scope(executor, contest_id, token) -> ResolvedScope | None`
+
+Reuse this module when:
+- administering animator site medals or operator secrets from web
+- authorizing a reveal operator from the animator runtime
+
+Do not reimplement:
+- token generation, digesting, or constant-time verification
+- medal-cutoff ordering and positivity validation
+- the digest-only persistence and generic-failure scope resolution
+
+---
+
 ## `imageprocessing_service/`
 
 Purpose:
@@ -1015,6 +1135,13 @@ Main entrypoints:
   `SubmissionEvent` new-submission nudge to `QUEUE_SUBMISSIONS_CHANNEL`
   (`judge:submissions`) so the animator can flash a pending cell and refetch the
   authoritative `/snapshot`; buffered/best-effort like `publish_verdict`
+- `ValkeyRuntime.publish_revelation(event) -> bool` and
+  `ValkeyRuntime.iter_revelation_events(contest_id, scope, *, on_subscribed=None)
+  -> AsyncGenerator[RevealStateChangedEvent]` — reveal-ceremony projection
+  pub/sub (see "Reveal ceremony persistence and projection pub/sub")
+- `ValkeyRuntime.fenced_save_reveal_state(*, lock_key, state_key, token,
+  state_json, ttl_seconds) -> int | None` — token-fenced reveal-state write
+  (`1` saved, `0` ownership lost, `None` unavailable)
 - `worker_presence_loop(...) -> None` — immediately publishes a worker and
   refreshes its live marker until shutdown
 - `list_all_workers(client_or_runtime) -> dict[WorkerClass, list[WorkerPresence]]`
@@ -1026,10 +1153,11 @@ Main entrypoints:
 - Queue key constants: `QUEUE_PENDING_KEY`, `QUEUE_PRIORITY_KEY`, `QUEUE_INFLIGHT_KEY`, `QUEUE_INFLIGHT_TIMES_KEY`, `QUEUE_JOB_HASH_PREFIX`, `QUEUE_RESULTS_CHANNEL`, `QUEUE_SUBMISSIONS_CHANNEL`
 
 Worker presence:
-- `WorkerClass` defines `autojudge`, `rating`, `aiassistant`, `web`, and
-  `arena`. The first three are worker classes shown on the Arena admin
-  dashboard; `web` and `arena` are presence-only HTTP server classes published
-  from each server's lifespan and read by the health monitor. They never
+- `WorkerClass` defines `autojudge`, `rating`, `aiassistant`, `web`, `arena`,
+  and `animator`. The first three are worker classes shown on the Arena admin
+  dashboard; `web`, `arena`, and `animator` are presence-only HTTP server
+  classes published from each server's lifespan and read by the health monitor.
+  They never
   appear in the Arena dashboard worker cards or pause UI (the dashboard
   iterates an explicit class tuple, and `_resolve_class` rejects them).
 - `noca:worker-presence:<class>:seen` is a durable hash from worker ID to JSON
@@ -1108,6 +1236,14 @@ Verdict pub/sub channels (live feeds):
 - `ARENA_RESULTS_CHANNEL = "arena:results"` — Arena verdicts. Produced **only** by the autojudge worker via `publish_arena_verdict_with_client` (exported as `_publish_arena_verdict_with_client`); consumed by `ValkeyRuntime.iter_arena_verdict_events()` (Arena public live feed). The channel name has a single source of truth in this constant so the autojudge producer and Arena subscriber cannot drift.
 - `ArenaVerdictEvent` (`shared/queue_schema.py`) is the minimal `{submission_id, judgment_id, verdict}` payload on `arena:results`. It is a "changed" signal only: the Arena live feed refetches a server-side snapshot rather than rendering event fields. There is deliberately no runtime publish path / `PendingCommand` operation for it, since nothing publishes Arena verdicts through `ValkeyRuntime`.
 
+Reveal ceremony persistence and projection pub/sub (`revelation.py` + `reveal_schema.py`):
+- **Validated key/channel builders.** `reveal_state_key(contest_id, scope)`, `reveal_lock_key(contest_id, scope)`, and `revelation_channel(contest_id, scope)` build every key/channel from two components validated by `validate_component` against `^[A-Za-z0-9_-]{1,64}$`. The guard forbids `:` (so a component can never inject an extra key segment or a different channel) and matches the shapes actually used — contest UUIDs and the `scope` value, which is a site id or the `GLOBAL_SCOPE = "global"` constant. An invalid component raises `InvalidRevelationScopeError` before any Valkey call. Key prefixes: `REVEAL_STATE_KEY_PREFIX = "animator:reveal"`, `REVEAL_LOCK_KEY_PREFIX = "animator:reveal:lock"`, `REVELATION_CHANNEL_PREFIX = "revelation:events"`.
+- **Fenced state write.** `fenced_save_state_script()` returns the single Lua source used by `ValkeyRuntime.fenced_save_reveal_state(lock_key, state_key, token, state_json, ttl_seconds)`: it writes the state with `EX` **only while the lock still holds the caller's token**, returning `1` on a fenced write, `0` on lost ownership, and `None` when Valkey is unavailable. This is what lets the animator reveal store keep a single writer per scope safely even if a lock lease expires; the lock's compare-and-delete release only guards *release*, not the write.
+- **`RevealStateChangedEvent`** (`shared/reveal_schema.py`) is a versioned (`event_version: Literal[1]`), `extra="forbid"` **invalidation nudge**, not a projection payload: `{contest_id, scope, command, phase, focused_team_id, revealed_count, frozen_count, published_at}`. `shared` cannot import the animator's derived team/problem views, and broadcasting them would give subscribers a second, race-prone source of truth — so every event means only "the ceremony under this `contest_id`/`scope` changed; refetch the authoritative projection/state." Consumers must **never** render the event's own fields as authoritative state. Missed events are harmless because state is always reloadable. `RevealPhase` and `RevealCommand` literals live here too; `animator.models.reveal_session` re-imports `RevealPhase` rather than redeclaring it.
+- **Publish semantics.** `ValkeyRuntime.publish_revelation(event) -> bool` and the raw `publish_revelation_with_client(client, event) -> int`. The bool `True` means **the `PUBLISH` command reached Valkey**, explicitly *including* the case where it reached zero subscribers (Valkey's integer subscriber count, `0` included, is success); `False` is returned only on a recoverable transport error or when no client is connected. Unlike `publish_verdict`, revelation publishes are deliberately **not** buffered through `PendingCommand`: replaying a stale ceremony frame after a reconnect is worse than dropping it, since every event is only an invalidation signal.
+- **Subscriber.** `ValkeyRuntime.iter_revelation_events(contest_id, scope, *, on_subscribed=None) -> AsyncGenerator[RevealStateChangedEvent]` follows the verdict-channel own-client / reconnect-return style and validates each frame inside a per-message guard, so a malformed or foreign-version payload is logged and skipped rather than escaping to the caller.
+- **Subscription-established signal.** The optional `on_subscribed` callback fires exactly once, immediately after the `SUBSCRIBE` completes — the instant from which no publication can be missed. A consumer that must tell *its* clients "you are covered now" cannot derive that moment from the first yielded event, because a quiet channel may never produce one; the animator's spectator SSE stream uses it to emit its `reveal_ready` event, closing the window between an SSE response starting (which fires the browser's `open`) and the subscription actually existing. When the runtime has no client or subscription setup fails, the generator ends without invoking the callback; consumers must observe termination separately and must not announce coverage.
+
 Arena AI review queue helpers (used by `aiassistant/`):
 - `enqueue_arena_ai_review_job(client_or_runtime, job) -> None`
 - `dequeue_arena_ai_review_job_id(client_or_runtime) -> str | None` — atomically moves item from `ai:queue:pending` to `ai:queue:inflight` and records dispatch timestamp in `ai:queue:inflight:times`
@@ -1181,6 +1317,38 @@ Canonical location:
 
 Notes:
 - arena computes rankings on demand without a scoreboard cache; this module is currently web-only but lives in shared for future use
+
+---
+
+## `scoreboard_projection.py`
+
+Purpose:
+- single owner of the ICPC scoreboard semantics: snapshot DTOs, cache serialization, and the pure `compute_icpc` calculation
+- consumed by the web scoreboard service today and by the animator runtime later, without importing `web` models
+
+Canonical location:
+- `shared/services/scoreboard_projection.py`
+
+Key types and functions:
+- `ProblemResult`, `TeamStanding`, `ScoreboardSnapshot` — scoreboard DTOs
+- `ContestScoringInput`, `TeamInput`, `ProblemInput`, `SubmissionInput`, `JudgmentInput` — structural input protocols (read-only properties) so callers adapt their own ORM or value records instead of this module importing them
+- `ordinal_to_label(ordinal)` — 1-based problem ordinal to label (`A`..`Z`, `AA`, ...)
+- `submission_sort_key(submission)` — the canonical `(timestamp_seconds,
+  created_at, id)` ordering key. This module is the single owner of that order:
+  `compute_icpc` sorts with it, and the animator's frozen reveal universe
+  re-exports and uses the same function, so the two cannot drift. `created_at` is
+  normalized for comparison only (naive read as UTC, `None` sorts first), so a
+  `SubmissionInput` with the protocol-permitted `created_at=None` cannot raise
+  `TypeError` mid-sort
+- `bucket_visible_pending_submissions(submissions, judgments, *, freeze_at_seconds,
+  viewer_sees_frozen)` — groups unresolved submissions by team/problem using the
+  same freeze-visibility rule consumed by `compute_icpc` and animator pending lists
+- `compute_icpc(contest, teams, problems, submissions, judgments, freeze_at_seconds, viewer_sees_frozen)` — pure standings calculation; honors per-contest `wa_penalty`, `accept_pe`, and `ce_adds_penalty`, the strict freeze predicate (`timestamp_seconds > freeze_at_seconds`), pending cells, position-based tied ranks, and first-balloon marking ordered by `(timestamp_seconds, created_at, id)`
+- `snapshot_to_dict(snapshot)` / `snapshot_from_dict(data)` — JSON-compatible cache serialization; tolerant of legacy payloads missing `team_fullname` or `is_first_balloon`
+
+Notes:
+- web behavior is unchanged: `web/services/scoreboard/` keeps only query, cache, and orchestration code and re-exports the DTOs from here
+- this module must never import from `web/`; inputs arrive as `Sequence`/`Mapping` of the structural protocols above
 
 ---
 
@@ -1341,10 +1509,13 @@ Notes:
   commits in the same transaction, they commit atomically
 - callers snapshot the Web username or Arena email in `actor_label`; the event
   viewers show this login instead of the opaque actor ID
+- migration `202607220001` backfills missing labels on existing admin-action
+  rows when the referenced actor still exists
 - currently wired to destructive/privilege actions: Arena user role change,
   activate/deactivate, disable-2FA, and problem/affiliation/category deletes;
   Web uberadmin enable/disable, contest problem/user deletes, and contest
-  start-now/end-now state changes, plus sensitive contest backup exports
+  start-now/end-now state changes, plus animator settings and credential
+  changes and sensitive contest backup exports
 - escape hatch: promote to a typed table later if query needs outgrow the JSON
   shape
 
@@ -1528,7 +1699,7 @@ Purpose:
 Canonical location: `jwtservice` PyPI package; `app.state.jwt_service`
 
 Notes:
-- the issuer `"noca-arena"` differs from the web module's `"noca"`, preventing cross-server token acceptance
+- the issuer comes from `NOCA_ARENA_APP_NAME` (default `"noca-arena"`) and must differ from the web module's `NOCA_WEB_APP_NAME` (default `"noca"`), preventing cross-server token acceptance
 - uses the same `NOCA_JWT_SECRET_KEY`, `NOCA_JWT_ALGORITHM`, and `NOCA_JWT_EXPIRE_SECONDS` env vars as the web module by default; configure separate values for stronger isolation
 
 ### `EmailService` (arena instance)

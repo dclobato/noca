@@ -49,18 +49,16 @@ Keep shared behavior independent from FastAPI and Web ORM models:
 
 Implement the services in this order:
 
-1. Add shared functions to update validated medal cutoffs and style, list safe
+1. Add shared functions to update validated medal cutoffs, list safe
    credential metadata, create a site credential, create a global credential,
    revoke a credential, and resolve a credential's authorized scope.
-2. Validate `style` as an optional CSS class token with a conservative character
-   allowlist and a maximum length of 100.
-3. Exclude `secret_digest` from all list/view DTOs.
-4. Add thin wrappers or re-exports in `web/services/site_service.py` where the
+2. Exclude `secret_digest` from all list/view DTOs.
+3. Add thin wrappers or re-exports in `web/services/site_service.py` where the
    current Web service API remains the natural caller boundary.
-5. Add tests for one-time plaintext return, digest-only persistence, constant
+4. Add tests for one-time plaintext return, digest-only persistence, constant
    comparison behavior, site/global scope resolution, cross-contest rejection,
-   revocation, ordered cutoffs, and invalid style values.
-6. Update `docs/SHARED_SERVICES.md` and `web/docs/SERVICES.md`.
+   revocation, and ordered cutoffs.
+5. Update `docs/SHARED_SERVICES.md` and `web/docs/SERVICES.md`.
 
 ## Validation
 

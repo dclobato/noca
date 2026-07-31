@@ -1,10 +1,13 @@
 # How to implement the animator phases
 
-Use one fresh coding-agent session for each phase, beginning with
-[Phase 00](Phase-00.md) and continuing in order through
-[Phase 21](Phase-21.md). Each session must inspect the current repository,
-produce a short execution checklist, wait for your approval, implement only its
-phase, and satisfy that phase's validation and completion criteria.
+Use one fresh coding-agent session for each required phase, beginning with
+[Phase 00](Phase-00.md) and following the dependency path through
+[Phase 21](Phase-21.md). Phases 15 through 17 and
+[Phase 22](Phase-22.md) are optional backlog items; implement them only when
+their stated operational requirement exists. Each session must inspect the
+current repository, produce a short execution checklist, wait for your approval,
+implement only its phase, and satisfy that phase's validation and completion
+criteria.
 
 ## Prepare each session
 

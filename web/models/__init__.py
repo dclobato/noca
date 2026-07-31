@@ -20,6 +20,7 @@ from web.models.problem import (
     ProfilingRun,
 )
 from web.models.site import Site
+from web.models.site_secret import SiteSecret
 from web.models.solution_test import SolutionTestCaseResult, SolutionTestRun
 from web.models.submission import (
     HumanSubmissionConfirmation,
@@ -55,6 +56,7 @@ __all__ = [
     "SubmissionJudgmentAudit",
     "SubmissionTestResult",
     "Site",
+    "SiteSecret",
     "VerdictOverride",
     "UUIDPrimaryKeyMixin",
     "UberAdmin",

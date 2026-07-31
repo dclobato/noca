@@ -1,0 +1,92 @@
+{% from "_macros.html" import render_icon %}
+<div id="animator-operators" class="card shadow-sm border-0 h-100">
+    <div class="card-body">
+        <h2 class="h5 card-title">Operator credentials</h2>
+        {% if new_secret %}
+            <div class="alert alert-warning" role="alert">
+                <h3 class="h6 d-flex align-items-center gap-2">
+                    {{ render_icon(icon="vpn_key", classes="fs-5") }}
+                    New operator credential
+                </h3>
+                <p class="small mb-2">
+                    Copy this token now. It is shown <strong>only once</strong> and cannot be retrieved again.
+                </p>
+                <p class="small mb-2">
+                    Label: <strong>{{ new_secret_label }}</strong>
+                </p>
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <code id="new-secret-value" class="user-select-all text-break">{{ new_secret }}</code>
+                    <button type="button" id="copy-secret-btn" class="btn btn-secondary btn-sm">
+                        {{ render_icon(icon="content_copy", classes="fs-6") }}
+                        Copy
+                    </button>
+                </div>
+                {% if emailed_to %}
+                    <p class="small mb-0 mt-2">A copy was emailed to {{ emailed_to }}.</p>
+                {% elif email_failed %}
+                    <p class="small text-muted mb-0 mt-2">Email delivery failed. Copy the token shown above before leaving this page.</p>
+                {% endif %}
+            </div>
+        {% endif %}
+        {% if error %}<div class="alert alert-danger py-2 small" role="alert">{{ error }}</div>{% endif %}
+        <div class="table-responsive mb-3">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th scope="col">Site</th>
+                        <th scope="col">Label</th>
+                        <th scope="col">Created</th>
+                        <th scope="col">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in operator_rows %}
+                        <tr>
+                            <td>{{ row.scope_label }}</td>
+                            <td>{{ row.label }}</td>
+                            <td class="text-muted small">{{ row.created_at.strftime("%Y-%m-%d") }}</td>
+                            <td>
+                                <button type="button"
+                                        class="btn btn-outline-danger btn-sm"
+                                        hx-post="{{ request.url_for('animator_revoke_secret', slug=contest.login_slug, secret_id=row.id) }}"
+                                        hx-target="#animator-operators"
+                                        hx-swap="outerHTML"
+                                        hx-confirm="Revoke this operator credential?">Revoke</button>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td colspan="4" class="text-muted text-center py-3">No operator credentials yet.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <form hx-post="{{ request.url_for('animator_create_secret', slug=contest.login_slug) }}"
+              hx-target="#animator-operators"
+              hx-swap="outerHTML"
+              class="row g-2 align-items-end">
+            <div class="col-sm-5">
+                <label class="form-label small mb-1" for="animator-secret-scope">Site</label>
+                <select class="form-select form-select-sm"
+                        id="animator-secret-scope"
+                        name="scope">
+                    <option value="global">Global (all sites)</option>
+                    {% for site in sites %}<option value="{{ site.id }}">{{ site.sitename }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-7">
+                <label class="form-label small mb-1" for="animator-secret-label">Credential label</label>
+                <input class="form-control form-control-sm"
+                       type="text"
+                       id="animator-secret-label"
+                       name="label"
+                       maxlength="200"
+                       placeholder="Operator SP">
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-secondary btn-sm">Generate credential</button>
+            </div>
+        </form>
+    </div>
+</div>

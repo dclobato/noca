@@ -18,3 +18,25 @@
 @import url('./contest/_timeline.css');
 @import url('./contest/_errors.css');
 @import url('./contest/_dark.css');
+
+.animator-medal-input {
+    max-width: 5rem;
+}
+
+.animator-medal-heading {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.125rem;
+    white-space: nowrap;
+}
+
+.animator-medal-heading-image {
+    width: 2rem;
+    height: 2rem;
+}
+
+.animator-medal-heading-label {
+    font-size: 0.75rem;
+    line-height: 1;
+}

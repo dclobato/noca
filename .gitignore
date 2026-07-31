@@ -29,6 +29,7 @@ build/
 #CLAUDE.md
 
 /.docker/
+.scratch
 
 # Vendor assets
 /docker-compose.yml

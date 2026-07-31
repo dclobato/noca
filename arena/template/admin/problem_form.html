@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -245,10 +245,10 @@
             <div class="form-text small mt-1">
                 Support for <span class="fw-semibold">LaTeX</span> (
                 <span class="text-muted">$x^n + 3 = 0$</span>
-                )
-                and <span class="fw-semibold">Mermaid diagrams</span> (
+                ),
+                <span class="fw-semibold">Mermaid diagrams</span> (
                 <span class="text-muted arena-monospace">```mermaid ...```</span>
-                )
+                ), and <span class="fw-semibold">NOCA directives</span>
                 <a href="#"
                    class="ms-1"
                    data-bs-toggle="modal"
@@ -470,82 +470,7 @@
                 </div>
             </div>
         {% endif %}
-        <div class="modal fade"
-             id="syntaxModal"
-             tabindex="-1"
-             aria-labelledby="syntaxModalLabel"
-             aria-hidden="true">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h2 class="modal-title fs-5" id="syntaxModalLabel">LaTeX and Mermaid Syntax</h2>
-                        <button type="button"
-                                class="btn-close"
-                                data-bs-dismiss="modal"
-                                aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <h3 class="fs-6 fw-semibold">LaTeX</h3>
-                                <p class="small text-muted">
-                                    Use inline math with single <code>$</code>:
-                                </p>
-                                <pre class="small bg-light p-2 rounded">$x^2 + y^2 = z^2$</pre>
-                                <p class="small text-muted mb-2">Common symbols:</p>
-                                <div class="small">
-                                    <div>
-                                        <code>\frac{a}{b}</code> → fraction
-                                    </div>
-                                    <div>
-                                        <code>x_2</code> → subscript
-                                    </div>
-                                    <div>
-                                        <code>\neq, \le, \ge</code> → ≠, ≤, ≥
-                                    </div>
-                                    <div>
-                                        <code>\alpha, \beta, \Omega</code> → Greek letters
-                                    </div>
-                                    <div>
-                                        <code>\sum, \int</code> → Σ, ∫
-                                    </div>
-                                    <div>
-                                        <code>\sqrt{x}</code> → square root
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <h3 class="fs-6 fw-semibold">Mermaid</h3>
-                                <p class="small text-muted">
-                                    Use fenced code block with <code>mermaid</code>:
-                                </p>
-                                <pre class="small bg-light p-2 rounded"><code>```mermaid&#10;graph TD&#10;    A[Start] --&gt; B{Decision}&#10;    B --&gt;|Yes| C[End]&#10;    B --&gt;|No| D[Loop]&#10;    D --&gt; B&#10;```</code></pre>
-                                <p class="small text-muted mb-2">Keywords:</p>
-                                <div class="small">
-                                    <div>
-                                        <code>flowchart, sequenceDiagram, classDiagram</code>
-                                    </div>
-                                    <div>
-                                        <code>-->, ---, ==></code> → arrows
-                                    </div>
-                                    <div>
-                                        <code>[], {}, ()</code> → shapes
-                                    </div>
-                                    <div>
-                                        <code>|text|</code> → labels
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button"
-                                class="btn btn-secondary btn-sm"
-                                data-bs-dismiss="modal">Close</button>
-                    </div>
-                </div>
-            </div>
-        </div>
+        {% include "_partials/markdown_syntax_modal.html" %}
     </div>
 {% endblock %}
 {% block extra_script %}

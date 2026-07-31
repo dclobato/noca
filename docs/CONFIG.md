@@ -15,6 +15,7 @@ Every variable is prefixed to make its scope explicit:
 | `NOCA_AI_` | AI assistant worker only (`aiassistant/config.py`) |
 | `NOCA_RATING_` | Rating worker only (`rating/config.py`) |
 | `NOCA_HEALTHMON_` | Health monitor only (`healthmonitor/config.py`) |
+| `NOCA_ANIMATOR_` | Animator presentation runtime only (`animator/config.py`) |
 
 The sections below are grouped the same way: **Common**, **Shared between Web and
 Arena**, then one section per module.
@@ -24,7 +25,7 @@ Arena**, then one section per module.
 ## Common — all modules
 
 These variables are read by every runtime module (`web`, `arena`, `autojudge`,
-`aiassistant`, `rating`).
+`aiassistant`, `rating`, `animator`).
 
 ### Database (PostgreSQL)
 
@@ -50,21 +51,21 @@ These variables are read by every runtime module (`web`, `arena`, `autojudge`,
 | `NOCA_VALKEY_USER` | *(empty)* | Valkey username for ACL authentication. Leave empty if auth is not configured. |
 | `NOCA_VALKEY_PASSWORD` | *(empty)* | Valkey password. Leave empty if auth is not configured. |
 | `NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS` | `5` | How often the app pings Valkey and attempts reconnection while running (1–300 s) |
-| `NOCA_STARTUP_TIMEOUT_SECONDS` | `60` | Maximum seconds each module waits for PostgreSQL and Valkey to become reachable at startup before aborting. Set to `0` to skip the wait and fail immediately. Applied to **web**, **arena**, **autojudge**, and **aiassistant**; the **rating** module only waits for PostgreSQL (0–300 s). |
+| `NOCA_STARTUP_TIMEOUT_SECONDS` | `60` | Maximum seconds each module waits for PostgreSQL and Valkey to become reachable at startup before aborting. Set to `0` to skip the wait and fail immediately. Applied to **web**, **arena**, **autojudge**, **aiassistant**, and **animator**; the **rating** module only waits for PostgreSQL, and **healthmonitor** only waits for Valkey (0–300 s). |
 | `NOCA_WORKER_COMMAND_SECRET` | *(empty)* | Shared `HMAC-SHA256` secret for the authenticated worker pause/resume protocol. Read by **arena** (signs/publishes), **autojudge**, and **aiassistant** (verify/apply). When empty the feature is disabled: the Arena dashboard hides pause/resume buttons, direct POSTs are rejected (`rejected_disabled`), and worker command loops do not start. Keep it secret; theft allows pausing queue consumers. |
 
 ### Health rate limiting
 
-The Web and Arena `/health` endpoints are public so local containers and load
-balancers can probe them. These settings bound public probe traffic before the
-endpoint checks PostgreSQL and Valkey. Trusted CIDRs bypass the limit for local
+The Web, Arena, and Animator `/health` endpoints are public so local containers
+and load balancers can probe them. These settings bound public probe traffic
+before the endpoint checks PostgreSQL and Valkey. Trusted CIDRs bypass the limit for local
 health checks. The limiter keys requests by the ASGI client IP after Uvicorn's
 trusted proxy processing, so configure `NOCA_FORWARDED_ALLOW_IPS` when a
 reverse proxy must pass through the original client IP.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOCA_HEALTH_RATE_LIMIT_ENABLED` | `true` | Enable public `/health` endpoint rate limiting in Web and Arena. |
+| `NOCA_HEALTH_RATE_LIMIT_ENABLED` | `true` | Enable public `/health` endpoint rate limiting in Web, Arena, and Animator. |
 | `NOCA_HEALTH_RATE_LIMIT_WINDOW_SECONDS` | `60` | Fixed-window length in seconds for `/health` rate limiting. |
 | `NOCA_HEALTH_RATE_LIMIT_MAX_REQUESTS` | `30` | Maximum public `/health` requests per client IP in each window. |
 | `NOCA_HEALTH_RATE_LIMIT_TRUSTED_CIDRS` | `127.0.0.0/8,::1/128` | Comma-separated CIDRs that bypass `/health` rate limiting. Keep local probe networks here. |
@@ -95,7 +96,7 @@ ASGI client correctly behind a trusted reverse proxy.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOCA_ENVIRONMENT` | `development` | Runtime environment. Set to `production` in production deployments. Affects debug logging, error detail exposure, and other safety defaults. |
-| `NOCA_LOG_LEVEL` | *(unset)* | Logging level honored by every module (`web`, `arena`, `autojudge`, `rating`, `aiassistant`): `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. When unset, the level falls back to `DEBUG` in development and `INFO` in production. SQLAlchemy statement echo is enabled only when the effective level is `DEBUG`. |
+| `NOCA_LOG_LEVEL` | *(unset)* | Logging level honored by every module (`web`, `arena`, `autojudge`, `rating`, `aiassistant`, `animator`): `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. When unset, the level falls back to `DEBUG` in development and `INFO` in production. SQLAlchemy statement echo is enabled only when the effective level is `DEBUG`. |
 
 ### Cookies and secrets
 
@@ -152,15 +153,15 @@ works the same way); the file they all read is the single shared `.env.crypto`.
 
 ---
 
-## Shared between Web and Arena
+## Shared application settings
 
-These variables are read by both the web and arena modules.
+These variables are shared by the application modules identified below.
 
 ### Health monitor link
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOCA_HEALTHMON_URL` | *(empty)* | Public URL of the health monitor status page (e.g. `https://status.example.com` or `http://192.168.1.10:8002`). Rendered as the "Status" link in the Web and Arena footers; the link is hidden when empty. |
+| `NOCA_HEALTHMON_URL` | *(empty)* | Public URL of the health monitor status page (for example, `https://status.example.com` or `http://192.168.1.10:8002`). Rendered as the "Status" link in the Web, Arena, and Animator footers; the link is hidden when empty. |
 
 ### Reverse proxy
 
@@ -210,7 +211,7 @@ These variables are read by both the web and arena modules.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOCA_FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Comma-separated trusted reverse proxy IPs/CIDRs used to accept `X-Forwarded-*` headers in Uvicorn/FastAPI. Example: `127.0.0.1,10.0.0.0/8`. Use `*` only in trusted private networks where clients cannot reach the app directly (e.g. a proxy on the same Docker network while the app publishes no ports). Loopback-only default silently drops forwarded headers from a containerized proxy — see the warning above. |
+| `NOCA_FORWARDED_ALLOW_IPS` | `127.0.0.1,::1` | Comma-separated trusted reverse proxy IPs/CIDRs used to accept `X-Forwarded-*` headers in Uvicorn/FastAPI. Honored by Web, Arena, **Animator** (whose reveal-control audit log records the client IP), **and the health monitor**. Example: `127.0.0.1,10.0.0.0/8`. Use `*` only in trusted private networks where clients cannot reach the app directly (e.g. a proxy on the same Docker network while the app publishes no ports). Loopback-only default silently drops forwarded headers from a containerized proxy — see the warning above. |
 | `NOCA_SOURCE_PORT_HEADER` | *(empty)* | Optional trusted reverse-proxy header carrying the original client source port for login history and `security_events`. Leave empty for direct ASGI `request.client.port`. When set, the reverse proxy must remove any inbound client-supplied value and set its own sanitized integer port value. |
 
 ### JWT
@@ -244,7 +245,7 @@ Sliding-session notes:
 | `NOCA_SEND_EMAIL` | `false` | Enables real email sending across the platform. When `false`, the app uses the mock provider and logs emails only. |
 | `NOCA_EMAIL_PROVIDER` | `mock` | Email backend provider. Supported values: `mock`, `smtp`. |
 | `NOCA_EMAIL_SENDER` | `no-reply@noca.local` | Default sender email used by `EmailService`. |
-| `NOCA_EMAIL_SENDER_NAME` | *(empty)* | Default sender display name. Falls back to the module app name when empty. |
+| `NOCA_EMAIL_SENDER_NAME` | *(empty)* | Default sender display name. Falls back to the module brand name (`NOCA_WEB_BRAND_NAME` / `NOCA_ARENA_BRAND_NAME`) when empty. |
 | `NOCA_SMTP_SERVER` | *(empty)* | SMTP server hostname. Required when `NOCA_SEND_EMAIL=true` and `NOCA_EMAIL_PROVIDER=smtp`. |
 | `NOCA_SMTP_PORT` | `587` | SMTP server port (1-65535). |
 | `NOCA_SMTP_USE_TLS` | `true` | Enables STARTTLS for SMTP connections. |
@@ -294,7 +295,9 @@ Sliding-session notes:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOCA_WEB_APP_NAME` | `noca` | Web application name used in titles and generated content |
+| `NOCA_WEB_HOST` | `0.0.0.0` | Bind address for the web HTTP server. Container deployments must leave this at `0.0.0.0`: Caddy reaches the service over the container network and the container healthcheck probes loopback. A narrower bind is only for direct `uv run noca-web` execution on a host. |
+| `NOCA_WEB_PORT` | `8000` | TCP port for the web HTTP server (1–65535). In the compose stack this same variable drives the Caddy upstream (`containers/Caddyfile`) and the container healthcheck, so overriding it stays consistent end to end. The `EXPOSE` line in `containers/webapp/Dockerfile` is documentary and does not follow it. |
+| `NOCA_WEB_APP_NAME` | `noca` | Web application name used as the JWT issuer claim. Must differ from `NOCA_ARENA_APP_NAME` so tokens issued by each server are not mutually valid. UI naming uses `NOCA_WEB_BRAND_NAME` instead. |
 | `NOCA_WEB_BRAND_NAME` | `NOCA Contest` | Public brand name shown in the UI (page titles, footer, nav), and in credential email subjects/bodies. Injected into templates as the `brand_name` global. |
 | `NOCA_WEB_URL_BASE` | *(empty)* | Public base URL used to build absolute links in credential emails and downloadable reports (e.g. `https://contest.example.com` or `http://192.168.1.10:8000`). Must include scheme and host; trailing slash is stripped. When not set, links are derived from the incoming HTTP request — this may produce incorrect URLs behind a reverse proxy that does not forward `X-Forwarded-*` headers. |
 
@@ -361,7 +364,9 @@ Arena admin dashboard or pause UI.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOCA_ARENA_APP_NAME` | `noca-arena` | Arena application name used in titles, generated content, and JWT issuer claims. |
+| `NOCA_ARENA_HOST` | `0.0.0.0` | Bind address for the arena HTTP server. Container deployments must leave this at `0.0.0.0`: Caddy reaches the service over the container network. A narrower bind is only for direct `uv run noca-arena` execution on a host. |
+| `NOCA_ARENA_PORT` | `8001` | TCP port for the arena HTTP server (1–65535). In the compose stack this same variable drives the Caddy upstream (`containers/Caddyfile`), so overriding it stays consistent end to end. The `EXPOSE` line in `containers/arena/Dockerfile` is documentary and does not follow it. |
+| `NOCA_ARENA_APP_NAME` | `noca-arena` | Arena application name used as the JWT issuer claim and to derive the reverse-geocoder User-Agent. Must differ from `NOCA_WEB_APP_NAME` so tokens issued by each server are not mutually valid. UI naming uses `NOCA_ARENA_BRAND_NAME` instead. |
 | `NOCA_ARENA_BRAND_NAME` | `NOCA Arena` | Public brand name shown in the UI (page titles, footer, nav), the 2FA/TOTP issuer, and email subjects/bodies. Injected into templates as the `brand_name` global and into Arena emails by `arena/services/email_rendering.py`. |
 | `NOCA_ARENA_URL_BASE` | *(empty)* | Public base URL used to build absolute links in Arena emails (e.g. `https://arena.example.com`). Must include scheme and host; trailing slash is stripped. When not set, links are derived from the incoming HTTP request — this may produce incorrect URLs behind a reverse proxy that does not forward `X-Forwarded-*` headers. |
 | `NOCA_ARENA_PASSWORD_MAX_AGE` | `0` | Maximum password age in days before a warning flash is shown at Arena login. `0` disables the check. Does not block login or enforce a password change. |
@@ -506,19 +511,54 @@ and requeues them up to a configurable limit.
 ## Health monitor
 
 These variables are consumed by the standalone **`noca-healthmonitor`** server
-(port 8002), which renders the public environment status page and uptime
+(default port 8002), which renders the public environment status page and uptime
 dashboard. The module reads only Valkey (common `NOCA_VALKEY_*` variables plus
-`NOCA_ENVIRONMENT`, `NOCA_LOG_LEVEL`, and `NOCA_STARTUP_TIMEOUT_SECONDS`); it
+`NOCA_ENVIRONMENT`, `NOCA_LOG_LEVEL`, `NOCA_STARTUP_TIMEOUT_SECONDS`, and
+`NOCA_FORWARDED_ALLOW_IPS` — same contract as Web, Arena, and Animator); it
 has no database or JWT configuration. The related `NOCA_HEALTHMON_URL` variable
 is consumed by Web and Arena (footer "Status" link), not by this module — see
 "Shared between Web and Arena".
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `NOCA_HEALTHMON_HOST` | `0.0.0.0` | Bind address for the health monitor HTTP server. Container deployments must leave this at `0.0.0.0`: Caddy reaches the service over the container network and the container healthcheck probes loopback. A narrower bind is only for direct `uv run noca-healthmonitor` execution on a host. |
+| `NOCA_HEALTHMON_PORT` | `8002` | TCP port for the health monitor HTTP server (1–65535). In the compose stack this same variable drives the Caddy upstream (`containers/Caddyfile`) and the container healthcheck, so overriding it stays consistent end to end. The `EXPOSE` line in `containers/healthmonitor/Dockerfile` is documentary and does not follow it. |
 | `NOCA_HEALTHMON_PROBE_INTERVAL` | `300` | Seconds between up/down probes of the monitored services (30 s – 1 h). Each probe increments the current 12-hour heatmap slot's `up`/`total` counters in Valkey. |
 | `NOCA_HEALTHMON_REAPER_INTERVAL` | `43200` | Seconds between cleanup passes that delete uptime slots older than the retention window (1 h – 1 week). Must be greater than or equal to `NOCA_HEALTHMON_PROBE_INTERVAL`. |
 | `NOCA_HEALTHMON_RETENTION_DAYS` | `30` | Days of per-slot uptime history kept for the heatmap (7–90). Slot keys also carry a TTL one day longer than this window as a safety net. |
 | `NOCA_HEALTHMON_BRAND_NAME` | `NOCA` | Brand name shown on the monitor pages. |
+
+---
+
+## Animator
+
+These variables are consumed by the standalone **`noca-animator`** presentation
+server (default port 8003), the public live scoreboard runtime. It serves the
+scoreboard page (`/c/{slug}/scoreboard`), its `/meta` and scoped
+`/snapshot` feeds, and a live Server-Sent Events stream (`/events`); the page
+animates rank/cell changes and falls back to polling when the stream is
+unavailable. It also serves the post-freeze reveal ceremony and its
+authenticated operator control API. The
+module reads PostgreSQL (common `NOCA_DB_*` variables) and Valkey (common
+`NOCA_VALKEY_*` variables) directly, plus `NOCA_ENVIRONMENT`, `NOCA_LOG_LEVEL`,
+`NOCA_VALKEY_HEALTHCHECK_INTERVAL_SECONDS`, `NOCA_STARTUP_TIMEOUT_SECONDS`,
+`NOCA_FORWARDED_ALLOW_IPS` (same contract as Web and Arena — Uvicorn runs with
+`proxy_headers=True`, and without it the reveal-control audit log records the
+reverse proxy instead of the operator), and the shared
+`NOCA_HEALTH_RATE_LIMIT_*` health limiter settings (see "Health rate limiting").
+It has no JWT configuration.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOCA_ANIMATOR_HOST` | `0.0.0.0` | Bind address for the animator HTTP server. Container deployments must leave this at `0.0.0.0`: Caddy reaches the service over the container network and the container healthcheck probes loopback. A narrower bind is only for direct `uv run noca-animator` execution on a host. |
+| `NOCA_ANIMATOR_PORT` | `8003` | TCP port for the animator HTTP server (1–65535). Chosen to not collide with Web (8000), Arena (8001), or the health monitor (8002). In the compose stack this same variable drives the Caddy upstream (`containers/Caddyfile`) and the container healthcheck, so overriding it stays consistent end to end. The `EXPOSE` line in `containers/animator/Dockerfile` is documentary and does not follow it. |
+| `NOCA_ANIMATOR_POLL_FALLBACK_SECONDS` | `15` | Fallback interval in seconds for the scoreboard page to re-poll `/snapshot` when the live SSE stream is unavailable — after two consecutive stream errors, a terminally closed source, or when the browser has no `EventSource` (1 s – 1 h). Each interval also replaces a terminally closed source so SSE can recover after an Animator restart. Embedded in the page as `data-poll-fallback` and cancelled once the stream reopens. |
+| `NOCA_ANIMATOR_ENABLE_CONTROL` | `false` | Process-wide kill-switch for the authenticated reveal control endpoints (`/c/{slug}/control/*`). While `false` — the default — every control route answers the same bare `404` an unknown slug does, regardless of operator secrets, so a deployment that has not enabled control does not advertise that the routes exist. Set it to `true` only on the instance an operator drives the ceremony from. |
+| `NOCA_ANIMATOR_REVEAL_TTL_MARGIN_SECONDS` | `3600` | Seconds added to the contest-end instant when setting a reveal session's Valkey state-key TTL, so a ceremony run after the contest ends keeps its persisted state alive. The TTL is refreshed on every successful reveal mutation — but **not** by a replayed command, which performs no write — and floored at this margin once the contest has ended (60 s – 24 h). It also bounds retry protection: the ceremony's `Idempotency-Key` receipts live inside that state, so they expire with it. Set it comfortably longer than a ceremony plus any pause you would tolerate mid-reveal; when the key expires, an in-flight ceremony is gone and must be restarted. The single-writer lock lease (30 s) is an internal round-trip bound and is deliberately **not** configurable. |
+| `NOCA_ANIMATOR_BRAND_NAME` | `NOCA Animator` | Brand name shown on the animator pages. Injected into templates as the `brand_name` global and rendered as the page title and scoreboard heading. |
+| `NOCA_ANIMATOR_WORKER_ID` | *(empty)* | Stable identity for the presence keys. Defaults to `<fqdn>:<pid>` when empty. |
+| `NOCA_ANIMATOR_WORKER_PRESENCE_INTERVAL_SECONDS` | `30` | Seconds between worker-presence updates in Valkey (1–300 s). |
+| `NOCA_ANIMATOR_WORKER_PRESENCE_TTL_SECONDS` | `60` | TTL for the live worker marker (2–3600 s). Must exceed `NOCA_ANIMATOR_WORKER_PRESENCE_INTERVAL_SECONDS`. |
 
 ---
 
@@ -661,8 +701,8 @@ host volume path expansion. They are not read by the application config classes 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOCA_DATA_ROOT` | `.docker` | Host path prepended to all persistent data volume mounts (problem statements, test cases, PostgreSQL and Valkey data). |
-| `PUID` | `1000` | UID that the `webapp`, `arena`, `autojudge`, `rating`, and `aiassistant` processes run as inside their containers. Use this to match ownership of bind-mounted host directories. |
-| `PGID` | `100` | Primary GID that the `webapp`, `arena`, `autojudge`, `rating`, and `aiassistant` processes run as inside their containers. Use this to match ownership of bind-mounted host directories. |
+| `PUID` | `1000` | UID that the `webapp`, `arena`, `autojudge`, `rating`, `aiassistant`, `healthmonitor`, and `animator` processes run as inside their containers. Use this to match ownership of bind-mounted host directories. |
+| `PGID` | `100` | Primary GID that the `webapp`, `arena`, `autojudge`, `rating`, `aiassistant`, `healthmonitor`, and `animator` processes run as inside their containers. Use this to match ownership of bind-mounted host directories. |
 
 ### Language Seed
 
@@ -671,7 +711,7 @@ The web and arena container entrypoints run `scripts/bootstrap_languages.py` on 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOCA_SEED_LANGUAGES` | `false` | Set to `true` to seed the built-in language definitions into the database on startup |
-| `NOCA_WAIT_FOR_MIGRATIONS_TIMEOUT` | `300` | Max seconds a worker container (autojudge/rating/aiassistant) waits for `web`/`arena` to migrate the schema to head before its entrypoint fails. Web and arena still run migrations directly. |
+| `NOCA_WAIT_FOR_MIGRATIONS_TIMEOUT` | `300` | Max seconds a schema-consumer container (autojudge/rating/aiassistant/animator) waits for `web`/`arena` to migrate the schema to head before its entrypoint fails. Web and arena still run migrations directly. |
 
 ---
 

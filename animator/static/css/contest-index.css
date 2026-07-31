@@ -1,0 +1,280 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+.animator-index-root {
+    background:
+        radial-gradient(circle at 8% 0%, rgb(var(--bs-primary-rgb) / 18%), transparent 34rem),
+        linear-gradient(145deg, var(--noca-surface), var(--noca-surface-container));
+}
+
+.animator-index {
+    width: min(74rem, 100%);
+    margin: 0 auto;
+}
+
+.animator-index-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(17rem, 20rem);
+    align-items: end;
+    gap: clamp(2rem, 6vw, 5rem);
+    padding: clamp(1.5rem, 5vw, 4.5rem) 0 clamp(2rem, 5vw, 4rem);
+}
+
+.animator-index-heading {
+    min-width: 0;
+    max-width: 52rem;
+}
+
+.animator-index-eyebrow,
+.animator-index-kicker {
+    margin: 0 0 0.45rem;
+    color: var(--noca-brand);
+    font-family: var(--noca-font-mono);
+    font-size: 1.2rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.animator-index-title {
+    max-width: 18ch;
+    margin: 0;
+    font-family: var(--noca-font-heading);
+    font-size: clamp(2.4rem, 7vw, 5.8rem);
+    font-weight: 900;
+    letter-spacing: -0.045em;
+    line-height: 0.98;
+}
+
+.animator-index-intro,
+.animator-index-description {
+    color: var(--noca-on-surface-variant);
+    font-size: clamp(1rem, 2vw, 1.2rem);
+}
+
+.animator-index-intro {
+    margin: 1.25rem 0 0;
+}
+
+.animator-index-clock {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    min-height: 9.5rem;
+    padding: 1.35rem 1.5rem;
+    border: 1px solid rgb(var(--bs-primary-rgb) / 28%);
+    border-radius: 1.25rem;
+    background:
+        linear-gradient(145deg, rgb(var(--bs-primary-rgb) / 12%), transparent 65%),
+        var(--noca-surface-container-low);
+    box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 10%);
+}
+
+.animator-index-clock::after {
+    position: absolute;
+    z-index: -1;
+    right: -2.5rem;
+    bottom: -3.25rem;
+    width: 8rem;
+    height: 8rem;
+    border: 1.5rem solid rgb(var(--bs-primary-rgb) / 10%);
+    border-radius: 50%;
+    content: "";
+}
+
+.animator-index-clock-label {
+    margin: 0 0 1.75rem;
+    color: var(--noca-brand);
+    font-family: var(--noca-font-mono);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.animator-index-clock-value {
+    max-width: 18ch;
+    color: var(--noca-on-surface);
+    font-family: var(--noca-font-heading);
+    font-size: clamp(1.25rem, 2.4vw, 1.65rem);
+    font-variant-numeric: tabular-nums;
+    font-weight: 850;
+    letter-spacing: -0.025em;
+    line-height: 1.12;
+}
+
+.animator-index-global {
+    display: grid;
+    grid-template-columns: minmax(14rem, 0.8fr) minmax(20rem, 1.2fr);
+    gap: clamp(1.5rem, 5vw, 4rem);
+    padding: clamp(1.5rem, 4vw, 3rem);
+    border: 1px solid rgb(255 255 255 / 14%);
+    border-radius: 1.5rem;
+    background: linear-gradient(135deg, #174f80 0%, #101c36 100%);
+    box-shadow: 0 1.5rem 4rem rgb(0 0 0 / 18%);
+    color: white;
+}
+
+.animator-index-global .animator-index-kicker,
+.animator-index-global .animator-index-description {
+    color: #e5eef8;
+}
+
+.animator-index-global .animator-index-section-title {
+    color: #fff;
+}
+
+.animator-index-section-title {
+    margin: 0;
+    font-family: var(--noca-font-heading);
+    font-size: clamp(1.7rem, 3vw, 2.5rem);
+    font-weight: 850;
+}
+
+.animator-index-description {
+    margin: 0.75rem 0 0;
+}
+
+.animator-index-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.animator-index-action {
+    display: flex;
+    min-height: 7.5rem;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding: 1rem;
+    border: 0;
+    text-align: left;
+    transition:
+        transform 160ms ease,
+        box-shadow 160ms ease;
+}
+
+.animator-index-action:hover,
+.animator-index-action:focus-visible {
+    transform: translateY(-0.25rem);
+    box-shadow: 0 0.75rem 2rem rgb(0 0 0 / 20%);
+}
+
+.animator-index-action-label {
+    font-weight: 800;
+}
+
+.animator-index-action-detail {
+    color: var(--bs-secondary-color);
+    font-size: 0.85rem;
+}
+
+.animator-index-sites {
+    padding: clamp(2.5rem, 6vw, 5rem) 0;
+}
+
+.animator-index-sites-heading {
+    margin-bottom: 1.25rem;
+}
+
+.animator-index-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+    gap: 1rem;
+}
+
+.animator-index-card {
+    overflow: hidden;
+    border: 1px solid var(--noca-outline-variant);
+    border-radius: 1rem;
+    background: var(--noca-surface-container-low);
+}
+
+.animator-index-card-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.25rem;
+}
+
+.animator-index-card-heading h3 {
+    margin: 0;
+    font-family: var(--noca-font-heading);
+    font-size: 1.25rem;
+    font-weight: 800;
+}
+
+.animator-index-card-heading span {
+    flex: 0 0 auto;
+    color: var(--noca-on-surface-variant);
+    font-size: 0.82rem;
+}
+
+.animator-index-card-links {
+    border-top: 1px solid var(--noca-outline-variant);
+}
+
+.animator-index-card-links a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 1.25rem;
+    color: var(--noca-on-surface);
+    font-weight: 650;
+    text-decoration: none;
+}
+
+.animator-index-card-links a + a {
+    border-top: 1px solid var(--noca-outline-variant);
+}
+
+.animator-index-card-links a:hover,
+.animator-index-card-links a:focus-visible {
+    background: var(--noca-surface-container-high);
+    color: var(--noca-brand);
+}
+
+.animator-index-empty {
+    padding: 2rem;
+    border: 1px dashed var(--noca-outline);
+    border-radius: 1rem;
+    color: var(--noca-on-surface-variant);
+    text-align: center;
+}
+
+@media (max-width: 767.98px) {
+    .animator-index-header {
+        grid-template-columns: 1fr;
+        gap: 1.75rem;
+    }
+
+    .animator-index-clock {
+        width: min(100%, 28rem);
+    }
+
+    .animator-index-global {
+        grid-template-columns: 1fr;
+    }
+
+    .animator-index-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .animator-index-action {
+        min-height: 5.5rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .animator-index-action {
+        transition: none;
+    }
+}

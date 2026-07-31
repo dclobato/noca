@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -86,7 +86,7 @@ from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.qrcode_service import QRCodeService
 from arena.services.session_service import ARENA_REMEMBER_ME_MAX_AGE, get_session_started_at, is_remembered_login
 from arena.services.startup_seeds import ensure_sem_afiliacao
-from arena.services.token_service import ARENA_JWT_ISSUER, ArenaTokenAction, JWTService, load_token_config_from_dict
+from arena.services.token_service import ArenaTokenAction, JWTService, load_token_config_from_dict
 from arena.services.user_timezone_service import (
     datetime_local_value,
     format_relative_datetime,
@@ -360,7 +360,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             {
                 "SECRET_KEY": settings.JWT_SECRET_KEY,
                 "JWTSERVICE_ALGORITHM": settings.JWT_ALGORITHM,
-                "JWTSERVICE_ISSUER": ARENA_JWT_ISSUER,
+                "JWTSERVICE_ISSUER": settings.APP_NAME,
             }
         ),
         logger=logger,
@@ -713,8 +713,8 @@ def main() -> None:
     reload_enabled = settings.ENVIRONMENT == Environment.DEVELOPMENT
     uvicorn.run(
         "arena.main:app",
-        host="0.0.0.0",
-        port=8001,
+        host=settings.HOST,
+        port=settings.PORT,
         reload=reload_enabled,
         reload_dirs=["arena", "shared"] if reload_enabled else None,
         proxy_headers=True,

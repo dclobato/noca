@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -14,7 +14,8 @@ Usage:
 The command requires an existing UberAdmin to own the seeded records. It
 creates contest administrator ``admin`` and judge ``judgeif``, both with
 password ``StrongPasswd1!``, and refuses to overwrite an existing contest.
-The remove mode deletes only the contest identified by this seed's fixed slug.
+The remove mode deletes the contest identified by this seed's fixed slug and its
+dedicated fixture language.
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ from web.config import settings
 from web.database import create_engine, create_session_factory
 from web.models.clarification import Clarification
 from web.models.contest import Contest, Task
+from web.models.language import Language
 from web.models.problem import Problem
 from web.models.site import Site
 from web.models.submission import Submission
@@ -54,6 +56,7 @@ from web.services.problem_service import delete_problem_statement, save_md_state
 logger = logging.getLogger(__name__)
 
 CONTEST_SLUG = "ix-interif-2026-fase-local"
+FIXTURE_LANGUAGE_ID = "interif-2026-fixture"
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "StrongPasswd1!"
 JUDGE_USERNAME = "judgeif"
@@ -121,6 +124,8 @@ async def seed_interif_2026(
     contest = fixture.contest
     contest.active = True
     contest.release_scoreboard_after_end = True
+    contest.stop_updating_scoreboard = 140
+    contest.stop_answers_after = 160
 
     # Phase 01 adds this field. Keeping the script compatible before and after
     # that migration lets the verified contest data land ahead of the module.
@@ -206,6 +211,7 @@ async def remove_interif_2026(
     await session.execute(delete(Clarification).where(Clarification.team_id.in_(team_ids)))
     await session.execute(delete(Submission).where(Submission.problem_id.in_(problem_ids)))
     await session.execute(delete(contest_languages_table).where(contest_languages_table.c.contest_id == contest_id))
+    await session.execute(delete(Language).where(Language.id == FIXTURE_LANGUAGE_ID))
     await session.execute(
         update(Contest).where(Contest.id == contest_id).values(owner_user_id=None, chief_judge_id=None)
     )

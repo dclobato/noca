@@ -4,6 +4,30 @@ This session adds optional per-contest presentation metadata and merges it into
 the team feed. Existing user and media values remain the fallback, so a profile
 is never required to run a ceremony.
 
+## Status: optional (backlog), not on the required path
+
+This phase is **deferred to the backlog** and isn't a prerequisite for any later
+phase. The required sequence goes from [Phase 14](Phase-14.md) straight to
+[Phase 18](Phase-18.md). It also depends on [Phase 15](Phase-15.md), which is
+deferred for its own reasons.
+
+Three arguments put this work behind a concrete requirement:
+
+- No surface consumes an institution name, short name, theme color, or
+  `media_json`. Building the table, migration, merge service, and validation now
+  would add infrastructure with no visible behavior.
+- `media_json` is an untyped blob in a module whose response models are
+  deliberately typed, non-enumerating, and free of stored payloads.
+- Every `users` row is already contest-scoped (`users.contest_id`, unique per
+  `(contest_id, username)`), so "different profiles in different contests" needs
+  no second table, and `display_name` largely restates `users.fullname`.
+
+For most contests, institution branding belongs to the venue rather than the
+team, and `sites` already models venues. Implement this phase only once
+institution, short name, or color has a defined visual use — and prefer one
+nullable stage-name column plus site-level branding over a general profile table
+if that turns out to cover the requirement.
+
 ## Source-plan coverage
 
 This phase implements the schema and animator-service portions of unified-plan

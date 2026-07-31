@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -10,11 +10,16 @@ Reads the same ``NOCA_``-prefixed ``.env`` file as the other modules, but only
 the subset of variables the monitoring server needs: Valkey connectivity plus
 its own probing/retention knobs. The module deliberately has no database or
 JWT configuration -- both dashboards are public and all state lives in Valkey.
+
+Monitor-specific fields declare an explicit ``validation_alias`` so they resolve
+to ``NOCA_HEALTHMON_*`` (the alias replaces the ``env_prefix``, avoiding an
+accidental ``NOCA_NOCA_HEALTHMON_*`` double prefix).
 """
 
 import logging
+from ipaddress import ip_address, ip_network
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from shared.enumerations import Environment
@@ -43,6 +48,26 @@ class Settings(BaseSettings):
             "Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL). "
             "When unset, falls back to DEBUG in development and INFO in production."
         ),
+    )
+    HOST: str = Field(
+        default="0.0.0.0",
+        validation_alias="NOCA_HEALTHMON_HOST",
+        description=(
+            "Bind address for the health monitor HTTP server. Container deployments must keep "
+            "0.0.0.0: the reverse proxy reaches the service over the container network and the "
+            "container healthcheck probes loopback."
+        ),
+    )
+    PORT: int = Field(
+        default=8002,
+        gt=0,
+        le=65535,
+        validation_alias="NOCA_HEALTHMON_PORT",
+        description="TCP port for the health monitor HTTP server (1-65535; default 8002).",
+    )
+    FORWARDED_ALLOW_IPS: str = Field(
+        default="127.0.0.1,::1",
+        description="Comma-separated trusted reverse-proxy IPs/CIDRs for X-Forwarded-* headers.",
     )
     BRAND_NAME: str = Field(
         default="NOCA",
@@ -100,6 +125,41 @@ class Settings(BaseSettings):
         validation_alias="NOCA_HEALTHMON_RETENTION_DAYS",
         description="Days of per-slot uptime history kept for the heatmap (7-90; default 30).",
     )
+
+    @field_validator("FORWARDED_ALLOW_IPS", mode="after")
+    @classmethod
+    def normalize_forwarded_allow_ips(cls, v: str) -> str:
+        """Normalize the trusted proxy list for uvicorn forwarded-header support.
+
+        Uvicorn rewrites ``request.client.host`` from ``X-Forwarded-For`` only for
+        peers in this list. Same contract and validation as the web, arena, and
+        animator modules.
+        """
+        normalized_parts: list[str] = []
+        for raw_part in v.split(","):
+            part = raw_part.strip()
+            if not part:
+                continue
+            if part == "*":
+                normalized_parts.append(part)
+                continue
+            try:
+                if "/" in part:
+                    ip_network(part, strict=False)
+                else:
+                    ip_address(part)
+            except ValueError as exc:
+                raise ValueError(
+                    f"NOCA_FORWARDED_ALLOW_IPS must contain valid IPs, CIDRs, or '*' only. Invalid value: '{part}'"
+                ) from exc
+            normalized_parts.append(part)
+
+        normalized = ",".join(normalized_parts)
+        if not normalized:
+            raise ValueError("NOCA_FORWARDED_ALLOW_IPS cannot be empty.")
+        if "*" in normalized_parts and len(normalized_parts) > 1:
+            raise ValueError("NOCA_FORWARDED_ALLOW_IPS cannot combine '*' with specific IPs/CIDRs.")
+        return normalized
 
     @model_validator(mode="after")
     def validate_intervals(self) -> Settings:

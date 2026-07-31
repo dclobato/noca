@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -48,6 +48,21 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Application
     # ------------------------------------------------------------------
+    HOST: str = Field(
+        default="0.0.0.0",
+        validation_alias="NOCA_ARENA_HOST",
+        description=(
+            "Bind address for the arena HTTP server. Container deployments must keep 0.0.0.0: "
+            "the reverse proxy reaches the service over the container network."
+        ),
+    )
+    PORT: int = Field(
+        default=8001,
+        gt=0,
+        le=65535,
+        validation_alias="NOCA_ARENA_PORT",
+        description="TCP port for the arena HTTP server (1-65535; default 8001).",
+    )
     APP_NAME: str = Field(
         default="noca-arena",
         validation_alias="NOCA_ARENA_APP_NAME",
@@ -110,7 +125,10 @@ class Settings(BaseSettings):
     SEND_EMAIL: bool = Field(default=False, description="Enable real email delivery")
     EMAIL_PROVIDER: str = Field(default="mock", description="Email backend: 'mock' or 'smtp'")
     EMAIL_SENDER: str = Field(default="no-reply@noca.local", description="Default From address")
-    EMAIL_SENDER_NAME: str | None = Field(default=None, description="Optional From display name")
+    EMAIL_SENDER_NAME: str | None = Field(
+        default=None,
+        description="Optional From display name (falls back to BRAND_NAME)",
+    )
     SMTP_SERVER: str | None = Field(default=None, description="SMTP server hostname")
     SMTP_PORT: int = Field(default=587, gt=0, le=65535, description="SMTP port (1-65535)")
     SMTP_USE_TLS: bool = Field(default=True, description="Use STARTTLS")

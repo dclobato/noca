@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -14,7 +14,7 @@ import contextlib
 import json
 import logging
 from collections import deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
@@ -34,6 +34,7 @@ from shared.queue_schema import (
     SubmissionEvent,
     VerdictEvent,
 )
+from shared.reveal_schema import RevealStateChangedEvent
 from shared.services.valkey_service.constants import (
     ARENA_RESULTS_CHANNEL,
     QUEUE_RESULTS_CHANNEL,
@@ -48,6 +49,11 @@ from shared.services.valkey_service.contest_purge import (
 )
 from shared.services.valkey_service.errors import is_recoverable_valkey_error
 from shared.services.valkey_service.pool import create_valkey_pool
+from shared.services.valkey_service.revelation import (
+    fenced_save_state_script,
+    publish_revelation_with_client,
+    revelation_channel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -755,6 +761,146 @@ class ValkeyRuntime:
         finally:
             with contextlib.suppress(Exception):
                 await pubsub.unsubscribe(ARENA_RESULTS_CHANNEL)
+            await client.aclose()
+
+    async def fenced_save_reveal_state(
+        self,
+        *,
+        lock_key: str,
+        state_key: str,
+        token: str,
+        state_json: str,
+        ttl_seconds: int,
+    ) -> int | None:
+        """Write reveal state only while ``lock_key`` still holds ``token``.
+
+        The check and the write are one Lua transaction, so an expired-then-
+        reacquired lease can never let a stale writer overwrite the new owner's
+        state (a plain ``SET`` would not be fenced — the lock only guards
+        release, not the write itself).
+
+        Args:
+            lock_key: The single-writer lock key for this scope.
+            state_key: The persisted-state key for this scope.
+            token: The caller's lock-owner token.
+            state_json: The serialized state to persist.
+            ttl_seconds: Expiry applied to the state key on a successful write.
+
+        Returns:
+            ``1`` when the state was written, ``0`` when ownership was lost, and
+            ``None`` when Valkey was unavailable (indistinguishable from a
+            transient error, deliberately: the caller must not treat unavailable
+            as ownership loss).
+        """
+        result = await self.eval(
+            fenced_save_state_script(),
+            2,
+            lock_key,
+            state_key,
+            token,
+            state_json,
+            str(int(ttl_seconds)),
+        )
+        if result is None:
+            return None
+        return int(cast(int, result))
+
+    async def publish_revelation(self, event: RevealStateChangedEvent) -> bool:
+        """Publish a reveal-changed nudge; report whether it reached Valkey.
+
+        This is a best-effort, **unbuffered** publish. Unlike ``publish_verdict``
+        it is deliberately not replayed through the pending-command buffer:
+        replaying a stale ceremony frame after a reconnect is worse than dropping
+        it, because every event is only an invalidation signal and subscribers
+        recover the true state by reloading it from the store.
+
+        Args:
+            event: The invalidation nudge to broadcast.
+
+        Returns:
+            ``True`` when the ``PUBLISH`` command reached Valkey — including when
+            it reached zero subscribers — and ``False`` on a recoverable
+            transport error or when no client is connected.
+        """
+        client = self._client
+        if client is None:
+            return False
+        try:
+            await publish_revelation_with_client(client, event)
+            self._is_available = True
+            return True
+        except Exception as exc:
+            if is_recoverable_valkey_error(exc):
+                logger.warning(f"Valkey revelation publish failed for contest '{event.contest_id}': {str(exc)}")
+                return False
+            raise
+
+    async def iter_revelation_events(
+        self,
+        contest_id: str,
+        scope: str,
+        *,
+        on_subscribed: Callable[[], None] | None = None,
+    ) -> AsyncGenerator[RevealStateChangedEvent]:
+        """Yield validated reveal-changed events for one scope until interrupted.
+
+        Follows the verdict-channel pattern: each frame is validated inside a
+        per-message guard, so a malformed or foreign-version payload is logged
+        and skipped rather than escaping to the caller. The channel is built from
+        validated components, so an invalid contest id or scope raises before any
+        subscription is attempted.
+
+        Args:
+            contest_id: Contest whose ceremony channel to follow.
+            scope: Ceremony scope (a site id, or ``"global"``).
+            on_subscribed: Optional callback invoked **once**, immediately after
+                the ``SUBSCRIBE`` completes and therefore at the exact instant
+                from which no publication can be missed. A consumer that must
+                tell its own clients "you are now covered" — the animator's
+                spectator stream does — cannot derive that moment from the first
+                yielded event, because on a quiet channel there may not be one.
+                It is not called when no client exists or subscription setup
+                fails; callers must also observe generator termination.
+
+        Yields:
+            Each parsed :class:`RevealStateChangedEvent`.
+        """
+        channel = revelation_channel(contest_id, scope)
+        if self._client is None:
+            return
+
+        client: aivalkey.Valkey = aivalkey.Valkey.from_url(
+            self._valkey_url,
+            decode_responses=True,
+            socket_keepalive=True,
+            socket_timeout=None,
+        )
+        pubsub = client.pubsub()
+        try:
+            try:
+                await pubsub.subscribe(channel)
+            except Exception as exc:
+                if is_recoverable_valkey_error(exc):
+                    logger.debug("Revelation pub/sub subscription failed; caller may reconnect: %s", exc)
+                    return
+                raise
+            if on_subscribed is not None:
+                on_subscribed()
+            try:
+                async for message in pubsub.listen():
+                    if message["type"] == "message":
+                        try:
+                            yield RevealStateChangedEvent.model_validate_json(message["data"])
+                        except Exception as exc:
+                            logger.warning("Failed to parse RevealStateChangedEvent from pub/sub: %s", exc)
+            except Exception as exc:
+                if is_recoverable_valkey_error(exc):
+                    logger.debug("Revelation pub/sub stream interrupted; caller may reconnect: %s", exc)
+                    return
+                raise
+        finally:
+            with contextlib.suppress(Exception):
+                await pubsub.unsubscribe(channel)
             await client.aclose()
 
     async def _health_loop(self) -> None:

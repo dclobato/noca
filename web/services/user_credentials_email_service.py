@@ -56,6 +56,40 @@ class CredentialEmailSendResult:
     detail: str
 
 
+def build_animator_credential_email_content(
+    *,
+    fullname: str,
+    contest_name: str,
+    label: str,
+    scope_label: str,
+    token: str,
+) -> CredentialEmailContent:
+    """Build subject and body for an animator operator credential email.
+
+    Args:
+        fullname: Recipient full name.
+        contest_name: Contest display name.
+        label: Human-readable credential label.
+        scope_label: Global scope or the authorized site name.
+        token: One-time plaintext operator token.
+
+    Returns:
+        A ready-to-send content object.
+    """
+    return CredentialEmailContent(
+        subject=f"Animator credential for contest {contest_name}",
+        text_body=_render_template(
+            "animator_credential.jinja2",
+            fullname=fullname,
+            contest_name=contest_name,
+            label=label,
+            scope_label=scope_label,
+            token=token,
+            sender_name=settings.BRAND_NAME,
+        ),
+    )
+
+
 def build_user_credentials_email_content(
     *,
     fullname: str,

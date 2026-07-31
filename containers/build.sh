@@ -18,6 +18,7 @@
 #   ./containers/build.sh aiassistant  # build only aiassistant worker
 #   ./containers/build.sh healthmonitor
 #                                  # build only healthmonitor server
+#   ./containers/build.sh animator # build only animator server
 #   ./containers/build.sh gcc-c17      # build only gcc-c17 compile + run
 #   ./containers/build.sh gcc-cpp23    # build only gcc-cpp23 compile + run
 #   ./containers/build.sh python3      # build only python3 compile + run
@@ -62,7 +63,7 @@ BUILDX_BUILDER="${NOCA_BUILDX_BUILDER:-noca-builder}"
 BAKE_BUILDER_ARGS=()
 
 # The application images, as opposed to the per-language judge images.
-APP_TARGETS=(webapp arena autojudge rating aiassistant healthmonitor)
+APP_TARGETS=(webapp arena autojudge rating aiassistant healthmonitor animator)
 
 # Languages whose compile image is built FROM noca/judge-compile-base. Single source
 # of truth for both the prerequisite detection and the per-language build loop below;
@@ -427,7 +428,7 @@ build_with_bake() {
 
     for target in "${TARGETS[@]}"; do
         case "$target" in
-            webapp|arena|autojudge|rating|aiassistant|healthmonitor)
+            webapp|arena|autojudge|rating|aiassistant|healthmonitor|animator)
                 bake_targets+=("$target")
                 ;;
             *)
@@ -492,10 +493,14 @@ NEED_ISOLATE_BASE=0
 NEED_JUDGE_COMPILE_BASE=0
 
 for target in "${TARGETS[@]}"; do
-    if [[ "$target" == "webapp" || "$target" == "arena" || "$target" == "autojudge" || "$target" == "rating" || "$target" == "aiassistant" || "$target" == "healthmonitor" ]]; then
+    if [[ "$target" == "webapp" || "$target" == "arena" \
+       || "$target" == "autojudge" || "$target" == "rating" \
+       || "$target" == "aiassistant" || "$target" == "healthmonitor" \
+       || "$target" == "animator" ]]; then
         NEED_APP_BASE=1
     fi
-    if [[ "$target" == "webapp" || "$target" == "arena" || "$target" == "healthmonitor" ]]; then
+    if [[ "$target" == "webapp" || "$target" == "arena" \
+       || "$target" == "healthmonitor" || "$target" == "animator" ]]; then
         NEED_ASSETS_BASE=1
     fi
     lang_dir="$SCRIPT_DIR/languages/$target"
@@ -595,6 +600,14 @@ for target in "${TARGETS[@]}"; do
 
     if [[ "$target" == "healthmonitor" ]]; then
         build_image "$(image_name healthmonitor)" "$SCRIPT_DIR/.." "$SCRIPT_DIR/healthmonitor/Dockerfile" \
+            "APP_BASE_REF=${APP_BASE_REF}" \
+            "ASSETS_BASE_REF=${ASSETS_BASE_REF}" \
+            "ASSETS_PLATFORM=${ASSETS_PLATFORM}"
+        continue
+    fi
+
+    if [[ "$target" == "animator" ]]; then
+        build_image "$(image_name animator)" "$SCRIPT_DIR/.." "$SCRIPT_DIR/animator/Dockerfile" \
             "APP_BASE_REF=${APP_BASE_REF}" \
             "ASSETS_BASE_REF=${ASSETS_BASE_REF}" \
             "ASSETS_PLATFORM=${ASSETS_PLATFORM}"

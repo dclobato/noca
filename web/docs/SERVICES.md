@@ -470,10 +470,9 @@ Purpose:
 - apply contest freeze/final-release behavior consistently across roles
 
 Internal structure:
-- `models.py` — scoreboard DTOs
-- `serialization.py` — cache serialization helpers
-- `computation.py` — pure ICPC scoring logic
-- `service.py` — DB loading and Valkey cache orchestration
+- `service.py` — DB loading and Valkey cache orchestration (the only implementation file left in the package)
+- `__init__.py` — re-exports the shared DTOs (`ProblemResult`, `TeamStanding`, `ScoreboardSnapshot`) for backwards compatibility
+- the scoreboard DTOs, snapshot serialization, and the pure `compute_icpc` logic live in `shared/services/scoreboard_projection.py` (see `docs/SHARED_SERVICES.md`); this package only adapts web queries, caching, and orchestration
 
 Main types:
 - `ProblemResult`
@@ -955,19 +954,45 @@ Main entrypoints:
 - `remove_site(session, contest, site) -> None`
 - `sync_contest_sites(session, contest, raw_site_names) -> list[str]`
 
+Animator medal and operator-secret wrappers (thin Web boundary over
+`shared/services/animator_access_service.py`; see
+[docs/SHARED_SERVICES.md](../../docs/SHARED_SERVICES.md)):
+- `update_site_medals(session, site, gold, silver, bronze) -> Site`
+  — validate and persist the ordered cutoffs, returning the refreshed site
+- `list_site_secrets(session, contest, site_id) -> list[SiteSecretMetadata]`
+  — digest-free credential metadata for one site, scoped to the contest (a site
+  from another contest returns nothing)
+- `create_site_secret(session, site, label) -> str`
+  — generate a site-scoped operator secret, returning the plaintext once
+- `create_global_secret(session, contest, label) -> str`
+  — generate a contest-global control secret, returning the plaintext once
+- `delete_site_secret(session, contest, secret_id) -> bool` — revoke a secret
+  owned by the contest; returns whether a row was removed (a foreign contest's
+  secret is never touched)
+- `get_site_by_secret(session, contest_id, secret) -> Site | None`
+  — resolve a site-scoped operator secret to its site (global secrets do not
+  match)
+- `get_contest_by_global_secret(session, contest_id, secret) -> Contest | None`
+  — resolve a global control secret to its contest (site secrets do not match)
+
 Reuse this module when:
 - building or validating contest site-management UI
 - resolving a site from either a site ID or a human site name
 - enforcing contest-scoped site uniqueness and TEAM/STAFF deletion guards
+- configuring animator site medals or generating and revoking reveal
+  operator secrets
 
 Do not reimplement:
 - `casefold()`-based site normalization
 - the "cannot remove the only remaining site" rule
 - the guard that blocks site removal while TEAM/STAFF users are assigned
+- animator token generation, digesting, or scope resolution (these delegate to
+  the shared animator access service)
 
 Notes:
 - `sync_contest_sites` updates display casing for existing sites when the normalized key matches a submitted value.
 - removing a site unassigns non-TEAM/non-STAFF users automatically, but refuses removal if any TEAM/STAFF user still points at that site.
+- the animator wrappers persist only the fixed-length secret digest; the plaintext operator token is returned once at creation and never stored.
 
 ---
 
@@ -1176,18 +1201,24 @@ Do not reimplement:
 ## `user_credentials_email_service.py`
 
 Purpose:
-- compose and send contest user credential emails after user creation/import flows
+- compose and send contest user, UberAdmin, and animator operator credential emails
 
 Main types:
 - `CredentialEmailContent`
 - `CredentialEmailSendResult`
 
 Main entrypoints:
+- `build_animator_credential_email_content(...) -> CredentialEmailContent`
 - `build_user_credentials_email_content(...) -> CredentialEmailContent`
+- `build_uberadmin_credentials_email_content(...) -> CredentialEmailContent`
+- `send_credentials_email(...) -> CredentialEmailSendResult`
 - `send_user_credentials_email(email_service, *, to_email, fullname, contest_name, contest_login_url, username, password) -> CredentialEmailSendResult`
 
 Notes:
 - body template follows the NOCA credentials plain-text structure used by admin routes
+- animator credential content identifies whether the one-time plaintext token is
+  global or site-scoped, including the authorized site name, for delivery to the
+  administrator who generated it
 - sending is delegated to `EmailService`; transport/provider behavior is inherited from email configuration
 
 ---

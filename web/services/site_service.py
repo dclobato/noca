@@ -12,6 +12,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.enumerations import RoleEnum
+from shared.services import animator_access_service
+from shared.services.animator_access_service import SiteSecretMetadata
 from web.models.contest import Contest
 from web.models.site import Site
 from web.models.users import User
@@ -224,3 +226,160 @@ async def sync_contest_sites(session: AsyncSession, contest: Contest, raw_site_n
         )
 
     return submitted_names
+
+
+async def update_site_medals(
+    session: AsyncSession,
+    site: Site,
+    gold: int,
+    silver: int,
+    bronze: int,
+) -> Site:
+    """Update a site's validated medal cutoffs.
+
+    Thin Web wrapper over the shared animator access service so the Web service
+    stays the natural caller boundary for site administration.
+
+    Args:
+        session: Active async session.
+        site: The site to update (its ``id`` and ``contest_id`` scope the write).
+        gold: Maximum ranking position awarded a gold medal.
+        silver: Maximum ranking position awarded a silver medal.
+        bronze: Maximum ranking position awarded a bronze medal.
+    Returns:
+        The same ``Site`` instance, refreshed with the new values.
+
+    Raises:
+        AnimatorAccessError: If the cutoffs fail validation.
+    """
+    await animator_access_service.update_site_medals(
+        session,
+        site_id=site.id,
+        contest_id=site.contest_id,
+        gold=gold,
+        silver=silver,
+        bronze=bronze,
+    )
+    await session.refresh(site)
+    return site
+
+
+async def list_site_secrets(session: AsyncSession, contest: Contest, site_id: str) -> list[SiteSecretMetadata]:
+    """List digest-free operator-secret metadata for one site of a contest.
+
+    The listing is scoped to ``contest`` so a site identifier from another
+    contest yields nothing rather than disclosing its credentials.
+
+    Args:
+        session: Active async session.
+        contest: Contest that must own the site.
+        site_id: Site whose secrets are listed.
+
+    Returns:
+        Credential metadata (never including the digest), oldest-first; empty
+        when the site does not belong to the contest.
+    """
+    site = await get_site_in_contest(session, contest, site_id)
+    if site is None:
+        return []
+    return await animator_access_service.list_site_secrets(session, contest.id, site_id)
+
+
+async def create_site_secret(session: AsyncSession, site: Site, label: str) -> str:
+    """Generate and persist a site-scoped operator secret.
+
+    Args:
+        session: Active async session.
+        site: Site the secret authorizes.
+        label: Human-readable label for the secret.
+
+    Returns:
+        The one-time plaintext token for single display; only its digest is
+        stored.
+    """
+    return await animator_access_service.create_site_secret(
+        session,
+        contest_id=site.contest_id,
+        site_id=site.id,
+        label=label,
+    )
+
+
+async def create_global_secret(session: AsyncSession, contest: Contest, label: str) -> str:
+    """Generate and persist a contest-global control secret.
+
+    Args:
+        session: Active async session.
+        contest: Contest the global control secret authorizes.
+        label: Human-readable label for the secret.
+
+    Returns:
+        The one-time plaintext token for single display; only its digest is
+        stored.
+    """
+    return await animator_access_service.create_global_secret(
+        session,
+        contest_id=contest.id,
+        label=label,
+    )
+
+
+async def delete_site_secret(session: AsyncSession, contest: Contest, secret_id: str) -> bool:
+    """Revoke an operator secret (site or global) owned by a contest.
+
+    The revocation is scoped to ``contest`` so an administrator can never delete
+    another contest's credential by supplying its identifier.
+
+    Args:
+        session: Active async session.
+        contest: Contest that must own the secret.
+        secret_id: Identifier of the secret to remove.
+
+    Returns:
+        True when a matching secret was removed; False when no secret with that
+        identifier exists in the contest.
+    """
+    return await animator_access_service.revoke_secret(session, contest_id=contest.id, secret_id=secret_id)
+
+
+async def get_site_by_secret(session: AsyncSession, contest_id: str, secret: str) -> Site | None:
+    """Resolve a site-scoped operator secret to its authorized site.
+
+    Only secrets bound to a site (``site_id`` set) match; a valid global control
+    secret does not authorize a specific site and returns ``None``.
+
+    Args:
+        session: Active async session.
+        contest_id: Contest the token is presented against.
+        secret: Plaintext operator token.
+
+    Returns:
+        The authorized ``Site``, or ``None`` when the token is invalid for a
+        site scope.
+    """
+    scope = await animator_access_service.resolve_scope(session, contest_id, secret)
+    if scope is None or scope.site_id is None:
+        return None
+    result = await session.execute(select(Site).where(Site.id == scope.site_id, Site.contest_id == contest_id))
+    return result.scalar_one_or_none()
+
+
+async def get_contest_by_global_secret(session: AsyncSession, contest_id: str, secret: str) -> Contest | None:
+    """Resolve a contest-global control secret to its authorized contest.
+
+    Only global secrets (``site_id`` NULL) match; a valid site-scoped secret
+    does not authorize the global scope and returns ``None``.
+
+    Args:
+        session: Active async session.
+        contest_id: Contest the token is presented against.
+        secret: Plaintext operator token.
+
+    Returns:
+        The authorized ``Contest``, or ``None`` when the token is invalid for
+        the global scope.
+    """
+    scope = await animator_access_service.resolve_scope(session, contest_id, secret)
+    if scope is None or scope.site_id is not None:
+        return None
+    return await session.get(Contest, contest_id)

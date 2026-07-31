@@ -12,6 +12,8 @@ from web.models.clarification import Clarification
 from web.models.contest import Contest
 from web.models.language import Language
 from web.models.problem import Problem, ProblemCategory, ProblemLanguageLimit, ProblemTestCase
+from web.models.site import Site
+from web.models.site_secret import SiteSecret
 from web.models.submission import (
     HumanSubmissionConfirmation,
     Submission,
@@ -45,6 +47,8 @@ def test_web_models_map_directly_to_shared_tables() -> None:
         (db_schema.problem_categories, ProblemCategory.__table__),
         (db_schema.problem_language_limits, ProblemLanguageLimit.__table__),
         (db_schema.problems, Problem.__table__),
+        (db_schema.site_secrets, SiteSecret.__table__),
+        (db_schema.sites, Site.__table__),
         (db_schema.submission_judgment_audit, SubmissionJudgmentAudit.__table__),
         (db_schema.submission_judgments, SubmissionJudgment.__table__),
         (db_schema.submission_test_results, SubmissionTestResult.__table__),
@@ -74,6 +78,8 @@ def test_shared_schema_matches_web_orm_shape() -> None:
         (db_schema.problem_categories, ProblemCategory.__table__),
         (db_schema.problem_language_limits, ProblemLanguageLimit.__table__),
         (db_schema.problems, Problem.__table__),
+        (db_schema.site_secrets, SiteSecret.__table__),
+        (db_schema.sites, Site.__table__),
         (db_schema.submission_judgment_audit, SubmissionJudgmentAudit.__table__),
         (db_schema.submission_judgments, SubmissionJudgment.__table__),
         (db_schema.submission_test_results, SubmissionTestResult.__table__),

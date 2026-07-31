@@ -27,7 +27,8 @@ Complete these checks before editing code:
    coverage list.
 2. Build one deterministic ceremony fixture with multiple sites, ties,
    first-solves, PE/CE variations, post-freeze failures and accepts, photos,
-   missing media, audio, and presentation profiles.
+   missing media, and audio. Include presentation profiles only if
+   [Phase 16](Phase-16.md) has been implemented; it's an optional backlog phase.
 3. Confirm PostgreSQL and Valkey test isolation and identify which end-to-end
    tests need `real_db` or `real_valkey` markers.
 4. Re-read every animator route, service, architecture, configuration, and
@@ -43,8 +44,10 @@ The final test flow must prove these journeys:
 - Start and complete a site ceremony without exposing another site's teams.
 - Restart the animator mid-ceremony and continue from the same state.
 - Join a projection late and recover current state without replayed pub/sub.
-- Render medal changes, focus, pending cells, profile overrides, photo fallback,
-  avatar fallback, and optional audio availability.
+- Render medal changes, focus, pending cells, photo fallback, and optional audio
+  availability. The photo route's own fallback chain covers the avatar case, and
+  presentation-profile overrides are out of scope while
+  [Phase 16](Phase-16.md) stays in the backlog.
 
 ## Implementation tasks
 

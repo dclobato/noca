@@ -4,7 +4,7 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Unit tests for the framework-agnostic balloon/star SVG renderer."""
+"""Unit tests for the framework-agnostic presentation SVG assets."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from shared.services.balloon_assets import (
     normalize_hex_color,
     normalize_letter,
     render_balloon_svg,
+    render_medal_svg,
     render_star_svg,
 )
 
@@ -53,6 +54,16 @@ def test_render_embeds_letter_only_when_given() -> None:
     assert ">A</text>" in render_balloon_svg("#00ff00", "A")
     assert "<text" not in render_star_svg("#00ff00")
     assert ">B</text>" in render_star_svg("#00ff00", "B")
+
+
+@pytest.mark.parametrize("band", ["gold", "silver", "bronze"])
+def test_render_medal_svg_returns_requested_band(band: str) -> None:
+    assert render_medal_svg(band).lstrip().startswith("<svg")
+
+
+def test_render_medal_svg_rejects_unknown_band() -> None:
+    with pytest.raises(ValueError, match="Invalid medal band"):
+        render_medal_svg("platinum")
 
 
 def test_letter_contrast_flips_with_fill_luminance() -> None:

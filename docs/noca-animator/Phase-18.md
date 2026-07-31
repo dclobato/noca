@@ -11,8 +11,12 @@ outcomes. It also completes configuration work deferred from Phase 04.
 
 ## Dependencies
 
-Complete [Phase 17](Phase-17.md) first so packaging and documentation expose the
+Complete [Phase 14](Phase-14.md) first so packaging and documentation expose the
 final runtime dependency and route set.
+
+Phases [15](Phase-15.md), [16](Phase-16.md), and [17](Phase-17.md) are optional
+backlog items and aren't prerequisites here. If you implement any of them later,
+revisit the route inventory and dependency list this phase packages.
 
 ## Session scope
 

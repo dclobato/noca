@@ -8,7 +8,9 @@ problem test cases.
 
 Contest and Arena can run together or as separate deployments. Arena also has
 optional Rating and AI Assistant workers for ratings, statistics, badges, and
-submission feedback.
+submission feedback. Contest can add the optional Animator presentation runtime
+for a live scoreboard; its phased roadmap also delivers site-aware, post-freeze
+reveal ceremonies.
 
 # Project structure
 
@@ -33,6 +35,12 @@ noca/
 |-- rating/                 # Arena rating, statistics, and badge worker
 |-- aiassistant/            # Arena AI review worker
 |-- healthmonitor/          # Public health-monitoring server
+|-- animator/               # Contest live scoreboard and reveal runtime
+|   |-- routes/             # HTTP endpoints
+|   |-- services/           # Animator business logic
+|   |-- models/             # Animator ORM models
+|   |-- template/           # Jinja templates
+|   `-- static/             # Animator CSS, JavaScript, and images
 |-- shared/                 # Shared schemas, services, assets, and contracts
 |   |-- db_schema/          # SQLAlchemy Core table definitions
 |   |-- services/           # Cross-module services
@@ -54,8 +62,10 @@ noca/
 The runtime is composed of three user-facing applications, three workers, and
 one shared library. Arrows in the following figure show logical dependencies and
 workflows, not direct imports between runtime applications. The Health Monitor
-is omitted from the figure: it observes every other runtime through their
-Valkey worker-presence keys and participates in no business workflow.
+and Animator are omitted from the figure to keep the submission flow legible.
+The Health Monitor observes runtime presence without joining a business
+workflow. Animator reads Contest data from PostgreSQL, consumes live Valkey
+events, and imports only shared contracts and services.
 
 ```text
 
@@ -92,6 +102,7 @@ The workspace packages and their entry points are:
 | `rating/` | `noca-rating` | `uv run noca-rating` | Arena rating worker |
 | `aiassistant/` | `noca-aiassistant` | `uv run noca-aiassistant` | Arena AI review worker |
 | `healthmonitor/` | `noca-healthmonitor` | `uv run noca-healthmonitor` | Public health-monitoring server |
+| `animator/` | `noca-animator` | `uv run noca-animator` | Live scoreboard and reveal presentation runtime |
 | `shared/` | `noca-shared` | Library only | Shared contracts and services |
 
 ## Module relationships
@@ -115,6 +126,9 @@ enumerations, queue payloads, and services.
   submitted code in their application processes.
 - **OpenAI is optional.** Only AI Assistant calls the OpenAI API, and Arena
   remains usable when the worker or API is unavailable.
+- **Animator is an independent presentation runtime.** It reads authoritative
+  Contest data from PostgreSQL, consumes live update signals from Valkey, and
+  reuses the shared scoreboard projection without importing `web`.
 
 This separation lets you deploy and scale the user-facing applications and
 workers independently while keeping durable transitions auditable.
@@ -152,6 +166,47 @@ Its main features include:
 See the [architecture overview](docs/ARCHITECTURE.md),
 [Contest routes](web/docs/ROUTES.md), and
 [Contest services](web/docs/SERVICES.md) for implementation details.
+
+## Animator
+
+Animator is the optional `animator` workspace for live Contest presentation. It
+is a native NOCA FastAPI runtime, not an integration with
+`maratona-animeitor`: it reads the shared PostgreSQL schema and Valkey directly,
+uses NOCA's own contest scoring rules, and serves its own frontend on port 8003
+by default.
+
+Its current capabilities include:
+
+- A public live scoreboard for contests with `animator_enabled=true`, with the
+  same non-specific `404` response for missing and disabled contests.
+- Authoritative `/meta` and `/snapshot` feeds calculated through the shared
+  `compute_icpc` implementation, so standings agree with Contest.
+- Server-Sent Events for submissions, verdicts, scoreboard refreshes, and timer
+  ticks, with bounded client queues and PostgreSQL snapshot reconciliation.
+- Animated rank and problem-cell updates, a freeze-safe pending-submission
+  view, session activity, balloon and first-solver artwork, and polling fallback
+  when the event stream is unavailable.
+- Site-aware medal cutoffs and reveal-domain services for global or per-site
+  ceremonies using explicit team-to-site relationships.
+- A reversible, bottom-up reveal engine whose ranking always comes from shared
+  scoring, plus Valkey-backed session state with single-writer locking and
+  restart recovery.
+
+- Credential-free public reveal pages (projector and spectator feed) plus the
+  authenticated operator control API, gated by the per-contest
+  `animator_enabled` flag and the `NOCA_ANIMATOR_ENABLE_CONTROL` kill switch.
+
+Contest administrators control whether the presentation feed is enabled and can
+manage site medal cutoffs and scoped operator credentials. The Animator
+container publishes a Valkey worker-presence heartbeat like the other runtimes,
+so it appears as its own service on the health monitor's status and uptime
+dashboards. It is a schema consumer, not a steward: its entrypoint waits for
+`web`/`arena` to migrate rather than running migrations itself.
+
+See the [Animator routes](animator/docs/ROUTES.md),
+[Animator services](animator/docs/SERVICES.md), and
+[Animator unified implementation plan](docs/noca-animator/PLANO_UNIFICADO.md)
+for the current contracts and phased roadmap.
 
 ## Arena
 
@@ -349,6 +404,7 @@ a `.env` file. Variables use prefixes that identify their owners:
 | `NOCA_JUDGE_` | AutoJudge worker |
 | `NOCA_RATING_` | Rating worker |
 | `NOCA_AI_` | AI Assistant worker |
+| `NOCA_ANIMATOR_` | Animator presentation runtime |
 
 The [configuration reference](docs/CONFIG.md) lists every supported option,
 its default, validation rules, ownership, and operational notes. Production
@@ -372,12 +428,14 @@ uv run python scripts/bootstrap_languages.py
 Start each selected runtime in a separate terminal. Common combinations are:
 
 - Contest: `noca-web` + `noca-autojudge`.
+- Contest with live presentation: `noca-web` + `noca-autojudge` +
+  `noca-animator`.
 - Arena core: `noca-arena` + `noca-autojudge`.
 - Arena with ratings: `noca-arena` + `noca-autojudge` + `noca-rating`.
 - Arena with AI feedback: `noca-arena` + `noca-autojudge` +
   `noca-aiassistant`.
 - Public status dashboards: add `noca-healthmonitor` to any combination.
-- Full ecosystem: all six runtime modules.
+- Full ecosystem: all seven runtime modules.
 
 For example, start the complete ecosystem with:
 
@@ -388,10 +446,12 @@ uv run noca-autojudge
 uv run noca-rating
 uv run noca-aiassistant
 uv run noca-healthmonitor
+uv run noca-animator
 ```
 
 Run **only one** Rating replica. Contest doesn't depend on Arena, Rating, or AI
-Assistant. Arena doesn't depend on Contest, and its Rating and AI Assistant
+Assistant. Animator is optional and serves only contests enabled by a Contest
+administrator. Arena doesn't depend on Contest, and its Rating and AI Assistant
 workers are optional.
 
 See [Bootstrap and deployment](docs/BOOTSTRAP.md) for database setup, secrets,
@@ -441,7 +501,7 @@ change:
 ```bash
 uv run ruff format .
 uv run ruff check --fix .
-uv run mypy web shared autojudge arena rating
+uv run mypy web shared autojudge arena rating aiassistant healthmonitor animator
 uv run pytest
 ```
 

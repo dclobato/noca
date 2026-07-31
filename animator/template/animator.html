@@ -1,0 +1,106 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% block title_suffix %}&mdash; Scoreboard{% endblock %}
+{% block main_class %}animator-root animator-scoreboard-root{% endblock %}
+{% block content %}
+    <div id="animator-app"
+         class="animator-app animator-scoreboard-app"
+         data-meta-url="{{ meta_url }}"
+         data-snapshot-url="{{ snapshot_url }}"
+         data-events-url="{{ events_url }}"
+         data-scope-name="{{ scope_name or '' }}"
+         data-balloon-base="{{ balloon_base }}"
+         data-star-base="{{ star_base }}"
+         data-poll-fallback="{{ poll_fallback_seconds }}">
+        <header class="animator-header">
+            <div class="animator-heading">
+                <h1 id="animator-contest-title" class="animator-title">{{ brand_name }}</h1>
+                <p id="animator-contest-site" class="animator-subtitle" hidden></p>
+            </div>
+            <div class="animator-status-line">
+                <span id="animator-contest-state"
+                      class="animator-state"
+                      data-state="loading"></span>
+                <span id="animator-contest-ended"
+                      class="animator-state"
+                      data-state="ended"
+                      hidden>Ended</span>
+                <span id="animator-timer"
+                      class="animator-timer"
+                      role="timer"
+                      aria-live="off"
+                      aria-label="Contest time"></span>
+                <span id="animator-connection"
+                      class="animator-connection"
+                      data-status="connecting"
+                      hidden>
+                    <span id="animator-connection-label"
+                          class="animator-connection-label"
+                          role="status"
+                          aria-live="polite">Connecting&hellip;</span>
+                    <span id="animator-connection-elapsed"
+                          class="animator-connection-elapsed"
+                          role="timer"
+                          aria-live="off"
+                          aria-label="Connection disruption duration: 00:00"
+                          hidden>00:00</span>
+                </span>
+            </div>
+        </header>
+        <div id="animator-loading"
+             class="animator-loading"
+             role="status"
+             aria-live="polite">Loading scoreboard&hellip;</div>
+        <div id="animator-error" class="animator-error" role="alert" hidden>
+            <span class="animator-error-text">The scoreboard could not be loaded.</span>
+            <button type="button"
+                    id="animator-retry"
+                    class="btn btn-primary btn-sm animator-retry">Retry</button>
+        </div>
+        <div id="animator-empty" class="animator-empty" hidden>No teams are on the scoreboard yet.</div>
+        <section id="animator-pending"
+                 class="animator-pending"
+                 aria-labelledby="animator-pending-heading"
+                 hidden>
+            <h2 id="animator-pending-heading" class="animator-pending-heading">Waiting for judgment</h2>
+            <ul id="animator-pending-list" class="animator-pending-list">
+            </ul>
+        </section>
+        <section id="animator-events"
+                 class="animator-events"
+                 aria-labelledby="animator-events-heading"
+                 hidden>
+            <h2 id="animator-events-heading" class="animator-events-heading">Activity</h2>
+            <div class="animator-events-viewport"
+                 tabindex="0"
+                 aria-label="Recent contest events">
+                <ol id="animator-events-list"
+                    class="animator-events-list"
+                    aria-live="polite"
+                    aria-relevant="additions">
+                </ol>
+            </div>
+        </section>
+        <div class="animator-board-scroll" hidden>
+            <table id="animator-scoreboard" class="animator-scoreboard">
+                <caption class="visually-hidden">Live contest scoreboard, ranked by problems solved and penalty time.</caption>
+                <thead>
+                    <tr id="animator-problem-header">
+                        <th scope="col" class="animator-col-rank">#</th>
+                        <th scope="col" class="animator-col-team">Team</th>
+                        <th scope="col" class="animator-col-solved">Solved</th>
+                        <th scope="col" class="animator-col-time">Time</th>
+                    </tr>
+                </thead>
+                <tbody id="animator-standings">
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endblock %}

@@ -1,7 +1,7 @@
 # Phase 03: Add the Web animator administration page
 
 This session gives contest administrators a dedicated page for enabling the
-animator, editing site medal bands and styles, and managing global or site
+animator, editing site medal bands, and managing global or site
 operator credentials.
 
 ## Source-plan coverage
@@ -39,7 +39,7 @@ Create these focused routes under `/c/{slug}/admin/animator`:
 
 - `GET /` renders animator settings and credential metadata.
 - `POST /settings` updates `animator_enabled`.
-- `POST /sites/{site_id}` updates one site's medal and style settings.
+- `POST /sites/{site_id}` updates one site's medal settings.
 - `POST /sites/{site_id}/secrets` creates a site operator credential.
 - `POST /secrets/global` creates a contest-global operator credential.
 - `POST /secrets/{secret_id}/revoke` revokes either credential type.
@@ -47,7 +47,7 @@ Create these focused routes under `/c/{slug}/admin/animator`:
 The page and operations must provide these behaviors:
 
 - View and update `animator_enabled`.
-- Update each site's ordered medal cutoffs and optional style class.
+- Update each site's ordered medal cutoffs.
 - Generate a site-scoped operator credential.
 - Generate a contest-global operator credential.
 - Revoke either credential type.
@@ -61,7 +61,7 @@ Implement the page in this order:
 1. Add a focused router such as `web/routes/contest_admin_animator.py` with a
    router-level admin dependency where current conventions permit it.
 2. Use `Annotated` FastAPI parameters and one HTTP operation per function.
-3. Add Pydantic input models for cutoff, style, and label validation.
+3. Add Pydantic input models for cutoff and label validation.
 4. Add `web/template/admin/animator_settings.html`. Use existing shared and Web
    CSS classes, no inline CSS, and no inline JavaScript.
 5. If interaction requires new JavaScript, add a focused file under

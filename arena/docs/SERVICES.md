@@ -39,8 +39,10 @@ claims used across all Arena flows — and re-exports the full `jwtservice` publ
 (`JWTService`, `TokenConfig`, `TokenVerificationResult`, etc.).
 
 Import from here rather than from `jwtservice` directly.
-`ARENA_JWT_ISSUER` is fixed to `"noca-arena"` and is used by `arena/main.py`
-when constructing the module JWT service.
+The JWT issuer claim comes from `settings.APP_NAME` (`NOCA_ARENA_APP_NAME`,
+default `"noca-arena"`), which `arena/main.py` passes when constructing the
+module JWT service. It must differ from the web module's `NOCA_WEB_APP_NAME`
+so tokens issued by each server are not mutually valid.
 
 **`ArenaTokenAction` values:**
 

@@ -25,14 +25,18 @@ from shared.services.scoreboard_cache import (
     scoreboard_full_key,
     scoreboard_public_key,
 )
+from shared.services.scoreboard_projection import (
+    ScoreboardSnapshot,
+    TeamStanding,
+    compute_icpc,
+    ordinal_to_label,
+    snapshot_from_dict,
+    snapshot_to_dict,
+)
 from web.models.contest import Contest
 from web.models.problem import Problem
 from web.models.submission import Submission, SubmissionJudgment
 from web.models.users import User
-
-from .computation import compute_icpc, ordinal_to_label
-from .models import ScoreboardSnapshot, TeamStanding
-from .serialization import snapshot_from_dict, snapshot_to_dict
 
 logger = logging.getLogger(__name__)
 

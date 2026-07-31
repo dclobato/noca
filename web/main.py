@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -66,6 +66,7 @@ from web.middleware.auth_token_refresh import AuthTokenRefreshMiddleware
 from web.routes.assets import router as assets_router
 from web.routes.auth import router as login_logout_router
 from web.routes.contest_admin import router as contest_admin_router
+from web.routes.contest_admin_animator import router as contest_admin_animator_router
 from web.routes.contest_admin_export import router as contest_admin_export_router
 from web.routes.contest_admin_metadata import router as contest_admin_metadata_router
 from web.routes.contest_admin_problem import router as contest_admin_problem_router
@@ -520,6 +521,7 @@ app.include_router(contest_admin_user_router)
 app.include_router(contest_admin_user_batch_router)
 app.include_router(contest_admin_user_edit_router)
 app.include_router(contest_admin_router)
+app.include_router(contest_admin_animator_router)
 app.include_router(contest_admin_metadata_router)
 app.include_router(contest_admin_reports_router)
 app.include_router(contest_admin_export_router)
@@ -532,8 +534,8 @@ def main() -> None:
     reload_enabled = settings.ENVIRONMENT == Environment.DEVELOPMENT
     uvicorn.run(
         "web.main:app",
-        host="0.0.0.0",
-        port=8000,
+        host=settings.HOST,
+        port=settings.PORT,
         reload=reload_enabled,
         reload_dirs=["web", "shared"] if reload_enabled else None,
         proxy_headers=True,

@@ -4,6 +4,7 @@ import pytest
 
 from shared.services.email_service import EmailConfig, EmailService, EmailValidationService
 from web.services.user_credentials_email_service import (
+    build_animator_credential_email_content,
     build_user_credentials_email_content,
     send_user_credentials_email,
 )
@@ -140,6 +141,25 @@ def test_build_user_credentials_email_content_uses_expected_template() -> None:
     assert "password: Password123!" in content.text_body
     assert "Looking forward to see you! Best," in content.text_body
     assert content.text_body.endswith("NOCA Team")
+
+
+@pytest.mark.parametrize("scope_label", ["Global (all sites)", "Site: Site A"])
+def test_build_animator_credential_email_content_uses_expected_template(scope_label: str) -> None:
+    content = build_animator_credential_email_content(
+        fullname="Admin User",
+        contest_name="Regional 2026",
+        label="Operator SP",
+        scope_label=scope_label,
+        token="plain-token",
+    )
+
+    assert content.subject == "Animator credential for contest Regional 2026"
+    assert "Hello Admin User," in content.text_body
+    assert "Label: Operator SP" in content.text_body
+    assert f"Scope: {scope_label}" in content.text_body
+    assert "Token: plain-token" in content.text_body
+    assert "delete this email" in content.text_body
+    assert content.text_body.endswith("NOCA Contest")
 
 
 def test_send_user_credentials_email_returns_success_with_mock_provider() -> None:

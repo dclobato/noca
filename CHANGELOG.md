@@ -1,6 +1,84 @@
 # Changelog
 
-## [Unreleased]
+Todas as mudanças relevantes deste projeto são documentadas aqui.
+O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
+e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
+
+## [15.0.0] - 2026-07-31
+
+### ⚠ Breaking Changes
+
+- **animator:** Serve routes at the root, dropping the /animator prefix
+- **animator:** Rename the reveleitor projector to ceremony
+
+  GET /c/{slug}/reveleitor is removed and now returns 404.
+  Use GET /c/{slug}/ceremony instead. The route name animator_reveleitor_page
+  becomes animator_ceremony_page.
+
+### Features
+
+- **markdown:** Add shared rendering directives
+- **animator:** Phase-01 add animator gate and site medal/secret schema
+- **animator:** Phase-02 site medal and operator-secret services
+- **animator:** Phase-03 web contest-admin animator settings page
+- **animator:** Phase-04 scaffold standalone noca-animator runtime
+- **animator:** Redesign contest-admin animator settings page
+- **animator:** Phase-05 contest metadata and scoreboard snapshot feeds
+- **animator:** Phase-06 live scoreboard presentation page
+- **animator:** Phase-07 live SSE event stream
+- **animator:** Phase-08 animated live scoreboard
+- **animator:** Render balloon/star artwork with letters on scoreboard
+- **animator:** Live pending-submission list and cell flash
+- **animator:** Animate live connection badge
+- **animator:** Model reveal sessions and frozen projections
+- **animator:** Implement the reveal state machine
+- **animator:** Persist and publish reveal sessions in Valkey [Phase-11]
+- **animator:** Show connection outage duration
+- **animator:** Add live activity ticker
+- **animator:** Add container deployment
+- **animator:** Expose authenticated reveal control API (Phase 12)
+- **web:** Show medal icons in animator settings
+- **animator:** Add reveal spectator APIs and team photos (Phase 13)
+- **animator:** Deliver reveal ceremony interfaces (Phase 14)
+- **animator:** Add contest clock to launcher
+- **animator:** Add footer to presentation pages
+- **animator:** Clarify reveal control actions
+- **animator:** Render reveal medals as team watermarks
+- **animator:** Phase 18 — package and wire production deployment
+- **scripts:** Freeze the InterIF 2026 seed scoreboard and close answers early
+- **animator:** Show site name on smaller line below contest title
+- **animator:** Phase 19 — harden reveal recovery and concurrency
+- **config:** Make HOST/PORT configurable for web, arena and healthmonitor
+- **animator:** Add contest presentation index
+
+### Bug Fixes
+
+- **audit:** Show usernames for admin actions
+- **web:** Remove InterIF fixture language on cleanup
+- **audit:** Label contest backup export actors
+- **animator:** Recover SSE after terminal disconnects
+- **migrations:** Merge animator and master revision heads
+- **animator:** Recover reveal clients after disconnects
+- **animator:** Unify FLIP motion timing
+- **animator:** Improve reveleitor team media modal
+- **animator:** Default the brand name to "NOCA Animator"
+- Use BRAND_NAME for email sender, APP_NAME for arena JWT issuer
+- **healthmonitor:** Repair the heatmap grid column template
+- **email:** Encode only the display name in RFC 5322 addresses
+
+### Refactoring
+
+- **scoreboard:** Phase-00 extract shared projection service
+- **animator:** Remove site style configuration
+- **[BREAKING]** **animator:** Serve routes at the root, dropping the /animator prefix
+- **[BREAKING]** **animator:** Rename the reveleitor projector to ceremony
+
+### Documentation
+
+- **animator:** Move team audio playback into phase 14
+- **animator:** Move phases 15-17 to the optional backlog
+- Update full test timeout guidance
+- **animator:** Add controller lease backlog phase
 
 ## [14.3.0] - 2026-07-26
 

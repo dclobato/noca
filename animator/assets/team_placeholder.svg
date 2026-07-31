@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" width="320" height="200" role="img" aria-label="No team photo available">
+  <rect width="320" height="200" fill="#1f2430"/>
+  <circle cx="160" cy="82" r="30" fill="#3b4252"/>
+  <path d="M110 150c0-27 22-40 50-40s50 13 50 40z" fill="#3b4252"/>
+  <text x="160" y="182" text-anchor="middle" font-family="sans-serif" font-size="16" fill="#8b93a7">No photo</text>
+</svg>

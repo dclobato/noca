@@ -4,7 +4,9 @@
 
 ## Assets (`web/routes/assets.py`)
 
-These public routes generate color-customized balloon and star SVG images.
+These public routes serve shared presentation SVG images. Balloon and star
+artwork supports color and optional letter customization; medals use one of
+three fixed bands.
 
 | Method | URL | Description |
 |--------|-----|-------------|
@@ -12,6 +14,7 @@ These public routes generate color-customized balloon and star SVG images.
 | `GET` | `/assets/balloon/{color}/{letter}` | Returns a balloon with the first ASCII letter from `letter` centered inside it and rendered uppercase. The letter is black or white, whichever has more contrast with `color`. A segment containing anything other than ASCII letters returns `400`. |
 | `GET` | `/assets/star/{color}` | Returns an inline SVG star. `color` is a 3 or 6 digit hex color, such as `00ff00`. |
 | `GET` | `/assets/star/{color}/{letter}` | Returns a star with the first ASCII letter from `letter` centered inside it and rendered uppercase. The letter is black or white, whichever has more contrast with `color`. A segment containing anything other than ASCII letters returns `400`. |
+| `GET` | `/assets/medal/{band}` | Returns the shared Gold, Silver, or Bronze medal SVG. Unsupported bands return `400`. |
 
 ---
 
