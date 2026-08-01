@@ -1,6 +1,6 @@
 /*
  *  NOCA -- Next Online Contest Administrator
- *  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ *  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -19,7 +19,7 @@
         });
         var text = codes.join("\n");
 
-        navigator.clipboard.writeText(text).then(function () {
+        window.NocaClipboard.copyText(text).then(function () {
             var original = btn.innerHTML;
             btn.textContent = "Copied!";
             btn.disabled = true;

@@ -1,9 +1,18 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
 {% block title_suffix %}
     — Animator
 {% endblock title_suffix %}
 {% block extra_head %}
     <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='clipboard.js') }}?v={{ app_version }}"
             defer></script>
     <script src="{{ request.url_for('static_js', path='animator-settings.js') }}?v={{ app_version }}"
             defer></script>

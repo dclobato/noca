@@ -79,6 +79,7 @@ from shared.services.valkey_service.worker_commands import (
 from shared.services.valkey_service.worker_presence import (
     WorkerClass,
     mark_worker_offline,
+    prune_all_stale_workers,
     publish_worker_last_job,
     worker_presence_loop,
 )
@@ -477,6 +478,10 @@ async def run_worker() -> None:
                     worker_class=WorkerClass.AUTOJUDGE,
                     worker_id=wid,
                 )
+                # Bounds the durable presence registry even where the optional
+                # health monitor (which runs the same pass periodically) is not
+                # deployed.
+                await prune_all_stale_workers(valkey)
             await cast(Any, valkey).aclose()
         if db_engine is not None:
             await db_engine.dispose()

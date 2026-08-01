@@ -4,6 +4,26 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [15.0.1] - 2026-08-01
+
+### Features
+
+- **animator:** Add an Android reveal-ceremony operator remote
+- **animator-remote:** Derive the APK version from the workspace version
+- **presence:** Prune stale worker-presence records from Valkey
+
+### Bug Fixes
+
+- **animator-remote:** Build on any JDK instead of demanding a JDK 17
+- **animator-remote:** Pin AndroidX to versions AGP 8.13.2 can build
+- **animator-remote:** Keep the controls clear of the system bars
+- **animator-remote:** Restore the saved token before prompting for one
+- **animator-remote:** Make the manifests well-formed XML
+- **clipboard:** Support copying over HTTP
+- **logging:** Redact URL-embedded API keys from log output
+
+
+
 ## [15.0.0] - 2026-07-31
 
 ### ⚠ Breaking Changes

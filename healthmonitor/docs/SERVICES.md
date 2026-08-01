@@ -83,5 +83,11 @@ Provides:
   reads all service statuses and records one probe per service; skips
   recording entirely while Valkey is unreachable so monitor-side outages
   never count against the monitored services
-- `run_reaper_loop(...)` — every `NOCA_HEALTHMON_REAPER_INTERVAL` seconds,
-  deletes uptime slots older than the heatmap window
+- `run_reaper_loop(...)` — every `NOCA_HEALTHMON_REAPER_INTERVAL` seconds, runs
+  two independent cleanups, each in its own guard so a failure in one never
+  skips the other:
+  - deletes uptime slots older than the heatmap window
+  - prunes worker-presence records of workers unseen for more than 7 days
+    (`prune_all_stale_workers`), bounding the durable `noca:worker-presence:*`
+    hashes the other modules write; see `docs/SHARED_SERVICES.md`. The same pass
+    also runs at each module's shutdown, so it is not exclusive to the monitor

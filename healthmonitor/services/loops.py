@@ -13,7 +13,7 @@ import logging
 from healthmonitor.services.presence_probe import ServiceState, read_service_statuses
 from healthmonitor.services.service_registry import MONITORED_SERVICES
 from healthmonitor.services.uptime_stats import reap_expired_slots, record_probe
-from shared.services.valkey_service import ValkeyRuntime
+from shared.services.valkey_service import ValkeyRuntime, prune_all_stale_workers
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,11 @@ async def run_reaper_loop(
     *,
     interval_seconds: int,
 ) -> None:
-    """Delete uptime slots older than the heatmap window until shutdown.
+    """Delete stale monitor and worker-presence records until shutdown.
+
+    Each pass performs two independent cleanups -- expired uptime slots and
+    worker-presence records of workers unseen for ``PRESENCE_RETENTION_DAYS`` --
+    each in its own guard, so one failing cleanup never skips the other.
 
     Args:
         valkey_runtime: Shared Valkey runtime.
@@ -78,5 +82,10 @@ async def run_reaper_loop(
             logger.info("Uptime-slot reaper pass finished (%d candidate keys deleted)", deleted)
         except Exception:
             logger.exception("Uptime-slot reaper pass failed")
+        try:
+            pruned = await prune_all_stale_workers(valkey_runtime)
+            logger.info("Worker-presence reaper pass finished (%d stale records deleted)", pruned)
+        except Exception:
+            logger.exception("Worker-presence reaper pass failed")
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)

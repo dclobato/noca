@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
+from shared.log_redaction import redact_secrets
 from shared.services.network_utils import NetworkService, NetworkServiceError
 
 
@@ -99,7 +100,9 @@ class EmailReputationService:
         try:
             response = self._network.make_json_request(url=url, params={"timeout": 7})
         except (NetworkServiceError, ValueError) as e:
-            self._logger.error("Failed to get email reputation for %s: %s", email, e)
+            # NetworkServiceError messages embed the failed URL, and the API key
+            # travels as one of its path segments.
+            self._logger.error("Failed to get email reputation for %s: %s", email, redact_secrets(str(e)))
             return None
 
         if not _as_bool(response.get("success")):

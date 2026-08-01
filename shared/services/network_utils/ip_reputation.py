@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
+from shared.log_redaction import redact_secrets
+
 from .errors import NetworkServiceError
 from .service import NetworkService
 
@@ -101,7 +103,9 @@ class IPQualityScoreIPReputationService:
                 params={"strictness": 1, "allow_public_access_points": "true"},
             )
         except (NetworkServiceError, ValueError) as e:
-            self._logger.error("Failed to get IP reputation for %s: %s", ip_address, e)
+            # NetworkServiceError messages embed the failed URL, and the API key
+            # travels as one of its path segments.
+            self._logger.error("Failed to get IP reputation for %s: %s", ip_address, redact_secrets(str(e)))
             return None
 
         if not _as_bool(response.get("success")):

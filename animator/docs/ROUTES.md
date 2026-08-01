@@ -489,6 +489,33 @@ ceremony. It is a **static shell**, not a control operation.
   form control (or a contenteditable element) has focus. Each shortcut fires
   only while its control is visible.
 
+### Second client: the Android remote (`clients/animator-remote`)
+
+The control API has **two** operator clients, so a change to its contract has two
+consumers. The Android remote (`clients/animator-remote/`, see its `README.md`)
+exists because an operator running a ceremony is on stage, away from the machine
+driving the projector.
+
+- It ports `controlsForState` and the stated-refusal/ambiguous split
+  **name-for-name** into `core/CommandClient.kt` and `core/Controls.kt`, so the two
+  clients can be diffed against each other rather than reasoned about separately.
+- It implements the "retry that command" affordance the panel deliberately leaves
+  unbuilt: it retains each attempt's `Idempotency-Key` and offers re-sending *the
+  same attempt*, which the server replays. **Reload state** remains the other
+  recovery, and every command stays locked until one of them succeeds.
+- It additionally consumes the credential-free `/reveal/events` nudge feed to stay
+  in sync, under the rule that a nudge may refresh the display but may **never**
+  release the ambiguous-outcome lock.
+- Its Kotlin core imports no Android and no HTTP library — the transport is an
+  injected function type, exactly as `control.js` injects `fetchImpl` — so
+  `tests/animator/test_remote_core_kotlin.py` exercises it on a plain JVM and skips
+  when the toolchain is absent, mirroring `test_ceremony_js.py`.
+- Because the animator serves no OpenAPI document, the remote's models are
+  hand-written and pinned by `tests/animator/test_remote_client_contract.py`, which
+  needs **no Kotlin toolchain and never skips**. **If you change a control
+  response model, a request model, `IDEMPOTENCY_KEY_PATTERN`, or the unusable-state
+  detail string, that test is what tells you the Android client needs updating.**
+
 ---
 
 ## Reveal control (`animator/routes/control.py`)

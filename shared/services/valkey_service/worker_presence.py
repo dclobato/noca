@@ -13,11 +13,17 @@ import json
 import os
 import socket
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any, cast
 
 WORKER_PRESENCE_PREFIX = "noca:worker-presence"
+
+#: Days a worker may stay unseen before its durable registry records are pruned.
+#: The live marker expires on its own; the ``seen`` and ``last-jobs`` hashes are
+#: durable, so without this bound every restart of a worker without a configured
+#: ``NOCA_*_WORKER_ID`` would leave one permanent field behind.
+PRESENCE_RETENTION_DAYS = 7
 
 _HEARTBEAT_SCRIPT = """
 redis.call("HSET", KEYS[1], ARGV[1], ARGV[2])
@@ -30,6 +36,22 @@ redis.call("HDEL", KEYS[1], ARGV[1])
 redis.call("DEL", KEYS[2])
 redis.call("HDEL", KEYS[3], ARGV[1])
 return 1
+"""
+
+# Compare-and-delete: ARGV holds (field, expected registry value) pairs and a
+# field is dropped only while it still carries the value the prune pass read.
+# A heartbeat landing between the read and this call rewrites the value, so a
+# revived worker is left alone instead of losing its freshly published record.
+_PRUNE_SCRIPT = """
+local removed = 0
+for i = 1, #ARGV, 2 do
+  if redis.call("HGET", KEYS[1], ARGV[i]) == ARGV[i + 1] then
+    redis.call("HDEL", KEYS[1], ARGV[i])
+    redis.call("HDEL", KEYS[2], ARGV[i])
+    removed = removed + 1
+  end
+end
+return removed
 """
 
 
@@ -220,6 +242,101 @@ async def list_all_workers(
     """Return dashboard worker rows grouped by worker class."""
     rows = await asyncio.gather(*(list_workers(client, worker_class) for worker_class in WorkerClass))
     return dict(zip(WorkerClass, rows, strict=True))
+
+
+async def prune_stale_workers(
+    client: WorkerPresenceClient,
+    *,
+    worker_class: WorkerClass,
+    older_than_days: int = PRESENCE_RETENTION_DAYS,
+    now: datetime | None = None,
+) -> int:
+    """Delete durable registry records of workers unseen for too long.
+
+    The live marker of a running worker expires on its own, but the ``seen`` and
+    ``last-jobs`` hashes are durable: without this pass every restart of a worker
+    that derives its ID from ``<fqdn>:<pid>`` leaves one field behind forever.
+
+    A worker that still holds a live marker is never pruned, and the deletion is
+    a compare-and-delete against the value that was read, so a heartbeat racing
+    the pass keeps its record.
+
+    Args:
+        client: Connected raw Valkey client or ``ValkeyRuntime``.
+        worker_class: Worker process class to prune.
+        older_than_days: Days a worker may stay unseen before being pruned.
+        now: Reference time for the cutoff. Defaults to the current UTC time.
+
+    Returns:
+        The number of worker records removed.
+    """
+    raw_registry = await client.hgetall(worker_registry_key(worker_class))
+    if not raw_registry:
+        return 0
+
+    cutoff = (now or datetime.now(UTC)) - timedelta(days=older_than_days)
+    candidates: list[tuple[str, str]] = []
+    for raw_field, raw_value in raw_registry.items():
+        field = _decode(raw_field)
+        value = _decode(raw_value)
+        try:
+            _, last_seen_at = _parse_registry_value(value)
+        except ValueError, KeyError, TypeError:
+            # Unparseable records also break list_workers(), so drop them too.
+            candidates.append((field, value))
+            continue
+        if last_seen_at < cutoff:
+            candidates.append((field, value))
+    if not candidates:
+        return 0
+
+    # A legacy start-only record reports its start time as last-seen, so a
+    # long-running worker can look stale; its live marker proves otherwise.
+    live_values = await client.mget([worker_live_key(worker_class, field) for field, _ in candidates])
+    if live_values is None:
+        live_values = [None] * len(candidates)
+    prunable = [
+        argument
+        for (field, value), live_value in zip(candidates, live_values, strict=True)
+        if live_value is None
+        for argument in (field, value)
+    ]
+    if not prunable:
+        return 0
+
+    removed = await client.eval(
+        _PRUNE_SCRIPT,
+        2,
+        worker_registry_key(worker_class),
+        worker_last_jobs_key(worker_class),
+        *prunable,
+    )
+    return int(removed)
+
+
+async def prune_all_stale_workers(
+    client: WorkerPresenceClient,
+    *,
+    older_than_days: int = PRESENCE_RETENTION_DAYS,
+    now: datetime | None = None,
+) -> int:
+    """Prune stale registry records across every worker class.
+
+    Args:
+        client: Connected raw Valkey client or ``ValkeyRuntime``.
+        older_than_days: Days a worker may stay unseen before being pruned.
+        now: Reference time for the cutoff. Defaults to the current UTC time.
+
+    Returns:
+        The total number of worker records removed.
+    """
+    removed = await asyncio.gather(
+        *(
+            prune_stale_workers(client, worker_class=worker_class, older_than_days=older_than_days, now=now)
+            for worker_class in WorkerClass
+        )
+    )
+    return sum(removed)
 
 
 async def worker_presence_loop(

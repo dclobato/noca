@@ -1,0 +1,5 @@
+# The Windows launcher must keep CRLF endings: cmd.exe mis-parses some batch
+# constructs when a .bat file has bare LF line endings.
+*.bat text eol=crlf
+gradlew text eol=lf
+*.jar binary

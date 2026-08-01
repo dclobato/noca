@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A dark framework theme, deliberately not DayNight.
+
+  The remote is used by an operator standing in a darkened auditorium during an
+  award ceremony. A light flash on wake would be visible from the audience and
+  would wreck the operator's own night vision, so the app commits to dark rather
+  than following the system. Using the framework Material theme also keeps the
+  dependency list to Compose alone — no appcompat, no material XML.
+-->
+<resources>
+    <style name="Theme.AnimatorRemote" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:navigationBarColor">@color/window_background</item>
+        <item name="android:statusBarColor">@color/window_background</item>
+    </style>
+</resources>

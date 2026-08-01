@@ -17,6 +17,8 @@ import pytest
 from shared.services.valkey_service.worker_presence import (
     WorkerClass,
     list_workers,
+    prune_all_stale_workers,
+    prune_stale_workers,
     publish_worker_last_job,
     publish_worker_presence,
     remove_worker,
@@ -246,6 +248,167 @@ async def test_remove_worker_clears_last_job_entry_against_real_valkey_db_15(val
     assert await list_workers(valkey_client, WorkerClass.RATING) == []
     raw = await valkey_client.hget(worker_last_jobs_key(WorkerClass.RATING), "rating-1")
     assert raw is None
+
+
+async def _publish_unseen_since(
+    valkey_client: Any,
+    *,
+    worker_class: WorkerClass,
+    worker_id: str,
+    last_seen_at: datetime,
+) -> None:
+    """Register a worker last seen at a given time and drop its live marker."""
+    await publish_worker_presence(
+        valkey_client,
+        worker_class=worker_class,
+        worker_id=worker_id,
+        started_at=last_seen_at,
+        ttl_seconds=60,
+        observed_at=last_seen_at,
+    )
+    await publish_worker_last_job(
+        valkey_client,
+        worker_class=worker_class,
+        worker_id=worker_id,
+        started_at=last_seen_at,
+    )
+    await valkey_client.delete(worker_live_key(worker_class, worker_id))
+
+
+@pytest.mark.asyncio
+async def test_prune_removes_stale_records_from_both_hashes_against_real_valkey_db_15(
+    valkey_client: Any,
+) -> None:
+    """A worker unseen past the cutoff loses its registry and last-job entries."""
+    now = datetime(2026, 6, 20, 12, 0, tzinfo=UTC)
+    await _publish_unseen_since(
+        valkey_client,
+        worker_class=WorkerClass.WEB,
+        worker_id="web-ghost",
+        last_seen_at=datetime(2026, 6, 1, 12, 0, tzinfo=UTC),
+    )
+
+    assert await prune_stale_workers(valkey_client, worker_class=WorkerClass.WEB, now=now) == 1
+
+    assert await list_workers(valkey_client, WorkerClass.WEB) == []
+    assert await valkey_client.hget(worker_last_jobs_key(WorkerClass.WEB), "web-ghost") is None
+
+
+@pytest.mark.asyncio
+async def test_prune_keeps_recently_seen_worker_against_real_valkey_db_15(valkey_client: Any) -> None:
+    """A worker seen inside the retention window survives the pass."""
+    now = datetime(2026, 6, 20, 12, 0, tzinfo=UTC)
+    await _publish_unseen_since(
+        valkey_client,
+        worker_class=WorkerClass.WEB,
+        worker_id="web-recent",
+        last_seen_at=datetime(2026, 6, 19, 12, 0, tzinfo=UTC),
+    )
+
+    assert await prune_stale_workers(valkey_client, worker_class=WorkerClass.WEB, now=now) == 0
+
+    rows = await list_workers(valkey_client, WorkerClass.WEB)
+    assert [row.worker_id for row in rows] == ["web-recent"]
+
+
+@pytest.mark.asyncio
+async def test_prune_keeps_live_worker_with_stale_record_against_real_valkey_db_15(
+    valkey_client: Any,
+) -> None:
+    """A live marker protects a legacy record whose last-seen is its start time."""
+    now = datetime(2026, 6, 20, 12, 0, tzinfo=UTC)
+    started_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    # Legacy start-timestamp-only registry value, still holding a live marker.
+    await valkey_client.hset(
+        worker_registry_key(WorkerClass.RATING),
+        "rating-legacy",
+        started_at.isoformat(),
+    )
+    await valkey_client.set(worker_live_key(WorkerClass.RATING, "rating-legacy"), "{}", ex=60)
+
+    assert await prune_stale_workers(valkey_client, worker_class=WorkerClass.RATING, now=now) == 0
+
+    rows = await list_workers(valkey_client, WorkerClass.RATING)
+    assert [(row.worker_id, row.online) for row in rows] == [("rating-legacy", True)]
+
+
+@pytest.mark.asyncio
+async def test_prune_removes_unparseable_record_against_real_valkey_db_15(valkey_client: Any) -> None:
+    """Corrupted registry values are pruned, so list_workers stops raising."""
+    await valkey_client.hset(worker_registry_key(WorkerClass.ARENA), "arena-broken", "not-a-timestamp")
+    with pytest.raises(ValueError):
+        await list_workers(valkey_client, WorkerClass.ARENA)
+
+    assert await prune_stale_workers(valkey_client, worker_class=WorkerClass.ARENA) == 1
+
+    assert await list_workers(valkey_client, WorkerClass.ARENA) == []
+
+
+@pytest.mark.asyncio
+async def test_prune_keeps_record_rewritten_mid_pass_against_real_valkey_db_15(valkey_client: Any) -> None:
+    """Compare-and-delete leaves a record a heartbeat refreshed mid-pass alone."""
+    now = datetime(2026, 6, 20, 12, 0, tzinfo=UTC)
+    worker_id = "judge-revived"
+    await _publish_unseen_since(
+        valkey_client,
+        worker_class=WorkerClass.AUTOJUDGE,
+        worker_id=worker_id,
+        last_seen_at=datetime(2026, 6, 1, 12, 0, tzinfo=UTC),
+    )
+    refreshed = (
+        '{"worker_id":"judge-revived","started_at":"2026-06-20T11:59:00+00:00",'
+        '"last_seen_at":"2026-06-20T11:59:00+00:00"}'
+    )
+
+    class _RewriteOnRead:
+        """Real client that rewrites the record between the read and the delete."""
+
+        def __init__(self, client: Any) -> None:
+            self._client = client
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._client, name)
+
+        async def mget(self, keys: list[str]) -> Any:
+            await self._client.hset(worker_registry_key(WorkerClass.AUTOJUDGE), worker_id, refreshed)
+            return await self._client.mget(keys)
+
+    pruned = await prune_stale_workers(
+        _RewriteOnRead(valkey_client),
+        worker_class=WorkerClass.AUTOJUDGE,
+        now=now,
+    )
+
+    assert pruned == 0
+    rows = await list_workers(valkey_client, WorkerClass.AUTOJUDGE)
+    assert [row.worker_id for row in rows] == [worker_id]
+
+
+@pytest.mark.asyncio
+async def test_prune_all_sums_counts_across_classes_against_real_valkey_db_15(valkey_client: Any) -> None:
+    """prune_all_stale_workers prunes every class and leaves fresh records alone."""
+    now = datetime(2026, 6, 20, 12, 0, tzinfo=UTC)
+    stale_at = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    for worker_class in WorkerClass:
+        await _publish_unseen_since(
+            valkey_client,
+            worker_class=worker_class,
+            worker_id="stale",
+            last_seen_at=stale_at,
+        )
+    await _publish_unseen_since(
+        valkey_client,
+        worker_class=WorkerClass.WEB,
+        worker_id="fresh",
+        last_seen_at=datetime(2026, 6, 19, 12, 0, tzinfo=UTC),
+    )
+
+    assert await prune_all_stale_workers(valkey_client, now=now) == len(WorkerClass)
+
+    assert [row.worker_id for row in await list_workers(valkey_client, WorkerClass.WEB)] == ["fresh"]
+    for worker_class in WorkerClass:
+        if worker_class is not WorkerClass.WEB:
+            assert await list_workers(valkey_client, worker_class) == []
 
 
 class _LoopClient:

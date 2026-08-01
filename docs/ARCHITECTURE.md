@@ -404,8 +404,14 @@ A prober loop records one up/down sample per service every
 (`noca:healthmon:stats:{service}:{slot_epoch}`), skipping cycles while Valkey
 is unreachable so monitor-side outages never count against the services. A
 reaper loop deletes slots older than `NOCA_HEALTHMON_RETENTION_DAYS`; slot keys
-also carry a TTL as a safety net. The presence-only classes never appear in the
-Arena admin dashboard or pause machinery.
+also carry a TTL as a safety net. That same loop also prunes worker-presence
+records of workers unseen for more than 7 days, bounding the durable
+`noca:worker-presence:<class>:seen` and `:last-jobs` hashes every module writes
+(live markers already expire on their own). Because the health monitor is an
+optional deployment, every presence-publishing module runs the same shared pass
+once at shutdown, so growth stays bounded in a Web-only or Arena-only install
+too. The presence-only classes never appear in the Arena admin dashboard or
+pause machinery.
 
 ### `animator/`
 

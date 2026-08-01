@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -655,6 +655,9 @@ async def test_backup_codes_page_with_codes_in_session_renders_page(
     assert response.status_code == 200
     # At least one backup code must appear in the rendered page.
     assert any(code in response.text for code in fake_codes)
+    shared_clipboard_position = response.text.index("clipboard.js?v=test")
+    backup_codes_position = response.text.index("backup_codes.js?v=test")
+    assert shared_clipboard_position < backup_codes_position
 
 
 @pytest.mark.asyncio

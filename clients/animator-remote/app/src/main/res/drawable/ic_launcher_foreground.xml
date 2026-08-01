@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A step arrow: the control this remote exists to press. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#4ADE80"
+        android:pathData="M41,32 L41,76 L74,54 Z" />
+    <path
+        android:fillColor="#94A3B8"
+        android:pathData="M32,32 L37,32 L37,76 L32,76 Z" />
+</vector>

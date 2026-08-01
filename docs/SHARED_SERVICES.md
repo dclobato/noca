@@ -99,6 +99,40 @@ Notes:
 - Computed `@property` values (e.g. `db_url`, `valkey_url`) are excluded because they embed
   secrets; only declared model fields are dumped.
 - Emitted at DEBUG, so the dump is silent when a module runs at INFO (the production default).
+- `configure_logging` also installs the `log_redaction.py` filter (see below) on the console
+  handler and on the HTTP-client loggers. Installation is idempotent, so repeated calls (tests,
+  hot reload) never stack filters on the same logger.
+
+---
+
+## `log_redaction.py`
+
+Purpose:
+- mask credentials that travel inside URLs before they reach any log output
+
+Canonical location:
+- `shared/log_redaction.py`
+
+Main entrypoints:
+- `redact_secrets(text) -> str`
+- `SecretRedactingFilter` (a `logging.Filter` that rewrites rather than suppresses)
+- `MASK` — the shared `********` placeholder, also used by `app_logging.log_settings`
+
+Notes:
+- IPQualityScore takes its API key as a **URL path segment** (`/api/json/ip/<key>/<ip>` and
+  `/api/json/email/<key>/<email>`), so the key travels in every request URL. It reaches logs by
+  two independent routes: the HTTP client logs the request line at DEBUG, and
+  `NetworkServiceError` messages embed the failed URL, which the reputation services log at
+  ERROR (on in production).
+- Both routes are closed. `configure_logging` attaches `SecretRedactingFilter` to the console
+  handler and to the `urllib3`, `requests`, `httpx`, and `httpcore` loggers — filtering at the
+  *emitting* logger also covers handlers we do not own, such as pytest's log capture. In
+  addition, `ip_reputation.py` and `email_reputation.py` pass exception text through
+  `redact_secrets` at the call site, so redaction does not depend on logging configuration or
+  on which logger was injected.
+- Limitation: a filter cannot reach text a handler renders later from `exc_info`, so exception
+  objects carrying a secret must be redacted at the call site (as those two services do) rather
+  than logged with `logger.exception`.
 
 ---
 
@@ -1146,6 +1180,9 @@ Main entrypoints:
   refreshes its live marker until shutdown
 - `list_all_workers(client_or_runtime) -> dict[WorkerClass, list[WorkerPresence]]`
 - `remove_worker(...) -> None` — removes a worker until its next heartbeat
+- `prune_stale_workers(client_or_runtime, *, worker_class, older_than_days=PRESENCE_RETENTION_DAYS, now=None) -> int`
+  and `prune_all_stale_workers(client_or_runtime, *, older_than_days=..., now=None) -> int`
+  — delete durable registry records of workers unseen past the cutoff
 - `build_command(...)`, `publish_command(...)`, `verify_command(...)`, `claim_nonce(...)`, `worker_command_loop(...)`, `WorkerCommandType`, `LivePauseFlag` — signed worker pause/resume command transport (see "Worker pause/resume commands")
 - `ValkeyRuntime.set_reporting(key, value, *, ex) -> bool` — atomic `SET … EX` reporting delivery success for auditing
 - `ValkeyRuntime.get_and_delete(key) -> str | None` — atomically consumes a
@@ -1178,6 +1215,25 @@ Worker presence:
 - Dashboard removal runs a 3-key Lua script that deletes the registry entry,
   the live marker, and the last-job hash field atomically. A running worker
   reappears when it publishes its next heartbeat.
+- The two durable hashes are bounded by a **stale-record prune pass**. Live
+  markers expire on their own, but `seen` and `last-jobs` never would: because
+  `resolve_worker_id` falls back to `<fqdn>:<pid>` when `NOCA_*_WORKER_ID` is
+  unset, every restart would otherwise leave one permanent field behind.
+  `prune_stale_workers` deletes the `seen` and `last-jobs` fields of workers
+  whose `last_seen_at` is older than `PRESENCE_RETENTION_DAYS` (**7 days**, a
+  shared constant with no environment variable), and also deletes unparseable
+  registry values, which would otherwise make `list_workers` raise.
+- The pass never prunes a worker that still holds a live marker, so a legacy
+  start-timestamp-only record of a long-running worker survives. Deletion is a
+  **compare-and-delete** Lua script keyed on the value the pass read, so a
+  heartbeat landing between the read and the delete keeps its fresh record.
+  Pruning is harmless in any case: a returning worker re-registers on its next
+  heartbeat.
+- Two callers run it, and both are safe to run concurrently: the health monitor
+  reaper loop every `NOCA_HEALTHMON_REAPER_INTERVAL`, and every
+  presence-publishing module once at shutdown, right after `mark_worker_offline`
+  and inside the same suppressed guard. The shutdown call is what bounds growth
+  in deployments that do not run the optional health monitor image.
 
 Worker pause/resume commands (`worker_commands.py` + `worker_pause_state.py`):
 - **PostgreSQL is the authoritative, monotonic source of truth.**

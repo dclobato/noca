@@ -1,0 +1,79 @@
+{
+  "contest_id": "11111111-1111-1111-1111-111111111111",
+  "scope": "22222222-2222-2222-2222-222222222222",
+  "site_id": "22222222-2222-2222-2222-222222222222",
+  "site_name": "Site 1",
+  "phase": "revealing",
+  "focused_team_id": "aaaa1111-0000-0000-0000-000000000001",
+  "revealed_count": 34,
+  "frozen_count": 51,
+  "medal_cutoffs": {
+    "gold": 4,
+    "silver": 8,
+    "bronze": 12
+  },
+  "teams": [
+    {
+      "team_id": "aaaa1111-0000-0000-0000-000000000001",
+      "team_name": "team01",
+      "team_fullname": "Os Bugados",
+      "site_name": "Site 1",
+      "current_rank": 1,
+      "solved": 8,
+      "penalty": 412,
+      "medal": "gold",
+      "problems": {
+        "A": {
+          "label": "A",
+          "problem_id": "p-a",
+          "solved": true,
+          "attempts": 1,
+          "solved_at_minutes": 23,
+          "penalty": 83,
+          "pending_frozen_count": 0,
+          "is_first_solver": true,
+          "pending_frozen": false
+        },
+        "B": {
+          "label": "B",
+          "problem_id": "p-b",
+          "solved": false,
+          "attempts": 2,
+          "solved_at_minutes": null,
+          "penalty": 0,
+          "pending_frozen_count": 1,
+          "is_first_solver": false,
+          "pending_frozen": true
+        }
+      }
+    },
+    {
+      "team_id": "aaaa1111-0000-0000-0000-000000000002",
+      "team_name": "team02",
+      "team_fullname": "",
+      "site_name": "Site 1",
+      "current_rank": 2,
+      "solved": 7,
+      "penalty": 390,
+      "medal": "gold",
+      "problems": {
+        "A": {
+          "label": "A",
+          "problem_id": "p-a",
+          "solved": true,
+          "attempts": 0,
+          "solved_at_minutes": 31,
+          "penalty": 31,
+          "pending_frozen_count": 0,
+          "is_first_solver": false,
+          "pending_frozen": false
+        }
+      }
+    }
+  ],
+  "next_cell": {
+    "team_id": "aaaa1111-0000-0000-0000-000000000001",
+    "problem_id": "p-b",
+    "label": "B"
+  }
+}

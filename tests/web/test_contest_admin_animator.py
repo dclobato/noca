@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -236,6 +236,9 @@ async def test_admin_page_has_one_operators_target_and_toggle(
 
     assert page.status_code == 200
     assert page.text.count('id="animator-operators"') == 1
+    shared_clipboard_position = page.text.index("clipboard.js?v=test")
+    animator_settings_position = page.text.index("animator-settings.js?v=test")
+    assert shared_clipboard_position < animator_settings_position
     assert "Site A" in page.text
     assert 'name="style"' not in page.text
     for band, label in (("gold", "Gold"), ("silver", "Silver"), ("bronze", "Bronze")):

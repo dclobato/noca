@@ -52,6 +52,7 @@ from shared.services.token_revocation import ValkeyRevocationStore
 from shared.services.valkey_service import (
     WorkerClass,
     mark_worker_offline,
+    prune_all_stale_workers,
     resolve_worker_id,
     worker_presence_loop,
 )
@@ -405,6 +406,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             worker_class=WorkerClass.WEB,
             worker_id=app.state.worker_id,
         )
+        # Bounds the durable presence registry even where the optional health
+        # monitor (which runs the same pass periodically) is not deployed.
+        await prune_all_stale_workers(app.state.valkey_runtime)
     logger.info("Worker-presence heartbeat stopped")
 
     app.state.revocation_store.close()

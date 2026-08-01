@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NOCA - Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Single hyphen in the name above is deliberate: an XML comment may not contain
+  a double hyphen (XML 1.0, section 2.5). See the main manifest.
+
+  Debug-only cleartext exception, so a developer can point the remote at a
+  plain-HTTP animator on the LAN (http://<lan-ip>:8003) while testing. It is
+  scoped to the debug source set precisely so it can never reach a release APK,
+  where an operator token would otherwise be sent over an unencrypted link.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:usesCleartextTraffic="true"
+        tools:replace="android:usesCleartextTraffic" />
+
+</manifest>

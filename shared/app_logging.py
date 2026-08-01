@@ -9,11 +9,18 @@ import logging
 
 from pydantic import BaseModel
 
+from shared.log_redaction import MASK as _MASK
+from shared.log_redaction import SecretRedactingFilter
+
 # Name tokens (split on "_") that mark a settings field as secret-bearing.  Only
 # applied to non-empty string values, so policy fields such as PASSWORD_WORD_COUNT
 # (int) or PASSWORD_UPPERCASE_REQUIRED (bool) are never masked.
 _SENSITIVE_NAME_TOKENS = frozenset({"PASSWORD", "PASSWD", "PWD", "SECRET", "KEY", "TOKEN"})
-_MASK = "********"
+
+# Loggers whose records may carry a credential-bearing URL. Filtering at the
+# emitting logger (rather than only on our handler) also covers records that
+# other tools capture, such as pytest's log capture.
+_SECRET_BEARING_LOGGERS = ("urllib3", "requests", "httpx", "httpcore")
 
 
 def sqlalchemy_echo_enabled(logging_level: int) -> bool:
@@ -74,10 +81,28 @@ class _SuppressCancelledErrorFilter(logging.Filter):
         return True
 
 
+def _install_secret_redaction(console_handler: logging.Handler) -> None:
+    """Mask URL-embedded credentials on our handler and at noisy HTTP loggers.
+
+    HTTP clients log the full request line at DEBUG, and APIs that take their key
+    as a URL path segment therefore leak it into any DEBUG-level output. The
+    handler filter covers everything we print; the per-logger filters also cover
+    records captured by handlers we do not own.
+    """
+    console_handler.addFilter(SecretRedactingFilter())
+    for logger_name in _SECRET_BEARING_LOGGERS:
+        logger = logging.getLogger(logger_name)
+        # Idempotent: configure_logging may run more than once per process (tests,
+        # hot reload), and filters would otherwise stack on the same logger.
+        if not any(isinstance(existing, SecretRedactingFilter) for existing in logger.filters):
+            logger.addFilter(SecretRedactingFilter())
+
+
 def configure_logging(logging_level: int = logging.DEBUG) -> None:
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging_level)
     console_handler.setFormatter(MainConsoleFormatter())
+    _install_secret_redaction(console_handler)
 
     # Configurar o root logger para a aplicação
     root_logger = logging.getLogger()

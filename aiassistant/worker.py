@@ -16,6 +16,7 @@ Entry point: ``main`` (console script ``noca-aiassistant``).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import signal
 import sys
@@ -61,6 +62,7 @@ from shared.services.valkey_service import (
     WorkerClass,
     WorkerCommandType,
     mark_worker_offline,
+    prune_all_stale_workers,
     publish_worker_last_job,
     reconcile_worker_pause_state,
     resolve_worker_id,
@@ -603,11 +605,17 @@ async def run_ai_worker() -> None:
         )
     finally:
         logger.info("*" * 80)
-        await mark_worker_offline(
-            valkey_runtime,
-            worker_class=WorkerClass.AIASSISTANT,
-            worker_id=worker_id,
-        )
+        # Suppressed: a Valkey failure while retiring presence must not skip the
+        # runtime and database cleanup below. The prune pass bounds the durable
+        # presence registry even where the optional health monitor (which runs
+        # the same pass periodically) is not deployed.
+        with contextlib.suppress(Exception):
+            await mark_worker_offline(
+                valkey_runtime,
+                worker_class=WorkerClass.AIASSISTANT,
+                worker_id=worker_id,
+            )
+            await prune_all_stale_workers(valkey_runtime)
         await valkey_runtime.stop()
         logger.info("Valkey runtime stopped")
         await engine.dispose()

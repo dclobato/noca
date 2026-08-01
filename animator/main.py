@@ -44,6 +44,7 @@ from shared.services.valkey_service import (
     ValkeyRuntime,
     WorkerClass,
     mark_worker_offline,
+    prune_all_stale_workers,
     resolve_worker_id,
     worker_presence_loop,
 )
@@ -168,6 +169,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
                                 worker_class=WorkerClass.ANIMATOR,
                                 worker_id=worker_id,
                             )
+                            # Bounds the durable presence registry even where the
+                            # optional health monitor (which runs the same pass
+                            # periodically) is not deployed.
+                            await prune_all_stale_workers(valkey_runtime)
                     logger.info("Worker-presence heartbeat stopped")
             finally:
                 # Stop the event stream before the Valkey runtime it borrows its
