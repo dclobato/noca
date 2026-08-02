@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -12,6 +12,10 @@ problem package (same ``problem.json`` shared keys, same ``statement.md`` and
 between the two platforms.  Arena-specific extras (``source``,
 ``hide_author_show_source``, ``image``, ``image_caption``, ``notes``, ``license``) are added on top;
 web-only keys (``color``, ``language_limits``) are ignored on import.
+
+The optional ``statement_language`` key (``pt``, ``en`` or ``es``) records the
+natural language of the statement. Exports omit it when the problem has none;
+imports fall back to automatic detection when the package does not state it.
 
 Import rules:
   - the problem owner is always set to the importing user (``caller_id``);
@@ -35,7 +39,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +53,11 @@ from arena.models.arena_problems import (
 )
 from arena.services import admin_problem_service
 from arena.services.admin_category_service import normalize_slug
+from arena.services.statement_language_service import (
+    detect_statement_language_async,
+    parse_statement_language,
+)
+from shared.enumerations import StatementLanguage
 from shared.problem_statement_markdown import validate_md_content
 from shared.services.custom_validator import (
     packaged_validator_member,
@@ -74,11 +83,18 @@ class ArenaProblemImportResult:
         imported_interaction_count: Sample interactions read from ``interaction/``.
             Always 0 when the package had no validator, since such a package's
             interaction members are dropped.
+        statement_language: The language stored on the problem, if any.
+        language_source: Where that language came from — ``"package"`` when the
+            package stated it, ``"detected"`` when detection supplied it, and
+            ``"undetermined"`` when the package stated nothing and detection found
+            nothing either.
     """
 
     problem: ArenaProblem
     has_custom_validator: bool
     imported_interaction_count: int
+    statement_language: StatementLanguage | None
+    language_source: Literal["package", "detected", "undetermined"]
 
 
 def build_export_zip(problem: ArenaProblem, owner_name: str, testcase_dir: Path) -> bytes:
@@ -144,6 +160,9 @@ def build_export_zip(problem: ArenaProblem, owner_name: str, testcase_dir: Path)
             "notes": problem.notes,
             "license": problem.license,
         }
+        # Optional key: a problem with no recorded language exports without it.
+        if problem.statement_language is not None:
+            problem_json["statement_language"] = problem.statement_language.value
         validator = problem.custom_validator
         validator_source = None
         validator_language_id = None
@@ -229,6 +248,8 @@ async def import_problem_from_zip(
     image_b64, image_mime = load_packaged_image(meta, archive, names, image_service)
     category_ids = await _resolve_category_ids(session, meta.get("categories"))
 
+    statement_language, language_source = await _resolve_packaged_language(meta, title=title, statement=statement)
+
     imported_author = _optional_string(meta, "author")
     problem = await admin_problem_service.create_problem(
         session,
@@ -249,6 +270,7 @@ async def import_problem_from_zip(
         notes=_optional_string(meta, "notes"),
         license=_optional_string(meta, "license"),
         category_ids=category_ids,
+        statement_language=statement_language,
     )
 
     write_tc_files = _insert_test_cases(session, problem.id, parsed, testcase_dir, is_sample=False)
@@ -281,7 +303,43 @@ async def import_problem_from_zip(
         problem=problem,
         has_custom_validator=packaged_validator is not None,
         imported_interaction_count=len(packaged_interactions),
+        statement_language=statement_language,
+        language_source=language_source,
     )
+
+
+async def _resolve_packaged_language(
+    meta: dict[str, Any],
+    *,
+    title: str,
+    statement: str,
+) -> tuple[StatementLanguage | None, Literal["package", "detected", "undetermined"]]:
+    """Resolve the statement language of an imported package.
+
+    A stated language is authoritative; otherwise the statement is auto-detected
+    so the importer only has to verify the result. Detection may still come up
+    empty, which is its own reportable outcome.
+
+    Args:
+        meta: The parsed ``problem.json`` mapping.
+        title: The package title, used as extra detection signal.
+        statement: The package statement text.
+
+    Returns:
+        tuple: The resolved language and where it came from.
+
+    Raises:
+        ValueError: When ``statement_language`` holds an unsupported value.
+    """
+    raw = meta.get("statement_language")
+    try:
+        stated = parse_statement_language(str(raw) if raw is not None else None)
+    except ValueError as exc:
+        raise ValueError(f"problem.json: 'statement_language' is invalid. {exc}") from exc
+    if stated is not None:
+        return stated, "package"
+    detected = await detect_statement_language_async(statement, title=title)
+    return detected, ("detected" if detected is not None else "undetermined")
 
 
 def _optional_string(meta: dict[str, Any], key: str) -> str | None:

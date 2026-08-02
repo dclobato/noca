@@ -43,8 +43,8 @@ Use this endpoint for runtime health probes.
 
 | `url_for` call | Generated path | Notes |
 |---|---|---|
-| `request.url_for('arena_problem_list')` | `/problems` | Query: `search`, `sort_by` (`number_asc`, `number_desc`, `title_asc`, `title_desc`, `solvers_asc`, `solvers_desc`, `rating_asc`, `rating_desc`), `category_slugs`, `page` |
-| `request.url_for('arena_problem_detail', arena_number=N)` | `/problems/{N}` | Query: `back_page`, `back_search`, `back_sort_by`, `back_category_slugs` |
+| `request.url_for('arena_problem_list')` | `/problems` | Query: `search`, `sort_by` (`relevance`, `number_asc`, `number_desc`, `title_asc`, `title_desc`, `solvers_asc`, `solvers_desc`, `rating_asc`, `rating_desc`), `category_slugs`, `language`, `page`; omitted sort defaults to relevance while searching and number ascending otherwise |
+| `request.url_for('arena_problem_detail', arena_number=N)` | `/problems/{N}` | Query: `back_page`, `back_search`, `back_sort_by`, `back_category_slugs`, `back_language` |
 | `request.url_for('arena_problem_print', arena_number=N)` | `/problems/{N}/print` | Standalone print-friendly problem page (statement, samples, limits); requires auth |
 | `request.url_for('arena_problem_rating_history_public', arena_number=N)` | `/problems/{N}/rating-history` | Returns JSON `{history:[…]}` |
 | `request.url_for('arena_problem_statistics', arena_number=N)` | `/problems/{N}/statistics` | Per-problem statistics page |
@@ -268,14 +268,16 @@ GET routes: `arena/routes/admin_users.py` · POST routes: `arena/routes/admin_us
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
-| `GET /admin/problems` | `arena_admin_problem_list` | Query: `search`, `sort_by`, `owner_id`, `category_slugs`, `per_page`, `page` | `admin_problems.py` |
+| `GET /admin/problems` | `arena_admin_problem_list` | Query: `search`, `sort_by` (`relevance`, `number_asc`, `number_desc`, `title_asc`, `title_desc`, `rating_asc`, `rating_desc`), `owner_id`, `category_slugs`, `language`, `per_page`, `page`; omitted sort defaults to relevance while searching and number ascending otherwise | `admin_problems.py` |
 | `GET /admin/problems/new` | `arena_admin_problem_new` | Optional query: list-return state | `admin_problems.py` |
 | `POST /admin/problems/new` | `arena_admin_problem_create` | — | `admin_problems.py` |
 | `GET /admin/problems/{problem_id}/edit` | `arena_admin_problem_edit` | `problem_id=`, optional query: list-return state | `admin_problems.py` |
 | `POST /admin/problems/{problem_id}/edit` | `arena_admin_problem_update` | `problem_id=` | `admin_problems.py` |
-| `POST /admin/problems/{problem_id}/toggle-enabled` | `arena_admin_problem_toggle_enabled` | `problem_id=`, Query: `page`, `per_page`, `search`, `sort_by`, `owner_id`, `category_slugs` | `admin_problems.py` |
+| `POST /admin/problems/{problem_id}/toggle-enabled` | `arena_admin_problem_toggle_enabled` | `problem_id=`, Query: `page`, `per_page`, `search`, `sort_by`, `owner_id`, `category_slugs`, `language` | `admin_problems.py` |
 | `POST /admin/problems/{problem_id}/delete` | `arena_admin_problem_delete` | `problem_id=`, Form: `password`, list-return state | `admin_problems.py` |
 | `POST /admin/problems/{problem_id}/rejudge-all` | `arena_admin_problem_rejudge_all` | `problem_id=`, Form: `password` | `admin_problems.py` |
+| `GET /admin/problems/suggestions` | `arena_admin_problem_suggestions` | Required query: `field` (`author` or `source`), literal `q` (2–256 characters); admins see all problems, while editors see enabled problems plus their own disabled drafts | `admin_problem_api.py` |
+| `POST /admin/problems/detect-language` | `arena_admin_problem_detect_language` | JSON body: `statement`, `title` | `admin_problem_api.py` |
 
 ## Arena Admin – Problem Import/Export Routes (`arena/routes/admin_problem_io.py`)
 

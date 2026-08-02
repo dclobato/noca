@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -123,6 +123,19 @@ async def admin_problem_import_submit(
         f"Problem #{problem.arena_number} imported (disabled). Review and complete the details below.",
         FlashCategory.SUCCESS,
     )
+    # A package that stated no language had one filled in (or not) automatically,
+    # so the importer is asked to verify it rather than trust it silently.
+    if result.language_source == "detected" and result.statement_language is not None:
+        flash(
+            "The package did not state a statement language; it was detected as "
+            f"{result.statement_language.label}. Please confirm it below.",
+            FlashCategory.WARNING,
+        )
+    elif result.language_source == "undetermined":
+        flash(
+            "The package did not state a statement language and it could not be detected. Please select it below.",
+            FlashCategory.WARNING,
+        )
     # An interactive problem shows sample interactions instead of sample test cases,
     # so one imported without any has nothing public to show a contestant.
     if result.has_custom_validator and result.imported_interaction_count == 0:

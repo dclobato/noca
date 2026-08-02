@@ -440,6 +440,7 @@ async def run_ai_worker() -> None:
     logger.info(r"| | | |_| |_  | | | \__ \__ \ \__ \ || (_| | | | | |_ ".center(80, " "))
     logger.info(r"\_| |_/\___/  \_| |_/___/___/_|___/\__\__,_|_| |_|\__|".center(80, " "))
     logger.info(" " * 80)
+    logger.info(f"Model: OpenAI {settings.OPENAI_MODEL}".center(80, " "))
 
     banner = f"Starting AI Assistant worker (version {APP_VERSION}, environment {settings.ENVIRONMENT.value})"
     logger.info(banner.center(80, " "))

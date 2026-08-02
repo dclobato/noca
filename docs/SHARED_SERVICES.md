@@ -1823,6 +1823,6 @@ both import pages.
 
 It is generated from code rather than committed as a binary so it cannot drift from
 the importers, and it deliberately carries fields from both domains (Arena's `source` /
-`license`, the Contest's `color` / `language_limits`) — each importer reads
+`license` / `statement_language`, the Contest's `color` / `language_limits`) — each importer reads
 `problem.json` as a plain mapping and ignores keys it does not know, so one package
 imports cleanly on either side. Round-trip tests import it through both real importers.

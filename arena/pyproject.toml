@@ -29,6 +29,7 @@ dependencies = [
     "fastapi_flash @ git+https://github.com/dclobato/fastapi_flash.git@v0.1.0",
     "jinja2==3.1.6",
     "jwtservice @ git+https://github.com/dclobato/jwtservice.git@v2.1.0",
+    "lingua-language-detector==2.2.0",
     "pycountry==26.2.16",
     "pyotp==2.9.0",
     "pytz==2026.2",

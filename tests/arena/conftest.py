@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from sqlalchemy import event, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.orm.attributes import get_history
 
 import arena.models.arena_problems  # noqa: F401 – register mapper before event.listen
@@ -46,6 +47,26 @@ def attach_reputation_services(app: FastAPI) -> None:
     app.state.email_reputation_service = EmailReputationService(
         api_key=None, network_service=NetworkService(logger=logger), logger=logger
     )
+
+
+@pytest.fixture
+def sql_statements(engine: Any) -> Generator[list[str]]:
+    """Capture SQL statements executed after a test clears the returned list."""
+    statements: list[str] = []
+
+    def _capture(
+        _connection: Connection,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", _capture)
+    yield statements
+    event.remove(engine.sync_engine, "before_cursor_execute", _capture)
 
 
 @pytest.fixture(autouse=True)

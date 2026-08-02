@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -27,7 +27,7 @@ from arena.models.arena_submissions import ArenaSubmission
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_service, admin_problem_tc_service
 from arena.services.admin_problem_tc_service import TestCaseView
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, StatementLanguage
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.problem_image import process_problem_image_upload
 from shared.services.sample_interactions import (
@@ -139,9 +139,10 @@ def problem_list_url(
     page: str = "1",
     per_page: str = "25",
     search: str = "",
-    sort_by: str = "title_asc",
+    sort_by: str = admin_problem_service.DEFAULT_SORT,
     owner_id: str = "",
     category_slugs: list[str] | None = None,
+    language: str = "",
     anchor: str | None = None,
 ) -> str:
     """Build a problem list URL preserving non-default filter/sort state."""
@@ -152,10 +153,12 @@ def problem_list_url(
         params["per_page"] = per_page
     if search:
         params["search"] = search
-    if sort_by and sort_by != "title_asc":
+    if sort_by and sort_by != admin_problem_service.DEFAULT_SORT:
         params["sort_by"] = sort_by
     if owner_id:
         params["owner_id"] = owner_id
+    if language:
+        params["language"] = language
     qs_parts = urlencode(params)
     category_qs = urlencode({"category_slugs": category_slugs or []}, doseq=True)
     query_parts = [part for part in (qs_parts, category_qs) if part]
@@ -209,6 +212,7 @@ def form_fields(
     image_caption: str,
     notes: str = "",
     license: str = "",
+    statement_language: str = "",
 ) -> dict[str, Any]:
     """Build the ``form`` context dict consumed by ``problem_form.html``."""
     return {
@@ -226,6 +230,7 @@ def form_fields(
         "image_caption": image_caption,
         "notes": notes,
         "license": license,
+        "statement_language": statement_language,
     }
 
 
@@ -237,6 +242,7 @@ def return_state(
     sort_by: str,
     owner_id: str,
     category_slugs: list[str] | None,
+    language: str = "",
 ) -> dict[str, Any]:
     """Build the hidden return-state dict that preserves list filters across the form."""
     return {
@@ -246,6 +252,7 @@ def return_state(
         "sort_by": sort_by,
         "owner_id": owner_id,
         "category_slugs": category_slugs or [],
+        "language": language,
     }
 
 
@@ -266,6 +273,7 @@ def render_problem_form(
     validator_status: Any = None,
     validator_languages: list[Any] | None = None,
     interactions: list[ArenaSampleInteraction] | None = None,
+    language_conflict: dict[str, str] | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
     """Render ``problem_form.html`` with the shared create/edit context.
@@ -300,6 +308,9 @@ def render_problem_form(
         "has_submissions": has_submissions,
         "validator_status": validator_status,
         "validator_languages": validator_languages or [],
+        "statement_languages": list(StatementLanguage),
+        "language_conflict": language_conflict,
+        "detect_language_url": str(request.url_for("arena_admin_problem_detect_language")),
     }
     if mode == "edit" and problem is not None:
         context["next_url"] = next_url or ""

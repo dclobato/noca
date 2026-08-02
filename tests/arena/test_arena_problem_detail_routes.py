@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -42,7 +42,7 @@ from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
 from arena.services.user_timezone_service import format_user_datetime
 from shared.db_schema.arena import arena_problem_set_problems
-from shared.enumerations import ArenaRole, CustomValidatorActiveState
+from shared.enumerations import ArenaRole, CustomValidatorActiveState, StatementLanguage
 from shared.services.sample_interactions import parse_interaction_text
 from web.models.language import Language
 
@@ -936,3 +936,82 @@ async def test_problem_print_requires_authentication(session: AsyncSession) -> N
         response = await client.get(f"/problems/{problem.arena_number}/print", follow_redirects=False)
 
     assert response.status_code in (302, 303, 307, 401)
+
+
+@pytest.mark.asyncio
+async def test_public_problem_list_filters_by_statement_language(session: AsyncSession) -> None:
+    """The language filter narrows the public list; garbage means "all languages"."""
+    app = _build_problem_detail_app(session)
+    author = await _create_user(
+        session,
+        name="Language Author",
+        email="lang-author@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+        can_edit=True,
+    )
+    portuguese = await _create_enabled_problem(session, author, title="Problema em Portugues")
+    english = await _create_enabled_problem(session, author, title="Problem in English")
+    portuguese.statement_language = StatementLanguage.PT
+    english.statement_language = StatementLanguage.EN
+    await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        filtered = await client.get("/problems", params={"language": "pt"})
+        unfiltered = await client.get("/problems")
+        bogus = await client.get("/problems", params={"language": "klingon"})
+
+    assert filtered.status_code == 200
+    assert "Problema em Portugues" in filtered.text
+    assert "Problem in English" not in filtered.text
+    for response in (unfiltered, bogus):
+        assert response.status_code == 200
+        assert "Problema em Portugues" in response.text
+        assert "Problem in English" in response.text
+    # The filter select renders its options and keeps the current selection.
+    assert 'value="pt"' in filtered.text
+    assert "All languages" in filtered.text
+
+
+@pytest.mark.asyncio
+async def test_language_filter_survives_paging_and_the_detail_back_link(session: AsyncSession) -> None:
+    """The filter must ride along on page links and on the detail page's Back button."""
+    app = _build_problem_detail_app(session)
+    author = await _create_user(
+        session,
+        name="Paging Author",
+        email="lang-paging@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+        can_edit=True,
+    )
+    problems = [
+        await _create_enabled_problem(session, author, title=f"Portugues {index}")
+        for index in range(30)  # more than one 25-row page
+    ]
+    for problem in problems:
+        problem.statement_language = StatementLanguage.PT
+    await session.commit()
+    user = await _create_user(
+        session,
+        name="Paging Reader",
+        email="lang-paging-reader@test.example",
+        role=ArenaRole.ARENA_USER,
+    )
+    token = _login_token(app, user)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        listing = await client.get("/problems", params={"language": "pt"})
+        detail = await client.get(
+            f"/problems/{problems[0].arena_number}",
+            params={"back_language": "pt", "back_page": "2"},
+        )
+
+    # Page links carry the active filter, and detail links carry it back.
+    assert "language=pt" in listing.text
+    assert "back_language=pt" in listing.text
+    assert detail.status_code == 200
+    back_hrefs = [part.split('"', 1)[0] for part in detail.text.split('href="')[1:] if "/problems?" in part]
+    assert any("language=pt" in href and "page=2" in href for href in back_hrefs)

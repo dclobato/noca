@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -56,6 +56,7 @@ from arena.services.arena_problem_set_service import (
     problem_accepting_set_for_user,
 )
 from arena.services.pagination_service import parse_page
+from arena.services.statement_language_service import safe_statement_language
 from arena.services.submission_service import (
     ArenaSubmissionRateLimitError,
     ArenaSubmissionServiceError,
@@ -64,7 +65,7 @@ from arena.services.submission_service import (
 from arena.services.user_timezone_service import format_user_datetime
 from shared.db_schema import languages as languages_table
 from shared.db_schema.arena import arena_submissions
-from shared.enumerations import ArenaNotificationKind, ArenaRole
+from shared.enumerations import ArenaNotificationKind, ArenaRole, StatementLanguage
 from shared.language_registry import ace_mode_for_language_id, default_stub_for_language_id
 from shared.services.arena_notification_service import create_arena_notification
 from shared.services.custom_validator import status_view
@@ -75,27 +76,20 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["arena-problems"])
 
-_DEFAULT_SORT = "number_asc"
-_VALID_SORTS = {
-    "number_asc",
-    "number_desc",
-    "title_asc",
-    "title_desc",
-    "rating_asc",
-    "rating_desc",
-    "solvers_asc",
-    "solvers_desc",
-}
-
 
 def _html(response: Any) -> HTMLResponse:
     """Cast a TemplateResponse to HTMLResponse for type-checker satisfaction."""
     return cast(HTMLResponse, response)
 
 
-def _safe_sort(sort_by: str | None) -> str:
-    """Return a validated sort key, falling back to the default."""
-    return sort_by if sort_by in _VALID_SORTS else _DEFAULT_SORT
+def _safe_sort(sort_by: str | None, search: str = "") -> str:
+    """Return a validated sort key with relevance as the search default."""
+    default_sort = problem_browse_service.RELEVANCE_SORT if search.strip() else problem_browse_service.DEFAULT_SORT
+    if sort_by not in problem_browse_service.VALID_SORTS:
+        return default_sort
+    if sort_by == problem_browse_service.RELEVANCE_SORT and not search.strip():
+        return problem_browse_service.DEFAULT_SORT
+    return sort_by
 
 
 def _relative_time(dt: datetime) -> str:
@@ -140,6 +134,7 @@ def _problem_detail_url(
     back_search: str,
     back_sort_by: str,
     back_category_slugs: list[str],
+    back_language: str = "",
 ) -> str:
     """Build a problem detail URL preserving back-state query params.
 
@@ -150,6 +145,7 @@ def _problem_detail_url(
         back_search: Search query to restore.
         back_sort_by: Sort key to restore.
         back_category_slugs: Category filter slugs to restore.
+        back_language: Statement-language filter to restore.
 
     Returns:
         str: URL for the problem detail page with back-state params attached.
@@ -159,7 +155,9 @@ def _problem_detail_url(
         params["back_page"] = back_page
     if back_search:
         params["back_search"] = back_search
-    if back_sort_by and back_sort_by != _DEFAULT_SORT:
+    if back_language:
+        params["back_language"] = back_language
+    if back_sort_by and back_sort_by != problem_browse_service.DEFAULT_SORT:
         params["back_sort_by"] = back_sort_by
     base_url = str(request.url_for("arena_problem_detail", arena_number=arena_number))
     qs = urlencode(params)
@@ -175,6 +173,7 @@ def _problem_list_back_url(
     back_search: str,
     back_sort_by: str,
     back_category_slugs: list[str],
+    back_language: str = "",
 ) -> str:
     """Reconstruct the problem list URL from the back-state query params.
 
@@ -184,6 +183,7 @@ def _problem_list_back_url(
         back_search: Search query to restore.
         back_sort_by: Sort key to restore.
         back_category_slugs: Category filter slugs to restore.
+        back_language: Statement-language filter to restore.
 
     Returns:
         str: Fully-qualified URL for the problem list with state restored.
@@ -193,7 +193,9 @@ def _problem_list_back_url(
         params["page"] = back_page
     if back_search:
         params["search"] = back_search
-    if back_sort_by and back_sort_by != _DEFAULT_SORT:
+    if back_language:
+        params["language"] = back_language
+    if back_sort_by and back_sort_by != problem_browse_service.DEFAULT_SORT:
         params["sort_by"] = back_sort_by
     base_url = str(request.url_for("arena_problem_list"))
     qs = urlencode(params)
@@ -206,8 +208,9 @@ def _problem_list_back_url(
 async def arena_problem_list(
     request: Request,
     search: str = "",
-    sort_by: str = _DEFAULT_SORT,
+    sort_by: str | None = None,
     category_slugs: list[str] | None = Query(None),
+    language: str = "",
     page: int = 1,
     current_user: ArenaUser | None = Depends(get_current_arena_user),
     session: AsyncSession = Depends(get_db),
@@ -220,15 +223,17 @@ async def arena_problem_list(
 
     Args:
         request: The current HTTP request.
-        search: Free-text search over number, title, source, and author name.
-        sort_by: Column sort key (number_asc default).
+        search: Hybrid search over number, title, statement, source, and author.
+        sort_by: Column sort key (relevance while searching; otherwise number_asc).
         category_slugs: Category slugs for AND-based filtering.
+        language: Statement-language filter; an unknown value means "all languages".
         page: 1-based page number.
         current_user: Authenticated ``ArenaUser`` or ``None`` for guests.
         session: Async database session.
     """
-    effective_sort = _safe_sort(sort_by)
+    effective_sort = _safe_sort(sort_by, search)
     effective_page = parse_page(page)
+    effective_language = safe_statement_language(language)
 
     pagination = await problem_browse_service.list_enabled_problems_paginated(
         session,
@@ -236,6 +241,7 @@ async def arena_problem_list(
         per_page=25,
         search=search,
         category_slugs=category_slugs or None,
+        language=effective_language,
         sort_by=effective_sort,
         user_id=current_user.id if current_user else None,
     )
@@ -246,6 +252,8 @@ async def arena_problem_list(
     back_params: dict[str, str] = {"back_page": str(effective_page), "back_sort_by": effective_sort}
     if search:
         back_params["back_search"] = search
+    if effective_language is not None:
+        back_params["back_language"] = effective_language.value
     back_params_qs = urlencode(back_params)
     if category_slugs:
         back_params_qs += "&" + urlencode({"back_category_slugs": category_slugs}, doseq=True)
@@ -260,8 +268,11 @@ async def arena_problem_list(
                 "pagination": pagination,
                 "search": search,
                 "sort_by": effective_sort,
+                "sort_was_explicit": sort_by in problem_browse_service.VALID_SORTS,
                 "selected_category_slugs": set(category_slugs or []),
                 "all_categories": all_categories,
+                "language": effective_language.value if effective_language else "",
+                "statement_languages": list(StatementLanguage),
                 "page": effective_page,
                 "back_params_qs": back_params_qs,
             },
@@ -275,8 +286,9 @@ async def arena_problem_detail(
     arena_number: int,
     back_page: str = "1",
     back_search: str = "",
-    back_sort_by: str = _DEFAULT_SORT,
+    back_sort_by: str = problem_browse_service.DEFAULT_SORT,
     back_category_slugs: list[str] = Query(default=[]),
+    back_language: str = "",
     continue_submission: str | None = Query(default=None, alias="continue"),
     current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
@@ -298,6 +310,7 @@ async def arena_problem_detail(
         back_search: Search query to restore.
         back_sort_by: Sort key to restore.
         back_category_slugs: Category filter slugs to restore.
+        back_language: Statement-language filter to restore.
         continue_submission: Optional submission UUID whose source code should
             pre-fill the editor.  Silently ignored if the submission does not
             belong to the current user or targets a different problem.
@@ -405,6 +418,7 @@ async def arena_problem_detail(
         back_search=back_search,
         back_sort_by=back_sort_by,
         back_category_slugs=back_category_slugs,
+        back_language=back_language,
     )
     rating_history_url = str(request.url_for("arena_problem_rating_history_public", arena_number=arena_number))
 
@@ -419,6 +433,7 @@ async def arena_problem_detail(
             back_search=back_search,
             back_sort_by=back_sort_by,
             back_category_slugs=back_category_slugs,
+            back_language=back_language,
         )
     if next_number is not None:
         next_problem_url = _problem_detail_url(
@@ -428,6 +443,7 @@ async def arena_problem_detail(
             back_search=back_search,
             back_sort_by=back_sort_by,
             back_category_slugs=back_category_slugs,
+            back_language=back_language,
         )
 
     templates = request.app.state.arena_templates

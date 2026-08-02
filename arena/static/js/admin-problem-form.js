@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -29,6 +29,72 @@
     authorIsOwnerInput.addEventListener("change", syncAuthorField);
     syncAuthorField();
   }
+
+  // ── Source and free-text author suggestions ────────────────────────────────
+
+  document.querySelectorAll("input[data-suggestions-url][data-suggestions-field]").forEach((input) => {
+    const suggestionsUrl = input.getAttribute("data-suggestions-url") || "";
+    const field = input.getAttribute("data-suggestions-field") || "";
+    const datalistId = input.getAttribute("list") || "";
+    const datalist = datalistId ? document.getElementById(datalistId) : null;
+
+    if (!suggestionsUrl || !field || !datalist) return;
+
+    let timer = null;
+    let controller = null;
+
+    function clearSuggestions() {
+      datalist.replaceChildren();
+    }
+
+    async function loadSuggestions(query) {
+      controller = new AbortController();
+      const requestController = controller;
+      const params = new URLSearchParams({ field, q: query });
+
+      try {
+        const response = await fetch(`${suggestionsUrl}?${params}`, { signal: requestController.signal });
+        if (!response.ok) {
+          if (requestController === controller) clearSuggestions();
+          return;
+        }
+
+        const data = await response.json();
+        if (requestController.signal.aborted || requestController !== controller || !Array.isArray(data.suggestions)) {
+          return;
+        }
+
+        clearSuggestions();
+        data.suggestions.forEach((suggestion) => {
+          if (typeof suggestion !== "string") return;
+          const option = document.createElement("option");
+          option.value = suggestion;
+          datalist.appendChild(option);
+        });
+      } catch (error) {
+        if (error && typeof error === "object" && error.name === "AbortError") return;
+        if (requestController === controller) clearSuggestions();
+      }
+    }
+
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      if (controller) {
+        controller.abort();
+        controller = null;
+      }
+
+      const query = input.value.trim();
+      clearSuggestions();
+      if (query.length < 2) {
+        return;
+      }
+
+      timer = setTimeout(() => {
+        void loadSuggestions(query);
+      }, 250);
+    });
+  });
 
   // ── Category autocomplete tag-picker ────────────────────────────────────────
 

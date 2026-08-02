@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -21,7 +21,7 @@
             <form method="get"
                   class="d-flex flex-wrap gap-2 align-items-end mb-3"
                   id="problem-filter-form">
-                {% with label="Search", value=search, placeholder="Number, title, author, source…" %}
+                {% with label="Search", value=search, placeholder="Number, title, statement, author, source…" %}
                     {% include "_partials/filter_search_field.html" %}
                 {% endwith %}
                 <div>
@@ -69,15 +69,39 @@
                         </div>
                     </div>
                 </div>
-                <input type="hidden" name="sort_by" value="{{ sort_by }}">
+                <div>
+                    <label class="form-label form-label-sm mb-1" for="language">Language</label>
+                    <select class="form-select form-select-sm arena-filter-narrow"
+                            id="language"
+                            name="language">
+                        <option value="">All languages</option>
+                        {% for statement_language in statement_languages %}
+                            <option value="{{ statement_language.value }}"
+                                    {% if language == statement_language.value %}selected{% endif %}>
+                                {{ statement_language.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% if sort_was_explicit %}<input type="hidden" name="sort_by" value="{{ sort_by }}">{% endif %}
                 <input type="hidden" name="page" value="1">
                 {% include "_partials/filter_submit_button.html" %}
-                {% set _filters_active = search or (selected_category_slugs | length > 0) or sort_by != 'number_asc' %}
+                {% set _filters_active = search or language or (selected_category_slugs | length > 0) or sort_by != 'number_asc' %}
                 {% with clear_url=request.url_for("arena_problem_list"), filters_active=_filters_active %}
                     {% include "_partials/filter_clear_link.html" %}
                 {% endwith %}
             </form>
-            <p class="text-muted small mb-1">{{ pagination.total }} problem{{ 's' if pagination.total != 1 else '' }}</p>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                <span class="text-muted small">{{ pagination.total }} problem{{ 's' if pagination.total != 1 else '' }}</span>
+                {% if search %}
+                    {% if sort_by == 'relevance' %}
+                        <span class="badge text-bg-secondary">Sorted by relevance</span>
+                    {% else %}
+                        <a href="{{ request.url.include_query_params(sort_by='relevance', page=1) }}"
+                           class="btn btn-link btn-sm p-0">Sort by relevance</a>
+                    {% endif %}
+                {% endif %}
+            </div>
             <p class="text-muted small mb-2">
                 Problems marked with {{ render_icon(icon="published_with_changes", classes="arena-custom-validator-legend-icon", title="Custom validator") }} use a custom validator.
             </p>
@@ -148,9 +172,9 @@
                     </thead>
                     <tbody>
                         {% for item in pagination.items %}
-                            <tr id="{{ item.problem.id }}"
+                            <tr id="{{ item.id }}"
                                 class="arena-clickable-row"
-                                data-href="{{ request.url_for('arena_problem_detail', arena_number=item.problem.arena_number) }}?{{ back_params_qs }}">
+                                data-href="{{ request.url_for('arena_problem_detail', arena_number=item.arena_number) }}?{{ back_params_qs }}">
                                 {% if current_user %}
                                     <td class="arena-col-favorite">
                                         {% if item.is_favorite %}
@@ -159,12 +183,12 @@
                                     </td>
                                 {% endif %}
                                 <td class="column-width-tiny">
-                                    <a href="{{ request.url_for('arena_problem_detail', arena_number=item.problem.arena_number) }}?{{ back_params_qs }}"
-                                       class="text-decoration-none">{{ item.problem.arena_number }}</a>
+                                    <a href="{{ request.url_for('arena_problem_detail', arena_number=item.arena_number) }}?{{ back_params_qs }}"
+                                       class="text-decoration-none">{{ item.arena_number }}</a>
                                 </td>
                                 <td>
-                                    <a href="{{ request.url_for('arena_problem_detail', arena_number=item.problem.arena_number) }}?{{ back_params_qs }}"
-                                       class="text-decoration-none fw-medium">{{ item.problem.title }}</a>
+                                    <a href="{{ request.url_for('arena_problem_detail', arena_number=item.arena_number) }}?{{ back_params_qs }}"
+                                       class="text-decoration-none fw-medium">{{ item.title }}</a>
                                     {% if item.has_custom_validator %}
                                         {{ render_icon(icon="published_with_changes", classes="text-info", title="This problem uses a custom validator") }}
                                     {% endif %}

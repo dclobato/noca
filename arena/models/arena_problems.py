@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -30,7 +30,11 @@ from shared.db_schema.arena import arena_problem_ratings as arena_problem_rating
 from shared.db_schema.arena import arena_problems as arena_problems_table
 from shared.db_schema.arena import arena_sample_interactions as arena_sample_interactions_table
 from shared.db_schema.arena import arena_test_cases as arena_test_cases_table
-from shared.enumerations import CustomValidatorActiveState, CustomValidatorCandidateState
+from shared.enumerations import (
+    CustomValidatorActiveState,
+    CustomValidatorCandidateState,
+    StatementLanguage,
+)
 from shared.services.arena_rating import CONFIDENCE_SCALE
 
 if TYPE_CHECKING:
@@ -68,6 +72,7 @@ class ArenaProblem(ArenaBase):
     problem_image_caption: Mapped[str | None]
     notes: Mapped[str | None]
     license: Mapped[str | None]
+    statement_language: Mapped[StatementLanguage | None]
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 

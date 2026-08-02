@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -147,6 +147,27 @@ class CustomValidatorCrashReason(StrEnum):
     STARTUP = "STARTUP"
     COMMUNICATION = "COMMUNICATION"
     WATCHDOG = "WATCHDOG"
+
+
+class StatementLanguage(StrEnum):
+    """Natural language a problem statement is written in (ISO 639-1)."""
+
+    PT = "pt"
+    EN = "en"
+    ES = "es"
+
+    @property
+    def label(self) -> str:
+        """Return the English display name of the language."""
+        return _STATEMENT_LANGUAGE_LABELS[self]
+
+
+_STATEMENT_LANGUAGE_LABELS: dict[StatementLanguage, str] = {
+    StatementLanguage.PT: "Portuguese",
+    StatementLanguage.EN: "English",
+    StatementLanguage.ES: "Spanish",
+}
+"""Display names for :class:`StatementLanguage`, kept out of the enum body so it stays a pure StrEnum."""
 
 
 class ContestStatus(StrEnum):

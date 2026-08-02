@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -33,7 +33,7 @@
             <form method="get"
                   class="d-flex flex-wrap gap-2 align-items-end mb-3"
                   id="problem-filter-form">
-                {% with label="Search", value=search, placeholder="Number, title, statement, source…" %}
+                {% with label="Search", value=search, placeholder="Number, title, statement, author, source…" %}
                     {% include "_partials/filter_search_field.html" %}
                 {% endwith %}
                 {% if is_admin %}
@@ -94,6 +94,20 @@
                     </div>
                 </div>
                 <div>
+                    <label class="form-label form-label-sm mb-1" for="language">Language</label>
+                    <select class="form-select form-select-sm arena-filter-narrow"
+                            id="language"
+                            name="language">
+                        <option value="">All languages</option>
+                        {% for statement_language in statement_languages %}
+                            <option value="{{ statement_language.value }}"
+                                    {% if language == statement_language.value %}selected{% endif %}>
+                                {{ statement_language.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
                     <label class="form-label form-label-sm mb-1" for="per_page">Per page</label>
                     <select class="form-select form-select-sm" id="per_page" name="per_page">
                         {% for n in [10, 25, 50, 100] %}
@@ -101,14 +115,24 @@
                         {% endfor %}
                     </select>
                 </div>
-                <input type="hidden" name="sort_by" value="{{ sort_by }}">
+                {% if sort_was_explicit %}<input type="hidden" name="sort_by" value="{{ sort_by }}">{% endif %}
                 {% include "_partials/filter_submit_button.html" %}
-                {% set _filters_active = search or selected_owner_id or (selected_category_slugs | length > 0) or per_page != 25 or sort_by != 'number_asc' %}
+                {% set _filters_active = search or language or selected_owner_id or (selected_category_slugs | length > 0) or per_page != 25 or sort_by != 'number_asc' %}
                 {% with clear_url=request.url_for("arena_admin_problem_list"), filters_active=_filters_active %}
                     {% include "_partials/filter_clear_link.html" %}
                 {% endwith %}
             </form>
-            <p class="text-muted small mb-1">{{ pagination.total }} problem{{ 's' if pagination.total != 1 else '' }}</p>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                <span class="text-muted small">{{ pagination.total }} problem{{ 's' if pagination.total != 1 else '' }}</span>
+                {% if search %}
+                    {% if sort_by == 'relevance' %}
+                        <span class="badge text-bg-secondary">Sorted by relevance</span>
+                    {% else %}
+                        <a href="{{ request.url.include_query_params(sort_by='relevance', page=1) }}"
+                           class="btn btn-link btn-sm p-0">Sort by relevance</a>
+                    {% endif %}
+                {% endif %}
+            </div>
             <p class="text-muted small mb-2">
                 Problems marked with {{ render_icon(icon="published_with_changes", classes="arena-custom-validator-legend-icon", title="Custom validator") }} use a custom validator.
             </p>
@@ -166,12 +190,12 @@
                     </thead>
                     <tbody>
                         {% for row in pagination.items %}
-                            <tr id="{{ row.problem.id }}">
+                            <tr id="{{ row.id }}">
                                 <td class="arena-monospace">
-                                    <a href="{{ request.url_for('arena_problem_detail', arena_number=row.problem.arena_number) }}">{{ row.problem.arena_number }}</a>
+                                    <a href="{{ request.url_for('arena_problem_detail', arena_number=row.arena_number) }}">{{ row.arena_number }}</a>
                                 </td>
                                 <td>
-                                    {{ row.problem.title }}
+                                    {{ row.title }}
                                     {% if row.has_custom_validator %}
                                         {{ render_icon(icon="published_with_changes", classes="text-info", title="This problem uses a custom validator") }}
                                     {% endif %}
@@ -187,30 +211,30 @@
                                 <td class="text-end">{{ row.private_tc_count }}</td>
                                 <td class="text-end">{{ "%.1f"|format(row.rating) if row.rating is not none else '—' }}</td>
                                 <td class="arena-col-actions">
-                                    <a href="{{ request.url_for('arena_admin_problem_edit', problem_id=row.problem.id) }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"
+                                    <a href="{{ request.url_for('arena_admin_problem_edit', problem_id=row.id) }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"
                                        class="btn arena-icon-button btn-sm"
                                        data-bs-toggle="tooltip"
                                        data-bs-container="body"
                                        title="Edit problem"
                                        aria-label="Edit problem">{{ render_icon(icon="edit") }}</a>
-                                    <a href="{{ request.url_for('arena_admin_problem_export', problem_id=row.problem.id) }}"
+                                    <a href="{{ request.url_for('arena_admin_problem_export', problem_id=row.id) }}"
                                        class="btn arena-icon-button btn-sm"
                                        data-bs-toggle="tooltip"
                                        data-bs-container="body"
                                        title="Export problem"
                                        aria-label="Export problem">{{ render_icon(icon="download") }}</a>
                                     <button type="button"
-                                            class="btn arena-icon-button btn-sm {% if row.problem.enabled %}text-success{% else %}text-danger{% endif %}"
-                                            title="{{ 'Visible — click to hide' if row.problem.enabled else 'Hidden — click to publish' }}"
+                                            class="btn arena-icon-button btn-sm {% if row.enabled %}text-success{% else %}text-danger{% endif %}"
+                                            title="{{ 'Visible — click to hide' if row.enabled else 'Hidden — click to publish' }}"
                                             data-problem-toggle-button
-                                            data-problem-number="{{ row.problem.arena_number }}"
-                                            data-problem-title="{{ row.problem.title }}"
-                                            data-problem-enabled="{{ 'true' if row.problem.enabled else 'false' }}"
-                                            data-problem-action="{{ request.url_for('arena_admin_problem_toggle_enabled', problem_id=row.problem.id) }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"
+                                            data-problem-number="{{ row.arena_number }}"
+                                            data-problem-title="{{ row.title }}"
+                                            data-problem-enabled="{{ 'true' if row.enabled else 'false' }}"
+                                            data-problem-action="{{ request.url_for('arena_admin_problem_toggle_enabled', problem_id=row.id) }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"
                                             data-bs-toggle="tooltip"
                                             data-bs-container="body"
-                                            aria-label="{{ 'Hide problem' if row.problem.enabled else 'Publish problem' }}">
-                                        {{ render_icon(icon="visibility" if row.problem.enabled else "visibility_off") }}
+                                            aria-label="{{ 'Hide problem' if row.enabled else 'Publish problem' }}">
+                                        {{ render_icon(icon="visibility" if row.enabled else "visibility_off") }}
                                     </button>
                                 </td>
                             </tr>

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -20,7 +20,7 @@ from arena.config import settings as arena_settings
 from arena.models.arena_problems import ArenaCategory, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_io_service, admin_problem_service, admin_problem_tc_service
-from shared.enumerations import ArenaRole, CustomValidatorCandidateState
+from shared.enumerations import ArenaRole, CustomValidatorCandidateState, StatementLanguage
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.sample_problem_package import build_sample_problem_package
 from shared.services.testcase_files import get_testcase_path
@@ -478,3 +478,142 @@ async def test_sample_package_imports_cleanly_into_arena(session: AsyncSession) 
     assert [tc.ordinal for tc in test_cases] == [1, 2, 3]
     assert all(not tc.is_sample for tc in test_cases)
     assert {category.name for category in problem.categories} == {"sample", "math"}
+
+
+# ── Statement language ────────────────────────────────────────────────────────
+
+_PT_STATEMENT = (
+    "# Soma de dois números\n\n"
+    "Dado dois números inteiros, escreva um programa que calcule a soma deles e\n"
+    "imprima o resultado na saída padrão do seu programa.\n"
+)
+
+
+def _language_package(language: str | None, statement: str = _PT_STATEMENT) -> bytes:
+    meta = dict(_VALID_META)
+    if language is not None:
+        meta["statement_language"] = language
+    return _build_raw_package(
+        {
+            "problem.json": json.dumps(meta),
+            "statement.md": statement,
+            "in/001.in": "1\n",
+            "out/001.out": "1\n",
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_import_uses_the_stated_statement_language(session: AsyncSession) -> None:
+    """A stated language is authoritative, even when detection would disagree."""
+    author = await _make_author(session)
+
+    result = await admin_problem_io_service.import_problem_from_zip(
+        session,
+        zip_bytes=_language_package("en"),
+        caller_id=author.id,
+        image_service=ImageProcessingService(),
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+
+    assert result.problem.statement_language == StatementLanguage.EN
+    assert result.statement_language == StatementLanguage.EN
+    assert result.language_source == "package"
+
+
+@pytest.mark.asyncio
+async def test_import_detects_a_missing_statement_language(session: AsyncSession) -> None:
+    author = await _make_author(session)
+
+    result = await admin_problem_io_service.import_problem_from_zip(
+        session,
+        zip_bytes=_language_package(None),
+        caller_id=author.id,
+        image_service=ImageProcessingService(),
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+
+    assert result.problem.statement_language == StatementLanguage.PT
+    assert result.language_source == "detected"
+
+
+@pytest.mark.asyncio
+async def test_import_reports_an_undeterminable_statement_language(session: AsyncSession) -> None:
+    """Too little text to detect is its own outcome, not a silent success."""
+    author = await _make_author(session)
+
+    result = await admin_problem_io_service.import_problem_from_zip(
+        session,
+        zip_bytes=_language_package(None, statement="# X\n\nOi.\n"),
+        caller_id=author.id,
+        image_service=ImageProcessingService(),
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+
+    assert result.problem.statement_language is None
+    assert result.language_source == "undetermined"
+
+
+@pytest.mark.asyncio
+async def test_import_rejects_an_unsupported_statement_language(session: AsyncSession) -> None:
+    author = await _make_author(session)
+
+    with pytest.raises(ValueError, match="statement_language"):
+        await admin_problem_io_service.import_problem_from_zip(
+            session,
+            zip_bytes=_language_package("klingon"),
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+
+
+@pytest.mark.asyncio
+async def test_export_omits_the_statement_language_when_unset(session: AsyncSession) -> None:
+    author = await _make_author(session)
+    created = (
+        await admin_problem_io_service.import_problem_from_zip(
+            session,
+            zip_bytes=_language_package(None, statement="# X\n\nOi.\n"),
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
+    problem = await admin_problem_service.get_problem(session, created.id, caller_id=author.id, is_admin=False)
+    assert problem is not None
+
+    zip_bytes = admin_problem_io_service.build_export_zip(problem, author.nome, arena_settings.PROBLEM_TESTCASE_DIR)
+    meta = json.loads(zipfile.ZipFile(io.BytesIO(zip_bytes)).read("problem.json").decode("utf-8"))
+
+    assert "statement_language" not in meta
+
+
+@pytest.mark.asyncio
+async def test_statement_language_survives_an_export_import_round_trip(session: AsyncSession) -> None:
+    author = await _make_author(session)
+    created = (
+        await admin_problem_io_service.import_problem_from_zip(
+            session,
+            zip_bytes=_language_package("es"),
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
+    problem = await admin_problem_service.get_problem(session, created.id, caller_id=author.id, is_admin=False)
+    assert problem is not None
+
+    exported = admin_problem_io_service.build_export_zip(problem, author.nome, arena_settings.PROBLEM_TESTCASE_DIR)
+    meta = json.loads(zipfile.ZipFile(io.BytesIO(exported)).read("problem.json").decode("utf-8"))
+    assert meta["statement_language"] == "es"
+
+    reimported = await admin_problem_io_service.import_problem_from_zip(
+        session,
+        zip_bytes=exported,
+        caller_id=author.id,
+        image_service=ImageProcessingService(),
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+    assert reimported.problem.statement_language == StatementLanguage.ES
+    assert reimported.language_source == "package"

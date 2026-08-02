@@ -514,30 +514,57 @@ Returns an allowed page size from `{10, 25, 50, 100}`, falling back to 25.
 ### `admin_problem_service.py`
 
 Admin/judge service for Arena problem management. When `is_admin=False`, lookups and list queries are
-scoped to `caller_id`; judges may only see and mutate their own problems.
+scoped to `caller_id`; judges may only see and mutate their own problems. Suggestion autocomplete is the
+exception: it can reuse values from any enabled problem and from the caller's own disabled drafts.
 
 **Key behavior**
 
 - validates titles, sources, authorship, licenses, limits, and Markdown statements before persistence
 - creates new problems with `enabled=False`
 - updates category links through direct SQL on `arena_problem_category_map`
-- supports sorting by title, public number, and rating
+- supports sorting by relevance, title, public number, and rating
 - supports AND-semantics category filtering for the admin problem list
 
 **Public API:**
 
 | Symbol / Function | Description |
 |---|---|
-| `ProblemListItem` | Dataclass containing one `ArenaProblem` plus public/private test-case counts, rating, loaded categories, and `has_custom_validator` for list rendering. |
-| `list_problems_paginated(session, *, page, per_page, search, category_ids, category_slugs, owner_id, sort_by, caller_id, is_admin)` | Paginated problem list with search over public number/title/statement/source, optional admin-only owner filter, AND category filter by ID or slug, and selectable sorting. |
+| `ProblemListItem` | Immutable list projection containing only the problem ID, public number, title, enabled state, public/private test-case counts, rating, rendered categories, and custom-validator marker. |
+| `list_problems_paginated(session, *, page, per_page, search, category_ids, category_slugs, owner_id, language, sort_by, caller_id, is_admin)` | Paginated problem list with shared weighted PostgreSQL full-text search over title/source/statement/free-text author, trigram substring fallback over every text field, fuzzy trigram matching over title/source/resolved author, and compatible number matching. Owner-backed author names use the separately indexed `arena_users.nome` trigram path because they cannot participate in the problem-row FTS expression index. Search defaults to deterministic relevance order; callers can select another sort. Optional filters cover admin-only owner, AND category IDs or slugs, and `StatementLanguage`. The count remains filter-only; categories, test-case counts, and validator markers are loaded with bounded page-ID queries. |
 | `get_problem(session, problem_id, *, caller_id, is_admin)` | Fetch one problem with categories and test cases, applying owner scoping for non-admin editors. |
-| `create_problem(session, *, caller_id, author, author_is_owner, license, ...)` | Validate and create a disabled problem owned by `caller_id`. Stores either a free-text author of at most 80 characters or owner-backed authorship, an optional license of at most 256 characters, and category links. |
-| `update_problem(session, problem, *, author, author_is_owner, license, ...)` | Validate and update mutable fields without transferring ownership. Owner-backed authorship clears the free-text author; a blank license becomes `None`. |
+| `create_problem(session, *, caller_id, author, author_is_owner, license, statement_language, ...)` | Validate and create a disabled problem owned by `caller_id`. Stores either a free-text author of at most 80 characters or owner-backed authorship, an optional license of at most 256 characters, an optional `StatementLanguage`, and category links. |
+| `update_problem(session, problem, *, author, author_is_owner, license, statement_language, ...)` | Validate and update mutable fields without transferring ownership. Owner-backed authorship clears the free-text author; a blank license becomes `None`; `statement_language` is stored as given (already resolved by `statement_language_service`). |
 | `toggle_enabled(session, problem)` | Flip the problem `enabled` flag and refresh `updated_at`. |
 | `delete_problem(session, problem)` | Delete a problem and all its dependent data. Deletes submissions first (cascading to judgments, test results, AI reviews, batch jobs) then the problem itself (cascading to test cases, category map, ratings, solvers, tried, favourites, rating history). Returns the `arena_number` for flash messages. Caller commits. |
 | `build_rejudge_jobs(session, problem_id)` | Create new `QUEUED` `ArenaSubmissionJudgment` rows for every existing submission for the problem and return the corresponding list of `ArenaSubmissionJob` objects ready to enqueue. Caller commits then enqueues. |
 | `list_owners(session)` | Return administrators and users with `can_edit=True`, ordered by display name, for the owner filter. |
 | `search_categories(session, *, query, limit=15)` | Case-insensitive category search; consumed by both the JSON autocomplete API (`GET /admin/problems/categories/search`) and server-side `selected_cats_data` pre-population. |
+| `search_problem_suggestions(session, *, field, query, caller_id, is_admin)` | Return at most 15 distinct, trimmed source or free-text-author strings for the create and edit problem forms, in field-specific relevance/name order. Admins search all enabled and disabled problems; other editors search all enabled problems plus caller-owned disabled drafts. Null and blank values are omitted, owner-backed authors never appear, and the service always caps results at 15. |
+
+---
+
+### `problem_list_query_service.py`
+
+Shared page-scoped projections for the public and admin problem lists. These
+helpers never load statements, images, or validator source bodies.
+
+| Symbol / Function | Description |
+|---|---|
+| `ProblemListCategory` | Immutable rendered category projection containing `name`, `color`, and `foreground_color`. |
+| `categories_by_problem_id(session, problem_ids)` | Return one page of category projections grouped by problem ID. |
+| `configured_validator_problem_ids(session, problem_ids)` | Return page problem IDs with a non-null active or candidate validator source, without selecting source contents. |
+| `test_case_counts_by_problem_id(session, problem_ids)` | Return public/private test-case counts grouped by problem ID for one page. |
+
+---
+
+### `problem_search_service.py`
+
+This service keeps public and administrative problem search semantics aligned.
+
+| Symbol | Description |
+|---|---|
+| `prepare_problem_search(session, query)` | Return hybrid full-text, literal substring, fuzzy name, exact-number, and ranking expressions for a normalized query. PostgreSQL uses one weighted FTS expression index plus trigram indexes (including the Arena-number text expression), parses the query with each row's statement-language configuration, and combines independently indexable candidate branches with `UNION`. Queries containing negation, quoted phrases, or `OR` disable raw fallback matching so web-search operators remain authoritative. SQLite uses a portable substring predicate and resolves relevance ties by Arena number for unit tests. This service intentionally does not replace the narrower title/number searches in problem-set autocomplete or submission-history filters. |
+| `ProblemSuggestionField` / `prepare_problem_suggestion_search(session, field, query)` | Typed author/source autocomplete expressions. PostgreSQL treats `query` as literal text with `plainto_tsquery`, first narrows through the same weighted composite FTS-index candidate expression used by problem search, then confirms the requested field. Separate `UNION` branches provide literal substring and 3+-character fuzzy matching through that field's existing trigram index. SQLite uses field-only escaped-substring matching. |
 
 ---
 
@@ -653,6 +680,10 @@ platforms.
   packages without an author use owner-backed authorship
 - import preserves `source` and `license` independently, marks test cases secret, validates
   optional images, and links only existing categories; unknown categories are dropped
+- the optional `statement_language` key (`pt`/`en`/`es`) is exported only when the problem has one
+  and, when absent on import, is detected from the statement; the result is reported through
+  `ArenaProblemImportResult.language_source` (`package` / `detected` / `undetermined`) so the route
+  can ask the importer to confirm it
 - web-only keys (`color`, `language_limits`) are accepted and ignored on import
 - delegates problem creation to `admin_problem_service.create_problem` and test-case parsing to
   `shared.tc_zip.parse_testcases_zip`
@@ -662,7 +693,43 @@ platforms.
 | Function | Description |
 |---|---|
 | `build_export_zip(problem, owner_name, testcase_dir)` | Build the in-memory export ZIP, reading test-case content from `<testcase_dir>/<problem_id>/NNN.in\|out` and resolving its plain-text author from the problem's authorship mode. |
-| `import_problem_from_zip(session, *, zip_bytes, caller_id, image_service, testcase_dir)` | Parse, validate, and persist a problem package; writes test-case files + sizes under `testcase_dir`; returns the committed `ArenaProblem`. |
+| `import_problem_from_zip(session, *, zip_bytes, caller_id, image_service, testcase_dir)` | Parse, validate, and persist a problem package; writes test-case files + sizes under `testcase_dir`; resolves the statement language from the package or by detection; returns an `ArenaProblemImportResult` holding the committed `ArenaProblem`, the resolved `statement_language`, and its `language_source`. |
+
+---
+
+### `statement_language_service.py`
+
+Owner of everything about a problem statement's natural language: detection, parsing of the
+untrusted form/package value, and the rule deciding whether an author's explicit choice may be
+committed as-is.
+
+**Key behavior**
+
+- detection uses `lingua`, built once and restricted to Portuguese, English, and Spanish, over a
+  cleaned copy of the Markdown (code blocks, inline code, math, URLs and link targets removed) so
+  sample code cannot skew the result
+- detection is deliberately **unthresholded**: it reports the most probable of the three languages,
+  which is why an author's explicit choice is confirmed rather than silently overridden. The only
+  guard is a minimum cleaned length (`MIN_DETECTION_CHARS`), below which detection is not attempted
+  and the result is `None`; a broken `lingua` installation is infrastructure failure and still
+  propagates
+- routes and package import must use the async wrapper: detection is CPU-bound and loads models on
+  first use. The synchronous entry point exists for the backfill script
+  (`scripts/arena/backfill_statement_language.py`), which has no event loop to protect
+
+**Public API:**
+
+| Symbol | Description |
+|---|---|
+| `LanguageResolved` / `LanguageConflict` | Frozen result types of `resolve_statement_language`: a language ready to persist, or the choice/detection pair still needing confirmation. |
+| `parse_statement_language(raw)` | Parse an untrusted value: empty/`None` means "not stated"; anything outside `pt`/`en`/`es` raises `ValueError` with a user-facing message. |
+| `safe_statement_language(raw)` | Same parse for *list filters*: an unknown value simply means "all languages" so a hand-typed query string cannot break a page. |
+| `clean_statement(statement)` | Strip Markdown noise and truncate before detection. |
+| `detect_statement_language(statement, *, title="")` | Synchronous most-probable-language detection; for the backfill script only. `None` when the cleaned text is under `MIN_DETECTION_CHARS`. |
+| `detect_statement_language_async(statement, *, title="")` | Threaded detection for every event-loop caller. |
+| `resolve_statement_language(*, chosen_raw, confirmed_raw, statement, title="")` | Async decision rule: no selection uses detection; a selection matching detection (or with no detection) is accepted; a disagreement is a `LanguageConflict` unless `confirmed_raw` equals `confirmation_token(chosen, detected)`. |
+| `confirmation_token(chosen, detected)` | `"<chosen>:<detected>"` — the acknowledgement is bound to both values so a stale hidden field cannot authorize a different language. |
+| `conflict_context(conflict)` | Template context for the confirmation modal: both values, both labels, and the token. |
 
 ---
 
@@ -805,6 +872,8 @@ Uses the following services:
 - **`admin_problem_service.update_problem()`** — Problem update via `POST /admin/problems/{id}/edit`
 - **`admin_problem_service.toggle_enabled()`** — Enable/disable action via `POST /admin/problems/{id}/toggle-enabled`
 - **`admin_problem_tc_service.list_testcase_views()`** — Lightweight test-case list (previews + size badges, `is_large` flag) shown on the problem edit page
+- **`statement_language_service.resolve_statement_language()`** — Decides the statement language on save, or refuses the commit until the author confirms a mismatch
+- **`statement_language_service.safe_statement_language()`** — Validates the `language` list filter on `GET /admin/problems`
 
 ### `arena/routes/admin_problem_io.py`
 
@@ -832,7 +901,9 @@ Uses the following services:
 Uses the following services:
 
 - **`admin_problem_service.search_categories()`** — Category autocomplete JSON endpoint at `GET /admin/problems/categories/search`
+- **`admin_problem_service.search_problem_suggestions()`** — Field-specific Source/free-text Author suggestions at `GET /admin/problems/suggestions`: admins see all problems; editors see enabled problems plus their own disabled drafts
 - **`admin_problem_service.get_problem()`** — Judge/admin access control before returning problem rating-history JSON
+- **`statement_language_service.detect_statement_language_async()`** — Statement-language detection JSON endpoint at `POST /admin/problems/detect-language`
 
 ---
 
@@ -1251,9 +1322,11 @@ detail pages at `/problems` and `/problems/{arena_number}`.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `problem` | `ArenaProblem` | The problem ORM instance |
-| `rating` | `int \| None` | Current rating (1–10), `None` if not yet computed |
-| `categories` | `list[ArenaCategory]` | Categories linked to this problem |
+| `id` | `str` | Problem UUID |
+| `arena_number` | `int` | Sequential public problem number |
+| `title` | `str` | Problem title |
+| `rating` | `float \| None` | Current rating (0.1–10.0), `None` if not yet computed |
+| `categories` | `list[ProblemListCategory]` | Rendered categories linked to this problem |
 | `author_name` | `str \| None` | Free-text author or owner fullname, according to `author_is_owner` |
 | `is_favorite` | `bool` | `True` when the viewing user has favorited this problem; always `False` for guests |
 | `ac_rate` | `float \| None` | Fraction from rating stats that count every non-owner, regardless of role |
@@ -1265,7 +1338,7 @@ detail pages at `/problems` and `/problems/{arena_number}`.
 
 | Symbol | Description |
 |--------|-------------|
-| `list_enabled_problems_paginated(session, *, page, per_page=25, search, category_slugs, sort_by, user_id=None)` | Paginated enabled-problem list. Search uses the resolved author: free text for external authors or the owner fullname for owner-authored problems. Category filtering uses AND semantics. Solver aggregates exclude only problem owners. |
+| `list_enabled_problems_paginated(session, *, page, per_page=25, search, category_slugs, language=None, sort_by, user_id=None)` | Paginated enabled-problem list returned as narrow immutable projections. An optional `StatementLanguage` narrows the list to problems written in that language. Search delegates to `problem_search_service`, including resolved free-text or owner-backed authors, and defaults to relevance when active. Category filtering uses AND semantics. Solver aggregates exclude only problem owners. A missing rating row yields no rating or AC rate; a zero-attempt rating row yields a `0.0` AC rate. |
 | `get_enabled_problem_by_number(session, arena_number)` | Fetch a single enabled problem by its public `arena_number`. Returns `(ArenaProblem, AuthorInfo)` or `None` if not found or disabled. Also outer-joins `arena_affiliations` to populate `AuthorInfo.affiliation_name` and `affiliation_flag`. Eagerly loads `rating`, `categories`, `test_cases`, and `custom_validator`. |
 | `get_all_categories(session)` | Return all categories alphabetically by name, for the filter dropdown. |
 | `get_user_problem_status(session, *, user_id, problem_id)` | Return `(solved_at, tried_at, is_favorite)` from the solver, tried, and favorites tables. Datetime values may be `None`; `is_favorite` is `True` only when a favorites row exists. |

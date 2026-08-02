@@ -313,6 +313,17 @@ time to make it visible to the teacher, and post-deadline rating snapshots freez
 student's AC totals), and Arena-specific user identity separate from contest users and
 uberadmins.
 
+Every Arena problem records the natural language of its statement in
+`arena_problems.statement_language` (`pt`, `en`, or `es`; nullable while unknown), which
+both problem lists expose as a filter and the problem package carries as the optional
+`statement_language` key. The value is normally derived rather than typed: the author may
+leave the form on "detect automatically", and `arena.services.statement_language_service`
+detects it with `lingua`. An explicit choice that disagrees with detection is refused until
+the author confirms it, and an import that stated no language is flagged for the importer to
+verify. Rows predating the column are filled by
+`scripts/arena/backfill_statement_language.py`, which only ever writes rows whose language is
+still NULL.
+
 Arena access is **default-deny**: a single global FastAPI dependency
 (`arena.dependencies.access_control.enforce_arena_authentication`, registered on
 the app in `arena/main.py`) requires a valid logged-in session for every route

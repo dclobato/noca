@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -22,6 +22,7 @@ COPY arena /app/arena
 COPY docs/legal /app/docs/legal
 COPY migrations /app/migrations
 COPY scripts/__init__.py                        /app/scripts/__init__.py
+COPY scripts/arena/backfill_statement_language.py /app/scripts/arena/backfill_statement_language.py
 COPY scripts/arena/categorias-simples-en.txt    /app/scripts/arena/categorias-simples-en.txt
 COPY scripts/arena/categorias-simples-pt.txt    /app/scripts/arena/categorias-simples-pt.txt
 COPY scripts/arena/copy_legal_docs.py           /app/scripts/arena/copy_legal_docs.py

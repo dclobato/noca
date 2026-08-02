@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -25,7 +25,11 @@ from sqlalchemy import (
 )
 from sqlalchemy import Enum as SAEnum
 
-from shared.enumerations import CustomValidatorActiveState, CustomValidatorCandidateState
+from shared.enumerations import (
+    CustomValidatorActiveState,
+    CustomValidatorCandidateState,
+    StatementLanguage,
+)
 
 from .._base import _created_at_column, _id_column, _updated_at_column, metadata
 
@@ -188,6 +192,13 @@ arena_problems = Table(
         nullable=True,
         default=None,
         comment="Optional license information displayed on the public problem page.",
+    ),
+    Column(
+        "statement_language",
+        SAEnum(StatementLanguage, values_callable=lambda enum: [member.value for member in enum]),
+        nullable=True,
+        default=None,
+        comment="Natural language of the problem statement (ISO 639-1); NULL when unknown.",
     ),
     _created_at_column(),
     _updated_at_column(),

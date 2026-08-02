@@ -115,8 +115,22 @@ target "_assets-consumer" {
   }
 }
 
-target "_run-consumer" {
+# Judge images publish without the provenance attestation BuildKit adds by
+# default. Only the autojudge consumes them, by tag, and it never inspects
+# provenance, so the attestation buys nothing here. It costs one extra manifest
+# per platform per target that has to round-trip on every push — 84 across the
+# 42 judge targets — and losing one of those uploads fails the manifest-list
+# push with "content digest <sha>: not found", which aborts the whole Bake and
+# every other target with it. That is exactly how the v15.0.1 language publish
+# died. App images keep their attestations: there are only seven of them, and
+# they are what operators actually deploy.
+target "_judge-common" {
   inherits = ["_publish-common"]
+  attest = ["type=provenance,disabled=true"]
+}
+
+target "_run-consumer" {
+  inherits = ["_judge-common"]
   contexts = {
     "isolate-base" = "target:isolate-base"
   }
@@ -126,7 +140,7 @@ target "_run-consumer" {
 }
 
 target "_native-compile-consumer" {
-  inherits = ["_publish-common"]
+  inherits = ["_judge-common"]
   contexts = {
     "judge-compile-base" = "target:judge-compile-base"
   }
@@ -136,7 +150,7 @@ target "_native-compile-consumer" {
 }
 
 target "_plain-compile-consumer" {
-  inherits = ["_publish-common"]
+  inherits = ["_judge-common"]
 }
 
 target "app-base" {

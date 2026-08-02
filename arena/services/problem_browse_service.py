@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -17,23 +17,25 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import Select, and_, case, cast, func, or_, select
-from sqlalchemy import String as SAString
+from sqlalchemy import Select, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, selectinload
 
 from arena.models.arena_problems import ArenaCategory, ArenaProblem, ArenaRatingProblem
 from arena.services.pagination_service import Pagination, PaginationParams
+from arena.services.problem_list_query_service import ProblemListCategory, categories_by_problem_id
+from arena.services.problem_search_service import prepare_problem_search
 from shared.db_schema.arena import arena_affiliations as _affiliations_table
 from shared.db_schema.arena import arena_problem_category_map as _cat_map_table
+from shared.db_schema.arena import arena_problem_custom_validators as _custom_validator_table
 from shared.db_schema.arena import arena_problem_favorites as _favorites_table
 from shared.db_schema.arena import arena_problem_solvers as _solvers_table
 from shared.db_schema.arena import arena_problem_tried as _tried_table
 from shared.db_schema.arena import arena_problems as _problems_table
 from shared.db_schema.arena import arena_users as _users_table
 from shared.db_schema.arena.arena_rating_history import arena_problem_rating_history
+from shared.enumerations import StatementLanguage
 from shared.services.arena_query_helpers import counts_toward_problem_rating
-from shared.services.custom_validator import status_view
 
 
 @dataclass(frozen=True)
@@ -51,16 +53,23 @@ class AuthorInfo:
     affiliation_country_code: str | None
 
 
-_VALID_SORT_KEYS = {
-    "title_asc",
-    "title_desc",
-    "number_asc",
-    "number_desc",
-    "rating_asc",
-    "rating_desc",
-    "solvers_asc",
-    "solvers_desc",
-}
+# Single source of truth for the public problem-list sort contract; the public
+# route imports these rather than restating them.
+DEFAULT_SORT = "number_asc"
+RELEVANCE_SORT = "relevance"
+VALID_SORTS = frozenset(
+    {
+        RELEVANCE_SORT,
+        "title_asc",
+        "title_desc",
+        "number_asc",
+        "number_desc",
+        "rating_asc",
+        "rating_desc",
+        "solvers_asc",
+        "solvers_desc",
+    }
+)
 
 _PUBLIC_PER_PAGE = 25
 
@@ -70,7 +79,9 @@ class PublicProblemListItem:
     """Single row in the public problem list page.
 
     Attributes:
-        problem: The ``ArenaProblem`` instance.
+        id: Problem UUID.
+        arena_number: Sequential public problem number.
+        title: Problem title.
         rating: Current display-scale problem difficulty (0.1–10.0), or ``None``
             if not yet computed.
         categories: Categories linked to this problem.
@@ -84,9 +95,11 @@ class PublicProblemListItem:
         has_custom_validator: Whether an active or candidate custom validator is configured.
     """
 
-    problem: ArenaProblem
+    id: str
+    arena_number: int
+    title: str
     rating: float | None
-    categories: list[ArenaCategory]
+    categories: list[ProblemListCategory]
     author_name: str | None
     is_favorite: bool = False
     ac_rate: float | None = None
@@ -95,17 +108,30 @@ class PublicProblemListItem:
     has_custom_validator: bool = False
 
 
-def _apply_sort(stmt: Select[Any], sort_by: str, solver_count: Any) -> Select[Any]:
+def _apply_sort(
+    stmt: Select[Any],
+    sort_by: str,
+    solver_count: Any,
+    relevance: Any | None = None,
+) -> Select[Any]:
     """Append ORDER BY clause for the given sort key.
 
     Args:
         stmt: Base select statement.
-        sort_by: One of the ``_VALID_SORT_KEYS`` values.
+        sort_by: One of the ``VALID_SORTS`` values.
         solver_count: SQL expression with the live participant solver count.
 
     Returns:
         Select: The statement with an ORDER BY clause appended.
     """
+    if sort_by == RELEVANCE_SORT and relevance is not None:
+        return stmt.order_by(
+            relevance.c.exact_number_match.desc(),
+            relevance.c.full_text_match.desc(),
+            relevance.c.full_text_rank.desc(),
+            relevance.c.trigram_rank.desc(),
+            ArenaProblem.arena_number.asc(),
+        )
     if sort_by == "title_desc":
         return stmt.order_by(func.lower(ArenaProblem.title).desc())
     if sort_by == "number_asc":
@@ -131,28 +157,74 @@ async def list_enabled_problems_paginated(
     per_page: int = _PUBLIC_PER_PAGE,
     search: str = "",
     category_slugs: list[str] | None = None,
-    sort_by: str = "number_asc",
+    language: StatementLanguage | None = None,
+    sort_by: str = "",
     user_id: str | None = None,
 ) -> Pagination[PublicProblemListItem]:
     """Return a paginated list of enabled problems with search and filter support.
 
-    Search covers arena number, title, source, and the resolved author name.
+    Search covers arena number, title, statement, source, and the resolved author name.
     Category filter uses AND semantics: a problem must belong to every selected category.
 
     Args:
         session: Active async database session.
         page: 1-based page number.
         per_page: Number of items per page (default 25).
-        search: Free-text search applied to number, title, source, and author name.
+        search: Hybrid search applied to number, title, statement, source, and author name.
         category_slugs: Require ALL listed category slugs (AND semantics). None = no filter.
-        sort_by: One of the ``_VALID_SORT_KEYS`` values.
+        language: Restrict to problems whose statement is in this language. None = no filter.
+        sort_by: One of the ``VALID_SORTS`` values.
         user_id: When provided, populate ``is_favorite`` for each row.
 
     Returns:
         Pagination[PublicProblemListItem]: Paginated result with problem rows.
     """
-    effective_sort = sort_by if sort_by in _VALID_SORT_KEYS else "number_asc"
+    normalized_search = search.strip()
+    default_sort = RELEVANCE_SORT if normalized_search else DEFAULT_SORT
+    effective_sort = sort_by if sort_by in VALID_SORTS else default_sort
+    if effective_sort == RELEVANCE_SORT and not normalized_search:
+        effective_sort = DEFAULT_SORT
     params = PaginationParams(page=max(1, page), per_page=max(1, per_page))
+
+    # Keep this statement filter-only. The count must not inherit display
+    # joins, aggregates, or correlated projections.
+    filtered_problem_ids = select(ArenaProblem.id).where(ArenaProblem.enabled.is_(True))
+
+    if language is not None:
+        filtered_problem_ids = filtered_problem_ids.where(ArenaProblem.statement_language == language)
+
+    if normalized_search:
+        search_expressions = await prepare_problem_search(session, normalized_search)
+        filtered_problem_ids = (
+            filtered_problem_ids.outerjoin(
+                _users_table,
+                ArenaProblem.owner_id == _users_table.c.id,
+            )
+            .add_columns(
+                search_expressions.exact_number_match.label("exact_number_match"),
+                search_expressions.full_text_match.label("full_text_match"),
+                search_expressions.full_text_rank.label("full_text_rank"),
+                search_expressions.trigram_rank.label("trigram_rank"),
+            )
+            .where(search_expressions.predicate)
+        )
+
+    if category_slugs:
+        effective_slugs = list(dict.fromkeys(slug.strip().lower() for slug in category_slugs if slug.strip()))
+        if effective_slugs:
+            category_count = (
+                select(func.count(_cat_map_table.c.category_id.distinct()))
+                .select_from(_cat_map_table.join(ArenaCategory, _cat_map_table.c.category_id == ArenaCategory.id))
+                .where(
+                    _cat_map_table.c.problem_id == ArenaProblem.id,
+                    ArenaCategory.slug.in_(effective_slugs),
+                )
+                .scalar_subquery()
+            )
+            filtered_problem_ids = filtered_problem_ids.where(category_count == len(effective_slugs))
+
+    count_stmt = select(func.count()).select_from(filtered_problem_ids.subquery())
+    total: int = (await session.execute(count_stmt)).scalar_one()
 
     solver_counts = (
         select(
@@ -169,101 +241,98 @@ async def list_enabled_problems_paginated(
         (ArenaProblem.author_is_owner.is_(True), _users_table.c.nome),
         else_=ArenaProblem.author,
     ).label("author_name")
-    base = (
+    has_custom_validator = (
+        select(1)
+        .where(
+            _custom_validator_table.c.problem_id == ArenaProblem.id,
+            or_(
+                _custom_validator_table.c.active_source.is_not(None),
+                _custom_validator_table.c.candidate_source.is_not(None),
+            ),
+        )
+        .exists()
+        .label("has_custom_validator")
+    )
+    filtered_ids = filtered_problem_ids.subquery()
+    display_statement = (
         select(
-            ArenaProblem,
+            ArenaProblem.id,
+            ArenaProblem.arena_number,
+            ArenaProblem.title,
             resolved_author_name,
             solver_count.label("solver_count"),
+            ArenaRatingProblem.rating.label("rating_value"),
+            ArenaRatingProblem.attempted_users,
+            ArenaRatingProblem.solved_users,
+            has_custom_validator,
         )
+        .join(filtered_ids, filtered_ids.c.id == ArenaProblem.id)
         .outerjoin(ArenaRatingProblem, ArenaProblem.id == ArenaRatingProblem.problem_id)
         .outerjoin(_users_table, ArenaProblem.owner_id == _users_table.c.id)
         .outerjoin(solver_counts, solver_counts.c.problem_id == ArenaProblem.id)
-        .options(
-            contains_eager(ArenaProblem.rating),
-            selectinload(ArenaProblem.categories),
-            selectinload(ArenaProblem.test_cases),
-            selectinload(ArenaProblem.custom_validator),
-        )
-        .where(ArenaProblem.enabled == True)  # noqa: E712
     )
-
-    if search.strip():
-        term = f"%{search.strip()}%"
-        base = base.where(
-            or_(
-                cast(ArenaProblem.arena_number, SAString).ilike(term),
-                ArenaProblem.title.ilike(term),
-                ArenaProblem.source.ilike(term),
-                ArenaProblem.author.ilike(term),
-                and_(ArenaProblem.author_is_owner.is_(True), _users_table.c.nome.ilike(term)),
-            )
+    paginated = (
+        _apply_sort(
+            display_statement,
+            effective_sort,
+            solver_count,
+            filtered_ids if normalized_search else None,
         )
-
-    if category_slugs:
-        effective_slugs = list(dict.fromkeys(slug.strip().lower() for slug in category_slugs if slug.strip()))
-        if effective_slugs:
-            sub = (
-                select(func.count(_cat_map_table.c.category_id.distinct()))
-                .select_from(_cat_map_table.join(ArenaCategory, _cat_map_table.c.category_id == ArenaCategory.id))
-                .where(
-                    _cat_map_table.c.problem_id == ArenaProblem.id,
-                    ArenaCategory.slug.in_(effective_slugs),
-                )
-                .scalar_subquery()
-            )
-            base = base.where(sub == len(effective_slugs))
-
-    count_stmt = select(func.count()).select_from(base.subquery())
-    total: int = (await session.execute(count_stmt)).scalar_one()
-
-    paginated = _apply_sort(base, effective_sort, solver_count).offset(params.offset).limit(params.per_page)
-    rows = list((await session.execute(paginated)).unique())
+        .offset(params.offset)
+        .limit(params.per_page)
+    )
+    # Every display join is one-to-one or grouped by problem, so the statement
+    # cannot fan out and Result.unique() would only conceal a future bad join.
+    rows = list((await session.execute(paginated)).all())
+    page_problem_ids = [row.id for row in rows]
+    categories = await categories_by_problem_id(session, page_problem_ids)
 
     # Solver counts come from the main query because they can drive global pagination order.
     favorite_ids: set[str] = set()
     solved_ids: set[str] = set()
-    if rows:
-        page_problem_ids = [row[0].id for row in rows]
-
-        if user_id:
-            fav_rows = (
-                await session.execute(
-                    select(_favorites_table.c.problem_id).where(
-                        _favorites_table.c.user_id == user_id,
-                        _favorites_table.c.problem_id.in_(page_problem_ids),
-                    )
+    if rows and user_id:
+        fav_rows = (
+            await session.execute(
+                select(_favorites_table.c.problem_id).where(
+                    _favorites_table.c.user_id == user_id,
+                    _favorites_table.c.problem_id.in_(page_problem_ids),
                 )
-            ).all()
-            favorite_ids = {r[0] for r in fav_rows}
+            )
+        ).all()
+        favorite_ids = {r[0] for r in fav_rows}
 
-            solved_rows = (
-                await session.execute(
-                    select(_solvers_table.c.problem_id).where(
-                        _solvers_table.c.user_id == user_id,
-                        _solvers_table.c.problem_id.in_(page_problem_ids),
-                    )
+        solved_rows = (
+            await session.execute(
+                select(_solvers_table.c.problem_id).where(
+                    _solvers_table.c.user_id == user_id,
+                    _solvers_table.c.problem_id.in_(page_problem_ids),
                 )
-            ).all()
-            solved_ids = {r[0] for r in solved_rows}
+            )
+        ).all()
+        solved_ids = {r[0] for r in solved_rows}
 
     items: list[PublicProblemListItem] = []
     for row in rows:
-        problem = row[0]
-        author_name = row[1]
-        solver_count_value = int(row[2] or 0)
-        rating = problem.rating.display_rating if problem.rating else None
-        ac_rate = problem.rating.solve_rate if problem.rating else None
+        solver_count_value = int(row.solver_count or 0)
+        if row.rating_value is None:
+            rating = None
+            ac_rate = None
+        else:
+            rating = row.rating_value / 10.0
+            ac_rate = row.solved_users / row.attempted_users if row.attempted_users else 0.0
         items.append(
             PublicProblemListItem(
-                problem=problem,
+                id=row.id,
+                arena_number=row.arena_number,
+                title=row.title,
                 rating=rating,
-                categories=list(problem.categories),
-                author_name=author_name,
-                is_favorite=problem.id in favorite_ids,
+                categories=categories.get(row.id, []),
+                author_name=row.author_name,
+                is_favorite=row.id in favorite_ids,
                 ac_rate=ac_rate,
-                is_solved=problem.id in solved_ids,
+                is_solved=row.id in solved_ids,
                 solved=solver_count_value if solver_count_value > 0 else None,
-                has_custom_validator=status_view(problem.custom_validator).configured,
+                has_custom_validator=row.has_custom_validator,
             )
         )
 
@@ -306,19 +375,23 @@ async def get_latest_problems(
         fewer than ``limit`` if the total pool of enabled problems is smaller.
     """
     stmt = (
-        select(ArenaProblem)
-        .where(ArenaProblem.enabled == True)  # noqa: E712
+        select(
+            ArenaProblem.arena_number,
+            ArenaProblem.title,
+            ArenaProblem.updated_at,
+        )
+        .where(ArenaProblem.enabled.is_(True))
         .order_by(ArenaProblem.updated_at.desc())
         .limit(limit)
     )
-    rows = list((await session.execute(stmt)).unique())
+    rows = list((await session.execute(stmt)).all())
     return [
         LatestProblemItem(
-            arena_number=problem.arena_number,
-            title=problem.title,
-            updated_at=problem.updated_at,
+            arena_number=row.arena_number,
+            title=row.title,
+            updated_at=row.updated_at,
         )
-        for problem, *_ in rows
+        for row in rows
     ]
 
 

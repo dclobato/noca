@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -26,7 +26,7 @@
 {% set pre_class = package_pre_class | default("small mb-3") %}
 {# Field rows: (name, type, required, domains). `domains` is "all", "arena" or "contest".
    Adding a package field means adding one row here — both import pages pick it up. #}
-{% set package_fields = [("title", "string", true, "all"), ("author", "string (maximum 80 characters)", false, "all"), ("time_limit_ms", "integer ≥ 1", true, "all"), ("memory_limit_kb", "integer ≥ 1", true, "all"), ("pids_limit", "integer ≥ 1", true, "all"), ("output_limit_in_bytes", "integer or null", false, "all"), ("categories", "array of strings", false, "all"), ("notes", "string or null", false, "all"), ("custom_validator", "object — see below", false, "all"), ("image", "filename string or null", false, "all"), ("image_caption", "string or null", false, "all"), ("source", "string or null", false, "arena"), ("hide_author_show_source", "boolean", false, "arena"), ("license", "string (maximum 256 characters) or null", false, "arena"), ("color", "hex string e.g. #ff0000", false, "contest"), ("language_limits", "object — see below", false, "contest")] %}
+{% set package_fields = [("title", "string", true, "all"), ("author", "string (maximum 80 characters)", false, "all"), ("time_limit_ms", "integer ≥ 1", true, "all"), ("memory_limit_kb", "integer ≥ 1", true, "all"), ("pids_limit", "integer ≥ 1", true, "all"), ("output_limit_in_bytes", "integer or null", false, "all"), ("categories", "array of strings", false, "all"), ("notes", "string or null", false, "all"), ("custom_validator", "object — see below", false, "all"), ("image", "filename string or null", false, "all"), ("image_caption", "string or null", false, "all"), ("source", "string or null", false, "arena"), ("hide_author_show_source", "boolean", false, "arena"), ("license", "string (maximum 256 characters) or null", false, "arena"), ("statement_language", "\"pt\", \"en\" or \"es\"", false, "arena"), ("color", "hex string e.g. #ff0000", false, "contest"), ("language_limits", "object — see below", false, "contest")] %}
 {% if package_sample_url %}
 <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
 <a href="{{ package_sample_url }}" class="btn btn-outline-primary btn-sm">Download sample package</a>
@@ -165,8 +165,8 @@ Optional <code>explanation/NNN.txt</code> (UTF-8) adds an explanation for the te
 number; shown to contestants below the sample.
 </li>
 <li>
-Test cases are imported as <strong>secret</strong>, unless the package declares a custom validator —
-then they are all imported as public samples.
+Test cases are always imported as <strong>secret</strong>. An interactive problem has no public
+test cases at all — its worked examples are its sample interactions.
 </li>
 <li>
 An optional illustration image is displayed below the statement. It must be a GIF, PNG, JPEG, or
@@ -180,6 +180,12 @@ below it.
 <li>Categories are linked only when they already exist (matched by name); unknown categories are dropped.</li>
 <li>
 A non-empty <code>author</code> is preserved. If omitted, you are recorded as both owner and author.
+</li>
+<li>
+<code>statement_language</code> records the language the statement is written in and must be
+exactly <code>pt</code>, <code>en</code>, or <code>es</code>. When the package omits it, the
+language is detected from the statement and you are asked to confirm it on the edit page — a
+statement too short to detect is left unset for you to pick.
 </li>
 <li>
 Contest-only fields (<code>color</code>, <code>language_limits</code>) are accepted and ignored.

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,7 +8,10 @@
 
 Access-control pattern:
   - ``is_admin=True``: no owner restriction; caller sees all problems.
-  - ``is_admin=False``: queries are scoped to ``caller_id`` only.
+  - ``is_admin=False``: list and detail queries are scoped to ``caller_id`` only.
+
+Suggestion autocomplete is intentionally broader for problem editors: it includes all
+enabled problems and the caller's own disabled drafts.
 """
 
 from __future__ import annotations
@@ -16,22 +19,33 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import Select, cast, func, or_, select
-from sqlalchemy import String as SAString
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager, selectinload
+from sqlalchemy.orm import selectinload
 
 from arena.models.arena_problems import ArenaCategory, ArenaProblem, ArenaRatingProblem
 from arena.models.arena_users import ArenaUser
 from arena.services.pagination_service import Pagination, PaginationParams
+from arena.services.problem_list_query_service import (
+    ProblemListCategory,
+    categories_by_problem_id,
+    configured_validator_problem_ids,
+    test_case_counts_by_problem_id,
+)
+from arena.services.problem_search_service import (
+    ProblemSuggestionField,
+    prepare_problem_search,
+    prepare_problem_suggestion_search,
+)
 from shared.db_schema.arena import arena_problem_category_map as _cat_map_table
 from shared.db_schema.arena import arena_problem_custom_validators as _custom_validator_table
 from shared.db_schema.arena import arena_submissions as _arena_submissions
-from shared.enumerations import ArenaRole, CustomValidatorActiveState, JudgmentStatus
+from shared.db_schema.arena import arena_users as _users_table
+from shared.enumerations import ArenaRole, CustomValidatorActiveState, JudgmentStatus, StatementLanguage
 from shared.problem_statement_markdown import validate_md_content
 from shared.queue_schema import ArenaSubmissionJob
-from shared.services.custom_validator import status_view
 
 _DEFAULT_TIME_LIMIT_MS = 1000
 _DEFAULT_MEMORY_LIMIT_KB = 262144
@@ -41,26 +55,39 @@ _MAX_TITLE_LEN = 256
 _MAX_SOURCE_LEN = 256
 _MAX_AUTHOR_LEN = 80
 _MAX_LICENSE_LEN = 256
+_MAX_PROBLEM_SUGGESTIONS = 15
 
-_VALID_SORT_KEYS = {
-    "title_asc",
-    "title_desc",
-    "number_asc",
-    "number_desc",
-    "rating_asc",
-    "rating_desc",
-}
+# Single source of truth for the admin problem-list sort contract, mirroring
+# ``admin_category_service``. Both the list route and the list-URL builder import
+# these, so the value omitted from generated URLs cannot drift from the default
+# the route re-derives when no sort is supplied.
+DEFAULT_SORT = "number_asc"
+RELEVANCE_SORT = "relevance"
+VALID_SORTS = frozenset(
+    {
+        RELEVANCE_SORT,
+        "title_asc",
+        "title_desc",
+        "number_asc",
+        "number_desc",
+        "rating_asc",
+        "rating_desc",
+    }
+)
 
 
 @dataclass(frozen=True)
 class ProblemListItem:
     """Single row in the admin problem list page."""
 
-    problem: ArenaProblem
+    id: str
+    arena_number: int
+    title: str
+    enabled: bool
     public_tc_count: int
     private_tc_count: int
     rating: float | None
-    categories: list[ArenaCategory]
+    categories: list[ProblemListCategory]
     has_custom_validator: bool
 
 
@@ -136,8 +163,16 @@ async def _set_categories(
     session.expire(problem, ["categories"])
 
 
-def _apply_sort(stmt: Select[tuple[ArenaProblem]], sort_by: str) -> Select[tuple[ArenaProblem]]:
+def _apply_sort(stmt: Select[Any], sort_by: str, relevance: Any | None = None) -> Select[Any]:
     """Append ORDER BY clause for the given sort key."""
+    if sort_by == RELEVANCE_SORT and relevance is not None:
+        return stmt.order_by(
+            relevance.c.exact_number_match.desc(),
+            relevance.c.full_text_match.desc(),
+            relevance.c.full_text_rank.desc(),
+            relevance.c.trigram_rank.desc(),
+            ArenaProblem.arena_number.asc(),
+        )
     if sort_by == "title_desc":
         return stmt.order_by(func.lower(ArenaProblem.title).desc())
     if sort_by == "number_asc":
@@ -161,7 +196,8 @@ async def list_problems_paginated(
     category_ids: list[str] | None = None,
     category_slugs: list[str] | None = None,
     owner_id: str | None = None,
-    sort_by: str = "title_asc",
+    language: StatementLanguage | None = None,
+    sort_by: str = "",
     caller_id: str,
     is_admin: bool,
 ) -> Pagination[ProblemListItem]:
@@ -171,48 +207,51 @@ async def list_problems_paginated(
         session: Active async database session.
         page: 1-based page number.
         per_page: Number of items per page.
-        search: Free-text search applied to arena_number, title, problem_statement, source.
+        search: Free-text search applied to arena number, title, statement, source, and author.
         category_ids: Require ALL listed category IDs (AND semantics). None = no filter.
         category_slugs: Require ALL listed category slugs (AND semantics). None = no filter.
         owner_id: Restrict to a specific owner (admin-only filter). None = no filter.
-        sort_by: One of the ``_VALID_SORT_KEYS`` values.
+        language: Restrict to problems whose statement is in this language. None = no filter.
+        sort_by: One of the ``VALID_SORTS`` values.
         caller_id: UUID of the requesting user.
         is_admin: When False, scopes the query to problems owned by ``caller_id``.
 
     Returns:
         Pagination[ProblemListItem]: Paginated result with problem rows.
     """
-    effective_sort = sort_by if sort_by in _VALID_SORT_KEYS else "title_asc"
+    normalized_search = search.strip()
+    default_sort = RELEVANCE_SORT if normalized_search else DEFAULT_SORT
+    effective_sort = sort_by if sort_by in VALID_SORTS else default_sort
+    if effective_sort == RELEVANCE_SORT and not normalized_search:
+        effective_sort = DEFAULT_SORT
     params = PaginationParams(page=max(1, page), per_page=max(1, per_page))
 
-    # LEFT OUTER JOIN on rating to support rating-based ordering and eager-load.
-    # contains_eager tells SQLAlchemy the relationship is already loaded via the join.
-    base = (
-        select(ArenaProblem)
-        .outerjoin(ArenaRatingProblem, ArenaProblem.id == ArenaRatingProblem.problem_id)
-        .options(
-            contains_eager(ArenaProblem.rating),
-            selectinload(ArenaProblem.categories),
-            selectinload(ArenaProblem.test_cases),
-            selectinload(ArenaProblem.custom_validator),
-        )
-    )
+    # Keep this statement filter-only. The count must not evaluate display
+    # projections or page enrichments for every matching problem.
+    filtered_problem_ids = select(ArenaProblem.id)
 
     if not is_admin:
-        base = base.where(ArenaProblem.owner_id == caller_id)
+        filtered_problem_ids = filtered_problem_ids.where(ArenaProblem.owner_id == caller_id)
     elif owner_id:
-        base = base.where(ArenaProblem.owner_id == owner_id)
+        filtered_problem_ids = filtered_problem_ids.where(ArenaProblem.owner_id == owner_id)
 
-    if search.strip():
-        term = f"%{search.strip()}%"
-        base = base.where(
-            or_(
-                cast(ArenaProblem.arena_number, SAString).ilike(term),
-                ArenaProblem.title.ilike(term),
-                ArenaProblem.problem_statement.ilike(term),
-                ArenaProblem.source.ilike(term),
-                ArenaProblem.author.ilike(term),
+    if language is not None:
+        filtered_problem_ids = filtered_problem_ids.where(ArenaProblem.statement_language == language)
+
+    if normalized_search:
+        search_expressions = await prepare_problem_search(session, normalized_search)
+        filtered_problem_ids = (
+            filtered_problem_ids.outerjoin(
+                _users_table,
+                ArenaProblem.owner_id == _users_table.c.id,
             )
+            .add_columns(
+                search_expressions.exact_number_match.label("exact_number_match"),
+                search_expressions.full_text_match.label("full_text_match"),
+                search_expressions.full_text_rank.label("full_text_rank"),
+                search_expressions.trigram_rank.label("trigram_rank"),
+            )
+            .where(search_expressions.predicate)
         )
 
     if category_slugs:
@@ -233,7 +272,7 @@ async def list_problems_paginated(
                 )
                 .scalar_subquery()
             )
-            base = base.where(sub == len(effective_slugs))
+            filtered_problem_ids = filtered_problem_ids.where(sub == len(effective_slugs))
     elif category_ids:
         effective_ids = list(dict.fromkeys(category_ids))
         # AND semantics: problem must have every selected category
@@ -245,30 +284,49 @@ async def list_problems_paginated(
             )
             .scalar_subquery()
         )
-        base = base.where(sub == len(effective_ids))
+        filtered_problem_ids = filtered_problem_ids.where(sub == len(effective_ids))
 
-    # Count total before pagination
-    count_stmt = select(func.count()).select_from(base.subquery())
+    count_stmt = select(func.count()).select_from(filtered_problem_ids.subquery())
     total: int = (await session.execute(count_stmt)).scalar_one()
 
-    # Apply sort and paginate
-    paginated = _apply_sort(base, effective_sort).offset(params.offset).limit(params.per_page)
+    filtered_ids = filtered_problem_ids.subquery()
+    display_statement = (
+        select(
+            ArenaProblem.id,
+            ArenaProblem.arena_number,
+            ArenaProblem.title,
+            ArenaProblem.enabled,
+            ArenaRatingProblem.rating.label("rating_value"),
+        )
+        .join(filtered_ids, filtered_ids.c.id == ArenaProblem.id)
+        .outerjoin(ArenaRatingProblem, ArenaProblem.id == ArenaRatingProblem.problem_id)
+    )
+    paginated = (
+        _apply_sort(display_statement, effective_sort, filtered_ids if normalized_search else None)
+        .offset(params.offset)
+        .limit(params.per_page)
+    )
+    rows = list((await session.execute(paginated)).all())
+    problem_ids = [row.id for row in rows]
 
-    rows = list((await session.execute(paginated)).scalars())
+    categories = await categories_by_problem_id(session, problem_ids)
+    test_case_counts = await test_case_counts_by_problem_id(session, problem_ids)
+    validator_problem_ids = await configured_validator_problem_ids(session, problem_ids)
 
     items: list[ProblemListItem] = []
-    for problem in rows:
-        public_tcs = sum(1 for tc in problem.test_cases if tc.is_sample)
-        private_tcs = sum(1 for tc in problem.test_cases if not tc.is_sample)
-        rating = problem.rating.display_rating if problem.rating else None
+    for row in rows:
+        public_tc_count, private_tc_count = test_case_counts.get(row.id, (0, 0))
         items.append(
             ProblemListItem(
-                problem=problem,
-                public_tc_count=public_tcs,
-                private_tc_count=private_tcs,
-                rating=rating,
-                categories=list(problem.categories),
-                has_custom_validator=status_view(problem.custom_validator).configured,
+                id=row.id,
+                arena_number=row.arena_number,
+                title=row.title,
+                enabled=row.enabled,
+                public_tc_count=public_tc_count,
+                private_tc_count=private_tc_count,
+                rating=row.rating_value / 10.0 if row.rating_value is not None else None,
+                categories=categories.get(row.id, []),
+                has_custom_validator=row.id in validator_problem_ids,
             )
         )
 
@@ -331,6 +389,7 @@ async def create_problem(
     license: str | None = None,
     author: str | None = None,
     author_is_owner: bool = True,
+    statement_language: StatementLanguage | None = None,
 ) -> ArenaProblem:
     """Create a new Arena problem in the disabled state.
 
@@ -390,6 +449,7 @@ async def create_problem(
         problem_image_caption=image_caption.strip() if image_caption else None,
         notes=notes.strip() if notes else None,
         license=license.strip() if license and license.strip() else None,
+        statement_language=statement_language,
         created_at=now,
         updated_at=now,
     )
@@ -420,6 +480,7 @@ async def update_problem(
     license: str | None = None,
     author: str | None = None,
     author_is_owner: bool = True,
+    statement_language: StatementLanguage | None = None,
 ) -> ArenaProblem:
     """Update mutable fields of an existing Arena problem.
 
@@ -480,6 +541,7 @@ async def update_problem(
         problem.problem_image_caption = image_caption.strip() if image_caption else None
     problem.notes = notes.strip() if notes else None
     problem.license = license.strip() if license and license.strip() else None
+    problem.statement_language = statement_language
 
     await _set_categories(session, problem, category_ids)
     return problem
@@ -553,6 +615,65 @@ async def search_categories(
     if query.strip():
         stmt = stmt.where(ArenaCategory.name.ilike(f"%{query.strip()}%"))
     stmt = stmt.limit(limit)
+    result = await session.execute(stmt)
+    return list(result.scalars())
+
+
+async def search_problem_suggestions(
+    session: AsyncSession,
+    *,
+    field: ProblemSuggestionField,
+    query: str,
+    caller_id: str,
+    is_admin: bool,
+) -> list[str]:
+    """Return visible, distinct author or source values matching an autocomplete query.
+
+    Args:
+        session: Active async database session.
+        field: Stored free-text field to project, either ``"author"`` or ``"source"``.
+        query: Literal text to search after surrounding whitespace is removed.
+        caller_id: UUID of the requesting user.
+        is_admin: When False, includes enabled problems plus drafts owned by ``caller_id``.
+
+    Returns:
+        Matching, trimmed values in deterministic relevance/name order. Owner-backed
+        authors, nulls, and blank legacy values are excluded.
+    """
+    normalized_query = query.strip()
+    if len(normalized_query) < 2:
+        return []
+
+    search_expressions = await prepare_problem_suggestion_search(session, field, normalized_query)
+    stored_value = ArenaProblem.author if field == "author" else ArenaProblem.source
+    normalized_value = func.trim(stored_value).label("suggestion_value")
+    full_text_rank = func.max(search_expressions.full_text_rank).label("full_text_rank")
+    trigram_rank = func.max(search_expressions.trigram_rank).label("trigram_rank")
+
+    stmt = (
+        select(normalized_value)
+        .where(
+            search_expressions.predicate,
+            stored_value.is_not(None),
+            func.length(normalized_value) > 0,
+        )
+        .group_by(normalized_value)
+        .order_by(
+            full_text_rank.desc(),
+            trigram_rank.desc(),
+            func.lower(normalized_value).asc(),
+            normalized_value.asc(),
+        )
+        .limit(_MAX_PROBLEM_SUGGESTIONS)
+    )
+    if not is_admin:
+        stmt = stmt.where(
+            or_(
+                ArenaProblem.enabled.is_(True),
+                ArenaProblem.owner_id == caller_id,
+            )
+        )
+
     result = await session.execute(stmt)
     return list(result.scalars())
 

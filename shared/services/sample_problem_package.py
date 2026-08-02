@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -51,6 +51,8 @@ _METADATA: Final[dict[str, Any]] = {
     "notes": "Sample problem",
     "license": "cc sa-by",
     "categories": ["sample", "math"],
+    # Arena-only; ignored by the Contest importer.
+    "statement_language": "en",
     # Problem-level limits, used for any language without an override below.
     "time_limit_ms": 1000,
     "memory_limit_kb": 262144,

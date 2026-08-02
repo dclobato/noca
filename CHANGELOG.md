@@ -4,6 +4,28 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [15.1.0] - 2026-08-02
+
+### Features
+
+- **aiassistant:** Display model name on worker startup
+- **arena:** Record and filter the problem statement language
+- **scripts:** Add container image retention cleanup for Docker Hub and GHCR
+- **ci:** Let the language publish target one registry or both
+- **ci:** Retry publishes, verify released tags, and select registries
+- **arena:** Replace problem search ILIKE with full-text search
+- **arena:** Autocomplete problem authors and sources
+
+### Bug Fixes
+
+- **ci:** Publish one registry per pass and drop judge provenance
+
+### Performance
+
+- **arena:** Optimize problem list queries
+
+
+
 ## [15.0.1] - 2026-08-01
 
 ### Features

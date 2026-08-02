@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -15,10 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import arena.models.arena_problems  # noqa: F401
 import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
-from arena.models.arena_problems import ArenaCategory, ArenaProblem, ArenaProblemCustomValidator
+from arena.models.arena_problems import (
+    ArenaCategory,
+    ArenaProblem,
+    ArenaProblemCustomValidator,
+    ArenaTestCase,
+)
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_service
-from shared.enumerations import ArenaRole, CustomValidatorActiveState
+from shared.enumerations import ArenaRole, CustomValidatorActiveState, CustomValidatorCandidateState
 from web.models.language import Language
 
 
@@ -320,7 +325,54 @@ async def test_search_by_title(session: AsyncSession) -> None:
         is_admin=False,
     )
     assert pagination.total == 1
-    assert pagination.items[0].problem.title == "Fibonacci Sequence"
+    assert pagination.items[0].title == "Fibonacci Sequence"
+
+
+@pytest.mark.asyncio
+async def test_search_resolves_owner_and_free_text_authors(session: AsyncSession) -> None:
+    owner = await _make_user(session, email_suffix="search-owner")
+    owner.nome = "Ada Lovelace"
+    owner_problem = await _make_problem(session, owner.id, title="Owner-authored")
+    external_problem = await admin_problem_service.create_problem(
+        session,
+        caller_id=owner.id,
+        title="External-authored",
+        author="Grace Hopper",
+        author_is_owner=False,
+        source=None,
+        hide_author_show_source=False,
+        time_limit_ms=1000,
+        memory_limit_kb=262144,
+        pids_limit=64,
+        output_limit_in_bytes=65536,
+        problem_statement="Statement",
+        image_b64=None,
+        image_mime=None,
+        image_caption=None,
+        notes=None,
+        category_ids=[],
+    )
+    await session.flush()
+
+    owner_search = await admin_problem_service.list_problems_paginated(
+        session,
+        page=1,
+        per_page=25,
+        search="Ada Lovelace",
+        caller_id=owner.id,
+        is_admin=False,
+    )
+    external_search = await admin_problem_service.list_problems_paginated(
+        session,
+        page=1,
+        per_page=25,
+        search="Grace Hopper",
+        caller_id=owner.id,
+        is_admin=False,
+    )
+
+    assert [item.id for item in owner_search.items] == [owner_problem.id]
+    assert [item.id for item in external_search.items] == [external_problem.id]
 
 
 @pytest.mark.asyncio
@@ -329,6 +381,7 @@ async def test_problem_list_item_marks_custom_validator_problems(session: AsyncS
     language = await _make_language(session)
     plain_problem = await _make_problem(session, author.id, title="Plain")
     validator_problem = await _make_problem(session, author.id, title="Interactive")
+    candidate_problem = await _make_problem(session, author.id, title="Candidate")
     session.add(
         ArenaProblemCustomValidator(
             problem_id=validator_problem.id,
@@ -336,6 +389,15 @@ async def test_problem_list_item_marks_custom_validator_problems(session: AsyncS
             active_source="print('validator')\n",
             active_state=CustomValidatorActiveState.VALID,
             active_validated_at=datetime.now(UTC),
+        )
+    )
+    session.add(
+        ArenaProblemCustomValidator(
+            problem_id=candidate_problem.id,
+            candidate_language_id=language.id,
+            candidate_source="print('candidate')\n",
+            candidate_token=str(uuid.uuid4()),
+            candidate_state=CustomValidatorCandidateState.PENDING,
         )
     )
     await session.flush()
@@ -348,9 +410,66 @@ async def test_problem_list_item_marks_custom_validator_problems(session: AsyncS
         is_admin=False,
     )
 
-    flags_by_problem = {item.problem.id: item.has_custom_validator for item in pagination.items}
+    flags_by_problem = {item.id: item.has_custom_validator for item in pagination.items}
     assert flags_by_problem[plain_problem.id] is False
     assert flags_by_problem[validator_problem.id] is True
+    assert flags_by_problem[candidate_problem.id] is True
+
+
+@pytest.mark.asyncio
+async def test_problem_list_uses_page_scoped_enrichment_queries(
+    session: AsyncSession,
+    sql_statements: list[str],
+) -> None:
+    """The admin list keeps counts cheap and enriches only the current page."""
+    author = await _make_user(session)
+    problem = await _make_problem(session, author.id, title="Narrow projection")
+    problem.problem_image_base64 = "large-image-payload"
+    problem.problem_image_mime = "image/png"
+    problem.problem_image_caption = "Caption"
+    problem.notes = "Internal note"
+    problem.license = "CC BY 4.0"
+    session.add_all(
+        [
+            ArenaTestCase(problem_id=problem.id, ordinal=1, is_sample=True),
+            ArenaTestCase(problem_id=problem.id, ordinal=2, is_sample=False),
+            ArenaTestCase(problem_id=problem.id, ordinal=3, is_sample=False),
+        ]
+    )
+    await session.flush()
+
+    sql_statements.clear()
+    pagination = await admin_problem_service.list_problems_paginated(
+        session,
+        page=1,
+        per_page=25,
+        caller_id=author.id,
+        is_admin=False,
+    )
+
+    assert len(sql_statements) == 5
+    count_sql, page_sql, category_sql, test_case_sql, validator_sql = [
+        statement.lower() for statement in sql_statements
+    ]
+    assert "arena_problem_ratings" not in count_sql
+    assert "arena_test_cases" not in count_sql
+    assert "arena_problem_custom_validators" not in count_sql
+    for large_column in (
+        "problem_statement",
+        "problem_image_base64",
+        "problem_image_caption",
+        "notes",
+        "license",
+    ):
+        assert large_column not in page_sql
+    assert " in (" in category_sql
+    assert " in (" in test_case_sql
+    assert " in (" in validator_sql
+
+    item = pagination.items[0]
+    assert item.rating is None
+    assert item.public_tc_count == 1
+    assert item.private_tc_count == 2
 
 
 @pytest.mark.asyncio
@@ -408,7 +527,7 @@ async def test_category_and_filter(session: AsyncSession) -> None:
         is_admin=False,
     )
     assert pagination.total == 1
-    assert pagination.items[0].problem.title == "Both"
+    assert pagination.items[0].title == "Both"
 
 
 # ── list_owners ──────────────────────────────────────────────────────────────

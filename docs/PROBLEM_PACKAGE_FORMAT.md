@@ -114,6 +114,7 @@ The example below shows every possible field at once; each field is then describ
 "source": "ICPC 2025",
 "hide_author_show_source": false,
 "license": "CC BY-SA 4.0",
+"statement_language": "en",
 "color": "#4287f5",
 "language_limits": {
 "python3": {
@@ -146,6 +147,7 @@ The example below shows every possible field at once; each field is then describ
 | `source` | string or null | no | Origin of the problem (e.g. contest name). Max 256 chars. |
 | `hide_author_show_source` | boolean | no | If `true`, the public problem page shows `source` instead of author name. Default `false`. |
 | `license` | string (≤ 256 chars) or null | no | License shown on the public problem page. |
+| `statement_language` | `"pt"` \| `"en"` \| `"es"` or null | no | Natural language of `statement.md` (ISO 639-1). Exports omit the key when the problem has none. On import, an absent key triggers automatic detection from the statement; a value outside the three codes fails the import. |
 ### Contest-only fields (Arena ignores these)
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -227,10 +229,12 @@ In both domains, test cases are written to:
 where `NNN` is `ordinal:03d` (zero-padded, 1-based).
 ### Public vs. secret
 There is no separate metadata file for the public/secret flag. After import:
-- All packaged test cases are imported as **secret** (`is_sample=False`) on both domains.
-- When the package declares a `custom_validator`, all packaged test cases are imported as
-**public samples** instead — interactive judging never reads the test-case files, so there
-are no secrets to protect.
+- All packaged test cases are imported as **secret** (`is_sample=False`) on both domains,
+including the cases of a package that declares a `custom_validator`.
+- An interactive problem is required to have **zero** public test cases: a bare input reveals a
+secret without showing what to do with it, so its worked examples are the
+[sample interactions](#9-interaction-folder-interactive-problems) instead. Making a case public
+after import is refused while a validator is configured.
 ## 5. `explanation/` folder
 Author notes that explain why a test case has its expected output. They are shown to contestants
 **below the sample** in the problem-statement view.
@@ -455,6 +459,12 @@ present and valid:
 are accepted (cast through `int(str(value))`).
 - `output_limit_in_bytes`, when present and non-null, must be an integer ≥ 1; missing or
 empty string is treated as null.
+- `statement_language` (Arena), when present and non-null, must be exactly `pt`, `en`, or `es`
+(surrounding whitespace is trimmed); anything else fails the import with
+`problem.json: 'statement_language' is invalid.`. When the key is absent, Arena detects the
+language from `statement.md` and the import page asks the importer to confirm the result —
+including the case where the statement was too short to attempt detection, which leaves the
+language unset.
 ### Statement
 - Arena: `statement.md` is required.
 - Contest: either `statement.pdf` or `statement.md` is required.
@@ -536,6 +546,7 @@ noca-sample-problem-a-plus-b.zip
 "author": "John Doe",
 "notes": "Sample problem",
 "license": "cc sa-by",
+"statement_language": "en",
 "categories": ["sample", "math"],
 "time_limit_ms": 1000,
 "memory_limit_kb": 262144,
@@ -650,6 +661,7 @@ number-guessing.zip
 "source": "ICPC 2025",
 "hide_author_show_source": false,
 "license": "CC BY-SA 4.0",
+"statement_language": "en",
 "time_limit_ms": 2000,
 "memory_limit_kb": 262144,
 "pids_limit": 64,

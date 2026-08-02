@@ -229,7 +229,10 @@ internal bases are not published. The final images still form a fully self-conta
 release because the Bake graph resolves the internal targets in-memory.
 
 Push builds can publish the same built image to two registry layouts in one Bake
-run by combining `--repo`/`--naming` with `--alt-repo`/`--alt-naming`.
+run by combining `--repo`/`--naming` with `--alt-repo`/`--alt-naming`. The
+publish workflows deliberately do *not* use that: they run one single-registry
+pass per registry instead, for the reasons in
+[Publishing one registry at a time](#publishing-one-registry-at-a-time).
 
 ```bash
 ./containers/build.sh --version v2.9.0
@@ -254,6 +257,198 @@ The version flag composes naturally with all other flags:
 REPO=ghcr.io/myorg/noca VERSION=v2.9.0 \
   docker buildx bake --file containers/docker-bake.hcl --push release
 ```
+
+## Verifying a published release
+
+A publish run that dies part-way leaves a partial release, and nothing announces
+it: the floating tags keep serving the previous build, and the missing version
+pins only surface when someone tries to deploy them. That is how `v15.0.1` ended
+up with 15 of 21 languages missing their `compile-v15.0.1` / `run-v15.0.1` tags
+after one transient Docker Hub `502` aborted the Bake run.
+
+Both publish workflows run `scripts/verify_published_images.py` after pushing,
+and the job fails when anything is missing. Run it by hand at any time:
+
+```bash
+# Verify a whole release on both registries
+uv run python scripts/verify_published_images.py --version v15.0.1
+
+# Narrow it
+uv run python scripts/verify_published_images.py --version v15.0.1 \
+  --registries ghcr --scope languages
+```
+
+For each image it checks that the version-pinned tag exists, and that the
+floating tag (`latest`, `compile`, `run`) resolves to the *same digest* as that
+pin. The second check is what catches a target whose push failed after some tags
+landed, leaving the floating tag on the previous release. Targets come from the
+same sources `build.sh` uses, so a newly added language is verified
+automatically.
+
+Public repositories verify anonymously. Set `DOCKERHUB_USERNAME` /
+`DOCKERHUB_TOKEN` and `GITHUB_TOKEN` to check private ones.
+
+The publish workflows also retry the push up to `MAX_ATTEMPTS` times with
+increasing backoff, because Bake aborts every target when one push fails: without
+a retry, a single transient registry error costs the whole release. Retries are
+cheap, since the layers are cached and re-pushing an existing tag is a no-op.
+
+## Publishing one registry at a time
+
+Both publish workflows push to **one registry per pass**, running `build.sh`
+once per selected registry with `--repo`/`--naming` alone. They do not use
+`--alt-repo`, even though `build.sh` still supports it.
+
+The reason is push duration. A `--alt-repo` run tags every target for both
+registries, so one Bake holds twice the blob volume in flight. The `v15.0.1`
+language publish did that with 42 targets across two platforms: the build
+finished in minutes, then the push phase ran for **78 minutes** (`pushing layers
+4691.3s done`), well past the 30-minute lifetime of a Docker Hub blob-upload
+session. One upload expired, its manifest was missing when the manifest list was
+pushed, and Bake failed the target and cancelled the other 40 mid-push:
+
+```text
+ERROR: failed to push docker.io/…/noca-judge-prolog:compile:
+       content digest sha256:623107df…: not found
+```
+
+Splitting the passes halves the blob volume each one carries, keeps uploads
+inside their session window, and contains a registry-specific failure to that
+registry. The total upload is unchanged; it simply stops being concurrent.
+
+The images are still built **once**. Both passes run in the same job on the same
+BuildKit instance, so the second one resolves every step from cache — including
+the layer export — and does nothing but push. Because a manifest digest does not
+depend on the tags applied to it, both registries receive the *same digest* for
+each image, exactly as the old `--alt-repo` run produced. (This relies on the
+shared builder and on neither pass using `--no-cache`; with either broken, the
+second pass would rebuild from scratch.)
+
+The trade-off is that a failure in the second pass leaves the release complete
+on one registry and absent from the other. That is strictly better than the
+partial *within* a registry that the combined push produced, and the verify step
+reports it either way.
+
+## Attestations on judge images
+
+The 42 judge targets publish with `attest = ["type=provenance,disabled=true"]`
+(set once on `_judge-common` in `docker-bake.hcl`). BuildKit v0.11+ attaches a
+`mode=min` provenance attestation by default; for judge images it buys nothing,
+since only the autojudge consumes them, it resolves them by tag, and it never
+inspects provenance.
+
+What it costs is one extra manifest per platform per target — 84 across the
+judge set — each of which has to round-trip on every push. That is precisely the
+object that went missing in the `v15.0.1` failure above, where the lost
+attestation manifest took the whole Bake down with it.
+
+App images keep their attestations. There are only seven of them, they are what
+operators actually deploy, and their push is small enough that the extra
+manifests are not a risk.
+
+## Registry retention cleanup
+
+Every release publishes a new versioned tag to both registries and nothing ever
+removes the old ones, so Docker Hub and GHCR grow without bound. The
+`scripts/cleanup_registry_images.py` script applies a retention policy to the
+tags this build process publishes.
+
+The policy keeps the newest N major series of **each repository, whole**, so
+every patch of a retained major stays available for rollback. Majors are counted
+per repository, which means a language image whose last build was `v12` keeps its
+own newest majors instead of being emptied because the application images moved
+on. Floating tags (`latest`, `compile`, `run`) are never deleted, and any tag
+that matches none of the patterns in the [Version Tagging](#version-tagging)
+table is reported and left untouched.
+
+The script is a dry run unless you pass `--execute`:
+
+```bash
+# Report what a two-major retention would remove
+uv run python scripts/cleanup_registry_images.py --keep-majors 2
+
+# Apply it
+uv run python scripts/cleanup_registry_images.py --keep-majors 2 --execute
+```
+
+Credentials come from the environment:
+
+| Variable | Purpose |
+|---|---|
+| `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` | Docker Hub account and personal access token |
+| `GITHUB_TOKEN` or `GH_TOKEN` | GHCR token with the `read:packages` and `delete:packages` scopes |
+
+Useful flags:
+
+- `--registry dockerhub|ghcr|both` limits the run to one registry.
+- `--apps-only` skips the `judge-<language>` images.
+- `--dockerhub-namespace`, `--ghcr-owner`, `--ghcr-owner-is-org`, and `--prefix`
+  point the run at a different account or image family.
+- `--keep-orphans` disables the GHCR orphan cleanup described below.
+- `--orphan-min-age-days` sets how recent an unreferenced digest must be to be
+  treated as a push in flight rather than an orphan.
+
+The two registries delete at different granularities. Docker Hub deletes
+individual tags. GHCR deletes package versions, and one version is one manifest
+digest that can carry several tags at once, so the script deletes a version only
+when *every* tag on it is out of retention. That is what keeps a release digest
+shared with `latest` from being removed.
+
+### Reclaiming storage on Docker Hub
+
+Deleting a tag on Docker Hub frees no storage. The image index the tag pointed at
+survives untagged and still counts as active — on `noca-judge-rust`, 8 surviving
+tags referenced 6 indexes while the repository held 21, the other 15 being
+leftovers of earlier tag deletions.
+
+The script therefore follows each deletion round with a second pass over the
+registry API. It groups the repository's tags by index digest, and for every
+digest whose entire tag set was deleted it issues
+`DELETE /v2/{repository}/manifests/{digest}` against `registry-1.docker.io`. A
+digest that keeps at least one tag is never touched, and the registry enforces
+the same rule independently: a still-referenced manifest answers `403 Forbidden`,
+which the script reports rather than treating as an error. Deletion is
+asynchronous, so a `500` means the registry queued the removal and is reported as
+pending.
+
+Pass `--keep-manifests` to delete tags only and leave the indexes behind.
+
+<!-- prettier-ignore -->
+> [!NOTE]
+> This reclaims storage for tags the script deletes from now on. Indexes stranded
+> by *earlier* tag deletions cannot be found through any documented API — no
+> endpoint lists untagged manifests. Remove those through **My Hub >
+> Repositories > \<repository\> > Image Management**, which supports bulk
+> selection and shows the storage each deletion reclaims.
+
+### Orphaned platform children on GHCR
+
+Because these are multi-platform images, one release creates several GHCR
+versions: the index manifest that carries the tags, plus one untagged child per
+platform and, for app images, one per BuildKit attestation. Judge images publish
+without attestations (see [Attestations on judge
+images](#attestations-on-judge-images)), so they gained fewer children from that
+change onward, while releases published before it still carry theirs. The GitHub
+Packages API reports all of them as ordinary versions and never says which is a
+child of which, so deleting a release index leaves its children behind as
+unreachable garbage.
+
+The script resolves this by reachability rather than by age. After deciding
+which tagged versions survive, it reads each surviving manifest from the
+registry API and collects the digests it references. Any untagged version
+outside that set is unreachable and is deleted along with the index it belonged
+to; anything referenced by a surviving image is kept. This also cleans up
+orphans left behind by earlier runs.
+
+Two rules keep it safe:
+
+- If any surviving manifest can't be read, orphan cleanup is skipped for that
+  package and the run says so. An unreadable index is indistinguishable from one
+  with no children, and guessing wrong deletes a live image's platform.
+- Unreferenced versions younger than `--orphan-min-age-days` (one day by
+  default) are left alone. During a push, children are uploaded before the index
+  that references them exists, so a very recent unreferenced digest may be a
+  build in flight.
 
 ## Prerequisites
 

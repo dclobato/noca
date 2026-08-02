@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -49,6 +49,13 @@ from arena.services.admin_problem_validator_service import (
     stage_candidate_revision,
 )
 from arena.services.pagination_service import parse_page
+from arena.services.statement_language_service import (
+    LanguageConflict,
+    conflict_context,
+    resolve_statement_language,
+    safe_statement_language,
+)
+from shared.enumerations import StatementLanguage
 from shared.services.admin_audit import record_admin_action
 from shared.services.custom_validator import status_view
 from shared.services.imageprocessing_service import ImageProcessingError
@@ -59,6 +66,16 @@ from shared.services.valkey_service.queue_ops import enqueue_arena_submission_jo
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
 
 
+def _effective_problem_sort(sort_by: str | None, search: str) -> str:
+    """Return a valid admin problem sort with relevance as the search default."""
+    default_sort = admin_problem_service.RELEVANCE_SORT if search.strip() else admin_problem_service.DEFAULT_SORT
+    if sort_by not in admin_problem_service.VALID_SORTS:
+        return default_sort
+    if sort_by == admin_problem_service.RELEVANCE_SORT and not search.strip():
+        return admin_problem_service.DEFAULT_SORT
+    return sort_by
+
+
 @router.get("/problems", response_class=HTMLResponse, name="arena_admin_problem_list")
 async def admin_problem_list(
     request: Request,
@@ -66,15 +83,18 @@ async def admin_problem_list(
     page: str | None = None,
     per_page: str | None = None,
     search: str = "",
-    sort_by: str = "number_asc",
+    sort_by: str | None = None,
     owner_id: str = "",
     category_slugs: list[str] | None = Query(None),
+    language: str = "",
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the paginated Arena problem management list."""
     per_page_value = effective_per_page(per_page)
     is_adm = is_admin(current_user)
+    effective_language = safe_statement_language(language)
+    effective_sort = _effective_problem_sort(sort_by, search)
 
     pagination = await admin_problem_service.list_problems_paginated(
         session,
@@ -83,7 +103,8 @@ async def admin_problem_list(
         search=search,
         category_slugs=category_slugs or [],
         owner_id=owner_id if (is_adm and owner_id) else None,
-        sort_by=sort_by,
+        language=effective_language,
+        sort_by=effective_sort,
         caller_id=current_user.id,
         is_admin=is_adm,
     )
@@ -98,9 +119,12 @@ async def admin_problem_list(
                 "pagination": pagination,
                 "per_page": per_page_value,
                 "search": search,
-                "sort_by": sort_by,
+                "sort_by": effective_sort,
+                "sort_was_explicit": sort_by in admin_problem_service.VALID_SORTS,
                 "selected_owner_id": owner_id,
                 "selected_category_slugs": set(category_slugs or []),
+                "language": effective_language.value if effective_language else "",
+                "statement_languages": list(StatementLanguage),
                 "owners": owners,
                 "all_categories": all_categories,
                 "current_user": current_user,
@@ -117,9 +141,10 @@ async def admin_problem_new(
     page: str = "1",
     per_page: str = "25",
     search: str = "",
-    sort_by: str = "title_asc",
+    sort_by: str = admin_problem_service.DEFAULT_SORT,
     owner_id: str = "",
     category_slugs: list[str] | None = Query(None),
+    language: str = "",
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -132,6 +157,7 @@ async def admin_problem_new(
         sort_by=sort_by,
         owner_id=owner_id,
         category_slugs=category_slugs,
+        language=language,
     )
     return render_problem_form(
         request,
@@ -159,6 +185,7 @@ async def admin_problem_new(
             sort_by=sort_by,
             owner_id=owner_id,
             category_slugs=category_slugs,
+            language=language,
         ),
         current_user=current_user,
         validator_languages=await validator_languages(session),
@@ -183,13 +210,16 @@ async def admin_problem_create(
     return_page: str = Form("1"),
     return_per_page: str = Form("25"),
     return_search: str = Form(""),
-    return_sort_by: str = Form("title_asc"),
+    return_sort_by: str = Form(admin_problem_service.DEFAULT_SORT),
     return_owner_id: str = Form(""),
     return_category_slugs: list[str] = Form(default=[]),
+    return_language: str = Form(""),
     image: UploadFile = File(None),
     image_caption: str = Form(""),
     notes: str = Form(""),
     license: str = Form(""),
+    statement_language: str = Form(""),
+    language_confirmed: str = Form(""),
     validator_language_id: str = Form(""),
     validator_source_file: UploadFile = File(None),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
@@ -204,6 +234,7 @@ async def admin_problem_create(
         sort_by=return_sort_by,
         owner_id=return_owner_id,
         category_slugs=return_category_slugs,
+        language=return_language,
     )
     state = return_state(
         page=return_page,
@@ -212,6 +243,7 @@ async def admin_problem_create(
         sort_by=return_sort_by,
         owner_id=return_owner_id,
         category_slugs=return_category_slugs,
+        language=return_language,
     )
     form = form_fields(
         title=title,
@@ -228,9 +260,10 @@ async def admin_problem_create(
         image_caption=image_caption,
         notes=notes,
         license=license,
+        statement_language=statement_language,
     )
 
-    async def render_error() -> HTMLResponse:
+    async def render_error(language_conflict: dict[str, str] | None = None) -> HTMLResponse:
         all_categories = await admin_problem_service.search_categories(session, query="", limit=200)
         return render_problem_form(
             request,
@@ -241,8 +274,25 @@ async def admin_problem_create(
             state=state,
             current_user=current_user,
             validator_languages=await validator_languages(session),
+            language_conflict=language_conflict,
             status_code=400,
         )
+
+    # A stated language that disagrees with detection must be acknowledged before
+    # anything is written, so a mistyped language never reaches the database.
+    try:
+        resolution = await resolve_statement_language(
+            chosen_raw=statement_language,
+            confirmed_raw=language_confirmed,
+            statement=problem_statement,
+            title=title,
+        )
+    except ValueError as exc:
+        flash(str(exc), FlashCategory.DANGER)
+        return await render_error()
+    if isinstance(resolution, LanguageConflict):
+        return await render_error(language_conflict=conflict_context(resolution))
+    resolved_language = resolution.language
 
     # Check the validator upload before creating anything, so a bad file cannot
     # burn an Arena problem number.
@@ -285,6 +335,7 @@ async def admin_problem_create(
             notes=notes or None,
             license=license or None,
             category_ids=category_ids,
+            statement_language=resolved_language,
         )
     except ValueError as exc:
         flash(str(exc), FlashCategory.DANGER)
@@ -309,6 +360,7 @@ async def admin_problem_create(
             sort_by=return_sort_by,
             owner_id=return_owner_id,
             category_slugs=return_category_slugs,
+            language=return_language,
             anchor=problem.id,
         ),
         status_code=303,
@@ -327,9 +379,10 @@ async def admin_problem_edit(
     page: str = "1",
     per_page: str = "25",
     search: str = "",
-    sort_by: str = "title_asc",
+    sort_by: str = admin_problem_service.DEFAULT_SORT,
     owner_id: str = "",
     category_slugs: list[str] | None = Query(None),
+    language: str = "",
     next: str = Query(""),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
@@ -347,6 +400,7 @@ async def admin_problem_edit(
         sort_by=sort_by,
         owner_id=owner_id,
         category_slugs=category_slugs,
+        language=language,
     )
     return render_problem_form(
         request,
@@ -368,6 +422,7 @@ async def admin_problem_edit(
             image_caption=problem.problem_image_caption or "",
             notes=problem.notes or "",
             license=problem.license or "",
+            statement_language=problem.statement_language.value if problem.statement_language else "",
         ),
         cats_data=selected_cats_data(all_categories, selected_ids),
         back_url=back_url,
@@ -379,6 +434,7 @@ async def admin_problem_edit(
             sort_by=sort_by,
             owner_id=owner_id,
             category_slugs=category_slugs,
+            language=language,
         ),
         problem_owner=problem_owner,
         has_submissions=has_submissions,
@@ -408,15 +464,18 @@ async def admin_problem_update(
     return_page: str = Form("1"),
     return_per_page: str = Form("25"),
     return_search: str = Form(""),
-    return_sort_by: str = Form("title_asc"),
+    return_sort_by: str = Form(admin_problem_service.DEFAULT_SORT),
     return_owner_id: str = Form(""),
     return_category_slugs: list[str] = Form(default=[]),
+    return_language: str = Form(""),
     next_url: str = Form(""),
     clear_image: bool = Form(False),
     image: UploadFile = File(None),
     image_caption: str = Form(""),
     notes: str = Form(""),
     license: str = Form(""),
+    statement_language: str = Form(""),
+    language_confirmed: str = Form(""),
     validator_language_id: str = Form(""),
     validator_source_file: UploadFile = File(None),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
@@ -433,6 +492,7 @@ async def admin_problem_update(
         sort_by=return_sort_by,
         owner_id=return_owner_id,
         category_slugs=return_category_slugs,
+        language=return_language,
         anchor=problem.id,
     )
     state = return_state(
@@ -442,6 +502,7 @@ async def admin_problem_update(
         sort_by=return_sort_by,
         owner_id=return_owner_id,
         category_slugs=return_category_slugs,
+        language=return_language,
     )
     form = form_fields(
         title=title,
@@ -458,9 +519,10 @@ async def admin_problem_update(
         image_caption=image_caption,
         notes=notes,
         license=license,
+        statement_language=statement_language,
     )
 
-    async def render_error() -> HTMLResponse:
+    async def render_error(language_conflict: dict[str, str] | None = None) -> HTMLResponse:
         test_cases, all_categories, problem_owner, has_submissions = await edit_form_extras(
             problem, current_user, session
         )
@@ -480,8 +542,25 @@ async def admin_problem_update(
             validator_languages=await validator_languages(session),
             interactions=await admin_problem_interaction_service.list_interactions(session, problem.id),
             current_user=current_user,
+            language_conflict=language_conflict,
             status_code=400,
         )
+
+    # A stated language that disagrees with detection must be acknowledged before
+    # anything is written, so a mistyped language never reaches the database.
+    try:
+        resolution = await resolve_statement_language(
+            chosen_raw=statement_language,
+            confirmed_raw=language_confirmed,
+            statement=problem_statement,
+            title=title,
+        )
+    except ValueError as exc:
+        flash(str(exc), FlashCategory.DANGER)
+        return await render_error()
+    if isinstance(resolution, LanguageConflict):
+        return await render_error(language_conflict=conflict_context(resolution))
+    resolved_language = resolution.language
 
     # Check the validator upload before any database write, so a bad file leaves
     # the problem untouched.
@@ -533,6 +612,7 @@ async def admin_problem_update(
             license=license or None,
             clear_image=clear_image,
             category_ids=category_ids,
+            statement_language=resolved_language,
         )
     except ValueError as exc:
         flash(str(exc), FlashCategory.DANGER)
@@ -587,9 +667,10 @@ async def admin_problem_toggle_enabled(
     page: str = Query("1"),
     per_page: str = Query("25"),
     search: str = Query(""),
-    sort_by: str = Query("title_asc"),
+    sort_by: str = Query(admin_problem_service.DEFAULT_SORT),
     owner_id: str = Query(""),
     category_slugs: list[str] | None = Query(None),
+    language: str = Query(""),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -618,6 +699,7 @@ async def admin_problem_toggle_enabled(
             sort_by=sort_by,
             owner_id=owner_id,
             category_slugs=category_slugs,
+            language=language,
             anchor=problem.id,
         ),
         status_code=303,
@@ -633,9 +715,10 @@ async def admin_problem_delete(
     page: str = Form("1"),
     per_page: str = Form("25"),
     search: str = Form(""),
-    sort_by: str = Form("title_asc"),
+    sort_by: str = Form(admin_problem_service.DEFAULT_SORT),
     owner_id: str = Form(""),
     category_slugs: list[str] = Form(default=[]),
+    language: str = Form(""),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -670,6 +753,7 @@ async def admin_problem_delete(
             sort_by=sort_by,
             owner_id=owner_id,
             category_slugs=category_slugs,
+            language=language,
         ),
         status_code=303,
     )
