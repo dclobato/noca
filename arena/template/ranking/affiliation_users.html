@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -11,95 +11,123 @@
 {% block nav_ranking %}active{% endblock %}
 {% block nav_ranking_affiliations %}active{% endblock %}
 {% block content %}
-    <div class="container-fluid px-3 py-3">
-        <div class="arena-card mb-3">
-            <div class="d-flex gap-3 mb-3">
+    <div class="arena-ranking-page">
+        <header class="arena-ranking-header">
+            <div class="d-flex align-items-center gap-3 flex-grow-1 overflow-hidden">
                 {% if affiliation.logo_base64 %}
-                    <div class="flex-shrink-0 d-flex align-items-center">
-                        <img src="{{ request.url_for('arena_affiliation_logo', affiliation_id=affiliation.id) }}"
-                             width="128"
-                             height="128"
-                             class="rounded object-fit-cover"
-                             alt="{{ affiliation.name }} logo">
-                    </div>
+                    {% set affiliation_logo_url = request.url_for('arena_affiliation_logo', affiliation_id=affiliation.id) %}
+                    <img src="{{ affiliation_logo_url }}"
+                         width="128"
+                         height="128"
+                         class="rounded object-fit-contain flex-shrink-0"
+                         alt="">
+                {% else %}
+                    <span class="arena-ranking-logo-placeholder" aria-hidden="true">{{ render_icon(icon="corporate_fare") }}</span>
                 {% endif %}
-                <div class="flex-grow-1">
-                    <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
-                        <h1 class="arena-card-title mb-0">
-                            {% if not affiliation.logo_base64 %}{{ render_icon(icon="corporate_fare") }}{% endif %}
-                            {{ affiliation.name }}
-                        </h1>
-                        <a href="{{ request.url_for("arena_ranking_affiliations") }}"
-                           class="btn btn-link btn-sm text-muted text-decoration-none">
-                            {{ render_icon(icon="arrow_back") }}
-                            Affiliation Ranking
-                        </a>
-                    </div>
-                    <form method="get"
-                          class="d-flex flex-wrap gap-2 align-items-end"
-                          id="affiliation-user-ranking-filter-form">
-                        {% with label="Search", input_type="text", value=search, placeholder="Name or email…", autocomplete="off" %}
-                            {% include "_partials/filter_search_field.html" %}
-                        {% endwith %}
-                        {% include "_partials/filter_submit_button.html" %}
-                        {% set _filters_active = search %}
-                        {% with clear_url=request.url_for("arena_ranking_affiliation_users", affiliation_id=affiliation.id), filters_active=_filters_active %}
-                            {% include "_partials/filter_clear_link.html" %}
-                        {% endwith %}
-                    </form>
+                <div class="arena-ranking-heading">
+                    <h1 id="affiliation-user-ranking-title" class="text-break">{{ affiliation.name }}</h1>
+                    <p>Members ranked by rating</p>
                 </div>
             </div>
-            <p class="text-muted small mb-2">{{ pagination.total }} user{{ 's' if pagination.total != 1 else '' }}</p>
-            {% with pagination=pagination, page_param="page", label="User ranking pagination", nav_margin="mb-2" %}
-                {% include "_partials/pagination.html" %}
-            {% endwith %}
+            <a href="{{ request.url_for("arena_ranking_affiliations") }}"
+               class="arena-ranking-back-link">
+                {{ render_icon(icon="arrow_back") }}
+                Affiliation Ranking
+            </a>
+        </header>
+        <section class="arena-card arena-ranking-panel"
+                 aria-labelledby="affiliation-user-ranking-title">
+            <form method="get"
+                  class="arena-ranking-filters"
+                  id="affiliation-user-ranking-filter-form">
+                {% with label="Search",
+                    input_type="text",
+                    value=search,
+                    placeholder="Name or email…",
+                    autocomplete="off" %}
+                    {% include "_partials/filter_search_field.html" %}
+                {% endwith %}
+                <div class="arena-ranking-filter-actions">
+                    {% include "_partials/filter_submit_button.html" %}
+                    {% set _filters_active = search %}
+                    {% set clear_url = request.url_for("arena_ranking_affiliation_users", affiliation_id=affiliation.id) %}
+                    {% with clear_url=clear_url, filters_active=_filters_active %}
+                        {% include "_partials/filter_clear_link.html" %}
+                    {% endwith %}
+                </div>
+            </form>
+            <div class="arena-ranking-results-bar">
+                <p>{{ pagination.total }} user{{ 's' if pagination.total != 1 else '' }}</p>
+                {% with pagination=pagination,
+                    page_param="page",
+                    label="Affiliation user ranking pagination",
+                    nav_margin="mb-0" %}
+                    {% include "_partials/pagination.html" %}
+                {% endwith %}
+            </div>
             <div class="table-responsive">
-                <table class="arena-table">
+                <table class="arena-table arena-ranking-table arena-ranking-table--users">
+                    <caption class="visually-hidden">
+                        Users from {{ affiliation.name }} ordered by Arena rating
+                    </caption>
                     <thead>
                         <tr>
-                            <th class="text-end">#</th>
-                            <th></th>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th>Location</th>
-                            <th class="text-end">Rating</th>
+                            <th scope="col" class="arena-ranking-col-rank text-end">Rank</th>
+                            <th scope="col">User</th>
+                            <th scope="col" class="d-none d-md-table-cell">Location</th>
+                            <th scope="col" class="arena-ranking-col-rating text-end">Rating</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for user in pagination.items %}
                             {% set user_profile_url = request.url_for('arena_user_profile_public', user_id=user.id) if user.public_profile else None %}
+                            {% set avatar_url = request.url_for('arena_user_avatar_by_id', user_id=user.id) %}
                             <tr {% if user_profile_url %}data-href="{{ user_profile_url }}"{% endif %}>
-                                <td class="text-end arena-monospace text-muted">{{ user.rank }}</td>
-                                <td class="text-center">
-                                    {{ render_avatar(user.id, request.url_for('arena_user_avatar_by_id', user_id=user.id) , alt=user.name, img_class="rounded-circle object-fit-cover") }}
+                                <td class="arena-ranking-rank text-end">{{ user.rank }}</td>
+                                <td>
+                                    <div class="arena-ranking-identity">
+                                        {{ render_avatar(user.id, avatar_url, alt=user.name) }}
+                                        <div>
+                                            <span class="arena-ranking-name">{{ user.name }}</span>
+                                            <span class="arena-ranking-meta arena-monospace d-none d-md-block">{{ user.email_mascarado }}</span>
+                                        </div>
+                                    </div>
                                 </td>
-                                <td class="fw-semibold">{{ user.name }}</td>
-                                <td class="text-muted small arena-monospace">{{ user.email_mascarado }}</td>
-                                <td class="text-nowrap">
+                                <td class="text-nowrap d-none d-md-table-cell">
                                     {% if user.country_code %}
-                                        <img src="{{ request.url_for('static_vendor', path='img/flags/' + user.country_code.lower() + '.svg') }}"
-                                             class="arena-country-flag"
-                                             alt="">
+                                        {% set flag_path = 'img/flags/' + user.country_code.lower() + '.svg' %}
+                                        {% set flag_url = request.url_for('static_vendor', path=flag_path) %}
+                                        <img src="{{ flag_url }}" class="arena-country-flag" alt="">
                                         {{ user.country_name }}
-                                        {% if user.subdivision_name %}, {{ user.subdivision_name }}{% endif %}
+                                        {% if user.subdivision_name %}
+                                            ,
+                                            {{ user.subdivision_name }}
+                                        {% endif %}
                                     {% else %}
                                         <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
-                                <td class="text-end arena-mono-right">{{ user.rating }}</td>
+                                <td class="arena-ranking-rating text-end">{{ user.rating }}</td>
                             </tr>
                         {% else %}
                             <tr>
-                                <td colspan="6" class="arena-empty-state">No users found.</td>
+                                <td colspan="4" class="arena-empty-state">No users found.</td>
                             </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            {% with pagination=pagination, page_param="page", label="User ranking pagination" %}
-                {% include "_partials/pagination.html" %}
-            {% endwith %}
-        </div>
+            {% if pagination.pages > 1 %}
+                <footer class="arena-ranking-pagination-footer">
+                    {% with pagination=pagination,
+                        page_param="page",
+                        label="Affiliation user ranking pagination",
+                        nav_margin="mb-0" %}
+                        {% include "_partials/pagination.html" %}
+                    {% endwith %}
+                </footer>
+            {% endif %}
+        </section>
     </div>
 {% endblock %}
 {% block extra_script %}

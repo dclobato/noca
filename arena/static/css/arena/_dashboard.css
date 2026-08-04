@@ -1,0 +1,215 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Public dashboard
+   ============================================================ */
+.arena-dashboard {
+    width: 100%;
+}
+
+.arena-dashboard .arena-card {
+    padding: 0;
+    overflow: hidden;
+}
+
+.arena-dashboard-card-header {
+    min-height: 3.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--arena-space-md);
+    padding: 0.75rem var(--arena-space-md);
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+
+.arena-dashboard-card-header .arena-card-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
+    margin: 0;
+    border: 0;
+}
+
+.arena-dashboard-card-link {
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex: 0 0 auto;
+    padding: 0.5rem 0;
+    color: var(--arena-primary);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.arena-dashboard-card-link .material-symbols-outlined {
+    font-size: 1.25rem;
+}
+
+.arena-dashboard-card-link:hover {
+    color: var(--arena-primary-container);
+    text-decoration: none;
+}
+
+.arena-dashboard-card-link:focus-visible {
+    border-radius: var(--arena-radius);
+    outline: 2px solid var(--arena-primary);
+    outline-offset: 2px;
+}
+
+.arena-dashboard-lang-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: 0.5rem;
+    padding: var(--arena-space-md);
+    margin: 0;
+    list-style: none;
+}
+
+.arena-dashboard-lang-item {
+    min-width: 0;
+    min-height: 3.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+    background-color: var(--arena-surface-container-low);
+    color: var(--arena-on-surface);
+    font-size: 0.75rem;
+    font-weight: 400;
+}
+
+.arena-dashboard-lang-icon {
+    width: 2.25rem;
+    height: 2.25rem;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
+.arena-dashboard-table {
+    min-width: 30rem;
+}
+
+.arena-dashboard-table thead th:first-child,
+.arena-dashboard-table tbody td:first-child {
+    padding-left: var(--arena-space-md);
+}
+
+.arena-dashboard-table thead th:last-child,
+.arena-dashboard-table tbody td:last-child {
+    padding-right: var(--arena-space-md);
+}
+
+.arena-dashboard-table tbody tr {
+    height: 2.75rem;
+}
+
+.arena-dashboard-table tbody td {
+    vertical-align: middle;
+}
+
+.arena-dashboard-table tbody a {
+    color: inherit;
+}
+
+.arena-dashboard-table tbody a:hover {
+    color: var(--arena-primary);
+    text-decoration: underline !important;
+    text-underline-offset: 0.2em;
+}
+
+.arena-dashboard-updated-column {
+    width: 8.75rem;
+    white-space: nowrap;
+}
+
+.arena-dashboard-user-name {
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.arena-dashboard-rank {
+    position: relative;
+    width: 1.75rem;
+    height: 1.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--arena-on-surface-variant);
+    font-family: monospace;
+    font-size: 0.875rem;
+    font-weight: 700;
+}
+
+.arena-dashboard-rank--medal {
+    color: #1e293b;
+}
+
+.arena-dashboard-medal {
+    position: absolute;
+    inset: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    object-fit: contain;
+}
+
+.arena-dashboard-rank-number {
+    position: relative;
+    z-index: 1;
+}
+
+.arena-dashboard-empty {
+    min-height: 8rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: var(--arena-space-md);
+    color: var(--arena-on-surface-variant);
+    text-align: center;
+}
+
+.arena-dashboard-empty .material-symbols-outlined {
+    font-size: 2rem;
+    color: var(--arena-outline);
+}
+
+.arena-dashboard-empty p {
+    margin: 0;
+}
+
+@media (max-width: 575.98px) {
+    .arena-dashboard-card-header {
+        flex-wrap: wrap;
+    }
+
+    .arena-dashboard-card-link {
+        margin-left: 1.75rem;
+    }
+
+    .arena-dashboard-card-link .material-symbols-outlined {
+        display: none;
+    }
+
+    .arena-dashboard-lang-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        padding: 0.75rem;
+    }
+
+    .arena-dashboard-lang-item {
+        padding-inline: 0.5rem;
+    }
+}

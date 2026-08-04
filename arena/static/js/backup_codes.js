@@ -9,29 +9,50 @@
 (function () {
     "use strict";
 
-    var btn = document.getElementById("copy-codes-btn");
-    if (!btn) return;
+    var button = document.getElementById("copy-codes-btn");
+    if (!button) return;
 
-    btn.addEventListener("click", function () {
+    var label = button.querySelector("[data-copy-label]");
+    var status = document.querySelector("[data-copy-status]");
+
+    function showResult(message, successful) {
+        if (label) {
+            label.textContent = message;
+        }
+        if (status) {
+            status.textContent = successful
+                ? "Recovery codes copied to your clipboard."
+                : "Copy failed. Select and save the codes manually.";
+        }
+        button.disabled = true;
+
+        setTimeout(function () {
+            if (label) {
+                label.textContent = "Copy all codes";
+            }
+            button.disabled = false;
+        }, 2000);
+    }
+
+    button.addEventListener("click", function () {
         var cells = document.querySelectorAll("#backup-codes-grid .arena-backup-code-cell");
         var codes = Array.from(cells).map(function (el) {
             return el.textContent.trim();
         });
         var text = codes.join("\n");
 
+        button.disabled = true;
+        if (label) {
+            label.textContent = "Copying...";
+        }
+        if (status) {
+            status.textContent = "";
+        }
+
         window.NocaClipboard.copyText(text).then(function () {
-            var original = btn.innerHTML;
-            btn.textContent = "Copied!";
-            btn.disabled = true;
-            setTimeout(function () {
-                btn.innerHTML = original;
-                btn.disabled = false;
-            }, 2000);
+            showResult("Copied", true);
         }).catch(function () {
-            btn.textContent = "Copy failed";
-            setTimeout(function () {
-                btn.textContent = "Copy all codes";
-            }, 2000);
+            showResult("Try copying again", false);
         });
     });
 })();

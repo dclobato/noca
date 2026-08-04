@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -177,6 +177,10 @@ def _build_app(session: AsyncSession) -> FastAPI:
     @app.get("/admin/users", name="arena_admin_user_list")
     async def _admin_users() -> Response:
         return Response("admin_users")
+
+    @app.get("/admin/users/{user_id}", name="arena_admin_user_profile")
+    async def _admin_user_profile(user_id: str) -> Response:
+        return Response("admin_user_profile")
 
     @app.get("/admin/dashboard", name="arena_admin_dashboard")
     async def _admin_dashboard_stub() -> Response:
@@ -637,12 +641,14 @@ async def test_post_teacher_creates_feedback_and_notifies(session: AsyncSession)
                 "back_class_id": arena_class.id,
                 "back_set_id": pset.id,
                 "back_user_id": student.id,
+                "back_context": "student_report",
             },
             follow_redirects=False,
         )
 
     assert resp.status_code == 303
     assert f"back_set_id={pset.id}" in resp.headers["location"]
+    assert "back_context=student_report" in resp.headers["location"]
     assert await get_teacher_feedback_text(session, sub_id) == "Check your loop bounds."
 
     notif = (
@@ -1004,6 +1010,33 @@ async def test_get_teacher_sees_edit_button(session: AsyncSession) -> None:
     assert "teacher-feedback-modal" in resp.text
     assert "Add feedback" in resp.text
     assert "teacher-feedback-remove-modal" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_get_admin_from_student_report_uses_report_back_link(session: AsyncSession) -> None:
+    """An admin drilling into a student submission sees the report return link."""
+    app = _build_app(session)
+    admin = await _make_user(session, role=ArenaRole.ARENA_ADMIN, prefix="admin")
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    problem = await _make_problem(session, teacher)
+    arena_class = await _make_class(session, teacher)
+    pset = await _make_set(session, arena_class)
+    sub_id = await _make_submission(session, student, problem, lang, problem_set_id=pset.id)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login(client, app, admin)
+        resp = await client.get(
+            f"/submissions/{sub_id}?back_class_id={arena_class.id}&back_set_id={pset.id}"
+            f"&back_user_id={student.id}&back_context=student_report",
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 200
+    assert f"Return to {student.nome}'s submissions" in resp.text
+    assert "My Submissions" not in resp.text
+    assert f"{sub_id}" in resp.text
 
 
 @pytest.mark.asyncio

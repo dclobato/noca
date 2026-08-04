@@ -72,6 +72,7 @@ from arena.routes.problem_problem_sets import router as arena_problem_problem_se
 from arena.routes.problem_sets import router as arena_problem_sets_router
 from arena.routes.problem_sets_autocomplete import router as arena_problem_sets_autocomplete_router
 from arena.routes.problem_sets_batch_feedback import router as arena_problem_sets_batch_feedback_router
+from arena.routes.problem_sets_full_report import router as arena_problem_sets_full_report_router
 from arena.routes.problem_sets_report import router as arena_problem_sets_report_router
 from arena.routes.problems import router as arena_problems_router
 from arena.routes.ranking import router as arena_ranking_router
@@ -678,6 +679,7 @@ app.include_router(arena_auth_2fa_router)
 app.include_router(arena_auth_password_router)
 app.include_router(arena_classes_router)
 app.include_router(arena_classes_members_router)
+app.include_router(arena_problem_sets_full_report_router)
 app.include_router(arena_problem_sets_router)
 app.include_router(arena_problem_sets_report_router)
 app.include_router(arena_problem_sets_batch_feedback_router)

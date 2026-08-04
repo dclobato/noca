@@ -1,0 +1,286 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Signup page
+   ============================================================ */
+.arena-signup-page {
+    width: 100%;
+    max-width: 1180px;
+}
+
+.arena-signup-shell {
+    display: grid;
+    grid-template-columns: minmax(19rem, 0.8fr) minmax(0, 1.45fr);
+    overflow: hidden;
+    border-radius: var(--arena-radius-lg);
+    background-color: var(--arena-surface-container-lowest);
+    box-shadow: 0 1.25rem 3rem
+        color-mix(in srgb, var(--arena-on-surface) 14%, transparent);
+}
+
+.arena-signup-welcome {
+    position: relative;
+    min-height: 46rem;
+    overflow: hidden;
+    padding: 3rem 2.5rem;
+    background-color: var(--arena-primary-container);
+    color: var(--arena-on-primary);
+    isolation: isolate;
+}
+
+.arena-signup-welcome::after {
+    position: absolute;
+    right: -7rem;
+    bottom: 4rem;
+    z-index: -1;
+    width: 23rem;
+    height: 23rem;
+    border: 3.5rem solid color-mix(in srgb, var(--arena-on-primary) 10%, transparent);
+    border-radius: 50%;
+    content: '';
+}
+
+.arena-signup-welcome-copy {
+    position: relative;
+    z-index: 2;
+    max-width: 22rem;
+}
+
+.arena-signup-welcome h2 {
+    max-width: 8ch;
+    margin: 0 0 1rem;
+    color: inherit;
+    font-family: var(--noca-font-heading);
+    font-size: 4.5rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    text-wrap: balance;
+}
+
+.arena-signup-welcome p {
+    max-width: 29ch;
+    margin: 0;
+    color: var(--arena-on-primary);
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.arena-signup-mascot {
+    position: absolute;
+    right: 50%;
+    bottom: -1.25rem;
+    z-index: 1;
+    width: min(25rem, 130%);
+    height: auto;
+    transform: translateX(50%);
+    filter: drop-shadow(
+        0 1.25rem 1.5rem color-mix(in srgb, var(--arena-on-surface) 24%, transparent)
+    );
+}
+
+.arena-signup-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    border: 0;
+    border-radius: 0;
+    padding: clamp(2rem, 5vw, 4.5rem);
+    box-shadow: none;
+}
+
+.arena-signup-heading {
+    margin-bottom: 1.75rem;
+}
+
+.arena-signup-heading .arena-auth-title {
+    margin-bottom: 0.4rem;
+    font-size: clamp(2rem, 3vw, 2.5rem);
+    letter-spacing: -0.025em;
+}
+
+.arena-signup-heading .arena-auth-subtitle {
+    margin-bottom: 0;
+    font-size: 1rem;
+}
+
+.arena-signup-form-area {
+    width: 100%;
+}
+
+.arena-signup-section {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.arena-signup-section + .arena-signup-section {
+    margin-top: 1.5rem;
+}
+
+.arena-signup-section-title {
+    width: 100%;
+    margin-bottom: 0.875rem;
+    color: var(--arena-on-surface);
+    font-family: var(--noca-font-heading);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.arena-signup-section-title span {
+    margin-left: 0.35rem;
+    color: var(--arena-on-surface-variant);
+    font-family: var(--noca-font-body);
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: normal;
+    text-transform: none;
+}
+
+.arena-signup-photo-section .arena-file-upload {
+    min-height: 6.25rem;
+    display: grid;
+    place-items: center;
+}
+
+.arena-signup-upload-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+}
+
+.arena-signup-upload-content .material-symbols-outlined {
+    flex-shrink: 0;
+}
+
+.arena-signup-terms {
+    margin: 1.5rem 0;
+}
+
+.btn.arena-signup-submit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    min-height: 3.25rem;
+    background-color: var(--arena-primary-container);
+    font-size: 1rem;
+}
+
+.btn.arena-signup-submit:hover,
+.btn.arena-signup-submit:active {
+    background-color: color-mix(
+        in srgb,
+        var(--arena-primary-container) 90%,
+        var(--arena-on-surface)
+    );
+    opacity: 1;
+}
+
+.arena-signup-card .arena-auth-link {
+    color: var(--arena-primary-container);
+}
+
+html[data-bs-theme='dark'] .arena-signup-card .arena-auth-link {
+    color: var(--arena-inverse-primary);
+}
+
+.arena-signup-submit-icon {
+    font-size: 1.25rem;
+    transition: transform 0.2s ease;
+}
+
+.arena-signup-submit:hover .arena-signup-submit-icon,
+.arena-signup-submit:focus-visible .arena-signup-submit-icon {
+    transform: translateX(0.25rem);
+}
+
+@media (max-width: 991.98px) {
+    .arena-signup-shell {
+        grid-template-columns: minmax(16rem, 0.7fr) minmax(0, 1.3fr);
+    }
+
+    .arena-signup-welcome {
+        min-height: 45rem;
+        padding: 2.5rem 2rem;
+    }
+
+    .arena-signup-card {
+        padding: 2.5rem 2rem;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .arena-signup-shell {
+        display: block;
+    }
+
+    .arena-signup-welcome {
+        min-height: 18rem;
+        padding: 2rem;
+    }
+
+    .arena-signup-welcome h2 {
+        max-width: 7ch;
+        font-size: 2rem;
+    }
+
+    .arena-signup-welcome p {
+        max-width: 19ch;
+    }
+
+    .arena-signup-mascot {
+        right: -1rem;
+        bottom: -4.25rem;
+        width: 15rem;
+        transform: none;
+    }
+
+    .arena-signup-card {
+        padding: 2rem;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .arena-signup-welcome {
+        min-height: 16rem;
+        padding: 1.5rem;
+    }
+
+    .arena-signup-welcome p {
+        display: none;
+    }
+
+    .arena-signup-mascot {
+        right: -2.5rem;
+        bottom: -4rem;
+        width: 13rem;
+    }
+
+    .arena-signup-card {
+        padding: 1.75rem 1.25rem;
+    }
+
+    .arena-signup-upload-content {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .arena-signup-submit-icon {
+        transition: none;
+    }
+}

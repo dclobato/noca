@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -410,6 +410,9 @@ async def test_guest_dashboard_hides_notifications_and_avatar(session: AsyncSess
     assert "notifications" not in response.text
     assert "arena-avatar" not in response.text
     assert "ui-avatars.com" not in response.text
+    assert 'id="theme-toggle-btn"' in response.text
+    assert 'aria-controls="arena-sidebar"' in response.text
+    assert 'href="#arena-main-content"' in response.text
 
 
 @pytest.mark.asyncio
@@ -437,6 +440,9 @@ async def test_dashboard_renders_real_top_rated_users(session: AsyncSession) -> 
     assert "Top Two" in response.text
     assert "tourist" not in response.text
     assert "Below Cutoff" not in response.text
+    assert "/assets/medal/gold" in response.text
+    assert "/assets/medal/silver" in response.text
+    assert "/assets/medal/bronze" in response.text
 
 
 @pytest.mark.asyncio
@@ -485,6 +491,7 @@ async def test_profile_completion_lists_exact_missing_fields(session: AsyncSessi
     for label in ("Affiliation", "Preferred programming language", "Country", "AI-feedback language"):
         assert f"<li>{label}</li>" in response.text
     assert 'href="http://testserver/user/profile?tab=personal-security"' in response.text
+    assert 'href="http://testserver/dashboard"' in response.text
 
 
 @pytest.mark.asyncio
@@ -557,6 +564,9 @@ async def test_authenticated_profile_renders_navbar_avatar_link(session: AsyncSe
     assert response.status_code == 200
     assert "Profile User" in response.text
     assert "notifications" in response.text
+    assert "Signed in as" in response.text
+    assert 'aria-controls="arena-notifications-menu"' in response.text
+    assert 'aria-controls="arena-user-menu-dropdown"' in response.text
     assert 'href="http://testserver/user/profile"' in response.text
     assert f"/user/{user.id}/avatar" in response.text
     assert "JPEG, PNG, or WebP" in response.text
@@ -579,6 +589,8 @@ async def test_authenticated_profile_renders_tabs_and_omits_role(session: AsyncS
     assert "Personal &amp; Security" in response.text
     assert "Solved Problems" in response.text
     assert "Attempted Problems" in response.text
+    assert "data-profile-navigation-toggle" in response.text
+    assert 'aria-controls="profile-tabs"' in response.text
     assert "Progress" not in response.text
     assert "ARENA_USER" not in response.text
 

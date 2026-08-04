@@ -1,0 +1,300 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+.arena-class-full-report-page {
+    max-width: var(--arena-max-width);
+    margin-inline: auto;
+}
+.arena-class-full-report-card { padding: 0; }
+.arena-class-full-report-header {
+    gap: var(--arena-space-md);
+    padding: var(--arena-space-md) var(--arena-gutter);
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+.arena-class-full-report-header .arena-card-title {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+.arena-class-full-report-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--arena-space-sm);
+}
+.arena-class-full-report-context {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--arena-space-sm) var(--arena-space-lg);
+    padding: var(--arena-space-md) var(--arena-gutter);
+}
+.arena-class-full-report-name {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+.arena-class-full-report-lead {
+    max-width: 65ch;
+    margin-top: var(--arena-space-sm);
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+.arena-class-full-report-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--arena-space-sm) var(--arena-space-md);
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+.arena-class-full-report-meta > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.arena-class-full-report-meta .material-symbols-outlined {
+    color: var(--arena-outline);
+    font-size: 1rem;
+}
+.arena-class-full-report-meta strong { color: var(--arena-on-surface); font-weight: 700; }
+.arena-class-full-report-legend,
+.arena-class-full-report-matrix {
+    padding: var(--arena-gutter);
+    border-top: 1px solid var(--arena-outline-variant);
+}
+.arena-class-full-report-legend {
+    background-color: var(--arena-surface-container-low);
+}
+.arena-class-full-report-section-title {
+    margin: 0 0 0.25rem;
+    font-size: 1rem;
+    line-height: 1.4;
+}
+.arena-class-full-report-section-copy {
+    max-width: 65ch;
+    margin-bottom: var(--arena-space-md);
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+.arena-class-full-report-section-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: var(--arena-space-sm) var(--arena-space-md);
+    margin-bottom: var(--arena-space-md);
+}
+.arena-class-full-report-hint {
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+}
+.arena-class-full-report-legend-table {
+    background-color: var(--arena-surface-container-lowest);
+}
+.arena-class-full-report-legend-table tbody td { padding-block: var(--arena-space-sm); }
+.arena-class-full-report-set-link { font-weight: 600; }
+.arena-class-full-report-legend-index-column {
+    width: 1%;
+    white-space: nowrap;
+}
+.arena-class-full-report-histogram-column,
+.arena-class-full-report-histogram-cell {
+    width: 7.5rem;
+    min-width: 7.5rem;
+}
+/* ECharts sizes itself from the container, so the container -- not the canvas --
+   owns the requested 3:2 shape and 7.5rem ceiling. */
+.arena-class-full-report-histogram {
+    width: 100%;
+    max-width: 7.5rem;
+    aspect-ratio: 3 / 2;
+}
+.arena-class-full-report-marker {
+    color: var(--arena-on-surface-variant);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 600;
+}
+
+/* The matrix scrolls on both axes inside its own wrapper: a sticky header can
+   only stick to its nearest scrolling ancestor, so the wrapper -- not the page
+   -- has to be that ancestor. */
+.arena-class-full-report-table-wrapper {
+    max-block-size: calc(100vh - 18rem);
+    min-block-size: 8rem;
+    overflow: auto;
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+}
+.arena-class-full-report-table {
+    min-width: 32rem;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+.arena-class-full-report-table th,
+.arena-class-full-report-table td {
+    vertical-align: middle;
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+.arena-class-full-report-table tbody th,
+.arena-class-full-report-table tfoot th,
+.arena-class-full-report-table tfoot td {
+    padding: 0.5rem;
+}
+.arena-class-full-report-table thead th {
+    position: sticky;
+    z-index: 2;
+    inset-block-start: 0;
+    background-color: var(--arena-surface-container);
+}
+.arena-class-full-report-table tfoot td,
+.arena-class-full-report-table tfoot th {
+    position: sticky;
+    z-index: 2;
+    inset-block-end: 0;
+    border-top: 1px solid var(--arena-outline-variant);
+    border-bottom: 0;
+    background-color: var(--arena-surface-container);
+    font-weight: 600;
+}
+.arena-class-full-report-student-column,
+.arena-class-full-report-student-cell {
+    position: sticky;
+    z-index: 1;
+    inset-inline-start: 0;
+    width: 18rem;
+    min-width: 18rem;
+    overflow-wrap: anywhere;
+    border-inline-end: 1px solid var(--arena-outline-variant);
+    /* Sticky cells paint over the row underneath them, so their background has
+       to be opaque in its own right rather than inherited from the row. */
+    background-color: var(--arena-surface-container-lowest);
+    font-weight: inherit;
+    text-align: start;
+}
+.arena-class-full-report-table thead .arena-class-full-report-student-column,
+.arena-class-full-report-table tfoot .arena-class-full-report-student-cell {
+    z-index: 3;
+    background-color: var(--arena-surface-container);
+}
+/* The row hover background is painted on the row, which a sticky cell covers;
+   restate it so hovering does not leave the student column behind. */
+.arena-class-full-report-table tbody tr:hover .arena-class-full-report-student-cell {
+    background-color: var(--arena-surface-container-low);
+}
+.arena-class-full-report-student-identity { display: inline-flex;
+    align-items: center; min-width: 0; gap: var(--arena-space-sm);
+    font-weight: 600; overflow-wrap: anywhere;
+}
+.arena-class-full-report-rate-column,
+.arena-class-full-report-rate-cell {
+    width: 6rem;
+    min-width: 6rem;
+}
+.arena-class-full-report-rate-cell { padding-block: 0.45rem; }
+.arena-class-full-report-rate-value {
+    display: block;
+    color: var(--arena-on-surface);
+    font-weight: 600;
+    line-height: 1.15;
+}
+.arena-class-full-report-rate-detail {
+    display: block;
+    margin-top: 0.1rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.1;
+}
+.arena-class-full-report-rate-cell--complete .arena-class-full-report-rate-value { color: var(--arena-primary); }
+.arena-class-full-report-rate-cell--zero .arena-class-full-report-rate-value { color: var(--arena-on-surface-variant); }
+.arena-class-full-report-total-column,
+.arena-class-full-report-total-cell {
+    border-inline-start: 1px solid var(--arena-outline-variant);
+    background-color: var(--arena-surface-container-low);
+}
+.arena-class-full-report-table tbody tr:hover .arena-class-full-report-total-cell { background-color: var(--arena-surface-container); }
+.arena-class-full-report-void { color: var(--arena-outline); }
+.arena-class-full-report-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    padding: var(--arena-space-lg) var(--arena-gutter);
+    border-top: 1px solid var(--arena-outline-variant);
+    color: var(--arena-on-surface-variant);
+    text-align: center;
+}
+.arena-class-full-report-empty .material-symbols-outlined {
+    color: var(--arena-outline);
+    font-size: 2rem;
+}
+.arena-class-full-report-empty h2 {
+    margin: 0;
+    color: var(--arena-on-surface);
+    font-size: 1rem;
+}
+.arena-class-full-report-empty p {
+    max-width: 55ch;
+    font-size: 0.875rem;
+}
+@media (max-width: 767.98px) {
+    /* Keep the identity column available while comparing rates, but narrow it
+       enough to leave one complete rate column visible on a phone. */
+    .arena-class-full-report-student-column,
+    .arena-class-full-report-student-cell {
+        width: 10rem;
+        min-width: 10rem;
+    }
+    .arena-class-full-report-table-wrapper {
+        max-block-size: none;
+    }
+    .arena-class-full-report-hint {
+        width: 100%;
+    }
+}
+@media (max-width: 575.98px) {
+    .arena-class-full-report-card {
+        border-inline: 0;
+        border-radius: 0;
+    }
+    .arena-class-full-report-header,
+    .arena-class-full-report-context,
+    .arena-class-full-report-legend,
+    .arena-class-full-report-matrix {
+        padding-inline: var(--arena-space-md);
+    }
+    .arena-class-full-report-header-actions .btn {
+        flex: 1 1 auto;
+    }
+}
+@media print {
+    /* Printing has no viewport to scroll, so every scroll container and sticky
+       offset has to be released or the matrix prints clipped to one screen. */
+    .arena-class-full-report-table-wrapper {
+        max-block-size: none;
+        min-block-size: 0;
+        overflow: visible;
+    }
+    .arena-class-full-report-table thead th,
+    .arena-class-full-report-table tfoot td,
+    .arena-class-full-report-table tfoot th,
+    .arena-class-full-report-student-column,
+    .arena-class-full-report-student-cell {
+        position: static;
+    }
+    .arena-class-full-report-card {
+        border: 0;
+        box-shadow: none;
+    }
+    .arena-class-full-report-table thead {
+        display: table-header-group;
+    }
+    .arena-class-full-report-table tr {
+        break-inside: avoid;
+    }
+}

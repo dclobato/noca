@@ -11,10 +11,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from fastapi import HTTPException
-from sqlalchemy import distinct, func, or_, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.models.arena_affiliations import ArenaAffiliation
+from arena.services.identity_search_service import (
+    prepare_affiliation_search,
+    prepare_user_search,
+)
 from arena.services.leaderboard_service import build_ranked_affiliations_cte, build_ranked_users_cte
 from arena.services.pagination_service import Pagination, PaginationParams, build_pagination_params
 from arena.services.profile_location_service import LocationChoice, country_name, subdivision_name
@@ -98,7 +102,10 @@ async def get_ranked_users_paginated(
 
     Args:
         session: Active async database session.
-        search: Optional case-insensitive substring for name or email.
+        search: Optional search text matched against name and email through the
+            indexed candidate query in ``identity_search_service``: full-text on
+            the name, substring on name and email, and fuzzy on the name.
+            Search only filters — it never reorders.
         affiliation_id: Optional affiliation UUID to scope the results.
         page: Requested page number (1-based).
         per_page: Items per page.
@@ -128,13 +135,7 @@ async def get_ranked_users_paginated(
         base = base.where(ranked_cte.c.affiliation_id == affiliation_id)
 
     if search and search.strip():
-        like = f"%{search.strip().lower()}%"
-        base = base.where(
-            or_(
-                func.lower(ranked_cte.c.nome).like(like),
-                func.lower(ranked_cte.c.email_normalizado).like(like),
-            )
-        )
+        base = base.where(ranked_cte.c.id.in_(await prepare_user_search(session, search)))
 
     total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     rows = (await session.execute(base.offset(params.offset).limit(params.per_page))).all()
@@ -172,7 +173,10 @@ async def get_ranked_affiliations_paginated(
 
     Args:
         session: Active async database session.
-        search: Optional case-insensitive substring for affiliation name.
+        search: Optional search text matched against the affiliation name
+            through the indexed candidate query in ``identity_search_service``:
+            full-text, substring, and fuzzy. Search only filters — it never
+            reorders.
         country_code: Optional ISO country code filter.
         subdivision_code: Optional ISO subdivision code filter (requires country_code).
         page: Requested page number (1-based).
@@ -191,7 +195,7 @@ async def get_ranked_affiliations_paginated(
     )
 
     if search and search.strip():
-        base = base.where(func.lower(ranked_cte.c.name).like(f"%{search.strip().lower()}%"))
+        base = base.where(ranked_cte.c.id.in_(await prepare_affiliation_search(session, search)))
 
     if country_code:
         base = base.where(ranked_cte.c.country_code == country_code)

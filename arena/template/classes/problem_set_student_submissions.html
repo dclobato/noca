@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -11,9 +11,16 @@
 {% block nav_classes %}active{% endblock %}
 {% block nav_classes_registered %}active{% endblock %}
 {% block content %}
-    <div class="container-fluid px-3 py-3">
-        <div class="arena-card mb-3">
-            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+    {% set totals = namespace(submissions=0, feedback=0) %}
+    {% for group in groups %}
+        {% set totals.submissions = totals.submissions + (group.submissions | length) %}
+        {% if group.needs_feedback %}
+            {% set totals.feedback = totals.feedback + 1 %}
+        {% endif %}
+    {% endfor %}
+    <div class="container-fluid px-0 px-md-3 py-3 arena-problem-set-student-report-page">
+        <div class="arena-card arena-problem-set-student-report-card mb-3">
+            <header class="d-flex flex-wrap align-items-center justify-content-between arena-problem-set-student-report-header">
                 <h1 class="arena-card-title mb-0">
                     {{ render_icon(icon="person") }}
                     {{ student_name }}'s Submissions
@@ -23,64 +30,112 @@
                     {{ render_icon(icon="arrow_back") }}
                     Return to problem set report
                 </a>
+            </header>
+            <div class="arena-problem-set-student-report-context">
+                <div>
+                    <p class="arena-problem-set-student-report-name">{{ student_name }}</p>
+                    <p class="arena-problem-set-student-report-class mb-0">{{ class_detail.name }}</p>
+                </div>
+                <div class="arena-problem-set-student-report-meta">
+                    <span>
+                        {{ render_icon(icon="history") }}
+                        Submission history for this problem set
+                    </span>
+                </div>
             </div>
-            <div class="mb-3">
-                <p class="mb-1 fw-semibold">{{ class_detail.name }}</p>
-            </div>
+            <section class="arena-problem-set-student-report-overview"
+                     aria-labelledby="student-submissions-heading">
+                <h2 class="arena-problem-set-student-report-section-title"
+                    id="student-submissions-heading">Submission history</h2>
+                <p class="arena-problem-set-student-report-section-copy">
+                    Every submission for this problem set is grouped by problem. Expand a problem to review the full attempt history.
+                </p>
+                <div class="arena-problem-set-student-report-stats">
+                    <div>
+                        <strong>{{ totals.submissions }}</strong>
+                        <span>submission{{ 's' if totals.submissions != 1 else '' }}</span>
+                    </div>
+                    <div>
+                        <strong>{{ groups | length }}</strong>
+                        <span>problem{{ 's' if groups | length != 1 else '' }} attempted</span>
+                    </div>
+                    <div>
+                        <strong>{{ totals.feedback }}</strong>
+                        <span>problem{{ 's' if totals.feedback != 1 else '' }} needing feedback</span>
+                    </div>
+                </div>
+            </section>
             {% if groups %}
-                <div class="accordion" id="submissions-accordion">
+                <div class="accordion arena-problem-set-student-report-accordion"
+                     id="submissions-accordion">
                     {% for group in groups %}
                         <div class="accordion-item">
                             <h2 class="accordion-header">
                                 <button class="accordion-button collapsed"
                                         type="button"
                                         data-bs-toggle="collapse"
-                                        data-bs-target="#problem-{{ loop.index }}"
+                                        data-bs-target="#student-problem-{{ loop.index }}"
                                         aria-expanded="false"
-                                        aria-controls="problem-{{ loop.index }}">
-                                    <span class="fw-semibold me-2">{{ group.arena_number }}: {{ group.problem_title }}</span>
-                                    {% if group.best_verdict %}
-                                        <span class="badge {{ verdict_badge_classes.get(group.best_verdict, 'bg-secondary') }} font-monospace">{{ group.best_verdict }}</span>
-                                    {% else %}
-                                        <span class="badge bg-secondary font-monospace">—</span>
-                                    {% endif %}
-                                    {% if group.needs_feedback %}
-                                        <span class="badge bg-warning text-dark ms-2 d-inline-flex align-items-center gap-1"
-                                              title="Student has not solved this problem yet">
-                                            {{ render_icon(icon="rate_review") }}
-                                            Needs feedback
+                                        aria-controls="student-problem-{{ loop.index }}">
+                                    <span class="arena-problem-set-student-report-problem-main">
+                                        <span class="arena-problem-set-student-report-problem-number">{{ group.arena_number }}</span>
+                                        <span class="arena-problem-set-student-report-problem-title">{{ group.problem_title }}</span>
+                                    </span>
+                                    <span class="arena-problem-set-student-report-problem-meta">
+                                        <span class="arena-problem-set-student-report-attempt-count">
+                                            {{ group.submissions | length }} attempt{{ 's' if group.submissions | length != 1 else '' }}
                                         </span>
-                                    {% endif %}
+                                        {% if group.best_verdict %}
+                                            <span class="badge {{ verdict_badge_classes.get(group.best_verdict, 'bg-secondary') }} font-monospace">
+                                                <span class="visually-hidden">Best verdict:</span>{{ group.best_verdict }}
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-secondary font-monospace">—</span>
+                                        {% endif %}
+                                        {% if group.needs_feedback %}
+                                            <span class="badge bg-warning text-dark d-inline-flex align-items-center gap-1"
+                                                  title="Student has not solved this problem yet">
+                                                {{ render_icon(icon="rate_review") }}
+                                                Needs feedback
+                                            </span>
+                                        {% endif %}
+                                    </span>
                                 </button>
                             </h2>
-                            <div id="problem-{{ loop.index }}"
+                            <div id="student-problem-{{ loop.index }}"
                                  class="accordion-collapse collapse"
                                  data-bs-parent="#submissions-accordion">
-                                <div class="accordion-body p-0">
-                                    <div class="table-responsive">
-                                        <table class="arena-table">
+                                <div class="accordion-body p-0 arena-problem-set-student-report-accordion-body">
+                                    <div class="table-responsive arena-problem-set-student-report-table-wrapper">
+                                        <table class="arena-table arena-problem-set-student-report-table">
+                                            <caption class="visually-hidden">
+                                                All submissions for problem {{ group.arena_number }}: {{ group.problem_title }}
+                                            </caption>
                                             <thead>
                                                 <tr>
                                                     <th>Submitted</th>
                                                     <th class="text-center">Verdict</th>
                                                     <th class="text-center">Feedback</th>
-                                                    <th></th>
+                                                    <th class="arena-col-actions">Actions</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {% for entry in group.submissions %}
                                                     <tr id="{{ entry.submission_id }}">
-                                                        <td class="text-nowrap small">
-                                                            {{ arena_format_datetime(entry.submitted_at, current_user, "%Y-%m-%d %H:%M:%S %Z") }}
+                                                        <td class="arena-problem-set-student-report-submitted small"
+                                                            data-label="Submitted">
+                                                            <time datetime="{{ entry.submitted_at.isoformat() }}">
+                                                                {{ arena_format_datetime(entry.submitted_at, current_user, "%Y-%m-%d %H:%M:%S %Z") }}
+                                                            </time>
                                                         </td>
-                                                        <td class="text-center">
+                                                        <td class="text-center" data-label="Verdict">
                                                             {% if entry.verdict %}
                                                                 <span class="badge {{ verdict_badge_classes.get(entry.verdict, 'bg-secondary') }} font-monospace">{{ entry.verdict }}</span>
                                                             {% else %}
                                                                 <span class="badge bg-secondary font-monospace">—</span>
                                                             {% endif %}
                                                         </td>
-                                                        <td class="text-center">
+                                                        <td class="text-center" data-label="Feedback">
                                                             {% if entry.verdict and entry.verdict != "AC" %}
                                                                 {% if entry.has_feedback %}
                                                                     <span class="text-success d-inline-flex align-items-center gap-1"
@@ -99,9 +154,10 @@
                                                                 <span class="text-muted">&mdash;</span>
                                                             {% endif %}
                                                         </td>
-                                                        <td class="text-end">
-                                                            <a href="{{ request.url_for('arena_submission_detail', submission_id=entry.submission_id) }}?back_class_id={{ class_id }}&back_set_id={{ set_id }}&back_user_id={{ user_id }}"
-                                                               class="btn btn-outline-secondary btn-sm arena-icon-button">
+                                                        <td class="arena-col-actions text-end" data-label="Actions">
+                                                            <a href="{{ request.url_for('arena_submission_detail', submission_id=entry.submission_id) }}?back_class_id={{ class_id }}&back_set_id={{ set_id }}&back_user_id={{ user_id }}&back_context=student_report"
+                                                               class="btn btn-outline-secondary btn-sm arena-icon-button"
+                                                               aria-label="View submission">
                                                                 {{ render_icon(icon="open_in_new") }}
                                                                 <span>View</span>
                                                             </a>
@@ -117,7 +173,12 @@
                     {% endfor %}
                 </div>
             {% else %}
-                <p class="arena-empty-state">No submissions found for this student.</p>
+                <section class="arena-problem-set-student-report-empty"
+                         aria-labelledby="student-submissions-empty-heading">
+                    {{ render_icon(icon="history") }}
+                    <h2 id="student-submissions-empty-heading">No submissions in this problem set</h2>
+                    <p class="mb-0">This student has not submitted a solution to any problem in the set.</p>
+                </section>
             {% endif %}
         </div>
     </div>

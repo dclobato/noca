@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -174,30 +174,41 @@
 }
 
 /* ============================================================
-   Dashboard — language icon row
+   Help topic tabs
    ============================================================ */
-.arena-dashboard-lang-row {
-    display: flex;
+.arena-help-tabs {
+    flex-direction: row;
     flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: var(--arena-space-md);
-    margin-top: var(--arena-space-sm);
+    gap: 0.25rem;
+    border-bottom-color: var(--arena-outline-variant);
 }
 
-.arena-dashboard-lang-icon {
-    width: 3rem;
-    height: 3rem;
-    object-fit: contain;
+.arena-help-tabs .nav-item {
+    width: auto;
 }
 
-.arena-dashboard-lang-footer {
-    display: flex;
+.arena-help-tabs .nav-link {
+    min-height: 2.75rem;
+    display: inline-flex;
     align-items: center;
-    margin-top: var(--arena-space-md);
-    margin-bottom: 0;
-    font-size: 0.875rem;
+    gap: 0.4rem;
     color: var(--arena-on-surface-variant);
-    border-top: 1px solid var(--arena-outline-variant);
-    padding-top: var(--arena-space-sm);
+    font-weight: 600;
+    text-align: left;
+}
+
+.arena-help-tabs .nav-link:hover {
+    color: var(--arena-primary);
+}
+
+.arena-help-tabs .nav-link.active {
+    color: var(--arena-primary);
+    background-color: var(--arena-surface-container-lowest);
+    border-color: var(--arena-outline-variant) var(--arena-outline-variant)
+        var(--arena-surface-container-lowest);
+}
+
+.arena-help-tab-content {
+    min-width: 0;
+    padding-top: var(--arena-space-md);
 }

@@ -1,0 +1,297 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Class management
+   ============================================================ */
+.arena-classes-manage {
+    max-width: var(--arena-max-width);
+    margin-inline: auto;
+}
+
+.arena-classes-manage-header {
+    padding-bottom: var(--arena-space-sm);
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+
+.arena-classes-manage-header .arena-card-title {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+.arena-classes-filter {
+    padding: 0.75rem;
+    background-color: var(--arena-surface-container-low);
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+}
+
+.arena-classes-results {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--arena-space-sm) var(--arena-space-md);
+    margin-bottom: var(--arena-space-sm);
+}
+
+.arena-classes-results-count {
+    margin: 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+
+.arena-classes-results .arena-pagination {
+    margin-left: auto;
+}
+
+.arena-classes-table-wrapper {
+    border-block: 1px solid var(--arena-outline-variant);
+}
+
+.arena-classes-table .arena-class-name {
+    width: 32%;
+    min-width: 20rem;
+}
+
+.arena-class-name-layout {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.5rem;
+}
+
+.arena-class-name-text {
+    overflow-wrap: anywhere;
+}
+
+.arena-class-status {
+    font-size: 0.75rem;
+    letter-spacing: 0.02em;
+}
+
+.arena-classes-table .arena-class-teacher {
+    width: 24%;
+    min-width: 11rem;
+    overflow-wrap: anywhere;
+}
+
+.arena-classes-table .arena-class-schedule {
+    width: 14.5rem;
+    min-width: 14.5rem;
+}
+
+.arena-class-schedule-layout {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+}
+
+.arena-class-schedule-icon {
+    color: var(--arena-outline);
+    font-size: 1rem;
+}
+
+.arena-classes-table .arena-class-students {
+    width: 6rem;
+    white-space: nowrap;
+    text-align: center;
+}
+
+.arena-class-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.25rem;
+}
+
+.arena-class-action-label {
+    display: none;
+}
+
+.arena-classes-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    padding: var(--arena-space-lg) var(--arena-space-md);
+    color: var(--arena-on-surface-variant);
+    text-align: center;
+}
+
+.arena-classes-empty .material-symbols-outlined {
+    color: var(--arena-outline);
+    font-size: 2rem;
+}
+
+.arena-classes-empty strong {
+    color: var(--arena-on-surface);
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1rem;
+}
+
+.arena-classes-pagination {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+@media (max-width: 767.98px) {
+    .arena-classes-manage-card {
+        border-inline: 0;
+        border-radius: 0;
+    }
+
+    .arena-classes-filter .arena-filter-search {
+        width: 100%;
+        max-width: none;
+    }
+
+    .arena-classes-results {
+        align-items: flex-start;
+    }
+
+    .arena-classes-results .arena-pagination {
+        width: 100%;
+        margin-left: 0;
+        overflow-x: auto;
+        scrollbar-width: thin;
+    }
+
+    .arena-classes-table-wrapper {
+        overflow: visible;
+    }
+
+    .arena-classes-table,
+    .arena-classes-table tbody {
+        display: block;
+        width: 100%;
+    }
+
+    .arena-classes-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+
+    .arena-classes-table tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 0.75rem 1rem;
+        padding: var(--arena-space-md) 0;
+        border-bottom: 1px solid var(--arena-outline-variant);
+    }
+
+    .arena-classes-table tbody tr:last-child {
+        border-bottom: 0;
+    }
+
+    .arena-classes-table tbody tr:hover {
+        background-color: transparent;
+    }
+
+    .arena-classes-table tbody td {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.2rem;
+        width: auto;
+        min-width: 0;
+        padding: 0;
+        white-space: normal;
+        text-align: left;
+    }
+
+    .arena-classes-table tbody td[data-label]::before {
+        color: var(--arena-on-surface-variant);
+        content: attr(data-label);
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 1;
+        text-transform: uppercase;
+    }
+
+    .arena-classes-table tbody .arena-class-name,
+    .arena-classes-table tbody .arena-class-schedule,
+    .arena-classes-table tbody .arena-col-actions,
+    .arena-classes-table tbody .arena-empty-state {
+        grid-column: 1 / -1;
+    }
+
+    .arena-classes-table tbody .arena-col-actions {
+        width: 100%;
+        min-width: 0;
+        white-space: normal;
+    }
+
+    .arena-classes-table tbody .arena-class-name,
+    .arena-classes-table tbody .arena-class-teacher,
+    .arena-classes-table tbody .arena-class-schedule,
+    .arena-classes-table tbody .arena-class-students {
+        width: auto;
+        min-width: 0;
+        text-align: left;
+    }
+
+    .arena-class-schedule-layout {
+        flex-wrap: wrap;
+        white-space: normal;
+    }
+
+    .arena-class-schedule-icon {
+        display: none;
+    }
+
+    .arena-class-actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        width: 100%;
+        gap: 0.5rem;
+    }
+
+    .arena-class-actions .arena-icon-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+        min-height: 2.75rem;
+        padding-inline: 0.5rem;
+    }
+
+    .arena-class-action-label {
+        display: inline;
+        font-size: 0.75rem;
+    }
+
+    .arena-classes-empty-row {
+        display: block !important;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .arena-classes-manage-header > .btn {
+        width: 100%;
+    }
+
+    .arena-classes-filter > .btn,
+    .arena-classes-filter > a.btn {
+        flex: 1 1 auto;
+    }
+
+    .arena-class-actions {
+        grid-template-columns: 1fr;
+    }
+}

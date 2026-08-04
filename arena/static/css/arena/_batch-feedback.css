@@ -1,0 +1,296 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+.arena-batch-feedback-page {
+    max-width: 1600px;
+    margin-inline: auto;
+    padding-bottom: var(--arena-space-lg);
+}
+
+.arena-batch-feedback-header {
+    padding: var(--arena-gutter);
+}
+
+.arena-batch-feedback-title {
+    min-width: 0;
+    flex: 1 1 30rem;
+    align-items: flex-start;
+    padding-bottom: 0;
+    margin-bottom: 0;
+    border-bottom: 0;
+    font-size: clamp(1.25rem, 1rem + 0.8vw, 2rem);
+    line-height: 1.25;
+}
+
+.arena-batch-feedback-title > .material-symbols-outlined {
+    flex: 0 0 auto;
+    margin-top: 0.15rem;
+}
+
+.arena-batch-feedback-title-detail {
+    color: var(--arena-on-surface-variant);
+    font-weight: 400;
+}
+
+.arena-batch-feedback-section-copy {
+    margin: 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+
+.arena-batch-feedback-statement-body :where(pre, table) {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.arena-batch-feedback-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: 1px;
+    background-color: var(--arena-outline-variant);
+    border-block: 1px solid var(--arena-outline-variant);
+}
+
+.arena-batch-feedback-verdict {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-width: 0;
+    padding: 0.7rem 0.75rem;
+    background-color: var(--arena-surface-container-lowest);
+}
+
+.arena-batch-feedback-verdict-count {
+    display: block;
+    color: var(--arena-on-surface);
+    font-family: var(--noca-font-mono);
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.arena-batch-feedback-verdict-label {
+    display: block;
+    margin-top: 0.15rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+.arena-batch-feedback-list {
+    display: grid;
+    gap: var(--arena-space-md);
+}
+
+.arena-batch-feedback-entry {
+    min-width: 0;
+    overflow: hidden;
+    padding: 0;
+}
+
+.arena-batch-feedback-entry-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--arena-space-sm) var(--arena-space-md);
+    padding: 1rem var(--arena-gutter);
+    background-color: var(--arena-surface-container-low);
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+
+.arena-batch-feedback-student {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-size: 1rem;
+    line-height: 1.3;
+}
+
+.arena-batch-feedback-entry-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.arena-batch-feedback-submitted-at {
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.arena-batch-feedback-entry-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(20rem, 0.9fr);
+}
+
+.arena-batch-feedback-code-panel,
+.arena-batch-feedback-editor-panel {
+    min-width: 0;
+    padding: 1.25rem var(--arena-gutter);
+}
+
+.arena-batch-feedback-editor-panel {
+    background-color: var(--arena-surface-container-low);
+    border-inline-start: 1px solid var(--arena-outline-variant);
+}
+
+.arena-batch-feedback-pane-title {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.25;
+    text-transform: uppercase;
+}
+
+.arena-batch-feedback-compile-log {
+    margin-bottom: 1rem;
+}
+
+.arena-batch-feedback-compile-log pre,
+.arena-batch-feedback-ai-review pre {
+    max-height: 18rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.arena-batch-feedback-test-context {
+    margin-block: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--arena-outline-variant);
+}
+
+.arena-batch-feedback-source {
+    max-height: 38rem;
+    margin-top: 0.75rem;
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+    background-color: var(--arena-surface-container-lowest);
+}
+
+.arena-batch-feedback-form-label {
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+.arena-batch-feedback-textarea {
+    min-height: 15rem;
+    resize: vertical;
+}
+
+.arena-batch-feedback-ai-review {
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--arena-outline-variant);
+}
+
+.arena-batch-feedback-ai-review pre {
+    margin-bottom: 0;
+    border: 1px solid var(--arena-outline-variant);
+    background-color: var(--arena-surface-container-lowest);
+}
+
+.arena-batch-feedback-ai-review-at {
+    margin: 0.5rem 0 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+}
+
+.arena-batch-feedback-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--arena-space-md);
+    margin-top: var(--arena-space-md);
+    padding-top: var(--arena-space-md);
+    border-top: 1px solid var(--arena-outline-variant);
+}
+
+.arena-batch-feedback-actions-note {
+    margin: 0 auto 0 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+
+.arena-batch-feedback-actions .btn {
+    min-height: 2.75rem;
+}
+
+.arena-batch-feedback-empty {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--arena-on-surface-variant);
+}
+
+@media (max-width: 991.98px) {
+    .arena-batch-feedback-entry-body {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .arena-batch-feedback-editor-panel {
+        border-top: 1px solid var(--arena-outline-variant);
+        border-inline-start: 0;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .arena-batch-feedback-header,
+    .arena-batch-feedback-entry-header,
+    .arena-batch-feedback-code-panel,
+    .arena-batch-feedback-editor-panel {
+        padding-inline: var(--arena-space-md);
+    }
+
+    .arena-batch-feedback-title-detail {
+        display: block;
+        margin-top: 0.2rem;
+        font-size: 0.9em;
+    }
+
+    .arena-batch-feedback-entry-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .arena-batch-feedback-submitted-at {
+        white-space: normal;
+    }
+
+    .arena-batch-feedback-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .arena-batch-feedback-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .arena-batch-feedback-actions-note {
+        margin: 0;
+    }
+
+    .arena-batch-feedback-actions .btn {
+        width: 100%;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .arena-batch-feedback-header-action {
+        width: 100%;
+    }
+
+    .arena-batch-feedback-summary {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

@@ -14,6 +14,7 @@ All names are stable — changing a route's path no longer breaks templates.
 | `request.url_for('arena_static_img', path='<file>')` | `/static/img/<file>` | `arena_static_img` |
 | `request.url_for('static_vendor', path='<file>')` | `/static/vendor/<file>` | `static_vendor` |
 | `request.url_for('static_webfonts', path='<file>')` | `/static/webfonts/<file>` | `static_webfonts` |
+| `request.url_for('arena_medal', band='<gold|silver|bronze>')` | `/assets/medal/<band>` | `arena_medal` |
 
 ## Health Route (`health.py`)
 
@@ -61,6 +62,7 @@ Use this endpoint for runtime health probes.
 |---|---|---|---|
 | `GET /` | *(redirect, no name)* | — | `root.py` |
 | `GET /dashboard` | `arena_dashboard` | — | `root.py` |
+| `GET /assets/medal/{band}` | `arena_medal` | `band=` | `root.py` |
 | `GET /<favicon asset>` | `arena_favicon_<file>` *(not used in templates; base templates reference the literal root paths)* | — | `root.py` |
 | `GET /live` | `arena_live` | — | `live.py` |
 | `GET /live/feed.json` | `arena_live_feed` | — | `live.py` |
@@ -70,9 +72,9 @@ Use this endpoint for runtime health probes.
 
 | `url_for` call | Generated path | Notes |
 |---|---|---|
-| `request.url_for('arena_submission_detail', submission_id=ID)` | `/submissions/{ID}` | Requires auth; 404 if not owned by user (unless ARENA_ADMIN); owner confirms AI review requests in a balance-preview modal and sees pending, batch-queued, or completed review states for non-AC submissions |
+| `request.url_for('arena_submission_detail', submission_id=ID)` | `/submissions/{ID}` | Requires auth; direct access is owner-only unless `ARENA_ADMIN`, while an authorized class-report drill-down may add `back_context=student_report`, `back_class_id`, `back_set_id`, and `back_user_id` to show the report return link. Those query values are navigation-only and checked against the persisted submission. The owner confirms AI review requests in a balance-preview modal and sees pending, batch-queued, or completed review states for non-AC submissions |
 | `request.url_for('arena_submission_request_ai_review', submission_id=ID)` | `/submissions/{ID}/request-ai-review` | POST only; owner-only (no admin bypass); idempotent; requires `ai_api_key` or `ai_backend_credits > 0`; consumes one credit when using platform key |
-| `request.url_for('arena_submission_teacher_feedback', submission_id=ID)` | `/submissions/{ID}/teacher-feedback` | POST only; manager-only (set's teacher or ARENA_ADMIN); non-AC, set-tied submissions; upserts feedback and notifies the student; `back_class_id`/`back_set_id`/`back_user_id` form fields are navigation-only |
+| `request.url_for('arena_submission_teacher_feedback', submission_id=ID)` | `/submissions/{ID}/teacher-feedback` | POST only; manager-only (set's teacher or ARENA_ADMIN); non-AC, set-tied submissions; upserts feedback and notifies the student; `back_class_id`/`back_set_id`/`back_user_id`/`back_context` form fields are navigation-only |
 | `request.url_for('arena_submission_force_rejudge', submission_id=ID)` | `/submissions/{ID}/force-rejudge` | POST only; ARENA_ADMIN-only; supersedes the active judgment, queues a new one, and enqueues a fresh judging job; rendered as a confirmation modal on the submission detail page |
 
 ## Notification Routes (`arena/routes/notifications.py`)
@@ -110,6 +112,8 @@ Use this endpoint for runtime health probes.
 | `request.url_for('arena_class_member_student_autocomplete', class_id=ID)` | `/classes/{ID}/members/autocomplete` | Teacher/admin JSON endpoint; query: `q` |
 | `request.url_for('arena_class_problem_set_list', class_id=ID)` | `/classes/{ID}/problem-sets` | Teacher/admin problem-set list; query: `page`, `sort`, `direction` |
 | `request.url_for('arena_class_problem_set_create', class_id=ID)` | `/classes/{ID}/problem-sets` | POST only |
+| `request.url_for('arena_class_full_report', class_id=ID)` | `/classes/{ID}/problem-sets/report` | Teacher/admin class-wide students x problem-sets report; optional return query params `page`, `sort`, `direction` |
+| `request.url_for('arena_class_full_report_csv', class_id=ID)` | `/classes/{ID}/problem-sets/report/csv` | Teacher/admin CSV download of the class-wide report; no query params |
 | `request.url_for('arena_class_problem_set_manage', class_id=ID, set_id=SID)` | `/classes/{ID}/problem-sets/{SID}/problems` | Teacher/admin manage-problems page; optional return query params `page`, `sort`, `direction` |
 | `request.url_for('arena_class_problem_set_problem_add', class_id=ID, set_id=SID)` | `/classes/{ID}/problem-sets/{SID}/problems` | POST only; form fields: repeated `problem_refs`, optional legacy `problem_ref` |
 | `request.url_for('arena_class_problem_set_problem_remove', class_id=ID, set_id=SID, problem_id=PID)` | `/classes/{ID}/problem-sets/{SID}/problems/{PID}/remove` | POST only |

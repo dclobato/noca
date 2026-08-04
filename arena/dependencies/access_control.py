@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -39,7 +39,7 @@ _PUBLIC_EXACT: frozenset[str] = frozenset(
 
 #: Public path prefixes. A path is public when it equals the prefix or begins
 #: with ``"<prefix>/"`` (so ``/legalish`` is *not* matched by ``/legal``).
-_PUBLIC_PREFIXES: tuple[str, ...] = ("/legal", "/help", "/auth")
+_PUBLIC_PREFIXES: tuple[str, ...] = ("/legal", "/help", "/auth", "/assets/medal")
 
 
 def _is_public_arena_path(path: str) -> bool:

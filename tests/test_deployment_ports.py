@@ -32,6 +32,7 @@ COMPOSE_FILE = REPO_ROOT / "docker-compose.yml.sample"
 CADDYFILE = REPO_ROOT / "containers" / "Caddyfile"
 ENV_FULL = REPO_ROOT / ".env.full"
 CONFIG_DOC = REPO_ROOT / "docs" / "CONFIG.md"
+ARENA_DOCKERFILE = REPO_ROOT / "containers" / "arena" / "Dockerfile"
 
 
 @dataclass(frozen=True)
@@ -167,3 +168,17 @@ def test_variables_are_documented(binding: ServiceBinding) -> None:
     assert f"{binding.port_var}={default_port}" in env_full
     assert f"`{binding.host_var}`" in config_doc
     assert f"`{binding.port_var}`" in config_doc
+
+
+def test_arena_image_asserts_shared_medal_renderer_and_artwork() -> None:
+    """The Arena image build fails if any leaderboard medal dependency is absent."""
+    dockerfile = ARENA_DOCKERFILE.read_text(encoding="utf-8")
+    required_paths = (
+        "/app/shared/services/balloon_assets.py",
+        "/app/shared/services/assets/gold.svg",
+        "/app/shared/services/assets/silver.svg",
+        "/app/shared/services/assets/bronze.svg",
+    )
+
+    assert "COPY shared /app/shared" in dockerfile
+    assert all(f"test -f {path}" in dockerfile for path in required_paths)

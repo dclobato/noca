@@ -8,9 +8,6 @@
 
 from __future__ import annotations
 
-from datetime import date
-from typing import Any, cast
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
@@ -21,57 +18,17 @@ from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_problem_sets import ArenaProblemSet
 from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_users import ArenaUser
-from arena.services import arena_batch_feedback_service, arena_class_detail_service
-from arena.services.arena_class_service import ArenaClassNotFoundError
+from arena.routes.class_route_guards import html, require_problem_set_manager
+from arena.services import arena_batch_feedback_service
 from arena.services.arena_problem_set_service import (
     ArenaProblemSetNotFoundError,
     ArenaProblemSetPermissionError,
 )
 from arena.services.arena_teacher_feedback_service import upsert_teacher_feedback
-from arena.services.session_service import build_current_next_url, build_login_redirect_response
-from shared.enumerations import ArenaNotificationKind, ArenaRole
+from shared.enumerations import ArenaNotificationKind
 from shared.services.arena_notification_service import create_arena_notification
 
 router = APIRouter(tags=["arena-classes"])
-
-
-def _html(response: Any) -> HTMLResponse:
-    """Cast a TemplateResponse to HTMLResponse for type-checker satisfaction."""
-    return cast(HTMLResponse, response)
-
-
-def _require_user(request: Request, current_user: ArenaUser | None) -> ArenaUser | RedirectResponse:
-    """Return the current user or a login redirect response."""
-    if current_user is None:
-        return build_login_redirect_response(request, next_url=build_current_next_url(request))
-    return current_user
-
-
-def _is_manager(user: ArenaUser) -> bool:
-    """Return whether the user can manage Arena classes."""
-    return user.role in {ArenaRole.ARENA_ADMIN, ArenaRole.ARENA_JUDGE}
-
-
-async def _require_problem_set_manager(
-    request: Request,
-    current_user: ArenaUser | None,
-    *,
-    class_id: str,
-    session: AsyncSession,
-) -> tuple[ArenaUser | RedirectResponse, Any | None]:
-    """Return the logged-in teacher/admin and the class detail for a class-scoped page."""
-    user_or_redirect = _require_user(request, current_user)
-    if isinstance(user_or_redirect, RedirectResponse):
-        return user_or_redirect, None
-    if not _is_manager(user_or_redirect):
-        raise HTTPException(status_code=403, detail="Forbidden")
-    try:
-        detail = await arena_class_detail_service.get_class_detail(session, class_id=class_id, today=date.today())
-    except ArenaClassNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Class not found") from exc
-    if user_or_redirect.role != ArenaRole.ARENA_ADMIN and detail.teacher_id != user_or_redirect.id:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    return user_or_redirect, detail
 
 
 async def _require_set_in_class(session: AsyncSession, *, class_id: str, set_id: str) -> None:
@@ -95,7 +52,7 @@ async def class_problem_set_batch_feedback(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the teacher batch-feedback page for one problem in a problem set."""
-    user_or_redirect, class_detail = await _require_problem_set_manager(
+    user_or_redirect, class_detail = await require_problem_set_manager(
         request,
         current_user,
         class_id=class_id,
@@ -117,7 +74,7 @@ async def class_problem_set_batch_feedback(
     except ArenaProblemSetPermissionError as exc:
         raise HTTPException(status_code=403, detail="Forbidden") from exc
     templates = request.app.state.arena_templates
-    return _html(
+    return html(
         templates.TemplateResponse(
             request,
             "classes/problem_set_batch_feedback.html",
@@ -146,7 +103,7 @@ async def class_problem_set_batch_feedback_submit(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Save teacher feedback for every changed submission in a batch."""
-    user_or_redirect, _class_detail = await _require_problem_set_manager(
+    user_or_redirect, _class_detail = await require_problem_set_manager(
         request,
         current_user,
         class_id=class_id,

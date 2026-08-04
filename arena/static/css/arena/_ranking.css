@@ -1,0 +1,299 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Public user and affiliation rankings
+   ============================================================ */
+.arena-ranking-page {
+    width: 100%;
+    max-width: var(--arena-max-width);
+    min-width: 0;
+    margin-inline: auto;
+}
+
+.arena-ranking-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--arena-space-md);
+    margin-bottom: var(--arena-space-md);
+}
+
+.arena-ranking-heading {
+    min-width: 0;
+}
+
+.arena-ranking-heading h1 {
+    display: flex;
+    align-items: center;
+    gap: var(--arena-space-sm);
+    margin: 0;
+    color: var(--arena-on-surface);
+    font-size: 2rem;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+}
+
+.arena-ranking-heading h1 .material-symbols-outlined {
+    color: var(--arena-primary);
+    font-size: 1.2em;
+}
+
+.arena-ranking-heading p {
+    margin: 0.25rem 0 0;
+    color: var(--arena-on-surface-variant);
+}
+
+.arena-ranking-back-link {
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex: 0 0 auto;
+    padding: var(--arena-space-sm) 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.arena-ranking-back-link:hover {
+    color: var(--arena-primary);
+}
+
+.arena-ranking-back-link:focus-visible {
+    border-radius: var(--arena-radius);
+    outline: 2px solid var(--arena-primary);
+    outline-offset: 2px;
+}
+
+.arena-ranking-back-link .material-symbols-outlined {
+    font-size: 1.25rem;
+}
+
+.arena-ranking-panel {
+    overflow: hidden;
+    padding: 0;
+}
+
+.arena-ranking-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: var(--arena-space-sm);
+    padding: var(--arena-space-md);
+    border-bottom: 1px solid var(--arena-outline-variant);
+    background-color: var(--arena-surface-container-low);
+}
+
+.arena-ranking-filters .arena-filter-search {
+    flex: 1 1 18rem;
+    max-width: none;
+}
+
+.arena-ranking-filter-field {
+    flex: 1 1 12rem;
+    max-width: 16rem;
+}
+
+.arena-ranking-filter-field .form-select {
+    width: 100%;
+}
+
+.arena-ranking-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--arena-space-sm);
+}
+
+.arena-ranking-results-bar {
+    min-height: 3.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--arena-space-sm) var(--arena-space-md);
+    padding: 0.75rem var(--arena-space-md);
+}
+
+.arena-ranking-results-bar p {
+    margin: 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+
+.arena-ranking-table {
+    min-width: 48rem;
+}
+
+.arena-ranking-table--affiliations {
+    min-width: 38rem;
+}
+
+.arena-ranking-table thead th:first-child,
+.arena-ranking-table tbody td:first-child {
+    padding-left: var(--arena-space-md);
+}
+
+.arena-ranking-table thead th:last-child,
+.arena-ranking-table tbody td:last-child {
+    padding-right: var(--arena-space-md);
+}
+
+.arena-ranking-table tbody tr {
+    height: 3.25rem;
+}
+
+.arena-ranking-table tbody td {
+    vertical-align: middle;
+}
+
+.arena-ranking-col-rank {
+    width: 5rem;
+}
+
+.arena-ranking-col-rating {
+    width: 7rem;
+}
+
+.arena-ranking-rank,
+.arena-ranking-rating {
+    color: var(--arena-on-surface);
+    font-family: monospace;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.arena-ranking-rank {
+    color: var(--arena-on-surface-variant);
+}
+
+.arena-ranking-identity {
+    min-width: 14rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.arena-ranking-identity img {
+    flex: 0 0 auto;
+}
+
+.arena-ranking-name {
+    display: block;
+    color: var(--arena-on-surface);
+    font-weight: 600;
+}
+
+.arena-ranking-meta {
+    display: block;
+    margin-top: 0.125rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    font-weight: 400;
+}
+
+.arena-ranking-affiliation-link {
+    min-width: 14rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--arena-on-surface);
+    text-decoration: none;
+}
+
+.arena-ranking-affiliation-link img {
+    flex: 0 0 auto;
+}
+
+.arena-ranking-affiliation-link:hover .arena-ranking-name {
+    color: var(--arena-primary);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+}
+
+.arena-ranking-logo-placeholder {
+    width: 2rem;
+    height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    border-radius: var(--arena-radius);
+    background-color: var(--arena-surface-container);
+    color: var(--arena-on-surface-variant);
+}
+
+.arena-ranking-table .arena-empty-state {
+    padding: var(--arena-space-lg) var(--arena-space-md);
+    text-align: center;
+}
+
+.arena-ranking-table .noca-clickable-row:focus-visible {
+    outline: 2px solid var(--arena-primary);
+    outline-offset: -2px;
+}
+
+.arena-ranking-pagination-footer {
+    padding: 0.75rem var(--arena-space-md);
+    border-top: 1px solid var(--arena-outline-variant);
+}
+
+@media (max-width: 767.98px) {
+    .arena-ranking-table--users,
+    .arena-ranking-table--affiliations {
+        min-width: 0;
+    }
+    .arena-ranking-table--users .arena-ranking-identity,
+    .arena-ranking-table--affiliations .arena-ranking-affiliation-link {
+        min-width: 0;
+    }
+    .arena-ranking-col-rank,
+    .arena-ranking-col-rating {
+        width: 5rem;
+    }
+
+    .arena-ranking-header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: var(--arena-space-sm);
+    }
+
+    .arena-ranking-panel {
+        margin-inline: calc(var(--arena-gutter) * -1);
+        border-right: 0;
+        border-left: 0;
+        border-radius: 0;
+    }
+
+    .arena-ranking-filter-field {
+        max-width: none;
+    }
+
+    .arena-ranking-results-bar .arena-pagination,
+    .arena-ranking-pagination-footer .arena-pagination {
+        max-width: 100%;
+        justify-content: flex-start;
+        overflow-x: auto;
+        padding-bottom: 0.25rem;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .arena-ranking-filters .arena-filter-search,
+    .arena-ranking-filter-field,
+    .arena-ranking-filter-actions {
+        flex-basis: 100%;
+        width: 100%;
+    }
+
+    .arena-ranking-filter-actions .btn {
+        flex: 1 1 0;
+    }
+}

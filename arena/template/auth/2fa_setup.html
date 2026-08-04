@@ -1,125 +1,90 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
-{% extends "_auth_base.html" %}
+{% extends "_base.html" %}
 {% from "_macros.html" import render_icon %}
 {% block title_suffix %}&mdash; Set up two-factor authentication{% endblock %}
-{% block auth_content %}
-    <div class="container">
-        <div class="row justify-content-center">
-            <div class="col-12 col-md-8 col-lg-7 col-xl-6">
-                {# Brand header #}
-                <div class="text-center mb-4 pt-4">
-                    <h1 class="arena-auth-logo">{{ brand_name }}</h1>
-                    <p class="arena-auth-tagline">Competitive Judge</p>
+{% block content %}
+    <section class="arena-2fa-setup-page" aria-labelledby="two-factor-setup-title">
+        <a href="{{ request.url_for("arena_user_profile") }}?tab=personal-security"
+           class="arena-2fa-setup-back">
+            {{ render_icon(icon="arrow_back") }}
+            <span>Back to account security</span>
+        </a>
+        <header class="arena-2fa-setup-header">
+            <div class="arena-2fa-setup-header-icon" aria-hidden="true">{{ render_icon(icon="shield_lock") }}</div>
+            <div>
+                <p class="arena-2fa-setup-eyebrow">Account security</p>
+                <h1 id="two-factor-setup-title">Set up two-factor authentication</h1>
+                <p>Add an authenticator app as a second check when you sign in.</p>
+            </div>
+        </header>
+        <div class="arena-card arena-2fa-setup-card">
+            <div class="arena-2fa-setup-step">
+                <div class="arena-2fa-setup-step-heading">
+                    <span class="arena-2fa-setup-step-number" aria-hidden="true">1</span>
+                    <div class="arena-2fa-setup-step-content">
+                        <h2>Connect your authenticator app</h2>
+                        <p>Scan this QR code with your authenticator app.</p>
+                    </div>
                 </div>
-                {# Setup card #}
-                <div class="arena-auth-card">
-                    <div class="d-flex align-items-center gap-2 mb-3">
-                        {{ render_icon(icon="security", classes="arena-2fa-icon") }}
-                        <h2 class="arena-auth-title mb-0">Set up two-factor authentication</h2>
+                <div class="arena-2fa-setup-qr-frame">
+                    <img src="data:image/png;base64,{{ qr_code }}"
+                         alt="QR code for connecting an authenticator app"
+                         class="arena-2fa-qr-img">
+                </div>
+                <div class="arena-2fa-setup-manual">
+                    <p>Can't scan it? Enter this setup key manually:</p>
+                    <code class="arena-2fa-secret">{{ formatted_secret }}</code>
+                </div>
+            </div>
+            <div class="arena-2fa-setup-divider" aria-hidden="true"></div>
+            <div class="arena-2fa-setup-step">
+                <div class="arena-2fa-setup-step-heading">
+                    <span class="arena-2fa-setup-step-number" aria-hidden="true">2</span>
+                    <div class="arena-2fa-setup-step-content">
+                        <h2>Verify the connection</h2>
+                        <p id="two-factor-setup-instructions">Enter the 6-digit code now shown in your authenticator app.</p>
                     </div>
-                    <p class="arena-2fa-help mb-4">Follow the steps below to link your authenticator app with your {{ brand_name }} account.</p>
-                    {# Step 1: QR code #}
-                    <div class="mb-4">
-                        <p class="arena-auth-section-label mb-2">Step 1 &mdash; Scan with your authenticator app</p>
-                        <div class="text-center">
-                            <img src="data:image/png;base64,{{ qr_code }}"
-                                 alt="Authenticator QR code"
-                                 class="arena-2fa-qr-img">
-                        </div>
+                </div>
+                <form action="{{ request.url_for("arena_2fa_confirm") }}"
+                      method="post"
+                      novalidate
+                      id="otp-form">
+                    <div class="arena-2fa-code-field">
+                        <label for="full-code" class="form-label">Authenticator code</label>
+                        <input type="text"
+                               class="form-control arena-2fa-code-input"
+                               id="full-code"
+                               name="full_code"
+                               maxlength="6"
+                               pattern="[0-9]{6}"
+                               inputmode="numeric"
+                               autocomplete="one-time-code"
+                               enterkeyhint="done"
+                               aria-describedby="two-factor-setup-instructions"
+                               placeholder="123456"
+                               required>
                     </div>
-                    {# Step 2: Manual code #}
-                    <div class="mb-4">
-                        <p class="arena-auth-section-label mb-2">Step 2 &mdash; Or enter this code manually</p>
-                        <div class="text-center">
-                            <span class="arena-2fa-secret">{{ formatted_secret }}</span>
-                        </div>
-                        <p class="arena-2fa-help mt-2 mb-0 text-center">
-                            Use this key if your authenticator app cannot scan the QR code above.
-                        </p>
-                    </div>
-                    {# Step 3: Confirm OTP #}
-                    <div class="mb-4">
-                        <p class="arena-auth-section-label mb-3">Step 3 &mdash; Enter the 6-digit code from your app</p>
-                        <form action="{{ request.url_for("arena_2fa_confirm") }}"
-                              method="post"
-                              novalidate
-                              id="otp-form">
-                            <div class="d-flex gap-2 justify-content-center mb-4" id="otp-inputs">
-                                <input type="text"
-                                       class="arena-otp-input"
-                                       id="otp-1"
-                                       name="otp_1"
-                                       maxlength="1"
-                                       inputmode="text"
-                                       autocomplete="one-time-code"
-                                       aria-label="Digit 1">
-                                <input type="text"
-                                       class="arena-otp-input"
-                                       id="otp-2"
-                                       name="otp_2"
-                                       maxlength="1"
-                                       inputmode="text"
-                                       autocomplete="one-time-code"
-                                       aria-label="Digit 2">
-                                <input type="text"
-                                       class="arena-otp-input"
-                                       id="otp-3"
-                                       name="otp_3"
-                                       maxlength="1"
-                                       inputmode="text"
-                                       autocomplete="one-time-code"
-                                       aria-label="Digit 3">
-                                <input type="text"
-                                       class="arena-otp-input"
-                                       id="otp-4"
-                                       name="otp_4"
-                                       maxlength="1"
-                                       inputmode="text"
-                                       autocomplete="one-time-code"
-                                       aria-label="Digit 4">
-                                <input type="text"
-                                       class="arena-otp-input"
-                                       id="otp-5"
-                                       name="otp_5"
-                                       maxlength="1"
-                                       inputmode="text"
-                                       autocomplete="one-time-code"
-                                       aria-label="Digit 5">
-                                <input type="text"
-                                       class="arena-otp-input"
-                                       id="otp-6"
-                                       name="otp_6"
-                                       maxlength="1"
-                                       inputmode="text"
-                                       autocomplete="one-time-code"
-                                       aria-label="Digit 6">
-                            </div>
-                            <input type="hidden" id="full-code" name="full_code">
-                            <button type="submit" class="btn arena-btn-primary w-100">Activate two-factor authentication</button>
-                        </form>
-                    </div>
-                    {# Backup codes note #}
-                    <div class="arena-security-alert">
-                        {{ render_icon(icon="bookmark") }}
-                        <div class="arena-security-alert-text">
-                            <strong>Next step</strong>
-                            <br>
-                            After confirming your code, backup codes will be displayed on the next page. Save them
-                            in a safe place &mdash; they can be used to recover your account if you lose access to
-                            your authenticator app.
-                        </div>
+                    <button type="submit"
+                            class="btn arena-btn-primary arena-auth-flow-submit w-100">
+                        Activate two-factor authentication
+                        {{ render_icon(icon="arrow_forward", classes="arena-auth-flow-submit-icon") }}
+                    </button>
+                </form>
+                <div class="arena-security-alert" role="note">
+                    {{ render_icon(icon="bookmark") }}
+                    <div class="arena-security-alert-text">
+                        <strong>Backup codes come next</strong>
+                        <br>
+                        After activation, save the one-time recovery codes somewhere safe.
                     </div>
                 </div>
             </div>
         </div>
-    </div>
-{% endblock %}
-{% block extra_script %}
-    <script src="{{ request.url_for("arena_static_js", path="two_factor.js") }}?v={{ app_version }}"></script>
+    </section>
 {% endblock %}

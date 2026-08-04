@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -12,6 +12,7 @@ as a logged-out guest, since the page is on the Arena public allowlist.
 """
 
 import logging
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -36,6 +37,7 @@ from shared.language_registry import default_language_seed_rows
 from shared.services.arena_difficulty_histogram import BIN_COUNT, persist_difficulty_histogram
 
 TEST_JWT_SECRET = "test-secret-key-for-help-rating-tests-32b!!"
+HELP_CSS = Path(__file__).resolve().parents[2] / "arena" / "static" / "css" / "arena" / "_help.css"
 
 # Named routes that ``_base.html`` resolves via ``url_for`` for a guest render.
 # The help router itself supplies ``arena_help_rating`` / ``arena_help_languages``,
@@ -118,6 +120,15 @@ def _build_help_app(session: AsyncSession) -> FastAPI:
     return app
 
 
+def test_help_tabs_have_horizontal_css_contract() -> None:
+    """Help tabs remain horizontal independently of profile navigation styles."""
+    css = HELP_CSS.read_text(encoding="utf-8")
+    rule = re.search(r"\.arena-help-tabs\s*\{(?P<body>[^}]*)\}", css)
+
+    assert rule is not None
+    assert "flex-direction: row" in rule.group("body")
+
+
 @pytest.mark.asyncio
 async def test_help_rating_renders_for_guest(session: AsyncSession) -> None:
     """The rating help page renders (200) and documents the per-problem pivot ramp."""
@@ -132,6 +143,8 @@ async def test_help_rating_renders_for_guest(session: AsyncSession) -> None:
     assert "N_p" in body
     # The blend scale constant is surfaced from the rating service into the page.
     assert "pivot" in body.lower()
+    assert 'class="nav nav-tabs arena-help-tabs px-3 pt-3"' in body
+    assert "arena-profile-tabs" not in body
 
 
 @pytest.mark.asyncio
@@ -154,6 +167,8 @@ async def test_help_languages_renders_stdout_flush_hints(session: AsyncSession) 
     assert "see the stdout flush detail in the" in body
     assert "Available languages tab" in body
     assert "/static/js/help-languages-tabs.js?v=test" in body
+    assert 'class="nav nav-tabs arena-help-tabs px-3 pt-3"' in body
+    assert "arena-profile-tabs" not in body
 
 
 @pytest.mark.asyncio

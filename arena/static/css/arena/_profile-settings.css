@@ -1,0 +1,225 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+.arena-profile-settings-grid {
+    --arena-profile-settings-gap: var(--arena-space-lg);
+}
+
+.arena-profile-settings-column {
+    min-width: 0;
+}
+
+.arena-profile-settings-column--security {
+    padding-left: var(--arena-profile-settings-gap);
+    border-left: 1px solid var(--arena-outline-variant);
+}
+
+.arena-profile-settings-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin-bottom: var(--arena-space-md);
+}
+
+.arena-profile-settings-heading > .material-symbols-outlined {
+    flex: 0 0 auto;
+    margin-top: 0.1rem;
+    color: var(--arena-primary);
+    font-size: 1.25rem;
+}
+
+.arena-profile-settings-heading h2 {
+    margin: 0;
+    color: var(--arena-on-surface);
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.arena-profile-settings-heading p {
+    max-width: 60ch;
+    margin: 0.2rem 0 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+    line-height: 1.45;
+}
+
+.arena-profile-settings-list {
+    display: grid;
+    grid-template-columns: minmax(7.5rem, 9rem) minmax(0, 1fr);
+    margin: 0;
+    border-top: 1px solid var(--arena-outline-variant);
+}
+
+.arena-profile-settings-list > dt,
+.arena-profile-settings-list > dd {
+    min-width: 0;
+    margin: 0;
+    padding: 0.9rem 0;
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+
+.arena-profile-settings-list > dt {
+    padding-right: var(--arena-space-md);
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1.45;
+    text-transform: none;
+}
+
+.arena-profile-settings-list > dd {
+    color: var(--arena-on-surface);
+    overflow-wrap: anywhere;
+}
+
+.arena-profile-settings-list > dt.visually-hidden + dd,
+.arena-profile-settings-list > .arena-profile-settings-editor {
+    grid-column: 1 / -1;
+    padding: var(--arena-space-md) 0;
+}
+
+.arena-profile-settings-list .form-label {
+    margin-bottom: 0.35rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.arena-profile-settings-list .form-control-sm,
+.arena-profile-settings-list .form-select-sm {
+    min-height: 2.5rem;
+}
+
+.arena-profile-settings-list .form-check {
+    min-height: 1.5rem;
+}
+
+.arena-profile-settings-list .form-check-label {
+    line-height: 1.45;
+}
+
+.arena-profile-settings-list .form-text {
+    max-width: 58ch;
+    margin-top: 0.35rem;
+}
+
+.arena-profile-settings-list .arena-admin-inline-field {
+    justify-content: space-between;
+}
+
+.arena-profile-settings-list--actions {
+    grid-template-columns: minmax(8.5rem, 1fr);
+}
+
+.arena-profile-settings-list--actions > dt,
+.arena-profile-settings-list--actions > dd {
+    grid-column: 1 / -1;
+}
+
+.arena-profile-settings-list--actions > dt {
+    padding-bottom: 0.25rem;
+    border-bottom: 0;
+}
+
+.arena-profile-settings-list--actions > dd {
+    padding-top: 0;
+}
+
+.arena-profile-settings-list--actions > dd > .row {
+    --bs-gutter-x: 0.75rem;
+}
+
+.arena-profile-settings-list--summary > dd {
+    font-weight: 600;
+}
+
+.arena-profile-location-fields > * {
+    flex: 1 1 11rem;
+}
+
+.arena-profile-location-fields > :last-child {
+    flex-grow: 0;
+}
+
+.arena-profile-settings-savebar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding-top: var(--arena-space-md);
+}
+
+.arena-profile-security-actions {
+    display: grid;
+    gap: 0.5rem;
+    padding-top: var(--arena-space-md);
+}
+
+.arena-profile-security-actions .collapse.show,
+.arena-profile-security-actions .collapsing {
+    margin-top: 0.25rem;
+    padding: 0.75rem;
+    background: var(--arena-surface-container-low);
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+}
+
+@media (max-width: 991.98px) {
+    .arena-profile-settings-column--security {
+        padding-top: var(--arena-profile-settings-gap);
+        padding-left: calc(var(--bs-gutter-x) * 0.5);
+        border-top: 1px solid var(--arena-outline-variant);
+        border-left: 0;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .arena-profile-settings-list {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .arena-profile-settings-list > dt,
+    .arena-profile-settings-list--actions > dt {
+        grid-column: 1;
+        padding: 0.85rem 0 0.25rem;
+        border-bottom: 0;
+    }
+
+    .arena-profile-settings-list > dd,
+    .arena-profile-settings-list--actions > dd {
+        grid-column: 1;
+        padding: 0 0 0.85rem;
+    }
+
+    .arena-profile-settings-list > dt.visually-hidden + dd,
+    .arena-profile-settings-list > .arena-profile-settings-editor {
+        padding-top: var(--arena-space-md);
+    }
+
+    .arena-profile-settings-list .arena-admin-inline-field,
+    .arena-profile-settings-list .arena-admin-inline-field form,
+    .arena-profile-settings-list .arena-admin-inline-field .btn,
+    .arena-profile-settings-savebar .btn,
+    .arena-profile-location-fields > *,
+    .arena-profile-location-fields .btn {
+        width: 100%;
+    }
+
+    .arena-profile-location-fields > * {
+        flex: 1 1 100%;
+    }
+
+    .arena-profile-settings-list--actions > dd > .row {
+        gap: 0.5rem;
+    }
+
+    .arena-profile-settings-list--actions > dd > .row > * {
+        width: 100%;
+    }
+}

@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -11,14 +11,37 @@
 
 @import url('./arena/_tokens.css');
 @import url('./arena/_topbar.css');
+@import url('./arena/_topbar-menus.css');
 @import url('./arena/_sidebar.css');
 @import url('./arena/_cards.css');
 @import url('./arena/_tables.css');
+@import url('./arena/_ranking.css');
+@import url('./arena/_dashboard.css');
 @import url('./arena/_profile.css');
+@import url('./arena/_profile-layout.css');
+@import url('./arena/_profile-settings.css');
+@import url('./arena/_public-profile.css');
 @import url('./arena/_footer.css');
 @import url('./arena/_auth.css');
+@import url('./arena/_signup.css');
+@import url('./arena/_auth-flow.css');
+@import url('./arena/_two-factor.css');
+@import url('./arena/_backup-codes.css');
 @import url('./arena/_upload.css');
 @import url('./arena/_problems.css');
+@import url('./arena/_classes.css');
+@import url('./arena/_classes-open.css');
+@import url('./arena/_classes-registered.css');
+@import url('./arena/_class-detail.css');
+@import url('./arena/_class-form.css');
+@import url('./arena/_class-members.css');
+@import url('./arena/_problem-sets.css');
+@import url('./arena/_problem-set-manage.css');
+@import url('./arena/_problem-set-report.css');
+@import url('./arena/_problem-set-student-report.css');
+@import url('./arena/_student-problem-set.css');
+@import url('./arena/_class-full-report.css');
+@import url('./arena/_batch-feedback.css');
 @import url('./arena/_admin.css');
 @import url('./arena/_help.css');
 @import url('./arena/_submissions.css');
@@ -31,11 +54,4 @@
 
 .arena-datetime-input {
     width: 13rem;
-}
-
-.arena-dashboard-lang-icon {
-    width: 2rem;
-    height: 2rem;
-    object-fit: contain;
-    flex-shrink: 0;
 }

@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -80,7 +80,7 @@ body.arena-editor-resizing {
 }
 
 .arena-output-pre {
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     white-space: pre-wrap;
     word-break: break-all;
     max-height: 16rem;
@@ -103,9 +103,247 @@ body.arena-editor-resizing {
 
 /* ── Inline language icon (devicon CSS, used in submission detail) ──────── */
 .arena-submission-lang-icon {
-    font-size: 1.25rem;
+    font-size: 1rem;
     line-height: 1;
     flex-shrink: 0;
+}
+
+/* ── Submission detail hierarchy ─────────────────────────────────────────── */
+.arena-submission-detail {
+    width: 100%;
+    max-width: var(--arena-max-width);
+    margin-inline: auto;
+    padding-block: 0.25rem var(--arena-space-lg);
+}
+
+.arena-submission-detail > .arena-card {
+    margin-bottom: 0 !important;
+}
+
+.arena-submission-breadcrumb,
+.arena-submission-back-link {
+    margin-bottom: 0;
+}
+
+.arena-submission-heading {
+    padding: 0.25rem 0 0.5rem;
+}
+
+.arena-submission-heading h1 {
+    margin: 0;
+    font-family: var(--noca-font-heading);
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+}
+
+.arena-submission-heading h1 a {
+    color: var(--bs-link-color);
+    text-decoration: none;
+}
+
+.arena-submission-heading h1 a:hover,
+.arena-submission-heading h1 a:focus-visible {
+    color: var(--bs-link-hover-color);
+    text-decoration: underline;
+    text-decoration-thickness: 0.1em;
+    text-underline-offset: 0.14em;
+}
+
+.arena-submission-heading-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.6rem;
+    margin: 0.5rem 0 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+
+.arena-submission-heading-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.arena-submission-heading-separator {
+    color: var(--arena-outline);
+}
+
+.arena-submission-result {
+    border-top: 0.25rem solid var(--arena-primary);
+}
+
+.arena-submission-verdict-summary {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding: 1rem 1.25rem;
+    background-color: var(--arena-surface-container-low);
+    border-radius: var(--arena-radius);
+}
+
+.arena-submission-verdict-summary.is-accepted {
+    background-color: color-mix(
+        in srgb,
+        var(--noca-success) 9%,
+        var(--arena-surface-container-lowest)
+    );
+}
+
+.arena-submission-verdict-summary.is-rejected {
+    background-color: color-mix(
+        in srgb,
+        var(--noca-danger) 8%,
+        var(--arena-surface-container-lowest)
+    );
+}
+
+.arena-submission-verdict-summary.is-warning {
+    background-color: color-mix(
+        in srgb,
+        var(--noca-warning) 12%,
+        var(--arena-surface-container-lowest)
+    );
+}
+
+.arena-submission-verdict-summary.is-pending {
+    background-color: color-mix(
+        in srgb,
+        var(--noca-info) 8%,
+        var(--arena-surface-container-lowest)
+    );
+}
+
+.arena-submission-verdict-code {
+    display: flex;
+    flex: 0 0 3.5rem;
+    align-items: center;
+    justify-content: center;
+    min-height: 3.5rem;
+}
+
+.arena-submission-verdict-code .badge {
+    padding: 0.65rem 0.7rem;
+    font-size: 1.25rem;
+    line-height: 1;
+}
+
+.arena-submission-verdict-code .material-symbols-outlined {
+    color: var(--arena-primary);
+    font-size: 2rem;
+}
+
+.arena-submission-verdict-label {
+    margin: 0;
+    font-family: var(--noca-font-heading);
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.arena-submission-verdict-status {
+    margin: 0.25rem 0 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+
+.arena-submission-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-bottom: 1rem;
+    border-block: 1px solid var(--arena-outline-variant);
+}
+
+.arena-submission-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+    padding: 0.75rem 1rem;
+}
+
+.arena-submission-metric + .arena-submission-metric {
+    border-inline-start: 1px solid var(--arena-outline-variant);
+}
+
+.arena-submission-metric span {
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.arena-submission-metric strong {
+    color: var(--arena-on-surface);
+    font-family: var(--noca-font-mono);
+    font-size: 0.875rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.arena-submission-subsection {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--arena-outline-variant);
+}
+
+.arena-submission-inline-status {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    margin: 1rem 0 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+
+.arena-submission-inline-status .material-symbols-outlined {
+    flex: 0 0 auto;
+    color: var(--arena-primary);
+    font-size: 1rem;
+}
+
+.arena-submission-ai-request {
+    margin-top: 1rem;
+}
+
+.arena-submission-empty-state {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--arena-on-surface-variant);
+}
+
+.arena-submission-empty-state p {
+    margin: 0;
+}
+
+.arena-submission-details .arena-profile-details dd:last-child {
+    margin-bottom: 0;
+}
+
+.arena-submission-limits {
+    max-width: 28rem;
+}
+
+.arena-submission-limits th,
+.arena-submission-limits td {
+    padding-block: 0.35rem;
+}
+
+.arena-submission-admin-actions {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--arena-outline-variant);
+}
+
+.arena-submission-source .arena-source-code-pre {
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
 }
 
 /* ── Source code display with Highlight.js line numbers ─────────────────── */
@@ -137,6 +375,59 @@ body.arena-editor-resizing {
 .arena-source-code-pre .hljs-ln-code {
     padding-left: 0.75rem;
     vertical-align: top;
+}
+
+@media (max-width: 767.98px) {
+    .arena-submission-detail {
+        padding-bottom: var(--arena-space-md);
+    }
+
+    .arena-submission-heading h1 {
+        font-size: 1.25rem;
+    }
+
+    .arena-submission-heading-separator {
+        display: none;
+    }
+
+    .arena-submission-heading-item {
+        width: 100%;
+    }
+
+    .arena-submission-result .arena-card-title {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .arena-submission-result .arena-card-title #retry-btn {
+        flex-basis: 100%;
+        justify-content: center;
+        margin-left: 0 !important;
+        margin-top: 0.25rem;
+    }
+
+    .arena-submission-verdict-summary {
+        padding-inline: 1rem;
+    }
+
+    .arena-submission-metric {
+        padding-inline: 0.5rem;
+    }
+
+    .arena-submission-source .arena-source-code-pre code.hljs {
+        padding: 0.75rem;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .arena-submission-metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .arena-submission-metric + .arena-submission-metric {
+        border-inline-start: 0;
+        border-top: 1px solid var(--arena-outline-variant);
+    }
 }
 
 /* Live submission feed — shared rules in shared/static/css/common.css */

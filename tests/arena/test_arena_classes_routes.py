@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -32,12 +32,14 @@ from werkzeug.security import generate_password_hash
 import arena.models.arena_classes  # noqa: F401
 import arena.models.arena_problem_sets  # noqa: F401
 import arena.models.arena_problems  # noqa: F401
+import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
 from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_classes import ArenaClassMembership, ArenaClassRegistrationRequest
 from arena.models.arena_problem_sets import ArenaProblemSet
 from arena.models.arena_problems import ArenaProblem
+from arena.models.arena_submissions import ArenaSubmission, ArenaSubmissionJudgment
 from arena.models.arena_users import ArenaUser
 from arena.routes.classes import router as arena_classes_router
 from arena.routes.classes_members import (
@@ -50,6 +52,7 @@ from arena.routes.legal import router as arena_legal_router
 from arena.routes.problem_sets import class_problem_set_problem_add
 from arena.routes.problem_sets import router as arena_problem_sets_router
 from arena.routes.problem_sets_autocomplete import router as arena_problem_sets_autocomplete_router
+from arena.routes.problem_sets_full_report import router as arena_problem_sets_full_report_router
 from arena.routes.problem_sets_report import router as arena_problem_sets_report_router
 from arena.services import arena_problem_set_service
 from arena.services.arena_class_service import create_class
@@ -66,6 +69,7 @@ from shared.db_schema.arena import (
     arena_problem_set_problems,
 )
 from shared.enumerations import ArenaClassMembershipStatus, ArenaNotificationKind, ArenaRole, Verdict
+from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-class-route-tests-32b!"
 TODAY = date.today()
@@ -144,6 +148,10 @@ def _build_app(session: AsyncSession) -> FastAPI:
     async def _avatar(user_id: str) -> Response:
         return Response("avatar", media_type="image/svg+xml")
 
+    @app.get("/profile/{user_id}", name="arena_user_profile_public")
+    async def _public_profile(user_id: str) -> Response:
+        return Response(f"profile {user_id}")
+
     @app.get("/admin/problems", name="arena_admin_problem_list")
     async def _admin_problems() -> Response:
         return Response("admin problems")
@@ -194,6 +202,7 @@ def _build_app(session: AsyncSession) -> FastAPI:
 
     app.include_router(arena_classes_router)
     app.include_router(arena_classes_members_router)
+    app.include_router(arena_problem_sets_full_report_router)
     app.include_router(arena_problem_sets_router)
     app.include_router(arena_problem_sets_report_router)
     app.include_router(arena_problem_sets_autocomplete_router)
@@ -449,6 +458,12 @@ async def test_class_members_page_includes_pending_student_picker(session: Async
         email="student-candidate@test.example",
         role=ArenaRole.ARENA_USER,
     )
+    pending_student = await _create_user(
+        session,
+        name="Pending Student",
+        email="pending-student@test.example",
+        role=ArenaRole.ARENA_USER,
+    )
     member = await _create_user(
         session,
         name="Enrolled Student",
@@ -464,7 +479,14 @@ async def test_class_members_page_includes_pending_student_picker(session: Async
         finishes_on=TODAY + timedelta(days=10),
     )
     await _enroll(session, arena_class.id, member.id)
+    registration_request = ArenaClassRegistrationRequest(
+        class_id=arena_class.id,
+        user_id=pending_student.id,
+        status="PENDING",
+    )
+    session.add(registration_request)
     await session.commit()
+    await session.refresh(registration_request)
 
     app = _build_app(session)
     async with AsyncClient(
@@ -478,7 +500,13 @@ async def test_class_members_page_includes_pending_student_picker(session: Async
     assert page_response.status_code == 200
     assert "data-student-autocomplete" in page_response.text
     assert "data-student-pending-list" in page_response.text
+    assert "data-student-add-button" in page_response.text
     assert "Add students" in page_response.text
+    assert 'id="approve-request-modal"' in page_response.text
+    assert "data-approve-request-form" in page_response.text
+    assert "data-approve-request-button" in page_response.text
+    assert f"/classes/registration-requests/{registration_request.id}/approve" in page_response.text
+    assert "Pending Student" in page_response.text
     assert f"/user/{member.id}/avatar" in page_response.text
     assert 'width="32"' in page_response.text
     assert 'height="32"' in page_response.text
@@ -613,6 +641,10 @@ async def test_problem_set_list_page_renders_rows(session: AsyncSession) -> None
     assert "Week 1" in response.text
     assert "Intro list" in response.text
     assert "Add new problem set" in response.text
+    assert "arena-problem-sets-page" in response.text
+    assert "arena-problem-sets-table" in response.text
+    assert 'id="problem-set-create-modal"' in response.text
+    assert 'aria-sort="descending"' in response.text
     start_match = re.search(
         r'id="problem_set_starts_on"[^>]*value="([^"]+)"',
         response.text,
@@ -663,6 +695,9 @@ async def test_problem_set_manage_and_report_pages_render(session: AsyncSession)
     ) as client:
         manage_response = await client.get(f"/classes/{arena_class.id}/problem-sets/{problem_set.id}/problems")
         report_response = await client.get(f"/classes/{arena_class.id}/problem-sets/{problem_set.id}/report")
+        student_report_response = await client.get(
+            f"/classes/{arena_class.id}/problem-sets/{problem_set.id}/report/student/{student.id}"
+        )
         autocomplete_response = await client.get(
             f"/classes/{arena_class.id}/problem-sets/{problem_set.id}/problems/autocomplete?q=Binary"
         )
@@ -681,9 +716,14 @@ async def test_problem_set_manage_and_report_pages_render(session: AsyncSession)
     assert report_response.status_code == 200
     assert "Problem Set Report" in report_response.text
     assert "Student" in report_response.text
+    assert "0.0%" in report_response.text
+    assert "100% AC" in report_response.text
     assert f"/user/{student.id}/avatar" in report_response.text
     assert 'width="32"' in report_response.text
     assert 'height="32"' in report_response.text
+    assert student_report_response.status_code == 200
+    assert "Submission history" in student_report_response.text
+    assert "No submissions in this problem set" in student_report_response.text
     assert autocomplete_response.status_code == 200
     assert autocomplete_response.json()["problems"] == []
 
@@ -1355,3 +1395,262 @@ async def test_direct_add_deduplicates_student_ids(session: AsyncSession) -> Non
         .all()
     )
     assert notifs.count(ArenaNotificationKind.CLASS_MEMBERSHIP_ADDED.value) == 1
+
+
+async def _create_language(session: AsyncSession) -> Language:
+    """Create a minimal active language so submissions can be inserted."""
+    language = Language(
+        id=f"arena-test-{uuid.uuid4().hex[:8]}",
+        name="Arena Test Language",
+        icon="test",
+        compile_image="noca/test:compile",
+        run_image="noca/test:run",
+        compile_cmd=["true"],
+        run_cmd=["true"],
+        source_filename="main.txt",
+        artifact_path="/sandbox/main.txt",
+        artifact_is_source=True,
+        compile_timeout_s=10.0,
+        active=True,
+    )
+    session.add(language)
+    await session.flush()
+    return language
+
+
+async def _closed_set(
+    session: AsyncSession,
+    judge: ArenaUser,
+    class_id: str,
+    *,
+    name: str,
+    days_ago: int,
+    problems: list[ArenaProblem],
+) -> ArenaProblemSet:
+    """Create a problem set whose deadline has already passed."""
+    problem_set = ArenaProblemSet(
+        class_id=class_id,
+        name=name,
+        deadline=datetime.now(UTC) - timedelta(days=days_ago),
+    )
+    session.add(problem_set)
+    await session.flush()
+    await arena_problem_set_service.add_problems_to_set(
+        session,
+        actor_id=judge.id,
+        actor_role=judge.role,
+        set_id=problem_set.id,
+        refs=[problem.id for problem in problems],
+    )
+    return problem_set
+
+
+@pytest.mark.asyncio
+async def test_class_full_report_page_renders(session: AsyncSession) -> None:
+    judge = await _create_user(session, name="Judge", email="judge-full@test.example", role=ArenaRole.ARENA_JUDGE)
+    student = await _create_user(
+        session, name="Ana Fonseca", email="student-full@test.example", role=ArenaRole.ARENA_USER
+    )
+    arena_class = await create_class(
+        session,
+        actor_id=judge.id,
+        actor_role=judge.role,
+        name="Class Full",
+        starts_on=TODAY - timedelta(days=40),
+        finishes_on=TODAY + timedelta(days=10),
+    )
+    await _enroll(session, arena_class.id, student.id)
+    first = await _create_problem(session, judge, title="Alpha")
+    second = await _create_problem(session, judge, title="Beta")
+    recent = await _closed_set(session, judge, arena_class.id, name="Tarefas", days_ago=1, problems=[first, second])
+    await _closed_set(session, judge, arena_class.id, name="Lista 1", days_ago=10, problems=[first])
+    session.add(
+        ArenaSubmission(
+            id=str(uuid.uuid4()),
+            user_id=student.id,
+            problem_id=first.id,
+            language_id=(await _create_language(session)).id,
+            source_code="x",
+            source_hash="0" * 64,
+            source_size_bytes=1,
+            problem_set_id=recent.id,
+        )
+    )
+    await session.flush()
+    submission_id = (
+        await session.execute(select(ArenaSubmission.id).where(ArenaSubmission.problem_set_id == recent.id))
+    ).scalar_one()
+    session.add(
+        ArenaSubmissionJudgment(
+            id=str(uuid.uuid4()),
+            submission_id=submission_id,
+            status="DONE",
+            final_verdict=Verdict.AC.value,
+        )
+    )
+    await session.commit()
+
+    app = _build_app(session)
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _token(app, judge)},
+    ) as client:
+        response = await client.get(f"/classes/{arena_class.id}/problem-sets/report")
+        csv_response = await client.get(f"/classes/{arena_class.id}/problem-sets/report/csv")
+
+    assert response.status_code == 200
+    assert "arena-class-full-report-page" in response.text
+    assert "arena-class-full-report-table" in response.text
+    # Legend, numbered in deadline-descending order.
+    assert "[1]" in response.text
+    assert "[2]" in response.text
+    assert "Tarefas" in response.text
+    assert "Lista 1" in response.text
+    # 1 of 2 on the newest set, 0 of 1 on the older one, 1 of 3 overall.
+    assert "50.0%" in response.text
+    assert "0.0%" in response.text
+    assert "33.3%" in response.text
+    assert "1/2" in response.text
+    assert "problems accepted" in response.text
+    assert "Ana Fonseca" in response.text
+    assert f"/profile/{student.id}" not in response.text
+    # One histogram per set, with the bin counts inlined rather than fetched.
+    assert response.text.count("data-ac-rate-histogram") == 2
+    assert "arena-ac-rate-histogram.js" in response.text
+    assert "echarts.min.js" in response.text
+
+    assert csv_response.status_code == 200
+    assert csv_response.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=" in csv_response.headers["content-disposition"]
+    csv_body = csv_response.text.lstrip("﻿")
+    assert csv_body.splitlines()[0] == "Student,[1] Tarefas,[2] Lista 1,Total"
+    assert "Ana Fonseca,50.0,0.0,33.3" in csv_body
+
+
+@pytest.mark.asyncio
+async def test_class_full_report_without_closed_sets_shows_empty_state(session: AsyncSession) -> None:
+    judge = await _create_user(session, name="Judge", email="judge-empty@test.example", role=ArenaRole.ARENA_JUDGE)
+    arena_class = await create_class(
+        session,
+        actor_id=judge.id,
+        actor_role=judge.role,
+        name="Class Empty",
+        starts_on=TODAY,
+        finishes_on=TODAY + timedelta(days=10),
+    )
+    await session.commit()
+
+    app = _build_app(session)
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _token(app, judge)},
+    ) as client:
+        response = await client.get(f"/classes/{arena_class.id}/problem-sets/report")
+
+    assert response.status_code == 200
+    assert "No closed problem sets yet" in response.text
+    assert "Download CSV" not in response.text
+    # No charts on the page means no reason to ship the charting library.
+    assert "echarts.min.js" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_class_full_report_rejects_other_users(session: AsyncSession) -> None:
+    judge = await _create_user(session, name="Judge", email="judge-deny@test.example", role=ArenaRole.ARENA_JUDGE)
+    other = await _create_user(session, name="Other", email="other-deny@test.example", role=ArenaRole.ARENA_JUDGE)
+    student = await _create_user(session, name="Pupil", email="pupil-deny@test.example", role=ArenaRole.ARENA_USER)
+    arena_class = await create_class(
+        session,
+        actor_id=judge.id,
+        actor_role=judge.role,
+        name="Class Deny",
+        starts_on=TODAY,
+        finishes_on=TODAY + timedelta(days=10),
+    )
+    await _enroll(session, arena_class.id, student.id)
+    await session.commit()
+
+    app = _build_app(session)
+    for actor in (other, student):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://testserver",
+            cookies={"arena_access_token": _token(app, actor)},
+        ) as client:
+            page = await client.get(f"/classes/{arena_class.id}/problem-sets/report")
+            download = await client.get(f"/classes/{arena_class.id}/problem-sets/report/csv")
+        assert page.status_code == 403
+        assert download.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_class_full_report_csv_neutralizes_formula_names(session: AsyncSession) -> None:
+    """A student name starting with '=' must not reach a spreadsheet as a formula."""
+    judge = await _create_user(session, name="Judge", email="judge-csv@test.example", role=ArenaRole.ARENA_JUDGE)
+    student = await _create_user(
+        session, name="=1+1+cmd|' /C calc'!A0", email="student-csv@test.example", role=ArenaRole.ARENA_USER
+    )
+    arena_class = await create_class(
+        session,
+        actor_id=judge.id,
+        actor_role=judge.role,
+        name="Class CSV",
+        starts_on=TODAY - timedelta(days=40),
+        finishes_on=TODAY + timedelta(days=10),
+    )
+    await _enroll(session, arena_class.id, student.id)
+    problem = await _create_problem(session, judge, title="Alpha")
+    await _closed_set(session, judge, arena_class.id, name="@SUM(1)", days_ago=1, problems=[problem])
+    await session.commit()
+
+    app = _build_app(session)
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _token(app, judge)},
+    ) as client:
+        csv_response = await client.get(f"/classes/{arena_class.id}/problem-sets/report/csv")
+
+    body = csv_response.text.lstrip("﻿")
+    for line in body.splitlines():
+        for field in line.split(","):
+            unquoted = field.strip('"')
+            assert not unquoted.startswith(("=", "+", "@")), field
+    assert "'=1+1+cmd" in body
+
+
+@pytest.mark.asyncio
+async def test_problem_set_list_full_report_link_keeps_list_context(session: AsyncSession) -> None:
+    judge = await _create_user(session, name="Judge", email="judge-ctx@test.example", role=ArenaRole.ARENA_JUDGE)
+    arena_class = await create_class(
+        session,
+        actor_id=judge.id,
+        actor_role=judge.role,
+        name="Class Ctx",
+        starts_on=TODAY,
+        finishes_on=TODAY + timedelta(days=10),
+    )
+    await session.commit()
+
+    app = _build_app(session)
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _token(app, judge)},
+    ) as client:
+        listing = await client.get(f"/classes/{arena_class.id}/problem-sets?sort=name&direction=asc")
+        report = await client.get(f"/classes/{arena_class.id}/problem-sets/report?page=1&sort=name&direction=asc")
+
+    assert listing.status_code == 200
+    link = re.search(r'href="([^"]*problem-sets/report[^"]*)"', listing.text)
+    assert link is not None
+    assert "sort=name" in link.group(1)
+    assert "direction=asc" in link.group(1)
+    # And the report hands that context back on its own return link.
+    assert report.status_code == 200
+    back = re.search(r'href="([^"]*problem-sets\?[^"]*)"', report.text)
+    assert back is not None
+    assert "sort=name" in back.group(1)
+    assert "direction=asc" in back.group(1)

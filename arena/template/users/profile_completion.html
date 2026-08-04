@@ -1,33 +1,50 @@
-{#
-  NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
-  This program is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-#}
+{#  NOCA -- Next Online Contest Administrator
+    Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. #}
 {% extends "_auth_base.html" %}
+{% from "_macros.html" import render_icon %}
 {% block title_suffix %}&mdash; Complete Your Profile{% endblock %}
 {% block auth_content %}
-    <div class="container">
-        <div class="row justify-content-center">
-            <div class="col-12 col-md-6 col-lg-5 col-xl-4">
-                <div class="text-center mb-4 pt-4">
-                    <h1 class="arena-auth-logo">{{ brand_name }}</h1>
-                    <p class="arena-auth-tagline">Competitive Judge</p>
+    <div class="container arena-auth-flow-page my-auto">
+        <div class="arena-auth-flow-shell">
+            <aside class="arena-auth-flow-welcome">
+                <div class="arena-auth-flow-welcome-copy">
+                    <p class="arena-auth-flow-welcome-title">Make Arena yours.</p>
+                    <p class="arena-auth-flow-welcome-text">
+                        A few details help us tailor your experience and keep your
+                        progress on track.
+                    </p>
                 </div>
-                <div class="arena-auth-card">
-                    <h2 class="arena-auth-title">Complete Your Profile</h2>
-                    <p class="arena-auth-subtitle">Add the following information to get the most from {{ brand_name }}:</p>
-                    <ul class="mb-4">
-                        {% for field in missing_fields %}<li>{{ field }}</li>{% endfor %}
-                    </ul>
-                    <a href="{{ request.url_for("arena_user_profile") }}?tab=personal-security"
-                       class="btn arena-btn-primary w-100">Complete profile</a>
+                <img class="arena-auth-flow-mascot"
+                     src="{{ request.url_for('arena_static_img', path='welcome.png') }}"
+                     alt="">
+            </aside>
+            <main class="arena-auth-card arena-auth-flow-card">
+                <div class="arena-auth-flow-heading">
+                    <div class="arena-auth-flow-title-row">
+                        {{ render_icon(icon="manage_accounts") }}
+                        <h1 class="arena-auth-title mb-0">Complete Your Profile</h1>
+                    </div>
+                    <p class="arena-auth-subtitle">
+                        Add the following information to get the most from
+                        {{ brand_name }}.
+                    </p>
                 </div>
-                <div class="text-center mt-4">
-                    <span class="arena-auth-section-label">ARENA</span>
-                </div>
-            </div>
+                <ul class="arena-profile-completion-list">
+                    {% for field in missing_fields %}<li>{{ field }}</li>{% endfor %}
+                </ul>
+                <a href="{{ request.url_for("arena_user_profile") }}?tab=personal-security"
+                   class="btn arena-btn-primary arena-auth-flow-submit w-100">
+                    Complete profile
+                    {{ render_icon(icon="arrow_forward", classes="arena-auth-flow-submit-icon") }}
+                </a>
+                <p class="arena-auth-flow-footer">
+                    <a href="{{ request.url_for("arena_dashboard") }}"
+                       class="arena-auth-link">Not now, thanks</a>
+                </p>
+            </main>
         </div>
     </div>
 {% endblock %}

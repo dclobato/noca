@@ -27,7 +27,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.models.arena_classes import ArenaClass
@@ -40,6 +40,7 @@ from shared.db_schema.arena import (
     arena_submissions,
 )
 from shared.enumerations import ArenaRole, Verdict
+from shared.services.arena_query_helpers import active_arena_judgment_subquery
 
 
 class ArenaProblemSetServiceError(Exception):
@@ -517,26 +518,74 @@ async def remove_problems_from_set(
     return len(present)
 
 
-async def _set_tied_verdicts(session: AsyncSession, set_id: str) -> dict[tuple[str, str], list[str | None]]:
-    """Map ``(user_id, problem_id)`` to the verdicts of their set-tied submissions."""
+async def set_tied_verdicts_for_sets(
+    session: AsyncSession,
+    set_ids: Sequence[str],
+) -> dict[tuple[str, str, str], list[str | None]]:
+    """Map ``(set_id, user_id, problem_id)`` to that pair's set-tied verdicts.
+
+    This is the single source of truth for "what did this student get on this
+    problem of this set", batched over any number of sets so a class-wide report
+    does not issue one query per set.
+
+    Two rules make the result trustworthy. Each submission contributes exactly
+    one verdict, the one from its active (most recent non-superseded) judgment,
+    so a re-judged submission is counted once and with its current verdict.
+    And submissions are joined to ``arena_problem_set_problems``, so a problem
+    later removed from the set drops out instead of lingering as a result for a
+    problem the set no longer contains.
+
+    Args:
+        session: Active database session.
+        set_ids: The problem sets to aggregate; an empty sequence returns ``{}``.
+
+    Returns:
+        dict: Verdict lists keyed by ``(set_id, user_id, problem_id)``. A key is
+        absent when the student has no set-tied submission for that problem; a
+        ``None`` entry is a submission still awaiting judgment.
+    """
+    if not set_ids:
+        return {}
+    active_j = active_arena_judgment_subquery()
     rows = await session.execute(
         select(
+            arena_submissions.c.problem_set_id,
             arena_submissions.c.user_id,
             arena_submissions.c.problem_id,
             arena_submission_judgments.c.final_verdict,
         )
         .select_from(
-            arena_submissions.outerjoin(
+            arena_submissions.join(
+                arena_problem_set_problems,
+                and_(
+                    arena_problem_set_problems.c.problem_set_id == arena_submissions.c.problem_set_id,
+                    arena_problem_set_problems.c.problem_id == arena_submissions.c.problem_id,
+                ),
+            )
+            .outerjoin(
+                active_j,
+                active_j.c.submission_id == arena_submissions.c.id,
+            )
+            .outerjoin(
                 arena_submission_judgments,
-                arena_submission_judgments.c.submission_id == arena_submissions.c.id,
+                and_(
+                    arena_submission_judgments.c.submission_id == arena_submissions.c.id,
+                    arena_submission_judgments.c.created_at == active_j.c.max_created_at,
+                ),
             )
         )
-        .where(arena_submissions.c.problem_set_id == set_id)
+        .where(arena_submissions.c.problem_set_id.in_(set_ids))
     )
-    grouped: dict[tuple[str, str], list[str | None]] = {}
+    grouped: dict[tuple[str, str, str], list[str | None]] = {}
     for r in rows:
-        grouped.setdefault((r.user_id, r.problem_id), []).append(r.final_verdict)
+        grouped.setdefault((r.problem_set_id, r.user_id, r.problem_id), []).append(r.final_verdict)
     return grouped
+
+
+async def _set_tied_verdicts(session: AsyncSession, set_id: str) -> dict[tuple[str, str], list[str | None]]:
+    """Map ``(user_id, problem_id)`` to the verdicts of one set's submissions."""
+    grouped = await set_tied_verdicts_for_sets(session, [set_id])
+    return {(user_id, problem_id): verdicts for (_, user_id, problem_id), verdicts in grouped.items()}
 
 
 def _needs_feedback(verdicts: Iterable[str | None]) -> bool:

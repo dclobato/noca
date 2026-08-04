@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -15,17 +15,17 @@
           href="{{ request.url_for('static_vendor', path='highlight/styles/github.min.css') }}">
 {% endblock %}
 {% block content %}
-    <div class="arena-page-container px-5">
-        {# ── Breadcrumb / teacher back button ── #}
+    <div class="arena-page-container arena-submission-detail">
+        {# ── Breadcrumb / report back button ── #}
         {% if is_teacher_view %}
-            <div class="mb-3">
+            <div class="arena-submission-back-link">
                 <a href="{{ teacher_view_back_url }}" class="btn btn-secondary btn-sm">
                     {{ render_icon(icon="arrow_back") }}
                     Return to {{ teacher_view_user_name }}'s submissions
                 </a>
             </div>
         {% else %}
-            <nav aria-label="breadcrumb" class="mb-3">
+            <nav aria-label="breadcrumb" class="arena-submission-breadcrumb">
                 <ol class="breadcrumb mb-0">
                     <li class="breadcrumb-item">
                         <a href="{{ request.url_for("arena_user_profile") }}?tab=submissions">My Submissions</a>
@@ -34,138 +34,37 @@
                 </ol>
             </nav>
         {% endif %}
-        {# ── Card 1: Problem & Language ── #}
-        <section class="arena-card mb-4">
-            <h1 class="arena-card-title">
-                {{ render_icon(icon="send") }}
-                Submission Detail
+        {# ── Submission context ── #}
+        <header class="arena-submission-heading">
+            <h1>
+                <a href="{{ request.url_for('arena_problem_detail', arena_number=problem_number) }}">
+                    {{ problem_number }}: {{ problem_title }}
+                </a>
             </h1>
-            <div class="row">
-                <div class="col me-4">
-                    <dl class="arena-profile-details">
-                        <dt>Problem</dt>
-                        <dd>
-                            <a href="{{ request.url_for('arena_problem_detail', arena_number=problem_number) }}"
-                               class="fw-semibold">{{ problem_number }}: {{ problem_title }}</a>
-                        </dd>
-                        <dt>Language</dt>
-                        <dd>
-                            <span class="d-flex align-items-center gap-2">
-                                <i class="{{ language_icon }} arena-submission-lang-icon"
-                                   aria-hidden="true"></i>
-                                {{ language_name }}
-                            </span>
-                        </dd>
-                        <dt>Submitted</dt>
-                        <dd>
-                            {{ arena_format_datetime(submitted_at, current_user, "%Y-%m-%d %H:%M:%S %Z") }}
-                        </dd>
-                        <dt>User</dt>
-                        <dd>
-                            {% if is_admin %}
-                                <a href="{{ request.url_for('arena_admin_user_profile', user_id=submission_owner_id) }}">{{ submission_owner_name }}</a>
-                            {% else %}
-                                {{ submission_owner_name }}
-                            {% endif %}
-                        </dd>
-                        {% if problem_set_id %}
-                            <dt>Problem set</dt>
-                            <dd>
-                                <a href="{{ request.url_for('arena_class_detail', class_id=class_id) }}">{{ class_name }}</a>
-                                &rsaquo;
-                                <a href="{{ request.url_for('arena_student_class_problem_set_detail', class_id=class_id, set_id=problem_set_id) }}">{{ problem_set_name }}</a>
-                            </dd>
-                        {% endif %}
-                    </dl>
-                </div>
-                <div class="col">
-                    <dl class="arena-profile-details">
-                        <dt>Limits</dt>
-                        <dd>
-                            <table class="table table-sm table-borderless mb-0" style="max-width: 28rem">
-                                <tbody>
-                                    <tr>
-                                        <th class="ps-0 text-muted fw-normal small">Time limit</th>
-                                        <td class="text-end small">{{ time_limit_ms }} ms</td>
-                                    </tr>
-                                    <tr>
-                                        <th class="ps-0 text-muted fw-normal small">Memory limit</th>
-                                        <td class="text-end small">{{ memory_limit_kb }} KB</td>
-                                    </tr>
-                                    <tr>
-                                        <th class="ps-0 text-muted fw-normal small">PIDs limit</th>
-                                        <td class="text-end small">{{ pids_limit }}</td>
-                                    </tr>
-                                    <tr>
-                                        <th class="ps-0 text-muted fw-normal small">Output limit</th>
-                                        <td class="text-end small">
-                                            {% if output_limit_in_bytes %}
-                                                {{ output_limit_in_bytes }} bytes
-                                            {% else %}
-                                                No limit
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </dd>
-                    </dl>
-                    {% if is_admin %}
-                        <div class="mt-2">
-                            <button type="button"
-                                    class="btn btn-outline-danger btn-sm d-inline-flex align-items-center gap-1"
-                                    data-bs-toggle="modal"
-                                    data-bs-target="#force-rejudge-modal">
-                                {{ render_icon(icon="restart_alt") }}
-                                Force rejudgment
-                            </button>
-                        </div>
-                    {% endif %}
-                </div>
-            </div>
-        </section>
-        {# ── Force rejudgment modal (Arena admin only) ── #}
-        {% if is_admin %}
-            <div class="modal fade"
-                 id="force-rejudge-modal"
-                 tabindex="-1"
-                 aria-labelledby="force-rejudge-modal-label"
-                 aria-hidden="true">
-                <div class="modal-dialog modal-dialog-centered">
-                    <form method="post"
-                          class="modal-content"
-                          action="{{ request.url_for('arena_submission_force_rejudge', submission_id=submission_id) }}">
-                        <div class="modal-header">
-                            <h2 class="modal-title fs-5" id="force-rejudge-modal-label">Force rejudgment</h2>
-                            <button type="button"
-                                    class="btn-close"
-                                    data-bs-dismiss="modal"
-                                    aria-label="Close"></button>
-                        </div>
-                        <div class="modal-body">
-                            <p class="mb-0">
-                                Force a fresh judgment for this submission? The current verdict will be
-                                superseded and the submission re-queued for judging.
-                            </p>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button"
-                                    class="btn btn-secondary btn-sm"
-                                    data-bs-dismiss="modal">Cancel</button>
-                            <button type="submit" class="btn btn-danger btn-sm">Force rejudgment</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        {% endif %}
-        {# ── Card 2: Resources & Verdict ── #}
-        <section class="arena-card mb-4">
+            <p class="arena-submission-heading-meta">
+                <span class="arena-submission-heading-item">
+                    <i class="{{ language_icon }} arena-submission-lang-icon"
+                       aria-hidden="true"></i>
+                    <span>{{ language_name }}</span>
+                </span>
+                <span class="arena-submission-heading-separator" aria-hidden="true">&middot;</span>
+                <span class="arena-submission-heading-item">
+                    <span>Submitted {{ arena_format_datetime(submitted_at, current_user, "%Y-%m-%d %H:%M:%S %Z") }}</span>
+                </span>
+                <span class="arena-submission-heading-separator" aria-hidden="true">&middot;</span>
+                <span class="arena-submission-heading-item">Submission {{ submission_id[:8] }}&hellip;</span>
+            </p>
+        </header>
+        {# ── Card 1: Result ── #}
+        <section class="arena-card arena-submission-result mb-4">
             <h2 class="arena-card-title">
                 {{ render_icon(icon="analytics") }}
                 Result
                 {% if is_owner and judgment and judgment[2] and judgment[2] != "AC" %}
-                    <a href="{{ request.url_for('arena_problem_detail', arena_number=problem_number) }}?continue={{ submission_id }}"
-                       class="btn btn-outline-secondary arena-icon-button btn-sm ms-auto">
+                    <a id="retry-btn"
+                       href="{{ request.url_for('arena_problem_detail', arena_number=problem_number) }}?continue={{ submission_id }}"
+                       class="btn btn-outline-secondary arena-icon-button btn-sm ms-auto"
+                       data-problem-number="{{ problem_number }}">
                         {{ render_icon(icon="edit") }}
                         <span>Edit and try again</span>
                     </a>
@@ -179,53 +78,70 @@
                 {% set j_compile_log = judgment[5] %}
                 {% set j_error_msg = judgment[6] %}
                 {% set j_output_bytes = judgment[7] %}
-                <dl class="arena-profile-details">
-                    <dt>Verdict</dt>
-                    <dd>
+                <div class="arena-submission-verdict-summary{% if not j_verdict %} is-pending{% elif j_verdict == 'AC' %} is-accepted{% elif j_verdict in ('WA', 'PE') %} is-rejected{% elif j_verdict in ('TLE', 'MLE', 'OLE', 'RE') %} is-warning{% else %} is-neutral{% endif %}">
+                    <div class="arena-submission-verdict-code">
                         {% if j_verdict %}
-                            <span class="badge {{ verdict_badge_classes.get(j_verdict, 'bg-secondary') }} font-monospace me-2">{{ j_verdict }}</span>
-                            <span class="text-muted small">{{ verdict_labels.get(j_verdict, j_verdict) }}</span>
+                            <span class="badge {{ verdict_badge_classes.get(j_verdict, 'bg-secondary') }} font-monospace">{{ j_verdict }}</span>
                         {% else %}
-                            <span class="badge bg-secondary font-monospace me-2">{{ j_status }}</span>
-                            <span class="text-muted small">Pending judgment</span>
+                            {{ render_icon(icon="schedule") }}
                         {% endif %}
-                    </dd>
-                    <dt>Wall time</dt>
-                    <dd>
-                        {% if j_wall_ms is not none %}
-                            {{ j_wall_ms }} ms
-                        {% else %}
-                            <span class="text-muted">&mdash;</span>
-                        {% endif %}
-                    </dd>
-                    <dt>Peak memory</dt>
-                    <dd>
-                        {% if j_mem_kb is not none %}
-                            {{ j_mem_kb }} KB
-                        {% else %}
-                            <span class="text-muted">&mdash;</span>
-                        {% endif %}
-                    </dd>
-                    <dt>Max output size</dt>
-                    <dd>
-                        {% if j_output_bytes is not none %}
-                            {{ j_output_bytes }} bytes
-                        {% else %}
-                            <span class="text-muted">&mdash;</span>
-                        {% endif %}
-                    </dd>
-                </dl>
+                    </div>
+                    <div>
+                        <h3 class="arena-submission-verdict-label">
+                            {% if j_verdict %}
+                                {{ verdict_labels.get(j_verdict, j_verdict) }}
+                            {% else %}
+                                {{ "Judgment failed" if j_status == "FAILED" else "Pending judgment" }}
+                            {% endif %}
+                        </h3>
+                        {% if not j_verdict %}<p class="arena-submission-verdict-status">Current status: {{ j_status }}</p>{% endif %}
+                    </div>
+                </div>
+                <div class="arena-submission-metrics"
+                     role="group"
+                     aria-label="Judgment resources">
+                    <div class="arena-submission-metric">
+                        <span>Wall time</span>
+                        <strong>
+                            {% if j_wall_ms is not none %}
+                                {{ j_wall_ms }} ms
+                            {% else %}
+                                &mdash;
+                            {% endif %}
+                        </strong>
+                    </div>
+                    <div class="arena-submission-metric">
+                        <span>Peak memory</span>
+                        <strong>
+                            {% if j_mem_kb is not none %}
+                                {{ j_mem_kb }} KB
+                            {% else %}
+                                &mdash;
+                            {% endif %}
+                        </strong>
+                    </div>
+                    <div class="arena-submission-metric">
+                        <span>Max output size</span>
+                        <strong>
+                            {% if j_output_bytes is not none %}
+                                {{ j_output_bytes }} bytes
+                            {% else %}
+                                &mdash;
+                            {% endif %}
+                        </strong>
+                    </div>
+                </div>
                 {% if j_error_msg %}
                     <div class="alert alert-warning small mb-3">
                         <strong>Judge note:</strong> {{ j_error_msg | e }}
                     </div>
                 {% endif %}
                 {# ── Output comparison (WA verdict, first failing test case) ─ #}
-                {% with test_result_verdict=j_verdict %}
+                {% with test_result_verdict=j_verdict, test_result_context_classes="arena-submission-subsection" %}
                     {% include "_partials/_submission_test_result_context.html" %}
                 {% endwith %}
                 {% if interactive_attempts %}
-                    <div class="mt-3 pt-3 border-top">
+                    <div class="arena-submission-subsection">
                         <h3 class="h6">Interactive validator diagnostics</h3>
                         {% for attempt in interactive_attempts %}
                             {% include "_partials/interactive_transcript.html" %}
@@ -237,7 +153,7 @@
                 {% set can_see_ai_review = j_verdict and j_verdict != "AC" %}
                 {% if can_see_ai_review %}
                     {% if ai_review %}
-                        <div class="mt-3 pt-3 border-top">
+                        <div class="arena-submission-subsection">
                             <h3 class="h6 d-flex align-items-center gap-1 mb-2">
                                 {{ render_icon(icon="psychology_alt") }}
                                 AI Review
@@ -269,17 +185,17 @@
                         </div>
                     {% elif is_owner %}
                         {% if batch_local_status and batch_local_status not in ("completed", "failed", "expired", "cancelled") %}
-                            <p class="text-muted small mt-3 mb-0 d-flex align-items-center gap-1">
+                            <p class="arena-submission-inline-status">
                                 {{ render_icon(icon="schedule") }}
                                 Your review has been queued for batch processing — results are usually ready within a few hours (up to 24 h).
                             </p>
                         {% elif submission_submit_to_ai %}
-                            <p class="text-muted small mt-3 mb-0 d-flex align-items-center gap-1">
+                            <p class="arena-submission-inline-status">
                                 {{ render_icon(icon="hourglass_empty") }}
                                 AI review pending — you'll be notified when it's ready.
                             </p>
                         {% else %}
-                            <div class="mt-3">
+                            <div class="arena-submission-subsection arena-submission-ai-request">
                                 <button type="button"
                                         class="btn btn-outline-primary btn-sm d-inline-flex align-items-center gap-1"
                                         data-bs-toggle="modal"
@@ -368,7 +284,7 @@
                 {% endif %}
                 {# ── Teacher feedback section (student owner + managing teacher/admin) ── #}
                 {% if teacher_feedback or can_give_feedback %}
-                    <div class="mt-3 pt-3 border-top">
+                    <div class="arena-submission-subsection">
                         <h3 class="h6 d-flex align-items-center gap-1 mb-2">
                             {{ render_icon(icon="rate_review") }}
                             Teacher feedback
@@ -402,31 +318,132 @@
                     </div>
                 {% endif %}
                 {% if j_compile_log %}
-                    <div class="mt-2">
+                    <div class="arena-submission-subsection arena-submission-compile-log">
                         <p class="fw-semibold small text-danger mb-1">Compile log</p>
                         <pre class="small text-danger-emphasis bg-body-tertiary p-3 rounded mb-0">{{ j_compile_log | e }}</pre>
                     </div>
                 {% endif %}
             {% else %}
-                <p class="text-muted small mb-0">No judgment available yet.</p>
+                <div class="arena-submission-empty-state">
+                    {{ render_icon(icon="schedule") }}
+                    <p>No judgment available yet.</p>
+                </div>
             {% endif %}
         </section>
+        {# ── Card 2: Submission details ── #}
+        <section class="arena-card arena-submission-details mb-4">
+            <h2 class="arena-card-title">
+                {{ render_icon(icon="info") }}
+                Submission details
+            </h2>
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <dl class="arena-profile-details">
+                        <dt>User</dt>
+                        <dd>
+                            {% if is_admin %}
+                                <a href="{{ request.url_for('arena_admin_user_profile', user_id=submission_owner_id) }}">{{ submission_owner_name }}</a>
+                            {% else %}
+                                {{ submission_owner_name }}
+                            {% endif %}
+                        </dd>
+                        {% if problem_set_id %}
+                            <dt>Problem set</dt>
+                            <dd>
+                                <a href="{{ request.url_for('arena_class_detail', class_id=class_id) }}">{{ class_name }}</a>
+                                &rsaquo;
+                                <a href="{{ request.url_for('arena_student_class_problem_set_detail', class_id=class_id, set_id=problem_set_id) }}">{{ problem_set_name }}</a>
+                            </dd>
+                        {% endif %}
+                    </dl>
+                </div>
+                <div class="col-lg-6">
+                    <dl class="arena-profile-details">
+                        <dt>Limits</dt>
+                        <dd>
+                            <table class="table table-sm table-borderless mb-0 arena-submission-limits">
+                                <tbody>
+                                    <tr>
+                                        <th class="ps-0 text-muted fw-normal small">Time limit</th>
+                                        <td class="text-end small">{{ time_limit_ms }} ms</td>
+                                    </tr>
+                                    <tr>
+                                        <th class="ps-0 text-muted fw-normal small">Memory limit</th>
+                                        <td class="text-end small">{{ memory_limit_kb }} KB</td>
+                                    </tr>
+                                    <tr>
+                                        <th class="ps-0 text-muted fw-normal small">PIDs limit</th>
+                                        <td class="text-end small">{{ pids_limit }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th class="ps-0 text-muted fw-normal small">Output limit</th>
+                                        <td class="text-end small">
+                                            {% if output_limit_in_bytes %}
+                                                {{ output_limit_in_bytes }} bytes
+                                            {% else %}
+                                                No limit
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </dd>
+                    </dl>
+                    {% if is_admin %}
+                        <div class="arena-submission-admin-actions">
+                            <button type="button"
+                                    class="btn btn-outline-danger btn-sm d-inline-flex align-items-center gap-1"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#force-rejudge-modal">
+                                {{ render_icon(icon="restart_alt") }}
+                                Force rejudgment
+                            </button>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+        {# ── Force rejudgment modal (Arena admin only) ── #}
+        {% if is_admin %}
+            <div class="modal fade"
+                 id="force-rejudge-modal"
+                 tabindex="-1"
+                 aria-labelledby="force-rejudge-modal-label"
+                 aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <form method="post"
+                          class="modal-content"
+                          action="{{ request.url_for('arena_submission_force_rejudge', submission_id=submission_id) }}">
+                        <div class="modal-header">
+                            <h2 class="modal-title fs-5" id="force-rejudge-modal-label">Force rejudgment</h2>
+                            <button type="button"
+                                    class="btn-close"
+                                    data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="mb-0">
+                                Force a fresh judgment for this submission? The current verdict will be
+                                superseded and the submission re-queued for judging.
+                            </p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button"
+                                    class="btn btn-secondary btn-sm"
+                                    data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-danger btn-sm">Force rejudgment</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
         {# ── Card 3: Source Code ── #}
-        <section class="arena-card mb-4">
+        <section class="arena-card arena-submission-source mb-4">
             <h2 class="arena-card-title">
                 {{ render_icon(icon="code") }}
                 Source Code
-                {% if is_owner and judgment and judgment[2] and judgment[2] != "AC" %}
-                    <a id="retry-btn"
-                       href="{{ request.url_for('arena_problem_detail', arena_number=problem_number) }}?continue={{ submission_id }}"
-                       class="btn btn-outline-secondary arena-icon-button btn-sm ms-auto"
-                       data-problem-number="{{ problem_number }}">
-                        {{ render_icon(icon="edit") }}
-                        <span>Edit and try again</span>
-                    </a>
-                {% endif %}
             </h2>
-            <pre class="mb-0 arena-source-code-pre"><code class="{{ highlight_language_class }} rounded" data-highlight-line-numbers>{{ source_code | e }}</code></pre>
+            <pre class="mb-0 arena-source-code-pre" aria-label="Submitted source code"><code class="{{ highlight_language_class }} rounded" data-highlight-line-numbers>{{ source_code | e }}</code></pre>
         </section>
         {# ── Teacher feedback modal (managing teacher/admin only) ── #}
         {% if can_give_feedback %}
@@ -452,6 +469,7 @@
                             <input type="hidden" name="back_class_id" value="{{ back_class_id or '' }}">
                             <input type="hidden" name="back_set_id" value="{{ back_set_id or '' }}">
                             <input type="hidden" name="back_user_id" value="{{ back_user_id or '' }}">
+                            <input type="hidden" name="back_context" value="{{ back_context or '' }}">
                             <div class="mb-3">
                                 <label class="form-label" for="teacher-feedback-text">Feedback for the student</label>
                                 <textarea class="form-control"
@@ -493,6 +511,7 @@
                             <input type="hidden" name="back_class_id" value="{{ back_class_id or '' }}">
                             <input type="hidden" name="back_set_id" value="{{ back_set_id or '' }}">
                             <input type="hidden" name="back_user_id" value="{{ back_user_id or '' }}">
+                            <input type="hidden" name="back_context" value="{{ back_context or '' }}">
                             <p class="mb-0">Remove the feedback given to this student on this submission?</p>
                         </div>
                         <div class="modal-footer">

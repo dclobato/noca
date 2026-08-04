@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,11 +8,14 @@
 {% extends "_base.html" %}
 {% block title_suffix %}&mdash; Dashboard{% endblock %}
 {% block content %}
-    <div class="row g-3">
-        <div class="col-12">{% include "_partials/dashboard/languages_card.html" %}</div>
-        <div class="col-12 col-lg-6">{% include "_partials/dashboard/latest_problems_card.html" %}</div>
-        <div class="col-12 col-lg-6">{% include "_partials/dashboard/leaderboard_card.html" %}</div>
-    </div>
+    <main class="arena-dashboard">
+        <h1 class="visually-hidden">Dashboard</h1>
+        <div class="row g-3">
+            <div class="col-12 col-xl-6">{% include "_partials/dashboard/latest_problems_card.html" %}</div>
+            <div class="col-12 col-xl-6">{% include "_partials/dashboard/leaderboard_card.html" %}</div>
+            <div class="col-12">{% include "_partials/dashboard/languages_card.html" %}</div>
+        </div>
+    </main>
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for('static_shared_js', path='row-href.js') }}?v={{ app_version }}"

@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -69,7 +69,7 @@
 }
 
 .arena-sidebar-toggle-icon {
-    font-size: 1.5rem;
+    font-size: 1.25rem;
 }
 
 .arena-sidebar-toggle:hover,
@@ -100,7 +100,7 @@
     padding: 0.75rem 1rem;
     color: var(--arena-on-surface-variant);
     font-family: 'Public Sans', sans-serif;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     font-weight: 500;
     border-left: 4px solid transparent;
     border-radius: 0;
@@ -110,7 +110,14 @@
 
 .arena-sidebar .nav-link:hover {
     color: var(--arena-primary);
-    background-color: #f1f5f0;
+    background-color: var(--arena-surface-container);
+}
+
+.arena-sidebar .nav-link:focus-visible {
+    color: var(--arena-primary);
+    background-color: var(--arena-surface-container);
+    outline: 2px solid var(--arena-primary);
+    outline-offset: -2px;
 }
 
 .arena-sidebar .nav-link.active {
@@ -127,14 +134,14 @@
 
 .arena-sidebar .nav-link.nav-link-sub {
     padding: 0.45rem 1rem;
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     border-left: none;
     color: var(--arena-on-surface-variant);
 }
 
 .arena-sidebar .nav-link.nav-link-sub:hover {
     color: var(--arena-primary);
-    background-color: #f1f5f0;
+    background-color: var(--arena-surface-container);
 }
 
 .arena-sidebar .nav-link.nav-link-sub.active {
@@ -205,19 +212,6 @@
    Responsive: mobile sidebar
    ============================================================ */
 @media (max-width: 767.98px) {
-    .arena-topbar-inner {
-        grid-template-columns: 1fr auto;
-    }
-
-    .arena-topbar-main {
-        padding-right: 1rem;
-        padding-left: 0;
-    }
-
-    .arena-mobile-menu-toggle {
-        display: inline-flex;
-    }
-
     .arena-layout,
     .arena-sidebar-collapsed .arena-layout {
         grid-template-columns: minmax(0, 1fr);
@@ -233,7 +227,7 @@
         width: min(82vw, var(--arena-sidebar-width));
         height: calc(100vh - var(--arena-topbar-height) - var(--arena-footer-height));
         transform: translateX(-100%);
-        box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.2);
+        box-shadow: var(--bs-box-shadow-lg);
         transition: transform 0.18s ease;
     }
 
@@ -269,11 +263,18 @@
         inset: var(--arena-topbar-height) 0 0;
         z-index: 1035;
         display: block;
-        background-color: rgba(21, 28, 34, 0.42);
+        background-color: color-mix(in srgb, var(--arena-on-surface) 42%, transparent);
     }
 
     .arena-main {
         padding-right: 0;
         padding-left: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .arena-layout,
+    .arena-sidebar {
+        transition: none;
     }
 }

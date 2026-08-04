@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Any, Literal
 from typing import cast as type_cast
@@ -32,16 +31,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from arena.models.arena_problems import ArenaProblem
+from arena.services.text_search_primitives import (
+    LIKE_ESCAPE as _LIKE_ESCAPE,
+)
+from arena.services.text_search_primitives import (
+    MIN_FUZZY_QUERY_LENGTH as _MIN_FUZZY_QUERY_LENGTH,
+)
+from arena.services.text_search_primitives import (
+    apply_trigram_threshold,
+    escaped_substring_pattern,
+    uses_websearch_syntax,
+)
 from shared.db_schema.arena import arena_users as _users_table
 from shared.enumerations import StatementLanguage
 
-_TRIGRAM_SIMILARITY_THRESHOLD = 0.3
-_MIN_FUZZY_QUERY_LENGTH = 3
 _MAX_ARENA_NUMBER = 2_147_483_647
-_LIKE_ESCAPE = "\\"
-# These tokens have PostgreSQL websearch semantics even when they occur in
-# natural-language text (for example, "true or false" or "OR gate").
-_WEBSEARCH_OPERATOR = re.compile(r"(?:^|\s)(?:OR\s+|-\S)", re.IGNORECASE)
 
 type ProblemSuggestionField = Literal["author", "source"]
 
@@ -122,13 +126,6 @@ class ProblemSuggestionSearchExpressions:
     trigram_rank: ColumnElement[Any]
 
 
-def _escaped_substring_pattern(query: str) -> str:
-    """Return an ILIKE pattern that treats user wildcard characters literally."""
-    escaped = query.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2)
-    escaped = escaped.replace("%", f"{_LIKE_ESCAPE}%").replace("_", f"{_LIKE_ESCAPE}_")
-    return f"%{escaped}%"
-
-
 def _resolved_author() -> ColumnElement[str | None]:
     """Return the owner-backed or free-text problem author expression."""
     return case(
@@ -154,14 +151,9 @@ def _exact_number_match(query: str) -> ColumnElement[bool]:
     return ArenaProblem.arena_number == number
 
 
-def _uses_websearch_syntax(query: str) -> bool:
-    """Return whether fallback matching would undermine query operators."""
-    return '"' in query or _WEBSEARCH_OPERATOR.search(query) is not None
-
-
 def _portable_search(query: str) -> ProblemSearchExpressions:
     """Build the SQLite-compatible behavior used by unit tests."""
-    pattern = _escaped_substring_pattern(query)
+    pattern = escaped_substring_pattern(query)
     resolved_author = _resolved_author()
     predicate = or_(
         cast(ArenaProblem.arena_number, String).ilike(pattern, escape=_LIKE_ESCAPE),
@@ -334,10 +326,10 @@ def _candidate_problem_ids(
     users = _users_table.alias("search_owner")
     candidates = _full_text_candidate_branches(text_queries)
 
-    if _uses_websearch_syntax(query):
+    if uses_websearch_syntax(query):
         return union(*candidates)
 
-    pattern = _escaped_substring_pattern(query)
+    pattern = escaped_substring_pattern(query)
     candidates.extend(
         [
             select(problems.c.id).where(cast(problems.c.arena_number, Text).ilike(pattern, escape=_LIKE_ESCAPE)),
@@ -406,7 +398,7 @@ def _portable_suggestion_search(
     value = _field_column(field)
     predicate = and_(
         *_field_candidate_conditions(field, value, ArenaProblem.author_is_owner),
-        value.ilike(_escaped_substring_pattern(query), escape=_LIKE_ESCAPE),
+        value.ilike(escaped_substring_pattern(query), escape=_LIKE_ESCAPE),
     )
     return ProblemSuggestionSearchExpressions(
         predicate=predicate,
@@ -425,7 +417,7 @@ def _suggestion_candidate_problem_ids(
     problems = ArenaProblem.__table__.alias("suggestion_problem")
     value = problems.c[field]
     field_conditions = _field_candidate_conditions(field, value, problems.c.author_is_owner)
-    pattern = _escaped_substring_pattern(query)
+    pattern = escaped_substring_pattern(query)
     candidates.append(
         select(problems.c.id).where(
             *field_conditions,
@@ -462,16 +454,8 @@ async def prepare_problem_search(session: AsyncSession, query: str) -> ProblemSe
     normalized_query = query.strip()
     if session.get_bind().dialect.name != "postgresql":
         return _portable_search(normalized_query)
-    if len(normalized_query) >= _MIN_FUZZY_QUERY_LENGTH and not _uses_websearch_syntax(normalized_query):
-        await session.execute(
-            select(
-                func.set_config(
-                    "pg_trgm.similarity_threshold",
-                    str(_TRIGRAM_SIMILARITY_THRESHOLD),
-                    True,
-                )
-            )
-        )
+    if len(normalized_query) >= _MIN_FUZZY_QUERY_LENGTH and not uses_websearch_syntax(normalized_query):
+        await apply_trigram_threshold(session)
     return _postgres_search(normalized_query)
 
 
@@ -485,13 +469,5 @@ async def prepare_problem_suggestion_search(
     if session.get_bind().dialect.name != "postgresql":
         return _portable_suggestion_search(field, normalized_query)
     if len(normalized_query) >= _MIN_FUZZY_QUERY_LENGTH:
-        await session.execute(
-            select(
-                func.set_config(
-                    "pg_trgm.similarity_threshold",
-                    str(_TRIGRAM_SIMILARITY_THRESHOLD),
-                    True,
-                )
-            )
-        )
+        await apply_trigram_threshold(session)
     return _postgres_suggestion_search(field, normalized_query)

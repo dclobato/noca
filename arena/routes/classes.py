@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_users import ArenaUser
+from arena.routes.class_route_guards import is_manager, require_user
 from arena.services import (
     arena_class_detail_service,
     arena_class_email_service,
@@ -38,7 +39,6 @@ from arena.services.arena_problem_set_service import (
     _class_end_bound,
 )
 from arena.services.pagination_service import build_pagination_params
-from arena.services.session_service import build_current_next_url, build_login_redirect_response
 from shared.enumerations import ArenaNotificationKind, ArenaRole
 from shared.services.arena_notification_service import create_arena_notification
 
@@ -63,18 +63,6 @@ def _parse_date(value: str) -> date:
         return date.fromisoformat(value)
     except ValueError as exc:
         raise ArenaClassValidationError("Invalid class date.") from exc
-
-
-def _require_user(request: Request, current_user: ArenaUser | None) -> ArenaUser | RedirectResponse:
-    """Return the current user or a login redirect response."""
-    if current_user is None:
-        return build_login_redirect_response(request, next_url=build_current_next_url(request))
-    return current_user
-
-
-def _is_manager(user: ArenaUser) -> bool:
-    """Return whether the user can manage Arena classes."""
-    return user.role in {ArenaRole.ARENA_ADMIN, ArenaRole.ARENA_JUDGE}
 
 
 def _redirect_with_hash(url: str, fragment: str) -> RedirectResponse:
@@ -148,15 +136,15 @@ async def classes_index(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the Classes landing page. Redirects legacy ?tab= bookmarks to their new URLs."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
     user = user_or_redirect
     if tab in _TAB_REDIRECT:
         # Non-managers landing on ?tab=manage fall back to registered, not 403.
-        route_name = _TAB_REDIRECT[tab] if tab != "manage" or _is_manager(user) else "arena_classes_registered"
+        route_name = _TAB_REDIRECT[tab] if tab != "manage" or is_manager(user) else "arena_classes_registered"
         return RedirectResponse(url=str(request.url_for(route_name)), status_code=301)
-    return _render(request, "classes/index.html", {"current_user": user, "is_manager": _is_manager(user)})
+    return _render(request, "classes/index.html", {"current_user": user, "is_manager": is_manager(user)})
 
 
 @router.get("/classes/registered", response_class=HTMLResponse, name="arena_classes_registered")
@@ -165,12 +153,12 @@ async def classes_registered(
     page: str | None = None,
     search: str | None = None,
     sort: str | None = None,
-    direction: str | None = None,
+    direction: str | None = Query(default=None, alias="dir"),
     current_user: ArenaUser | None = Depends(get_current_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the registered classes page."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
     user = user_or_redirect
@@ -208,7 +196,7 @@ async def classes_open(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the open classes page."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
     user = user_or_redirect
@@ -255,11 +243,11 @@ async def classes_manage(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the manage classes page."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
     user = user_or_redirect
-    if not _is_manager(user):
+    if not is_manager(user):
         # Intentional 403: /classes/manage is a hard access boundary, not a silent UI fallback.
         raise HTTPException(status_code=403, detail="Forbidden")
     managed = await arena_class_query_service.list_managed_class_rows_paginated(
@@ -293,10 +281,10 @@ async def class_new(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the new class form."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
-    if not _is_manager(user_or_redirect):
+    if not is_manager(user_or_redirect):
         raise HTTPException(status_code=403, detail="Forbidden")
     return await _render_class_form(request, current_user=user_or_redirect, session=session)
 
@@ -315,11 +303,11 @@ async def class_create(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Create a class and redirect to the manage page."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
     user = user_or_redirect
-    if not _is_manager(user):
+    if not is_manager(user):
         raise HTTPException(status_code=403, detail="Forbidden")
     form_data = {
         "name": name,
@@ -390,7 +378,7 @@ async def class_detail(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render a class detail page."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
     try:
@@ -449,7 +437,7 @@ async def class_request_registration(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Request self-registration for a class."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
     try:
@@ -498,10 +486,10 @@ async def class_edit(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the class edit form."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
-    if not _is_manager(user_or_redirect):
+    if not is_manager(user_or_redirect):
         raise HTTPException(status_code=403, detail="Forbidden")
     try:
         return await _render_class_form(
@@ -530,11 +518,11 @@ async def class_update(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Update class metadata."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
     user = user_or_redirect
-    if not _is_manager(user):
+    if not is_manager(user):
         raise HTTPException(status_code=403, detail="Forbidden")
     form_data = {
         "name": name,

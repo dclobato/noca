@@ -8,9 +8,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
-from typing import Annotated, Any, cast
-from urllib.parse import urlencode
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -21,13 +20,12 @@ from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_problem_sets import ArenaProblemSet
 from arena.models.arena_users import ArenaUser
+from arena.routes.class_route_guards import html, problem_set_list_url, require_problem_set_manager
 from arena.services import (
     arena_batch_feedback_service,
-    arena_class_detail_service,
     arena_problem_set_management_service,
     arena_problem_set_service,
 )
-from arena.services.arena_class_service import ArenaClassNotFoundError
 from arena.services.arena_problem_set_service import (
     ArenaProblemSetNotFoundError,
     ArenaProblemSetPermissionError,
@@ -36,28 +34,9 @@ from arena.services.arena_problem_set_service import (
     update_problem_set_details,
 )
 from arena.services.pagination_service import build_pagination_params
-from arena.services.session_service import build_current_next_url, build_login_redirect_response
 from arena.services.user_timezone_service import parse_user_datetime_local
-from shared.enumerations import ArenaRole
 
 router = APIRouter(tags=["arena-classes"])
-
-
-def _html(response: Any) -> HTMLResponse:
-    """Cast a TemplateResponse to HTMLResponse for type-checker satisfaction."""
-    return cast(HTMLResponse, response)
-
-
-def _require_user(request: Request, current_user: ArenaUser | None) -> ArenaUser | RedirectResponse:
-    """Return the current user or a login redirect response."""
-    if current_user is None:
-        return build_login_redirect_response(request, next_url=build_current_next_url(request))
-    return current_user
-
-
-def _is_manager(user: ArenaUser) -> bool:
-    """Return whether the user can manage Arena classes."""
-    return user.role in {ArenaRole.ARENA_ADMIN, ArenaRole.ARENA_JUDGE}
 
 
 def _parse_datetime_local(value: str, current_user: ArenaUser) -> datetime | None:
@@ -66,50 +45,6 @@ def _parse_datetime_local(value: str, current_user: ArenaUser) -> datetime | Non
         return parse_user_datetime_local(value, current_user)
     except ValueError as exc:
         raise ArenaProblemSetValidationError(str(exc)) from exc
-
-
-def _problem_set_list_url(
-    request: Request,
-    *,
-    class_id: str,
-    page: int | str | None = None,
-    sort: str | None = None,
-    direction: str | None = None,
-) -> str:
-    """Build a problem-set list URL with optional pagination/sort context."""
-    params = {
-        key: str(value)
-        for key, value in {
-            "page": page,
-            "sort": sort,
-            "direction": direction,
-        }.items()
-        if value not in {None, ""}
-    }
-    url = str(request.url_for("arena_class_problem_set_list", class_id=class_id))
-    return f"{url}?{urlencode(params)}" if params else url
-
-
-async def _require_problem_set_manager(
-    request: Request,
-    current_user: ArenaUser | None,
-    *,
-    class_id: str,
-    session: AsyncSession,
-) -> tuple[ArenaUser | RedirectResponse, Any | None]:
-    """Return the logged-in teacher/admin and the class detail for a class-scoped page."""
-    user_or_redirect = _require_user(request, current_user)
-    if isinstance(user_or_redirect, RedirectResponse):
-        return user_or_redirect, None
-    if not _is_manager(user_or_redirect):
-        raise HTTPException(status_code=403, detail="Forbidden")
-    try:
-        detail = await arena_class_detail_service.get_class_detail(session, class_id=class_id, today=date.today())
-    except ArenaClassNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Class not found") from exc
-    if user_or_redirect.role != ArenaRole.ARENA_ADMIN and detail.teacher_id != user_or_redirect.id:
-        raise HTTPException(status_code=403, detail="Forbidden")
-    return user_or_redirect, detail
 
 
 async def _render_problem_set_list_page(
@@ -135,7 +70,7 @@ async def _render_problem_set_list_page(
         direction=arena_problem_set_management_service.normalize_sort_dir(direction, "desc"),
     )
     templates = request.app.state.arena_templates
-    return _html(
+    return html(
         templates.TemplateResponse(
             request,
             "classes/problem_set_list.html",
@@ -166,7 +101,7 @@ async def class_problem_set_list(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the teacher problem-set list for one class."""
-    user_or_redirect, class_detail = await _require_problem_set_manager(
+    user_or_redirect, class_detail = await require_problem_set_manager(
         request,
         current_user,
         class_id=class_id,
@@ -201,7 +136,7 @@ async def class_problem_set_create(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Create a new problem set and redirect to the manage-problems page."""
-    user_or_redirect, class_detail = await _require_problem_set_manager(
+    user_or_redirect, class_detail = await require_problem_set_manager(
         request,
         current_user,
         class_id=class_id,
@@ -267,7 +202,7 @@ async def class_problem_set_manage(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the teacher problem-set manage-problems page."""
-    user_or_redirect, class_detail = await _require_problem_set_manager(
+    user_or_redirect, class_detail = await require_problem_set_manager(
         request,
         current_user,
         class_id=class_id,
@@ -300,7 +235,7 @@ async def class_problem_set_manage(
     started = problem_set.starts_on is None or problem_set.starts_on <= now
     not_closed = problem_set.deadline is None or problem_set.deadline > now
     is_accepting = started and not_closed
-    return _html(
+    return html(
         templates.TemplateResponse(
             request,
             "classes/problem_set_manage.html",
@@ -311,7 +246,7 @@ async def class_problem_set_manage(
                 "problem_rows": problem_rows,
                 "non_ac_counts": non_ac_counts,
                 "is_accepting": is_accepting,
-                "back_url": _problem_set_list_url(
+                "back_url": problem_set_list_url(
                     request,
                     class_id=class_id,
                     page=page,
@@ -343,7 +278,7 @@ async def class_problem_set_problem_add(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Add a problem to the current problem set."""
-    user_or_redirect, _class_detail = await _require_problem_set_manager(
+    user_or_redirect, _class_detail = await require_problem_set_manager(
         request,
         current_user,
         class_id=class_id,
@@ -392,7 +327,7 @@ async def class_problem_set_problem_remove(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Remove a problem from a problem set."""
-    user_or_redirect, _class_detail = await _require_problem_set_manager(
+    user_or_redirect, _class_detail = await require_problem_set_manager(
         request,
         current_user,
         class_id=class_id,
@@ -438,7 +373,7 @@ async def class_problem_set_update_schedule(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Update the notes and schedule of a problem set."""
-    user_or_redirect, _class_detail = await _require_problem_set_manager(
+    user_or_redirect, _class_detail = await require_problem_set_manager(
         request,
         current_user,
         class_id=class_id,
@@ -484,7 +419,7 @@ async def class_problem_set_stop_now(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Set the deadline to now, immediately closing the problem set."""
-    user_or_redirect, _class_detail = await _require_problem_set_manager(
+    user_or_redirect, _class_detail = await require_problem_set_manager(
         request,
         current_user,
         class_id=class_id,
@@ -531,7 +466,7 @@ async def class_problem_set_delete(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a problem set after password confirmation."""
-    user_or_redirect, _class_detail = await _require_problem_set_manager(
+    user_or_redirect, _class_detail = await require_problem_set_manager(
         request,
         current_user,
         class_id=class_id,
@@ -542,7 +477,7 @@ async def class_problem_set_delete(
     if not user_or_redirect.check_password(password):
         flash("Incorrect password.", FlashCategory.DANGER)
         return RedirectResponse(
-            url=_problem_set_list_url(request, class_id=class_id, page=page, sort=sort, direction=direction),
+            url=problem_set_list_url(request, class_id=class_id, page=page, sort=sort, direction=direction),
             status_code=303,
         )
     try:
@@ -558,6 +493,6 @@ async def class_problem_set_delete(
         await session.rollback()
         raise HTTPException(status_code=403, detail="Forbidden") from exc
     return RedirectResponse(
-        url=_problem_set_list_url(request, class_id=class_id, page=page, sort=sort, direction=direction),
+        url=problem_set_list_url(request, class_id=class_id, page=page, sort=sort, direction=direction),
         status_code=303,
     )

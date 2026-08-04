@@ -25,19 +25,25 @@
     </a>
 {% endmacro %}
 {% block content %}
-    <div class="container-fluid px-3 py-3">
-        <div class="arena-card mb-3">
-            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+    <div class="container-fluid px-0 px-md-3 py-3 arena-classes-open">
+        <div class="arena-card arena-classes-open-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center mb-3 arena-classes-open-header">
                 <h1 class="arena-card-title mb-0">
                     {{ render_icon(icon="app_registration") }}
                     Open for registration
                 </h1>
             </div>
-            <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
-                {% with label="Search", input_type="text", field_id="search", field_name="search", value=search, placeholder="Class name" %}
+            <form method="get"
+                  class="d-flex flex-wrap gap-2 align-items-end mb-3 arena-classes-open-filter">
+                {% with label="Search",
+                    input_type="text",
+                    field_id="search",
+                    field_name="search",
+                    value=search,
+                    placeholder="Class name" %}
                     {% include "_partials/filter_search_field.html" %}
                 {% endwith %}
-                <div class="arena-filter-search">
+                <div class="arena-filter-search arena-classes-open-teacher-filter">
                     <label class="form-label form-label-sm mb-1" for="teacher_search">Teacher</label>
                     <div class="position-relative"
                          data-teacher-autocomplete
@@ -60,22 +66,34 @@
                 <input type="hidden" name="dir" value="{{ dir }}">
                 {% include "_partials/filter_submit_button.html" %}
                 {% set _filters_active = search or teacher_id %}
-                {% with clear_url=request.url_for("arena_classes_open"), filters_active=_filters_active %}
+                {% with clear_url=request.url_for("arena_classes_open"),
+                    filters_active=_filters_active %}
                     {% include "_partials/filter_clear_link.html" %}
                 {% endwith %}
             </form>
-            <p class="text-muted small mb-2">{{ open_classes.total }} class{{ 'es' if open_classes.total != 1 else '' }}</p>
-            {% with pagination=open_classes, page_param="page", label="Open classes pagination", nav_margin="mb-2" %}
-                {% include "_partials/pagination.html" %}
-            {% endwith %}
-            <div class="table-responsive">
-                <table class="arena-table">
+            <div class="arena-classes-open-results">
+                <p class="arena-classes-open-results-count">
+                    <strong>{{ open_classes.total }}</strong>
+                    class{{ 'es' if open_classes.total != 1 else '' }}
+                </p>
+                {% with pagination=open_classes,
+                    page_param="page",
+                    label="Open classes pagination",
+                    nav_margin="mb-0" %}
+                    {% include "_partials/pagination.html" %}
+                {% endwith %}
+            </div>
+            <div class="table-responsive arena-classes-open-table-wrapper">
+                <table class="arena-table arena-classes-open-table">
                     <thead>
                         <tr>
-                            <th>{{ sort_link("Class name", "name", sort, dir) }}</th>
-                            <th>Assigned teacher</th>
-                            <th>{{ sort_link("Start date", "starts_on", sort, dir) }}</th>
-                            <th>End date</th>
+                            <th scope="col" class="arena-class-name">
+                                {% set class_name_sort_link = sort_link("Class name", "name", sort, dir) %}
+                                {{ class_name_sort_link }}
+                            </th>
+                            <th scope="col" class="arena-class-teacher">Assigned teacher</th>
+                            <th scope="col" class="arena-class-date">{{ sort_link("Start date", "starts_on", sort, dir) }}</th>
+                            <th scope="col" class="arena-class-date">End date</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -92,22 +110,55 @@
                                 data-affiliation="{{ row.teacher_affiliation or 'No affiliation' }}"
                                 data-member-count="{{ row.member_count }}"
                                 data-request-url="{{ request.url_for('arena_class_request_registration', class_id=row.class_id) }}">
-                                <td>{{ row.name }}</td>
-                                <td>{{ row.teacher_name }}</td>
-                                <td class="text-nowrap">{{ row.starts_on.isoformat() }}</td>
-                                <td class="text-nowrap">{{ row.finishes_on.isoformat() }}</td>
+                                <td class="arena-class-name" data-label="Class">
+                                    <span class="fw-semibold">{{ row.name }}</span>
+                                </td>
+                                <td class="arena-class-teacher" data-label="Teacher">{{ row.teacher_name }}</td>
+                                <td class="arena-class-date" data-label="Start date">
+                                    <time datetime="{{ row.starts_on.isoformat() }}">
+                                        {{ row.starts_on.isoformat() }}
+                                    </time>
+                                </td>
+                                <td class="arena-class-date" data-label="End date">
+                                    <time datetime="{{ row.finishes_on.isoformat() }}">
+                                        {{ row.finishes_on.isoformat() }}
+                                    </time>
+                                </td>
                             </tr>
                         {% else %}
-                            <tr>
-                                <td colspan="4" class="arena-empty-state">No open classes found.</td>
+                            <tr class="arena-classes-open-empty-row">
+                                <td colspan="4" class="arena-empty-state">
+                                    <div class="arena-classes-open-empty">
+                                        {{ render_icon(icon="school") }}
+                                        <strong>
+                                            {% if search or teacher_id %}
+                                                No matching classes
+                                            {% else %}
+                                                No classes open for registration
+                                            {% endif %}
+                                        </strong>
+                                        {% if search or teacher_id %}
+                                            <span>Try another filter or clear the filters.</span>
+                                            {% set open_classes_url = request.url_for("arena_classes_open") %}
+                                            <a class="btn btn-outline-secondary btn-sm"
+                                               href="{{ open_classes_url }}">Clear filters</a>
+                                        {% else %}
+                                            <span>Open classes will appear here.</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
                             </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            {% with pagination=open_classes, page_param="page", label="Open classes pagination" %}
-                {% include "_partials/pagination.html" %}
-            {% endwith %}
+            <div class="arena-classes-open-pagination">
+                {% with pagination=open_classes,
+                    page_param="page",
+                    label="Open classes pagination" %}
+                    {% include "_partials/pagination.html" %}
+                {% endwith %}
+            </div>
         </div>
     </div>
     <div class="modal fade"

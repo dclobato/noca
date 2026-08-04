@@ -1,0 +1,120 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Class create and edit form
+   ============================================================ */
+.arena-class-form-page {
+    max-width: 62rem;
+    margin-inline: auto;
+}
+
+.arena-class-form-card {
+    padding: 0;
+}
+
+.arena-class-form-header {
+    gap: var(--arena-space-md);
+    padding: var(--arena-space-md) var(--arena-gutter);
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+
+.arena-class-form-header .arena-card-title {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+.arena-class-form-feedback {
+    padding: var(--arena-space-md) var(--arena-gutter) 0;
+}
+
+.arena-class-form-primary,
+.arena-class-form-settings {
+    padding: var(--arena-gutter);
+}
+
+.arena-class-form-settings {
+    background-color: var(--arena-surface-container-low);
+    border-left: 1px solid var(--arena-outline-variant);
+}
+
+.arena-class-form-section-heading {
+    margin-bottom: var(--arena-space-lg);
+}
+
+.arena-class-form-section-heading h2 {
+    margin-bottom: 0.25rem;
+    color: var(--arena-on-surface);
+    font-size: 1rem;
+    line-height: 1.4;
+}
+
+.arena-class-form-section-heading p {
+    max-width: 42rem;
+    margin-bottom: 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+
+.arena-class-form-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--arena-space-lg);
+}
+
+.arena-class-form-fields .form-label {
+    margin-bottom: var(--arena-space-sm);
+    font-weight: 600;
+}
+
+.arena-class-registration-option {
+    padding: 0.75rem;
+    background-color: var(--arena-surface-container-lowest);
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius);
+}
+
+.arena-class-registration-option .form-check-input,
+.arena-class-registration-option .form-check-label {
+    cursor: pointer;
+}
+
+.arena-class-form-actions {
+    padding: var(--arena-space-md) var(--arena-gutter);
+    border-top: 1px solid var(--arena-outline-variant);
+}
+
+@media (max-width: 991.98px) {
+    .arena-class-form-settings {
+        border-top: 1px solid var(--arena-outline-variant);
+        border-left: 0;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .arena-class-form-card {
+        border-inline: 0;
+        border-radius: 0;
+    }
+
+    .arena-class-form-header,
+    .arena-class-form-primary,
+    .arena-class-form-settings,
+    .arena-class-form-actions {
+        padding-inline: var(--arena-space-md);
+    }
+
+    .arena-class-form-header > .btn {
+        width: 100%;
+    }
+
+    .arena-class-form-actions > .btn {
+        flex: 1 1 auto;
+        min-height: 2.75rem;
+    }
+}

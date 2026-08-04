@@ -1010,7 +1010,7 @@ requires-dist = [
 
 [[package]]
 name = "noca-workspace"
-version = "15.1.0"
+version = "15.2.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]

@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -11,14 +11,14 @@
 {% block nav_classes %}active{% endblock %}
 {% block nav_classes_registered %}active{% endblock %}
 {% block content %}
-    <div class="container-fluid px-3 py-3">
-        <div class="arena-card mb-3">
-            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
-                <h1 class="arena-card-title mb-0">
+    <div class="container-fluid px-0 px-md-3 py-3 arena-class-detail-page">
+        <div class="arena-card arena-class-detail-card mb-3">
+            <header class="d-flex flex-wrap align-items-center justify-content-between arena-class-detail-header">
+                <h1 class="arena-card-title arena-class-detail-title mb-0">
                     {{ render_icon(icon="school") }}
                     {{ class_detail.name }}
                 </h1>
-                <div class="d-flex flex-wrap gap-2">
+                <div class="arena-class-detail-header-actions">
                     {% if is_registered %}
                         <span class="badge text-bg-success d-inline-flex align-items-center gap-1">
                             {{ render_icon(icon="check_circle", filled=True) }}
@@ -39,67 +39,84 @@
                         Back to classes
                     </a>
                 </div>
-            </div>
-            <div class="row g-3">
-                <div class="col-12 col-lg-7">
-                    <h2 class="h6">Details</h2>
+            </header>
+            <section class="arena-class-detail-overview"
+                     aria-labelledby="class-details-heading">
+                <div class="arena-class-detail-description">
+                    <h2 class="arena-class-detail-section-title" id="class-details-heading">Details</h2>
                     <p class="mb-0">{{ class_detail.description or "No description." }}</p>
                 </div>
-                <div class="col-12 col-lg-5">
-                    <dl class="row small mb-0">
-                        <dt class="col-sm-5">Starts</dt>
-                        <dd class="col-sm-7">
-                            {{ class_detail.starts_on.isoformat() }}
+                <dl class="arena-class-detail-meta">
+                    <div>
+                        <dt>Starts</dt>
+                        <dd>
+                            <time datetime="{{ class_detail.starts_on.isoformat() }}">
+                                {{ class_detail.starts_on.isoformat() }}
+                            </time>
                         </dd>
-                        <dt class="col-sm-5">Finishes</dt>
-                        <dd class="col-sm-7">
-                            {{ class_detail.finishes_on.isoformat() }}
+                    </div>
+                    <div>
+                        <dt>Finishes</dt>
+                        <dd>
+                            <time datetime="{{ class_detail.finishes_on.isoformat() }}">
+                                {{ class_detail.finishes_on.isoformat() }}
+                            </time>
                         </dd>
-                        <dt class="col-sm-5">Teacher</dt>
-                        <dd class="col-sm-7">
+                    </div>
+                    <div>
+                        <dt>Teacher</dt>
+                        <dd>
                             {{ class_detail.teacher_name }}
                         </dd>
-                        <dt class="col-sm-5">Affiliation</dt>
-                        <dd class="col-sm-7">
+                    </div>
+                    <div>
+                        <dt>Affiliation</dt>
+                        <dd>
                             {{ class_detail.teacher_affiliation or "No affiliation" }}
                         </dd>
-                        <dt class="col-sm-5">Registered users</dt>
-                        <dd class="col-sm-7">
+                    </div>
+                    <div>
+                        <dt>Registered users</dt>
+                        <dd>
                             {{ class_detail.member_count }}
                         </dd>
-                    </dl>
+                    </div>
+                </dl>
+            </section>
+            <section class="arena-class-detail-problem-sets"
+                     aria-labelledby="problem-sets-heading">
+                <div class="arena-class-detail-section-heading">
+                    <h2 class="arena-class-detail-section-title mb-0"
+                        id="problem-sets-heading">Problem sets</h2>
                 </div>
-            </div>
-            <div class="mt-4">
-                <h2 class="h6 mb-2">Problem sets</h2>
                 {% if problem_sets is not none %}
                     {% if problem_sets.items %}
-                        <div class="table-responsive">
-                            <table class="arena-table">
+                        <div class="table-responsive arena-class-detail-table-wrapper">
+                            <table class="arena-table arena-class-detail-table">
                                 <thead>
                                     <tr>
-                                        <th>Name</th>
-                                        <th class="column-width-shrink text-center">Problems</th>
+                                        <th class="arena-class-detail-name-column">Name</th>
+                                        <th class="arena-class-detail-count">Problems</th>
                                         {% if is_registered %}
-                                            <th class="column-width-shrink text-center">AC'd</th>
-                                            <th class="column-width-shrink text-center">No submission</th>
+                                            <th class="arena-class-detail-count">AC'd</th>
+                                            <th class="arena-class-detail-count">No submission</th>
                                         {% endif %}
-                                        <th class="column-width-medium text-center">Start date</th>
-                                        <th class="column-width-medium text-center">Deadline</th>
-                                        <th class="column-width-shrink"></th>
+                                        <th class="arena-class-detail-date">Start date</th>
+                                        <th class="arena-class-detail-date">Deadline</th>
+                                        <th class="arena-class-detail-status">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {% for row in problem_sets.items %}
                                         <tr class="arena-clickable-row"
                                             data-href="{{ request.url_for('arena_student_class_problem_set_detail', class_id=class_detail.class_id, set_id=row.set_id) }}">
-                                            <td>
+                                            <td class="arena-class-detail-name-column" data-label="Problem set">
                                                 <span class="fw-semibold">{{ row.name }}</span>
-                                                {% if row.description %}<div class="small text-muted">{{ row.description }}</div>{% endif %}
+                                                {% if row.description %}<span class="arena-class-detail-description-text">{{ row.description }}</span>{% endif %}
                                             </td>
-                                            <td class="column-width-shrink text-center">{{ row.problem_count }}</td>
+                                            <td class="arena-class-detail-count" data-label="Problems">{{ row.problem_count }}</td>
                                             {% if is_registered %}
-                                                <td class="column-width-shrink text-center">
+                                                <td class="arena-class-detail-count" data-label="AC'd">
                                                     {% if row.problem_count > 0 %}
                                                         <span class="{% if row.user_ac_count == row.problem_count %}text-success fw-semibold{% endif %}">
                                                             {{ row.user_ac_count }}
@@ -108,7 +125,7 @@
                                                         &mdash;
                                                     {% endif %}
                                                 </td>
-                                                <td class="column-width-shrink text-center">
+                                                <td class="arena-class-detail-count" data-label="No submission">
                                                     {% if row.problem_count > 0 %}
                                                         {{ row.user_no_submission_count }}
                                                     {% else %}
@@ -116,14 +133,18 @@
                                                     {% endif %}
                                                 </td>
                                             {% endif %}
-                                            <td class="column-width-medium text-center text-nowrap">
+                                            <td class="arena-class-detail-date" data-label="Start date">
                                                 {{ arena_format_datetime(row.starts_on, current_user) if row.starts_on else '—' }}
                                             </td>
-                                            <td class="column-width-medium text-center text-nowrap">
+                                            <td class="arena-class-detail-date" data-label="Deadline">
                                                 {{ arena_format_datetime(row.deadline, current_user) if row.deadline else '—' }}
                                             </td>
-                                            <td class="column-width-shrink text-center">
-                                                {% if row.is_accepting %}<span class="badge text-bg-success">Accepting</span>{% endif %}
+                                            <td class="arena-class-detail-status" data-label="Status">
+                                                {% if row.is_accepting %}
+                                                    <span class="badge text-bg-success">Accepting</span>
+                                                {% else %}
+                                                    <span class="text-muted">—</span>
+                                                {% endif %}
                                             </td>
                                         </tr>
                                     {% endfor %}
@@ -131,12 +152,19 @@
                             </table>
                         </div>
                     {% else %}
-                        <p class="text-muted small mb-0">No problem sets yet.</p>
+                        <div class="arena-class-detail-empty">
+                            {{ render_icon(icon="assignment") }}
+                            <strong>No problem sets yet</strong>
+                            <span>Problem sets for this class will appear here.</span>
+                        </div>
                     {% endif %}
                 {% else %}
-                    <p class="text-muted small mb-0">Register for this class to see its problem sets.</p>
+                    <div class="arena-class-detail-access-note">
+                        {{ render_icon(icon="lock") }}
+                        <span>Register for this class to see its problem sets.</span>
+                    </div>
                 {% endif %}
-            </div>
+            </section>
         </div>
     </div>
 {% endblock %}

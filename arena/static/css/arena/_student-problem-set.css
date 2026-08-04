@@ -1,0 +1,279 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Student problem-set detail
+   ============================================================ */
+.arena-student-problem-set-page { max-width: var(--arena-max-width); margin-inline: auto; }
+.arena-student-problem-set-card { padding: 0; }
+.arena-student-problem-set-header {
+    gap: var(--arena-space-md);
+    padding: var(--arena-space-md) var(--arena-gutter);
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+.arena-student-problem-set-title { min-width: 0; overflow-wrap: anywhere; }
+.arena-student-problem-set-title .material-symbols-outlined { flex: 0 0 auto; }
+.arena-student-problem-set-context {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.8fr);
+    gap: var(--arena-space-lg);
+    padding: var(--arena-gutter);
+    background-color: var(--arena-surface-container-low);
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+.arena-student-problem-set-context-copy { min-width: 0; }
+.arena-student-problem-set-class {
+    margin: 0 0 var(--arena-space-sm);
+    overflow-wrap: anywhere;
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
+.arena-student-problem-set-description {
+    max-width: 65ch;
+    color: var(--arena-on-surface-variant);
+    line-height: 1.6;
+}
+.arena-student-problem-set-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    gap: 0.75rem 1rem;
+    margin: 0;
+}
+.arena-student-problem-set-meta > div { min-width: 0; }
+.arena-student-problem-set-meta dt {
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    line-height: 1.1;
+    text-transform: uppercase;
+}
+.arena-student-problem-set-meta dd {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.2rem 0 0;
+    overflow-wrap: anywhere;
+}
+.arena-student-problem-set-problems,
+.arena-student-problem-set-results { padding-top: var(--arena-gutter); }
+.arena-student-problem-set-problems:last-child { padding-bottom: var(--arena-gutter); }
+.arena-student-problem-set-section-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: var(--arena-space-sm) var(--arena-space-md);
+    padding: 0 var(--arena-gutter) var(--arena-space-md);
+}
+.arena-student-problem-set-section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    font-size: 1.25rem;
+    line-height: 1.4;
+}
+.arena-student-problem-set-section-title .material-symbols-outlined {
+    color: var(--arena-primary);
+    font-size: 1.25rem;
+}
+.arena-student-problem-set-count {
+    margin: 0.25rem 0 0;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+.arena-student-problem-set-table-wrapper {
+    margin-inline: var(--arena-gutter);
+    border-block: 1px solid var(--arena-outline-variant);
+}
+.arena-student-problem-set-table { min-width: 50rem; }
+.arena-student-problem-set-table th,
+.arena-student-problem-set-table td { vertical-align: middle; }
+.arena-student-problem-set-table .arena-student-problem-set-number {
+    width: 4rem;
+    min-width: 4rem;
+    text-align: right;
+    white-space: nowrap;
+}
+.arena-student-problem-set-table .arena-student-problem-set-problem {
+    width: 42%;
+    min-width: 16rem;
+    overflow-wrap: anywhere;
+}
+.arena-student-problem-set-table .arena-student-problem-set-verdict {
+    width: 9rem;
+    min-width: 9rem;
+    text-align: center;
+}
+.arena-student-problem-set-table .arena-student-problem-set-submitted {
+    width: 14rem;
+    min-width: 14rem;
+    overflow-wrap: anywhere;
+}
+.arena-student-problem-set-table .noca-clickable-row:focus-visible {
+    outline: 2px solid var(--arena-primary);
+    outline-offset: -2px;
+}
+.arena-student-problem-set-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    padding: var(--arena-space-lg) var(--arena-space-md);
+    color: var(--arena-on-surface-variant);
+    text-align: center;
+}
+.arena-student-problem-set-empty .material-symbols-outlined {
+    color: var(--arena-outline);
+    font-size: 2rem;
+}
+.arena-student-problem-set-empty strong {
+    color: var(--arena-on-surface);
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1rem;
+}
+.arena-student-problem-set-results {
+    margin-top: var(--arena-gutter);
+    border-top: 1px solid var(--arena-outline-variant);
+}
+.arena-student-problem-set-rating {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin: 0 var(--arena-gutter) var(--arena-space-md);
+    padding: var(--arena-space-sm) var(--arena-space-md);
+    background-color: var(--arena-surface-container-low);
+    border-block: 1px solid var(--arena-outline-variant);
+}
+.arena-student-problem-set-rating span {
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+.arena-student-problem-set-rating strong {
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1.25rem;
+}
+.arena-student-problem-set-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0 var(--arena-gutter) var(--arena-gutter);
+    border-block: 1px solid var(--arena-outline-variant);
+}
+.arena-student-problem-set-summary-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    min-width: 0;
+    padding: var(--arena-space-sm) var(--arena-space-md);
+    border-right: 1px solid var(--arena-outline-variant);
+}
+.arena-student-problem-set-summary-item:last-child { border-right: 0; }
+.arena-student-problem-set-summary-item > span:first-child {
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+.arena-student-problem-set-pending {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 var(--arena-gutter) var(--arena-gutter);
+}
+
+@media (max-width: 991.98px) {
+    .arena-student-problem-set-table-wrapper { overflow: visible; }
+    .arena-student-problem-set-table,
+    .arena-student-problem-set-table tbody {
+        display: block;
+        width: 100%;
+        min-width: 0;
+    }
+    .arena-student-problem-set-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+    .arena-student-problem-set-table tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 0.75rem 1rem;
+        padding: var(--arena-space-md) 0;
+        border-bottom: 1px solid var(--arena-outline-variant);
+    }
+    .arena-student-problem-set-table tbody tr:last-child { border-bottom: 0; }
+    .arena-student-problem-set-table tbody tr:hover { background-color: transparent; }
+    .arena-student-problem-set-table tbody td {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+        width: auto;
+        min-width: 0;
+        padding: 0;
+        white-space: normal;
+        text-align: left;
+    }
+    .arena-student-problem-set-table tbody td[data-label]::before {
+        color: var(--arena-on-surface-variant);
+        content: attr(data-label);
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 1;
+        text-transform: uppercase;
+    }
+    .arena-student-problem-set-table tbody .arena-student-problem-set-number,
+    .arena-student-problem-set-table tbody .arena-student-problem-set-problem {
+        grid-column: 1 / -1;
+    }
+    .arena-student-problem-set-table tbody .arena-student-problem-set-number,
+    .arena-student-problem-set-table tbody .arena-student-problem-set-problem,
+    .arena-student-problem-set-table tbody .arena-student-problem-set-verdict,
+    .arena-student-problem-set-table tbody .arena-student-problem-set-submitted {
+        width: auto;
+        min-width: 0;
+        text-align: left;
+    }
+    .arena-student-problem-set-table tbody .arena-student-problem-set-empty-row { display: block; }
+    .arena-student-problem-set-table tbody .arena-student-problem-set-empty-row td { display: block; }
+}
+
+@media (max-width: 767.98px) {
+    .arena-student-problem-set-context { grid-template-columns: 1fr; }
+    .arena-student-problem-set-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 575.98px) {
+    .arena-student-problem-set-card { border-inline: 0; border-radius: 0; }
+    .arena-student-problem-set-header,
+    .arena-student-problem-set-context,
+    .arena-student-problem-set-section-heading { padding-inline: var(--arena-space-md); }
+    .arena-student-problem-set-header { align-items: flex-start; }
+    .arena-student-problem-set-header > .btn { width: 100%; }
+    .arena-student-problem-set-meta { grid-template-columns: 1fr; }
+    .arena-student-problem-set-table-wrapper { margin-inline: var(--arena-space-md); }
+    .arena-student-problem-set-rating,
+    .arena-student-problem-set-summary,
+    .arena-student-problem-set-pending { margin-inline: var(--arena-space-md); }
+}

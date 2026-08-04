@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon %}
 {% block title_suffix %}— Difficulty &amp; Rating System{% endblock %}
@@ -35,7 +42,7 @@
         </div>
         {# ── Tabs ── #}
         <div class="arena-card p-0">
-            <ul class="nav nav-tabs arena-profile-tabs px-3 pt-3"
+            <ul class="nav nav-tabs arena-help-tabs px-3 pt-3"
                 id="ratingTabs"
                 role="tablist">
                 <li class="nav-item" role="presentation">
@@ -71,7 +78,7 @@
                             aria-selected="false">{{ render_icon(icon="group", classes="me-1") }}Affiliation</button>
                 </li>
             </ul>
-            <div class="tab-content arena-profile-tab-content px-3 pb-3"
+            <div class="tab-content arena-help-tab-content px-3 pb-3"
                  id="ratingTabsContent">
                 {# ── Problem difficulty ── #}
                 <div class="tab-pane fade show active"

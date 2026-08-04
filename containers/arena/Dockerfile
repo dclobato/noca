@@ -21,6 +21,14 @@ COPY shared /app/shared
 COPY arena /app/arena
 COPY docs/legal /app/docs/legal
 COPY migrations /app/migrations
+
+# The Arena leaderboard renders podium ranks through the shared medal service.
+# Fail the image build if the renderer or any medal artwork is absent.
+RUN test -f /app/shared/services/balloon_assets.py \
+    && test -f /app/shared/services/assets/gold.svg \
+    && test -f /app/shared/services/assets/silver.svg \
+    && test -f /app/shared/services/assets/bronze.svg
+
 COPY scripts/__init__.py                        /app/scripts/__init__.py
 COPY scripts/arena/backfill_statement_language.py /app/scripts/arena/backfill_statement_language.py
 COPY scripts/arena/categorias-simples-en.txt    /app/scripts/arena/categorias-simples-en.txt

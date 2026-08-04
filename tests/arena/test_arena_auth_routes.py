@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -210,6 +210,22 @@ async def test_legal_document_routes_render_markdown_sources(session: AsyncSessi
     assert "Privacy Policy" in privacy_response.text
     assert "legal-markdown-src" in privacy_response.text
     assert "Política de Privacidade" in privacy_response.text
+
+
+@pytest.mark.asyncio
+async def test_medal_asset_route_serves_shared_svg_bands(session: AsyncSession) -> None:
+    """Arena serves every shared medal band and rejects unknown bands."""
+    app = _build_arena_app(session)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        responses = [await client.get(f"/assets/medal/{band}") for band in ("gold", "silver", "bronze")]
+        invalid_response = await client.get("/assets/medal/platinum")
+
+    assert all(response.status_code == 200 for response in responses)
+    assert all(response.headers["content-type"].startswith("image/svg+xml") for response in responses)
+    assert all("public, max-age=" in response.headers["cache-control"] for response in responses)
+    assert invalid_response.status_code == 400
+    assert invalid_response.json() == {"detail": "Invalid medal band"}
 
 
 @pytest.mark.asyncio

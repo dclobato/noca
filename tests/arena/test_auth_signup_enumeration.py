@@ -15,6 +15,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arena.config import settings
 from shared.db_schema import security_events
 from tests.arena.test_arena_auth_routes import _build_arena_app, _user_by_email
 
@@ -63,7 +64,9 @@ async def test_duplicate_signup_sends_existing_account_email(session: AsyncSessi
     await _post_signup(app)
 
     subjects = _sent_subjects(app)
-    assert "You already have a NOCA Arena account" in subjects
+    # Built from the configured brand rather than the default literal, so the
+    # test passes with NOCA_ARENA_BRAND_NAME set to anything.
+    assert f"You already have a {settings.BRAND_NAME} account" in subjects
     # The second attempt must not create a second account.
     count = (
         await session.execute(

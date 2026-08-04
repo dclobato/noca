@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -25,9 +25,9 @@
     </a>
 {% endmacro %}
 {% block content %}
-    <div class="container-fluid px-3 py-3">
-        <div class="arena-card mb-3">
-            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+    <div class="container-fluid px-0 px-md-3 py-3 arena-class-members-page">
+        <div class="arena-card arena-class-members-card mb-3">
+            <header class="d-flex flex-wrap align-items-center justify-content-between arena-class-members-header">
                 <h1 class="arena-card-title mb-0">
                     {{ render_icon(icon="group") }}
                     Manage students
@@ -37,120 +37,202 @@
                     {{ render_icon(icon="arrow_back") }}
                     Back to classes
                 </a>
-            </div>
-            <div class="mb-3">
-                <p class="mb-1 fw-semibold">{{ class_detail.name }}</p>
-                <p class="text-muted small mb-0">
-                    {{ class_detail.teacher_name }} · {{ class_detail.starts_on.isoformat() }} to {{ class_detail.finishes_on.isoformat() }}
-                </p>
+            </header>
+            <div class="arena-class-members-context">
+                <p class="arena-class-members-name">{{ class_detail.name }}</p>
+                <div class="arena-class-members-meta">
+                    <span>
+                        {{ render_icon(icon="person") }}
+                        {{ class_detail.teacher_name }}
+                    </span>
+                    <span>
+                        {{ render_icon(icon="date_range") }}
+                        <time datetime="{{ class_detail.starts_on.isoformat() }}">{{ class_detail.starts_on.isoformat() }}</time>
+                        <span aria-hidden="true">–</span>
+                        <time datetime="{{ class_detail.finishes_on.isoformat() }}">{{ class_detail.finishes_on.isoformat() }}</time>
+                    </span>
+                </div>
             </div>
             <form method="post"
                   action="{{ request.url_for('arena_class_members_add', class_id=class_detail.class_id) }}"
-                  class="mb-3"
+                  class="arena-class-members-add"
                   data-student-autocomplete-form>
                 <div data-student-id-list></div>
-                <label class="form-label" for="class_member_student_search">Add students</label>
-                <div class="d-flex flex-wrap gap-2 mb-2" data-student-pending-list></div>
-                <div class="position-relative"
-                     data-student-autocomplete
-                     data-search-url="{{ student_autocomplete_url }}">
-                    <input type="text"
-                           class="form-control"
-                           id="class_member_student_search"
-                           placeholder="Search by full name or email"
-                           autocomplete="off"
-                           data-student-search>
-                    <div class="arena-autocomplete-menu d-none" data-student-suggestions></div>
-                </div>
-                <div class="form-text">Selected students are added only after pressing Add students.</div>
-                <div class="mt-2">
-                    <button type="submit" class="btn btn-primary btn-sm">
+                <h2 class="arena-class-members-section-title">Add students</h2>
+                <p class="arena-class-members-section-copy">Search for one or more students, then add the selection to this class.</p>
+                <label class="form-label" for="class_member_student_search">Search students</label>
+                <div class="arena-class-members-pending"
+                     aria-live="polite"
+                     data-student-pending-list></div>
+                <div class="arena-class-members-add-controls">
+                    <div class="position-relative arena-class-members-add-search"
+                         data-student-autocomplete
+                         data-search-url="{{ student_autocomplete_url }}">
+                        <input type="text"
+                               class="form-control"
+                               id="class_member_student_search"
+                               placeholder="Search by full name or email"
+                               autocomplete="off"
+                               data-student-search>
+                        <div class="arena-autocomplete-menu d-none" data-student-suggestions></div>
+                    </div>
+                    <button type="submit"
+                            class="btn btn-primary btn-sm"
+                            data-student-add-button
+                            disabled>
                         {{ render_icon(icon="person_add") }}
                         Add students
                     </button>
                 </div>
+                <div class="form-text">Selected students are added only after pressing Add students.</div>
             </form>
-            <p class="text-muted small mb-2">{{ pagination.total }} user{{ 's' if pagination.total != 1 else '' }}</p>
-            {% with pagination=pagination, page_param="page", label="Class members pagination", nav_margin="mb-2" %}
-                {% include "_partials/pagination.html" %}
-            {% endwith %}
-            <div class="table-responsive">
-                <table class="arena-table">
-                    <thead>
-                        <tr>
-                            <th>{{ member_sort_link('Full name', 'name') }}</th>
-                            <th>Email</th>
-                            <th>{{ member_sort_link('Registration date', 'registered_at') }}</th>
-                            <th>Status</th>
-                            <th class="arena-col-actions">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in pagination.items %}
-                            <tr id="{{ row.row_id }}">
-                                <td>
-                                    <div class="d-flex align-items-center gap-2">
-                                        {{ render_avatar(row.user_id, request.url_for('arena_user_avatar_by_id', user_id=row.user_id) , img_class="rounded-circle object-fit-cover flex-shrink-0") }}
-                                        <span>{{ row.name }}</span>
-                                    </div>
-                                </td>
-                                <td>{{ row.email }}</td>
-                                <td class="text-nowrap">{{ row.registered_at.strftime("%Y-%m-%d") }}</td>
-                                <td>
-                                    {% if row.status == 'pending' %}
-                                        <span class="badge text-bg-warning">Pending</span>
-                                    {% else %}
-                                        <span class="badge text-bg-success">Active</span>
-                                    {% endif %}
-                                </td>
-                                <td class="arena-col-actions">
-                                    {% if row.status == 'pending' %}
-                                        <form method="post"
-                                              action="{{ request.url_for('arena_class_request_approve', request_id=row.request_id) }}"
-                                              class="d-inline">
-                                            <input type="hidden" name="class_id" value="{{ class_detail.class_id }}">
-                                            <button type="submit"
-                                                    class="btn arena-icon-button btn-sm text-success"
-                                                    data-bs-toggle="tooltip"
-                                                    title="Approve request"
-                                                    aria-label="Approve request">
-                                                {{ render_icon(icon="check_circle") }}
-                                            </button>
-                                        </form>
-                                        <button type="button"
-                                                class="btn arena-icon-button btn-sm text-danger"
-                                                data-deny-request-button
-                                                data-request-id="{{ row.request_id }}"
-                                                data-user-name="{{ row.name }}"
-                                                data-action="{{ request.url_for('arena_class_request_deny', request_id=row.request_id) }}"
-                                                data-bs-toggle="tooltip"
-                                                title="Deny request"
-                                                aria-label="Deny request">{{ render_icon(icon="cancel") }}</button>
-                                    {% else %}
-                                        <button type="button"
-                                                class="btn arena-icon-button btn-sm text-danger"
-                                                data-remove-member-button
-                                                data-user-name="{{ row.name }}"
-                                                data-action="{{ request.url_for('arena_class_member_remove', class_id=class_detail.class_id, user_id=row.user_id) }}"
-                                                data-bs-toggle="tooltip"
-                                                title="Remove membership"
-                                                aria-label="Remove membership">
-                                            {{ render_icon(icon="person_remove") }}
-                                        </button>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                        {% else %}
+            <section class="arena-class-members-roster"
+                     aria-labelledby="class-members-roster-heading">
+                <div class="arena-class-members-toolbar">
+                    <div>
+                        <h2 class="arena-class-members-section-title"
+                            id="class-members-roster-heading">Students</h2>
+                        <p class="arena-class-members-count">
+                            <strong class="text-body">{{ pagination.total }}</strong>
+                            student{{ 's' if pagination.total != 1 else '' }}
+                        </p>
+                    </div>
+                    <div class="arena-class-members-pagination">
+                        {% with pagination=pagination, page_param="page", label="Class members pagination", nav_margin="mb-0" %}
+                            {% include "_partials/pagination.html" %}
+                        {% endwith %}
+                    </div>
+                </div>
+                <div class="table-responsive arena-class-members-table-wrapper">
+                    <table class="arena-table arena-class-members-table">
+                        <thead>
                             <tr>
-                                <td colspan="5" class="arena-empty-state">No students found.</td>
+                                <th>{{ member_sort_link('Full name', 'name') }}</th>
+                                <th>Email</th>
+                                <th>{{ member_sort_link('Registration date', 'registered_at') }}</th>
+                                <th>Status</th>
+                                <th class="arena-col-actions">Actions</th>
                             </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% with pagination=pagination, page_param="page", label="Class members pagination" %}
-                {% include "_partials/pagination.html" %}
-            {% endwith %}
+                        </thead>
+                        <tbody>
+                            {% for row in pagination.items %}
+                                <tr id="{{ row.row_id }}">
+                                    <td class="arena-class-member-name" data-label="Student">
+                                        <div class="d-flex align-items-center gap-2">
+                                            {{ render_avatar(row.user_id, request.url_for('arena_user_avatar_by_id', user_id=row.user_id) , img_class="rounded-circle object-fit-cover flex-shrink-0") }}
+                                            <span class="fw-semibold">{{ row.name }}</span>
+                                        </div>
+                                    </td>
+                                    <td class="arena-class-member-email" data-label="Email">{{ row.email }}</td>
+                                    <td data-label="Registration date">
+                                        <time datetime="{{ row.registered_at.strftime("%Y-%m-%d") }}">{{ row.registered_at.strftime("%Y-%m-%d") }}</time>
+                                    </td>
+                                    <td data-label="Status">
+                                        {% if row.status == 'pending' %}
+                                            <span class="badge text-bg-warning">Pending</span>
+                                        {% else %}
+                                            <span class="badge text-bg-success">Active</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="arena-col-actions" data-label="Actions">
+                                        <div class="arena-class-member-actions"
+                                             role="group"
+                                             aria-label="Manage {{ row.name }}">
+                                            {% if row.status == 'pending' %}
+                                                <button type="button"
+                                                        class="btn arena-icon-button btn-sm text-success"
+                                                        data-approve-request-button
+                                                        data-user-name="{{ row.name }}"
+                                                        data-action="{{ request.url_for('arena_class_request_approve', request_id=row.request_id) }}"
+                                                        data-bs-toggle="tooltip"
+                                                        data-bs-container="body"
+                                                        title="Approve request"
+                                                        aria-label="Approve request">
+                                                    {{ render_icon(icon="check_circle") }}
+                                                    <span class="arena-class-member-action-label">Approve</span>
+                                                </button>
+                                                <button type="button"
+                                                        class="btn arena-icon-button btn-sm text-danger"
+                                                        data-deny-request-button
+                                                        data-request-id="{{ row.request_id }}"
+                                                        data-user-name="{{ row.name }}"
+                                                        data-action="{{ request.url_for('arena_class_request_deny', request_id=row.request_id) }}"
+                                                        data-bs-toggle="tooltip"
+                                                        data-bs-container="body"
+                                                        title="Deny request"
+                                                        aria-label="Deny request">
+                                                    {{ render_icon(icon="cancel") }}
+                                                    <span class="arena-class-member-action-label">Deny</span>
+                                                </button>
+                                            {% else %}
+                                                <button type="button"
+                                                        class="btn arena-icon-button btn-sm text-danger"
+                                                        data-remove-member-button
+                                                        data-user-name="{{ row.name }}"
+                                                        data-action="{{ request.url_for('arena_class_member_remove', class_id=class_detail.class_id, user_id=row.user_id) }}"
+                                                        data-bs-toggle="tooltip"
+                                                        data-bs-container="body"
+                                                        title="Remove membership"
+                                                        aria-label="Remove membership">
+                                                    {{ render_icon(icon="person_remove") }}
+                                                    <span class="arena-class-member-action-label">Remove</span>
+                                                </button>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr class="arena-class-members-empty-row">
+                                    <td colspan="5" class="arena-empty-state">
+                                        <div class="arena-class-members-empty">
+                                            {{ render_icon(icon="group") }}
+                                            <strong>No students yet</strong>
+                                            <span>Search above to add the first students to this class.</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="arena-class-members-pagination">
+                    {% with pagination=pagination, page_param="page", label="Class members pagination" %}
+                        {% include "_partials/pagination.html" %}
+                    {% endwith %}
+                </div>
+            </section>
+        </div>
+    </div>
+    <div class="modal fade"
+         id="approve-request-modal"
+         tabindex="-1"
+         aria-labelledby="approve-request-label"
+         aria-describedby="approve-request-description"
+         aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <form method="post" class="modal-content" data-approve-request-form>
+                <input type="hidden" name="class_id" value="{{ class_detail.class_id }}">
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5" id="approve-request-label">Approve registration?</h2>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="approve-request-description">
+                    <p>
+                        Approve <strong data-approve-request-user></strong> to join
+                        <strong>{{ class_detail.name }}</strong>?
+                    </p>
+                    <p class="small text-muted mb-0">They will become an active student and be notified.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Approve registration</button>
+                </div>
+            </form>
         </div>
     </div>
     <div class="modal fade"
@@ -162,7 +244,7 @@
             <form method="post" class="modal-content" data-deny-request-form>
                 <input type="hidden" name="class_id" value="{{ class_detail.class_id }}">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="deny-request-label">Deny registration</h5>
+                    <h2 class="modal-title fs-5" id="deny-request-label">Deny registration</h2>
                     <button type="button"
                             class="btn-close"
                             data-bs-dismiss="modal"
@@ -196,7 +278,7 @@
         <div class="modal-dialog">
             <form method="post" class="modal-content" data-remove-member-form>
                 <div class="modal-header">
-                    <h5 class="modal-title" id="remove-member-label">Remove membership</h5>
+                    <h2 class="modal-title fs-5" id="remove-member-label">Remove membership</h2>
                     <button type="button"
                             class="btn-close"
                             data-bs-dismiss="modal"
@@ -219,5 +301,6 @@
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-tooltips.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='arena-classes.js') }}?v={{ app_version }}"></script>
 {% endblock %}

@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -67,7 +67,7 @@
     --arena-card-shadow: 0 2px 2px rgba(0, 0, 0, 0.05);
 
     /* Sticky chrome heights — keep in sync with topbar/footer actual heights */
-    --arena-topbar-height: 96px;
+    --arena-topbar-height: 4rem;
     --arena-footer-height: 3.25rem;
     --arena-sidebar-width: 256px;
     --arena-sidebar-collapsed-width: 4.5rem;

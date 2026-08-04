@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -15,12 +15,8 @@
           href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
 {% endblock %}
 {% block content %}
-    <section class="arena-card">
-        <h1 class="arena-card-title">
-            {{ render_icon(icon="account_circle") }}
-            Profile
-        </h1>
-        <div class="d-flex align-items-center gap-3">
+    <section class="arena-card arena-profile-hero">
+        <div class="arena-profile-hero-main">
             <form method="post"
                   action="{{ request.url_for("arena_user_profile_photo_update") }}"
                   enctype="multipart/form-data"
@@ -64,7 +60,10 @@
                             <div class="modal-body">
                                 <div class="row g-3">
                                     <div class="col-md-8">
-                                        <img id="cropImage" src="" alt="Crop preview" class="arena-crop-img">
+                                        <img id="cropImage"
+                                             src="{{ request.url_for('arena_user_avatar_by_id', user_id=current_user.id) }}"
+                                             alt="Crop preview"
+                                             class="arena-crop-img">
                                     </div>
                                     <div class="col-md-4 d-flex flex-column align-items-center gap-2">
                                         <p class="small text-muted mb-1">Preview</p>
@@ -80,138 +79,163 @@
                     </div>
                 </div>
             </form>
-            <div>
-                <div class="arena-profile-name" id="profile-header-name">{{ current_user.nome }}</div>
+            <div class="arena-profile-hero-copy">
+                <h1 class="arena-profile-name" id="profile-header-name">{{ current_user.nome }}</h1>
                 <div class="arena-list-item-meta">{{ current_user.email_mascarado }}</div>
-                <span class="badge bg-secondary">{{ arena_role_labels[current_user.role] }}</span>
+                <div class="arena-profile-statuses">
+                    <span class="badge bg-secondary">{{ arena_role_labels[current_user.role] }}</span>
+                    <span class="arena-profile-rating">
+                        {{ render_icon(icon="star", filled=True) }}
+                        {{ current_user.user_rating or 0 }} pts
+                    </span>
+                </div>
             </div>
         </div>
     </section>
-    <section class="arena-card">
-        {% with chart_id="arena-user-submission-heatmap",
-            data_url=request.url_for("arena_user_profile_submission_heatmap") %}
-            {% include "users/_submission_heatmap.html" %}
-        {% endwith %}
+    <section class="arena-card arena-profile-activity">
+        <h2 class="arena-profile-section-title">
+            {{ render_icon(icon="calendar_month") }}
+            Submission history
+        </h2>
+        <div class="arena-profile-heatmap-scroll"
+             tabindex="0"
+             aria-label="Submission activity heatmap, horizontally scrollable">
+            {% with chart_id="arena-user-submission-heatmap",
+                data_url=request.url_for("arena_user_profile_submission_heatmap") %}
+                {% include "users/_submission_heatmap.html" %}
+            {% endwith %}
+        </div>
     </section>
-    <section class="arena-card">
-        <ul class="nav nav-tabs arena-profile-tabs"
-            id="profile-tabs"
-            role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link {% if active_tab == 'personal-security' %}active{% endif %}"
-                        id="personal-security-tab"
-                        data-profile-tab="personal-security"
-                        type="button"
-                        role="tab"
-                        aria-controls="personal-security-tab-pane"
-                        aria-selected="{{ 'true' if active_tab == 'personal-security' else 'false' }}">
-                    {{ render_icon(icon="manage_accounts") }}
-                    <span>Personal &amp; Security</span>
-                    <span class="arena-tab-dirty-dot d-none"
-                          id="personal-security-dirty-dot"
-                          aria-hidden="true"></span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link {% if active_tab == 'badges' %}active{% endif %}"
-                        id="badges-tab"
-                        data-profile-tab="badges"
-                        type="button"
-                        role="tab"
-                        aria-controls="badges-tab-pane"
-                        aria-selected="{{ 'true' if active_tab == 'badges' else 'false' }}">
-                    {{ render_icon(icon="workspace_premium") }}
-                    <span>Badges</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link {% if active_tab == 'solved' %}active{% endif %}"
-                        id="solved-tab"
-                        data-profile-tab="solved"
-                        type="button"
-                        role="tab"
-                        aria-controls="solved-tab-pane"
-                        aria-selected="{{ 'true' if active_tab == 'solved' else 'false' }}">
-                    {{ render_icon(icon="task_alt") }}
-                    <span>Solved Problems</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link {% if active_tab == 'attempted' %}active{% endif %}"
-                        id="attempted-tab"
-                        data-profile-tab="attempted"
-                        type="button"
-                        role="tab"
-                        aria-controls="attempted-tab-pane"
-                        aria-selected="{{ 'true' if active_tab == 'attempted' else 'false' }}">
-                    {{ render_icon(icon="history") }}
-                    <span>Attempted Problems</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link {% if active_tab == 'favorites' %}active{% endif %}"
-                        id="favorites-tab"
-                        data-profile-tab="favorites"
-                        type="button"
-                        role="tab"
-                        aria-controls="favorites-tab-pane"
-                        aria-selected="{{ 'true' if active_tab == 'favorites' else 'false' }}">
-                    {{ render_icon(icon="favorite") }}
-                    <span>Favorites</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link {% if active_tab == 'notifications' %}active{% endif %}"
-                        id="notifications-tab"
-                        data-profile-tab="notifications"
-                        type="button"
-                        role="tab"
-                        aria-controls="notifications-tab-pane"
-                        aria-selected="{{ 'true' if active_tab == 'notifications' else 'false' }}">
-                    {{ render_icon(icon="notifications") }}
-                    <span>Notifications</span>
-                    {% if notifications_unread_count > 0 %}
-                        <span class="badge bg-danger ms-1">{{ notifications_unread_count }}</span>
-                    {% endif %}
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link {% if active_tab == 'submissions' %}active{% endif %}"
-                        id="submissions-tab"
-                        data-profile-tab="submissions"
-                        type="button"
-                        role="tab"
-                        aria-controls="submissions-tab-pane"
-                        aria-selected="{{ 'true' if active_tab == 'submissions' else 'false' }}">
-                    {{ render_icon(icon="send") }}
-                    <span>Submissions</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link {% if active_tab == 'credits' %}active{% endif %}"
-                        id="credits-tab"
-                        data-profile-tab="credits"
-                        type="button"
-                        role="tab"
-                        aria-controls="credits-tab-pane"
-                        aria-selected="{{ 'true' if active_tab == 'credits' else 'false' }}">
-                    {{ render_icon(icon="credit_card") }}
-                    <span>AI Credits</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link {% if active_tab == 'statistics' %}active{% endif %}"
-                        id="statistics-tab"
-                        data-profile-tab="statistics"
-                        type="button"
-                        role="tab"
-                        aria-controls="statistics-tab-pane"
-                        aria-selected="{{ 'true' if active_tab == 'statistics' else 'false' }}">
-                    {{ render_icon(icon="donut_large") }}
-                    <span>Statistics</span>
-                </button>
-            </li>
-        </ul>
+    <section class="arena-card arena-profile-workspace arena-profile-workspace--personal"
+             data-profile-workspace>
+        <nav class="arena-profile-navigation" aria-label="Profile sections">
+            <button type="button"
+                    class="arena-profile-navigation-toggle"
+                    data-profile-navigation-toggle
+                    aria-controls="profile-tabs"
+                    aria-expanded="true"
+                    aria-label="Collapse profile sections">
+                {{ render_icon(icon="arrow_circle_left", classes="arena-profile-navigation-toggle-icon") }}
+            </button>
+            <ul class="nav nav-tabs arena-profile-tabs"
+                id="profile-tabs"
+                role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'personal-security' %}active{% endif %}"
+                            id="personal-security-tab"
+                            data-profile-tab="personal-security"
+                            type="button"
+                            role="tab"
+                            aria-controls="personal-security-tab-pane"
+                            aria-selected="{{ 'true' if active_tab == 'personal-security' else 'false' }}">
+                        {{ render_icon(icon="manage_accounts") }}
+                        <span>Personal &amp; Security</span>
+                        <span class="arena-tab-dirty-dot d-none"
+                              id="personal-security-dirty-dot"
+                              aria-hidden="true"></span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'badges' %}active{% endif %}"
+                            id="badges-tab"
+                            data-profile-tab="badges"
+                            type="button"
+                            role="tab"
+                            aria-controls="badges-tab-pane"
+                            aria-selected="{{ 'true' if active_tab == 'badges' else 'false' }}">
+                        {{ render_icon(icon="workspace_premium") }}
+                        <span>Badges</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'solved' %}active{% endif %}"
+                            id="solved-tab"
+                            data-profile-tab="solved"
+                            type="button"
+                            role="tab"
+                            aria-controls="solved-tab-pane"
+                            aria-selected="{{ 'true' if active_tab == 'solved' else 'false' }}">
+                        {{ render_icon(icon="task_alt") }}
+                        <span>Solved Problems</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'attempted' %}active{% endif %}"
+                            id="attempted-tab"
+                            data-profile-tab="attempted"
+                            type="button"
+                            role="tab"
+                            aria-controls="attempted-tab-pane"
+                            aria-selected="{{ 'true' if active_tab == 'attempted' else 'false' }}">
+                        {{ render_icon(icon="history") }}
+                        <span>Attempted Problems</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'favorites' %}active{% endif %}"
+                            id="favorites-tab"
+                            data-profile-tab="favorites"
+                            type="button"
+                            role="tab"
+                            aria-controls="favorites-tab-pane"
+                            aria-selected="{{ 'true' if active_tab == 'favorites' else 'false' }}">
+                        {{ render_icon(icon="favorite") }}
+                        <span>Favorites</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'notifications' %}active{% endif %}"
+                            id="notifications-tab"
+                            data-profile-tab="notifications"
+                            type="button"
+                            role="tab"
+                            aria-controls="notifications-tab-pane"
+                            aria-selected="{{ 'true' if active_tab == 'notifications' else 'false' }}">
+                        {{ render_icon(icon="notifications") }}
+                        <span>Notifications</span>
+                        {% if notifications_unread_count > 0 %}
+                            <span class="badge bg-danger ms-1">{{ notifications_unread_count }}</span>
+                        {% endif %}
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'submissions' %}active{% endif %}"
+                            id="submissions-tab"
+                            data-profile-tab="submissions"
+                            type="button"
+                            role="tab"
+                            aria-controls="submissions-tab-pane"
+                            aria-selected="{{ 'true' if active_tab == 'submissions' else 'false' }}">
+                        {{ render_icon(icon="send") }}
+                        <span>Submissions</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'credits' %}active{% endif %}"
+                            id="credits-tab"
+                            data-profile-tab="credits"
+                            type="button"
+                            role="tab"
+                            aria-controls="credits-tab-pane"
+                            aria-selected="{{ 'true' if active_tab == 'credits' else 'false' }}">
+                        {{ render_icon(icon="credit_card") }}
+                        <span>AI Credits</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if active_tab == 'statistics' %}active{% endif %}"
+                            id="statistics-tab"
+                            data-profile-tab="statistics"
+                            type="button"
+                            role="tab"
+                            aria-controls="statistics-tab-pane"
+                            aria-selected="{{ 'true' if active_tab == 'statistics' else 'false' }}">
+                        {{ render_icon(icon="donut_large") }}
+                        <span>Statistics</span>
+                    </button>
+                </li>
+            </ul>
+        </nav>
         <div class="tab-content arena-profile-tab-content"
              id="profile-tabs-content">
             <div class="tab-pane fade {% if active_tab == 'personal-security' %}show active{% endif %}"
@@ -223,12 +247,20 @@
                  data-subdivisions-url="{{ request.url_for("arena_user_profile_subdivisions") }}"
                  data-detect-url="{{ request.url_for("arena_user_profile_location_detect") }}">
                 {% if active_tab == 'personal-security' %}
-                    <div class="row g-4 py-4">
-                        <div class="col-12 col-lg-7">
+                    <div class="row g-4 arena-profile-pane-grid arena-profile-settings-grid">
+                        <section class="col-12 col-lg-7 arena-profile-settings-column"
+                                 aria-labelledby="profile-details-heading">
+                            <div class="arena-profile-settings-heading">
+                                {{ render_icon(icon="badge") }}
+                                <div>
+                                    <h2 id="profile-details-heading">Profile details</h2>
+                                    <p>Identity, preferences, and how your profile appears to others.</p>
+                                </div>
+                            </div>
                             <form id="personal-data-form" novalidate>
-                                <dl class="arena-profile-details">
+                                <dl class="arena-profile-details arena-profile-settings-list">
                                     <dt class="visually-hidden">Personal information</dt>
-                                    <dd>
+                                    <dd class="arena-profile-settings-editor">
                                         <div class="row g-2">
                                             <div class="col-12 col-md-8">
                                                 <label for="profile-name-input" class="form-label">Name</label>
@@ -339,7 +371,7 @@
                                     </dd>
                                     <dt>Location</dt>
                                     <dd>
-                                        <div class="row g-2 align-items-start flex-wrap">
+                                        <div class="row g-2 align-items-start flex-wrap arena-profile-location-fields">
                                             <div class="col-auto">
                                                 <label for="profile-country-select" class="visually-hidden">Country</label>
                                                 <select class="form-select form-select-sm"
@@ -399,7 +431,7 @@
                                         </div>
                                     </dd>
                                 </dl>
-                                <div class="mt-3 d-flex align-items-center gap-2 flex-wrap">
+                                <div class="arena-profile-settings-savebar">
                                     <button type="submit"
                                             class="btn arena-btn-primary arena-icon-button btn-sm"
                                             id="profile-personal-save">
@@ -412,9 +444,17 @@
                                          id="profile-personal-success"></div>
                                 </div>
                             </form>
-                        </div>
-                        <div class="col-12 col-lg-5">
-                            <dl class="arena-profile-details">
+                        </section>
+                        <section class="col-12 col-lg-5 arena-profile-settings-column arena-profile-settings-column--security"
+                                 aria-labelledby="profile-security-heading">
+                            <div class="arena-profile-settings-heading">
+                                {{ render_icon(icon="shield_lock") }}
+                                <div>
+                                    <h2 id="profile-security-heading">Account security</h2>
+                                    <p>Password and two-factor authentication protections.</p>
+                                </div>
+                            </div>
+                            <dl class="arena-profile-details arena-profile-settings-list arena-profile-settings-list--summary">
                                 <dt>Two-factor authentication</dt>
                                 <dd>
                                     {% if current_user.usa_2fa %}
@@ -436,7 +476,7 @@
                                     </dd>
                                 {% endif %}
                             </dl>
-                            <div class="arena-security-actions d-flex flex-column gap-2 mt-3">
+                            <div class="arena-security-actions arena-profile-security-actions">
                                 <a href="{{ request.url_for("arena_change_password") }}"
                                    class="btn btn-outline-secondary arena-icon-button btn-sm">
                                     {{ render_icon(icon="key") }}
@@ -495,7 +535,7 @@
                                     </div>
                                 {% endif %}
                             </div>
-                        </div>
+                        </section>
                     </div>
                 {% endif %}
             </div>
@@ -577,7 +617,7 @@
                  aria-labelledby="credits-tab"
                  tabindex="0">
                 {% if active_tab == 'credits' %}
-                    <div class="py-4">
+                    <div>
                         <div class="row g-4 mb-4">
                             <div class="col-12 col-md-6">
                                 <dl class="arena-profile-details">
@@ -625,7 +665,7 @@
                  aria-labelledby="statistics-tab"
                  tabindex="0">
                 {% if active_tab == 'statistics' %}
-                    <div class="py-4">
+                    <div>
                         {% with stats_url=request.url_for("arena_user_profile_statistics") %}
                             {% include "users/_statistics_charts.html" %}
                         {% endwith %}

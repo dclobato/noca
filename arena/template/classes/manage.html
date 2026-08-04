@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -25,9 +25,9 @@
     </a>
 {% endmacro %}
 {% block content %}
-    <div class="container-fluid px-3 py-3">
-        <div class="arena-card mb-3">
-            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+    <div class="container-fluid px-0 px-md-3 py-3 arena-classes-manage">
+        <div class="arena-card arena-classes-manage-card mb-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3 arena-classes-manage-header">
                 <h1 class="arena-card-title mb-0">
                     {{ render_icon(icon="settings") }}
                     Manage classes
@@ -38,69 +38,141 @@
                     Add new class
                 </a>
             </div>
-            <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
-                {% with label="Search", input_type="text", field_id="search", field_name="search", value=search, placeholder="Class name" %}
+            <form method="get"
+                  class="d-flex flex-wrap gap-2 align-items-end mb-3 arena-classes-filter">
+                {% with label="Search",
+                    input_type="text",
+                    field_id="search",
+                    field_name="search",
+                    value=search,
+                    placeholder="Class name" %}
                     {% include "_partials/filter_search_field.html" %}
                 {% endwith %}
                 <input type="hidden" name="sort" value="{{ sort }}">
                 <input type="hidden" name="dir" value="{{ dir }}">
                 {% include "_partials/filter_submit_button.html" %}
                 {% set _filters_active = search %}
-                {% with clear_url=request.url_for("arena_classes_manage"), filters_active=_filters_active %}
+                {% with clear_url=request.url_for("arena_classes_manage"),
+                    filters_active=_filters_active %}
                     {% include "_partials/filter_clear_link.html" %}
                 {% endwith %}
             </form>
-            <p class="text-muted small mb-2">{{ managed.total }} class{{ 'es' if managed.total != 1 else '' }}</p>
-            {% with pagination=managed, page_param="page", label="Managed classes pagination", nav_margin="mb-2" %}
-                {% include "_partials/pagination.html" %}
-            {% endwith %}
-            <div class="table-responsive">
-                <table class="arena-table">
+            <div class="arena-classes-results">
+                <p class="arena-classes-results-count">
+                    <strong class="text-body">{{ managed.total }}</strong>
+                    class{{ 'es' if managed.total != 1 else '' }}
+                </p>
+                {% with pagination=managed,
+                    page_param="page",
+                    label="Managed classes pagination",
+                    nav_margin="mb-0" %}
+                    {% include "_partials/pagination.html" %}
+                {% endwith %}
+            </div>
+            <div class="table-responsive arena-classes-table-wrapper">
+                <table class="arena-table arena-classes-table">
                     <thead>
                         <tr>
-                            <th>{{ sort_link("Class name", "name", sort, dir) }}</th>
-                            {% if is_admin %}<th>Assigned teacher</th>{% endif %}
-                            <th>{{ sort_link("Start date", "starts_on", sort, dir) }}</th>
-                            <th>End date</th>
-                            <th class="arena-col-actions">Actions</th>
+                            <th class="arena-col-sortable arena-class-name">{{ sort_link("Class name", "name", sort, dir) }}</th>
+                            {% if is_admin %}<th class="arena-class-teacher">Assigned teacher</th>{% endif %}
+                            <th class="arena-col-sortable arena-class-schedule">{{ sort_link("Schedule", "starts_on", sort, dir) }}</th>
+                            <th class="arena-class-students">Students</th>
+                            <th class="arena-col-actions text-end">Manage</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for row in managed.items %}
                             <tr id="class-{{ row.class_id }}">
-                                <td>{{ row.name }}</td>
-                                {% if is_admin %}<td>{{ row.teacher_name }}</td>{% endif %}
-                                <td class="text-nowrap">{{ row.starts_on.isoformat() }}</td>
-                                <td class="text-nowrap">{{ row.finishes_on.isoformat() }}</td>
-                                <td class="arena-col-actions">
-                                    <a href="{{ request.url_for('arena_class_edit', class_id=row.class_id) }}"
-                                       class="btn arena-icon-button btn-sm"
-                                       data-bs-toggle="tooltip"
-                                       title="Edit class"
-                                       aria-label="Edit class">{{ render_icon(icon="edit") }}</a>
-                                    <a href="{{ request.url_for('arena_class_members', class_id=row.class_id) }}"
-                                       class="btn arena-icon-button btn-sm"
-                                       data-bs-toggle="tooltip"
-                                       title="Manage students"
-                                       aria-label="Manage students">{{ render_icon(icon="group") }}</a>
-                                    <a href="{{ request.url_for('arena_class_problem_set_list', class_id=row.class_id) }}"
-                                       class="btn arena-icon-button btn-sm"
-                                       data-bs-toggle="tooltip"
-                                       title="Manage problem sets"
-                                       aria-label="Manage problem sets">{{ render_icon(icon="assignment") }}</a>
+                                <td class="arena-class-name">
+                                    <div class="arena-class-name-layout">
+                                        <span class="fw-semibold arena-class-name-text">{{ row.name }}</span>
+                                    </div>
+                                </td>
+                                {% if is_admin %}<td class="arena-class-teacher" data-label="Teacher">{{ row.teacher_name }}</td>{% endif %}
+                                <td class="arena-class-schedule" data-label="Schedule">
+                                    <span class="arena-class-schedule-layout">
+                                        <time datetime="{{ row.starts_on.isoformat() }}">
+                                            {{ row.starts_on.isoformat() }}
+                                        </time>
+                                        {{ render_icon(icon="arrow_forward",
+                                                                                classes="arena-class-schedule-icon") }}
+                                        <time datetime="{{ row.finishes_on.isoformat() }}">
+                                            {{ row.finishes_on.isoformat() }}
+                                        </time>
+                                        {% if row.is_upcoming %}
+                                            <span class="badge text-info-emphasis bg-info-subtle border border-info-subtle arena-class-status">Upcoming</span>
+                                        {% elif row.is_running %}
+                                            <span class="badge text-success-emphasis bg-success-subtle border border-success-subtle arena-class-status">Running</span>
+                                        {% else %}
+                                            <span class="badge text-secondary-emphasis bg-secondary-subtle border border-secondary-subtle arena-class-status">Ended</span>
+                                        {% endif %}
+                                    </span>
+                                </td>
+                                <td class="arena-class-students" data-label="Students">{{ row.member_count }}</td>
+                                <td class="arena-col-actions" data-label="Manage class">
+                                    <div class="arena-class-actions"
+                                         role="group"
+                                         aria-label="Manage {{ row.name }}">
+                                        <a href="{{ request.url_for('arena_class_edit', class_id=row.class_id) }}"
+                                           class="btn arena-icon-button btn-sm"
+                                           data-bs-toggle="tooltip"
+                                           data-bs-container="body"
+                                           title="Edit class"
+                                           aria-label="Edit class">
+                                            {{ render_icon(icon="edit") }}
+                                            <span class="arena-class-action-label">Edit</span>
+                                        </a>
+                                        <a href="{{ request.url_for('arena_class_members', class_id=row.class_id) }}"
+                                           class="btn arena-icon-button btn-sm"
+                                           data-bs-toggle="tooltip"
+                                           data-bs-container="body"
+                                           title="Manage students"
+                                           aria-label="Manage students">
+                                            {{ render_icon(icon="group") }}
+                                            <span class="arena-class-action-label">Students</span>
+                                        </a>
+                                        <a href="{{ request.url_for('arena_class_problem_set_list', class_id=row.class_id) }}"
+                                           class="btn arena-icon-button btn-sm"
+                                           data-bs-toggle="tooltip"
+                                           data-bs-container="body"
+                                           title="Manage problem sets"
+                                           aria-label="Manage problem sets">
+                                            {{ render_icon(icon="assignment") }}
+                                            <span class="arena-class-action-label">Problem sets</span>
+                                        </a>
+                                    </div>
                                 </td>
                             </tr>
                         {% else %}
-                            <tr>
-                                <td colspan="{{ 5 if is_admin else 4 }}" class="arena-empty-state">No classes found.</td>
+                            <tr class="arena-classes-empty-row">
+                                <td colspan="{{ 5 if is_admin else 4 }}" class="arena-empty-state">
+                                    <div class="arena-classes-empty">
+                                        {{ render_icon(icon="school") }}
+                                        <strong>{{ "No matching classes" if search else "No classes yet" }}</strong>
+                                        {% if search %}
+                                            <span>Try another name or clear the current filter.</span>
+                                            <a href="{{ request.url_for("arena_classes_manage") }}"
+                                               class="btn btn-outline-secondary btn-sm">Clear filter</a>
+                                        {% else %}
+                                            <span>Create a class to start organizing students and problem sets.</span>
+                                            <a href="{{ request.url_for("arena_class_new") }}"
+                                               class="btn btn-primary btn-sm">
+                                                {{ render_icon(icon="add") }}
+                                                Add new class
+                                            </a>
+                                        {% endif %}
+                                    </div>
+                                </td>
                             </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            {% with pagination=managed, page_param="page", label="Managed classes pagination" %}
-                {% include "_partials/pagination.html" %}
-            {% endwith %}
+            <div class="arena-classes-pagination">
+                {% with pagination=managed, page_param="page", label="Managed classes pagination" %}
+                    {% include "_partials/pagination.html" %}
+                {% endwith %}
+            </div>
         </div>
     </div>
 {% endblock %}

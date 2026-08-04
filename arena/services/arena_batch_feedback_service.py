@@ -23,7 +23,7 @@ from datetime import datetime
 from typing import Any
 
 import anyio
-from sqlalchemy import Row, select
+from sqlalchemy import Row, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import Subquery
 
@@ -46,12 +46,11 @@ from shared.db_schema.arena import (
     arena_test_cases,
     arena_users,
 )
-from shared.enumerations import VERDICT_LABELS, ArenaRole, JudgmentStatus, Verdict
+from shared.enumerations import VERDICT_LABELS, ArenaRole, Verdict
 from shared.language_registry import highlightjs_language_for_language_id
+from shared.services.arena_query_helpers import active_arena_judgment_subquery
 from shared.services.testcase_files import read_testcase_full
 from shared.signal_names import describe_signal
-
-_SUPERSEDED = JudgmentStatus.SUPERSEDED.value
 
 # Fixed summary order requested by the teacher UI — differs from both the
 # ``Verdict`` enum declaration order and ``VERDICT_PRIORITY``.
@@ -149,7 +148,13 @@ class _MostRecentSubmissionRow:
 
 
 def _most_recent_judgment_subquery() -> Subquery:
-    """Return the outerjoin-able (non-superseded) judgment subquery."""
+    """Return the outerjoin-able active-judgment subquery, one row per submission.
+
+    A re-judged submission has more than one non-superseded judgment, so the
+    subquery is narrowed to each submission's most recent one. Without that, the
+    outer join fans out and a submission appears once per judgment.
+    """
+    active_j = active_arena_judgment_subquery()
     return (
         select(
             arena_submission_judgments.c.submission_id,
@@ -157,7 +162,15 @@ def _most_recent_judgment_subquery() -> Subquery:
             arena_submission_judgments.c.final_verdict,
             arena_submission_judgments.c.compile_log,
         )
-        .where(arena_submission_judgments.c.status != _SUPERSEDED)
+        .select_from(
+            arena_submission_judgments.join(
+                active_j,
+                and_(
+                    active_j.c.submission_id == arena_submission_judgments.c.submission_id,
+                    active_j.c.max_created_at == arena_submission_judgments.c.created_at,
+                ),
+            )
+        )
         .subquery()
     )
 

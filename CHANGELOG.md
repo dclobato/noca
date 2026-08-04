@@ -4,6 +4,28 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [15.2.0] - 2026-08-04
+
+### Features
+
+- **arena:** Overhaul UI and authentication flows
+- **arena:** Back ranking and student search with FTS and trigram indexes
+- **arena:** Refine class management UI
+- **arena:** Refine submission detail result view
+- **arena:** Polish report, ranking, and auth UI
+- **arena:** Polish batch feedback review layout
+- **arena:** Add class-wide problem-set report
+- **arena:** Align profile completion with auth flow
+
+### Bug Fixes
+
+- **arena:** Preserve report context on submission details
+- **arena:** Count each submission once in problem-set reports
+- **arena:** Show problem link underlines on hover
+- **arena:** Prevent class detail table overflow
+
+
+
 ## [15.1.0] - 2026-08-02
 
 ### Features

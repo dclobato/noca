@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_users import ArenaUser
+from arena.routes.class_route_guards import is_manager, require_user
 from arena.services import (
     arena_class_detail_service,
     arena_class_email_service,
@@ -31,8 +32,7 @@ from arena.services.arena_class_service import (
     ArenaClassValidationError,
 )
 from arena.services.pagination_service import build_pagination_params
-from arena.services.session_service import build_current_next_url, build_login_redirect_response
-from shared.enumerations import ArenaNotificationKind, ArenaRole
+from shared.enumerations import ArenaNotificationKind
 from shared.services.arena_notification_service import create_arena_notification
 
 router = APIRouter(tags=["arena-classes"])
@@ -48,18 +48,6 @@ def _html(response: Any) -> HTMLResponse:
 def _today() -> date:
     """Return the current local date."""
     return date.today()
-
-
-def _require_user(request: Request, current_user: ArenaUser | None) -> ArenaUser | RedirectResponse:
-    """Return the current user or a login redirect response."""
-    if current_user is None:
-        return build_login_redirect_response(request, next_url=build_current_next_url(request))
-    return current_user
-
-
-def _is_manager(user: ArenaUser) -> bool:
-    """Return whether the user can manage Arena classes."""
-    return user.role in {ArenaRole.ARENA_ADMIN, ArenaRole.ARENA_JUDGE}
 
 
 def _redirect_with_hash(url: str, fragment: str) -> RedirectResponse:
@@ -78,10 +66,10 @@ async def class_members(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render class membership management."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
-    if not _is_manager(user_or_redirect):
+    if not is_manager(user_or_redirect):
         raise HTTPException(status_code=403, detail="Forbidden")
     try:
         detail = await arena_class_detail_service.get_class_detail(session, class_id=class_id, today=_today())
@@ -127,7 +115,7 @@ async def class_member_student_autocomplete(
     """Return eligible student suggestions for class membership assignment."""
     if current_user is None:
         raise HTTPException(status_code=401, detail="Authentication required")
-    if not _is_manager(current_user):
+    if not is_manager(current_user):
         raise HTTPException(status_code=403, detail="Forbidden")
     try:
         rows = await arena_class_detail_service.search_student_autocomplete(
@@ -153,10 +141,10 @@ async def class_members_add(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Assign one or more selected students to a class."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
-    if not _is_manager(user_or_redirect):
+    if not is_manager(user_or_redirect):
         raise HTTPException(status_code=403, detail="Forbidden")
     form = await request.form()
     raw_ids = [str(user_id) for user_id in form.getlist("student_ids") if str(user_id).strip()]
@@ -210,7 +198,7 @@ async def class_request_approve(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Approve a class registration request."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
     try:
@@ -262,7 +250,7 @@ async def class_request_deny(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Deny a class registration request."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
     try:
@@ -314,7 +302,7 @@ async def class_member_remove(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Remove an active class membership."""
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
     try:

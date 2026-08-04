@@ -1,5 +1,5 @@
 {#  NOCA -- Next Online Contest Administrator
-    Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+    Copyright (c) 2026 The NOCA Authors (see AUTHORS)
     This program is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. #}
@@ -9,14 +9,7 @@
 <footer class="arena-footer">
     <div class="arena-footer-inner">
         <div class="arena-footer-meta">
-            <span>&copy; 2026 {{ brand_name }} &mdash; v{{ app_version }}
-                <button id="theme-toggle-btn"
-                        class="arena-footer-theme-toggle"
-                        aria-label="Toggle theme"
-                        title="Toggle dark mode">
-                    <i class="material-symbols-outlined">dark_mode</i>
-                </button>
-            </span>
+            <span>&copy; 2026 {{ brand_name }} &mdash; v{{ app_version }}</span>
             {% if next_rating_update %}
                 <span class="arena-footer-rating">Next difficulty and rating update in {{ next_rating_update }}</span>
             {% endif %}

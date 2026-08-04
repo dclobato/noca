@@ -20,7 +20,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.services.arena_problem_set_service import (
@@ -42,7 +42,8 @@ from shared.db_schema.arena import (
     arena_submissions,
     arena_users,
 )
-from shared.enumerations import VERDICT_PRIORITY, ArenaRole, JudgmentStatus, Verdict
+from shared.enumerations import VERDICT_PRIORITY, ArenaRole, Verdict
+from shared.services.arena_query_helpers import active_arena_judgment_subquery
 
 # Higher index in VERDICT_PRIORITY == better verdict (AC is last / best).
 _VERDICT_RANK: dict[str, int] = {v.value: i for i, v in enumerate(VERDICT_PRIORITY)}
@@ -222,9 +223,6 @@ async def list_problems_without_ac_for_user(
     )
 
 
-_SUPERSEDED = JudgmentStatus.SUPERSEDED.value
-
-
 @dataclass(frozen=True)
 class StudentSubmissionEntry:
     """A single submission by a student for one problem in a problem set."""
@@ -275,21 +273,14 @@ async def get_student_problem_submissions_for_set(
     _problem_set, arena_class = await _load_set_and_class(session, set_id)
     _assert_teacher(arena_class, actor_id=actor_id, actor_role=actor_role)
 
-    active_j_sq = (
-        select(
-            arena_submission_judgments.c.submission_id,
-            arena_submission_judgments.c.final_verdict,
-        )
-        .where(arena_submission_judgments.c.status != _SUPERSEDED)
-        .subquery()
-    )
+    active_j_sq = active_arena_judgment_subquery()
 
     rows = (
         await session.execute(
             select(
                 arena_submissions.c.id,
                 arena_submissions.c.created_at,
-                active_j_sq.c.final_verdict,
+                arena_submission_judgments.c.final_verdict,
                 arena_problems.c.id.label("problem_id"),
                 arena_problems.c.arena_number,
                 arena_problems.c.title,
@@ -303,6 +294,13 @@ async def get_student_problem_submissions_for_set(
                 .outerjoin(
                     active_j_sq,
                     arena_submissions.c.id == active_j_sq.c.submission_id,
+                )
+                .outerjoin(
+                    arena_submission_judgments,
+                    and_(
+                        arena_submission_judgments.c.submission_id == arena_submissions.c.id,
+                        arena_submission_judgments.c.created_at == active_j_sq.c.max_created_at,
+                    ),
                 )
                 .outerjoin(
                     arena_submission_teacher_feedback,

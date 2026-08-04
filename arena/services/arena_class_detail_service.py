@@ -30,6 +30,7 @@ from arena.services.arena_class_service import (
     _active_members_subquery,
     _assert_teacher_or_admin,
 )
+from arena.services.identity_search_service import prepare_user_search, user_relevance_ordering
 from arena.services.pagination_service import Pagination, PaginationParams
 from shared.db_schema.arena import (
     arena_affiliations,
@@ -312,7 +313,11 @@ async def search_student_autocomplete(
         actor_id: Acting user's id.
         actor_role: Acting user's role.
         class_id: UUID of the class.
-        query: Free-text query matched against name and email.
+        query: Free-text query matched against name and email through
+            ``identity_search_service``: PostgreSQL full-text and fuzzy matching
+            on the name plus substring matching on name and email. Results are
+            ordered by relevance rather than by name, because the list is
+            truncated to ``limit`` and the best match has to survive that cut.
         limit: Maximum results (clamped to 1–25).
 
     Returns:
@@ -340,25 +345,17 @@ async def search_student_autocomplete(
         arena_class_registration_requests.c.status == ArenaClassRegistrationStatus.PENDING.value,
     )
     clean_query = query.strip()
-    stmt = (
-        select(arena_users.c.id, arena_users.c.nome, arena_users.c.email_normalizado)
-        .where(
-            arena_users.c.role == ArenaRole.ARENA_USER.value,
-            arena_users.c.ativo.is_(True),
-            arena_users.c.email_confirmado.is_(True),
-            arena_users.c.id.not_in(active_users),
-            arena_users.c.id.not_in(pending_users),
-        )
-        .order_by(arena_users.c.nome.asc())
-        .limit(max(1, min(limit, 25)))
+    stmt = select(arena_users.c.id, arena_users.c.nome, arena_users.c.email_normalizado).where(
+        arena_users.c.role == ArenaRole.ARENA_USER.value,
+        arena_users.c.ativo.is_(True),
+        arena_users.c.email_confirmado.is_(True),
+        arena_users.c.id.not_in(active_users),
+        arena_users.c.id.not_in(pending_users),
     )
     if clean_query:
-        like = f"%{clean_query}%"
-        stmt = stmt.where(
-            or_(
-                arena_users.c.nome.ilike(like),
-                arena_users.c.email_normalizado.ilike(like),
-            )
-        )
+        stmt = stmt.where(arena_users.c.id.in_(await prepare_user_search(session, clean_query)))
+    stmt = stmt.order_by(*user_relevance_ordering(session, clean_query), arena_users.c.nome.asc()).limit(
+        max(1, min(limit, 25))
+    )
     rows = (await session.execute(stmt)).all()
     return [StudentAutocompleteRow(user_id=user_id, label=f"{name} <{email}>") for user_id, name, email in rows]

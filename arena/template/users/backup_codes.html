@@ -7,51 +7,69 @@
 #}
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon %}
-{% block title_suffix %}&mdash; Your backup codes{% endblock %}
+{% block title_suffix %}&mdash; Your recovery codes{% endblock %}
 {% block content %}
-    <div class="row justify-content-center">
-        <div class="col-12 col-md-8 col-lg-6">
-            <div class="arena-card">
-                <h2 class="arena-card-title">
-                    {{ render_icon(icon="key") }}
-                    Your backup codes
-                </h2>
-                {# One-time warning banner #}
-                <div class="arena-backup-warning mb-4">
+    <section class="arena-backup-page" aria-labelledby="backup-codes-title">
+        <header class="arena-backup-header">
+            <div class="arena-backup-header-icon" aria-hidden="true">{{ render_icon(icon="verified_user") }}</div>
+            <div>
+                <h1 id="backup-codes-title">Two-factor authentication is on</h1>
+                <p>Save your recovery codes now to finish securing your account.</p>
+            </div>
+        </header>
+        <div class="arena-card arena-backup-sheet">
+            <section class="arena-backup-guidance" aria-labelledby="backup-guidance-title">
+                <h2 id="backup-guidance-title">Save these before you leave</h2>
+                <p>
+                    Recovery codes are your way back into Arena if you lose access to your
+                    authenticator app.
+                </p>
+                <div class="arena-backup-warning" role="note">
                     {{ render_icon(icon="warning") }}
                     <div class="arena-backup-warning-text">
-                        <strong>These codes are shown once only.</strong>
-                        Save them in a safe place. Each code can be used once to access your account
-                        if you lose access to your authenticator app.
+                        <strong>These codes are shown only once.</strong>
+                        Each code works one time. Keep them private and separate from your device.
                     </div>
                 </div>
-                {# Backup codes grid #}
-                <div class="row g-2 mb-4" id="backup-codes-grid">
+                <ul class="arena-backup-checklist">
+                    <li>{{ render_icon(icon="password") }} Store them in a password manager or another private place.</li>
+                    <li>{{ render_icon(icon="visibility_off") }} Never share them with anyone, including staff.</li>
+                </ul>
+            </section>
+            <div class="arena-backup-divider" aria-hidden="true"></div>
+            <section class="arena-backup-codes" aria-labelledby="recovery-codes-title">
+                <div class="arena-backup-codes-heading">
+                    <h2 id="recovery-codes-title">Your recovery codes</h2>
+                    <span>{{ codes|length }} one-time codes</span>
+                </div>
+                <ul class="arena-backup-code-grid" id="backup-codes-grid">
                     {% for code in codes %}
-                        <div class="col-6 col-sm-4">
-                            <div class="arena-backup-code-cell">{{ code }}</div>
-                        </div>
+                        <li>
+                            <code class="arena-backup-code-cell">{{ code }}</code>
+                        </li>
                     {% endfor %}
-                </div>
-                {# Copy all button #}
-                <div class="d-flex justify-content-end mb-4">
-                    <button type="button"
-                            class="btn arena-btn-primary arena-icon-button"
-                            id="copy-codes-btn">
-                        {{ render_icon(icon="content_copy") }}
-                        <span>Copy all codes</span>
-                    </button>
-                </div>
-                {# Confirm saved form #}
+                </ul>
+                <button type="button"
+                        class="btn btn-outline-secondary arena-icon-button arena-backup-copy"
+                        id="copy-codes-btn">
+                    {{ render_icon(icon="content_copy") }}
+                    <span data-copy-label>Copy all codes</span>
+                </button>
+                <p class="arena-backup-copy-status"
+                   data-copy-status
+                   role="status"
+                   aria-live="polite"></p>
                 <form method="get" action="{{ request.url_for("arena_user_profile") }}">
-                    <button type="submit" class="btn arena-btn-primary arena-icon-button w-100">
+                    <input type="hidden" name="tab" value="personal-security">
+                    <button type="submit"
+                            class="btn arena-btn-primary arena-icon-button arena-backup-finish w-100">
                         {{ render_icon(icon="check_circle") }}
-                        <span>I've saved my codes</span>
+                        <span>I've saved my recovery codes</span>
                     </button>
                 </form>
-            </div>
+            </section>
         </div>
-    </div>
+    </section>
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for("static_shared_js", path="clipboard.js") }}?v={{ app_version }}"></script>

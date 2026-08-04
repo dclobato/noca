@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -41,6 +41,7 @@ from arena.services.problem_search_service import (
 )
 from shared.db_schema.arena import arena_problem_category_map as _cat_map_table
 from shared.db_schema.arena import arena_problem_custom_validators as _custom_validator_table
+from shared.db_schema.arena import arena_submission_judgments as _arena_submission_judgments
 from shared.db_schema.arena import arena_submissions as _arena_submissions
 from shared.db_schema.arena import arena_users as _users_table
 from shared.enumerations import ArenaRole, CustomValidatorActiveState, JudgmentStatus, StatementLanguage
@@ -701,7 +702,15 @@ async def delete_problem(session: AsyncSession, problem: ArenaProblem) -> int:
 
 
 async def build_rejudge_jobs(session: AsyncSession, problem_id: str) -> list[ArenaSubmissionJob]:
-    """Create new QUEUED judgment rows for every submission and return their jobs.
+    """Supersede every submission's active judgments and queue fresh ones.
+
+    Each submission's existing non-superseded judgments are marked
+    ``SUPERSEDED`` before its new ``QUEUED`` judgment is inserted, exactly as the
+    single-submission rejudge in
+    :func:`arena.services.admin_submission_service.force_rejudge_arena_submission`
+    does. Leaving the old judgment active would give the submission two live
+    judgments, which fans out every query that outer-joins active judgments and
+    makes one submission appear once per judgment.
 
     The caller owns the database transaction and must commit before enqueueing
     the returned jobs, so the worker never picks up a job whose rows are not yet
@@ -730,6 +739,14 @@ async def build_rejudge_jobs(session: AsyncSession, problem_id: str) -> list[Are
 
     jobs: list[ArenaSubmissionJob] = []
     for submission_id, user_id, language_id in rows:
+        await session.execute(
+            update(_arena_submission_judgments)
+            .where(
+                _arena_submission_judgments.c.submission_id == submission_id,
+                _arena_submission_judgments.c.status != JudgmentStatus.SUPERSEDED.value,
+            )
+            .values(status=JudgmentStatus.SUPERSEDED.value)
+        )
         judgment = ArenaSubmissionJudgment(
             id=str(uuid.uuid4()),
             submission_id=submission_id,

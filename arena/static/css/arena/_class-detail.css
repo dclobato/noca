@@ -1,0 +1,305 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Class detail
+   ============================================================ */
+.arena-class-detail-page {
+    max-width: var(--arena-max-width);
+    margin-inline: auto;
+}
+
+.arena-class-detail-card {
+    padding: 0;
+}
+.arena-class-detail-header {
+    gap: var(--arena-space-md);
+    padding: var(--arena-space-md) var(--arena-gutter);
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+
+.arena-class-detail-title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.arena-class-detail-title .material-symbols-outlined {
+    flex: 0 0 auto;
+}
+
+.arena-class-detail-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--arena-space-sm);
+}
+
+.arena-class-detail-header-actions form {
+    display: flex;
+}
+
+.arena-class-detail-overview {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(20rem, 0.75fr);
+    gap: var(--arena-space-lg);
+    padding: var(--arena-gutter);
+}
+
+.arena-class-detail-description {
+    max-width: 65ch;
+}
+
+.arena-class-detail-description > p {
+    line-height: 1.6;
+}
+
+.arena-class-detail-section-title {
+    margin: 0 0 0.35rem;
+    font-size: 1rem;
+    line-height: 1.4;
+}
+
+.arena-class-detail-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1rem;
+    margin: 0;
+}
+
+.arena-class-detail-meta > div {
+    min-width: 0;
+}
+
+.arena-class-detail-meta dt {
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    line-height: 1.1;
+    text-transform: uppercase;
+}
+
+.arena-class-detail-meta dd {
+    margin: 0.2rem 0 0;
+    overflow-wrap: anywhere;
+}
+
+.arena-class-detail-problem-sets {
+    border-top: 1px solid var(--arena-outline-variant);
+}
+.arena-class-detail-problem-sets:last-child {
+    padding-bottom: var(--arena-gutter);
+}
+
+.arena-class-detail-section-heading {
+    padding: var(--arena-space-md) var(--arena-gutter) 0;
+}
+
+.arena-class-detail-table-wrapper {
+    margin: var(--arena-space-md) var(--arena-gutter) 0;
+    border-block: 1px solid var(--arena-outline-variant);
+}
+
+.arena-class-detail-table {
+    min-width: 52rem;
+}
+
+.arena-class-detail-table .arena-class-detail-name-column {
+    width: 34%;
+    min-width: 16rem;
+    overflow-wrap: anywhere;
+}
+
+.arena-class-detail-description-text {
+    display: block;
+    margin-top: 0.2rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    line-height: 1.35;
+}
+
+.arena-class-detail-table .arena-class-detail-count {
+    width: 6rem;
+    min-width: 6rem;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.arena-class-detail-table .arena-class-detail-date {
+    width: 11rem;
+    min-width: 11rem;
+    overflow-wrap: anywhere;
+    text-align: center;
+}
+
+.arena-class-detail-table .arena-class-detail-status {
+    width: 1%;
+    min-width: 7rem;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.arena-class-detail-table .noca-clickable-row:focus-visible {
+    outline: 2px solid var(--arena-primary);
+    outline-offset: -2px;
+}
+
+.arena-class-detail-empty,
+.arena-class-detail-access-note {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    padding: var(--arena-space-lg) var(--arena-gutter);
+    color: var(--arena-on-surface-variant);
+    text-align: center;
+}
+
+.arena-class-detail-empty .material-symbols-outlined,
+.arena-class-detail-access-note .material-symbols-outlined {
+    color: var(--arena-outline);
+    font-size: 2rem;
+}
+
+.arena-class-detail-empty strong {
+    color: var(--arena-on-surface);
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1rem;
+}
+
+.arena-class-detail-access-note {
+    flex-direction: row;
+    justify-content: center;
+    border-top: 1px solid var(--arena-outline-variant);
+    background-color: var(--arena-surface-container-low);
+}
+
+/* The sidebar remains visible above the mobile breakpoint, so use the
+   available content width to prevent the seven-column table from scrolling. */
+@media (max-width: 1399.98px) {
+    .arena-class-detail-table-wrapper {
+        overflow: visible;
+    }
+
+    .arena-class-detail-table,
+    .arena-class-detail-table tbody {
+        display: block;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .arena-class-detail-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+
+    .arena-class-detail-table tbody tr {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem 1rem;
+        padding: var(--arena-space-md) 0;
+        border-bottom: 1px solid var(--arena-outline-variant);
+    }
+
+    .arena-class-detail-table tbody tr:last-child {
+        border-bottom: 0;
+    }
+
+    .arena-class-detail-table tbody tr:hover {
+        background-color: transparent;
+    }
+
+    .arena-class-detail-table tbody td {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+        width: auto;
+        min-width: 0;
+        padding: 0;
+        white-space: normal;
+        text-align: left;
+    }
+
+    .arena-class-detail-table tbody td[data-label]::before {
+        color: var(--arena-on-surface-variant);
+        content: attr(data-label);
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 1;
+        text-transform: uppercase;
+    }
+
+    .arena-class-detail-table tbody .arena-class-detail-name-column,
+    .arena-class-detail-table tbody .arena-class-detail-status {
+        grid-column: 1 / -1;
+    }
+
+    .arena-class-detail-table tbody .arena-class-detail-count,
+    .arena-class-detail-table tbody .arena-class-detail-date,
+    .arena-class-detail-table tbody .arena-class-detail-status {
+        width: auto;
+        min-width: 0;
+        text-align: left;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .arena-class-detail-overview {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .arena-class-detail-card {
+        border-inline: 0;
+        border-radius: 0;
+    }
+
+    .arena-class-detail-header,
+    .arena-class-detail-overview,
+    .arena-class-detail-section-heading {
+        padding-inline: var(--arena-space-md);
+    }
+
+    .arena-class-detail-header {
+        align-items: flex-start;
+    }
+
+    .arena-class-detail-title {
+        flex-basis: 100%;
+    }
+
+    .arena-class-detail-header-actions,
+    .arena-class-detail-header-actions > .btn,
+    .arena-class-detail-header-actions > form,
+    .arena-class-detail-header-actions > form > .btn {
+        width: 100%;
+    }
+
+    .arena-class-detail-header-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .arena-class-detail-meta {
+        grid-template-columns: 1fr;
+    }
+
+    .arena-class-detail-table-wrapper {
+        margin-inline: var(--arena-space-md);
+    }
+}

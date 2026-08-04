@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -14,7 +14,7 @@
     border-top: 1px solid var(--arena-outline-variant);
     font-family: 'Public Sans', sans-serif;
     font-size: 0.75rem;
-    color: #6c757d;
+    color: var(--arena-on-surface-variant);
     padding: 1rem 1.5rem;
     margin-top: auto;
     position: sticky;
@@ -42,27 +42,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem 1rem;
-}
-
-.arena-footer-theme-toggle {
-    background: none;
-    border: 0;
-    color: inherit;
-    cursor: pointer;
-    display: inline-flex;
-    line-height: 1;
-    margin-left: 0.35rem;
-    padding: 0;
-    vertical-align: middle;
-}
-
-.arena-footer-theme-toggle:hover,
-.arena-footer-theme-toggle:focus-visible {
-    color: var(--arena-on-surface);
-}
-
-.arena-footer-theme-toggle .material-symbols-outlined {
-    font-size: 1rem;
 }
 
 .arena-footer-rating {
@@ -108,7 +87,7 @@
 }
 
 .arena-footer-online-dot {
-    background-color: var(--bs-success, #198754);
+    background-color: var(--arena-primary);
     border-radius: 50%;
     display: inline-block;
     height: 0.5rem;
@@ -116,7 +95,7 @@
 }
 
 .arena-footer a {
-    color: #6c757d;
+    color: var(--arena-on-surface-variant);
     text-decoration: underline;
     text-underline-offset: 3px;
     transition: color 0.15s ease;

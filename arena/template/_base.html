@@ -45,26 +45,36 @@
         {% block extra_head %}{% endblock %}
     </head>
     <body>
+        <a class="visually-hidden-focusable arena-skip-link"
+           href="#arena-main-content">Skip to main content</a>
         <header class="arena-topbar">
             <div class="arena-topbar-inner">
-                <a class="navbar-brand noca-navbar-brand"
-                   href="{{ request.url_for("arena_dashboard") }}">
-                    <img src="{{ request.url_for('arena_static_img', path='logo-128x128.png') }}"
-                         width="96"
-                         height="96"
-                         alt=""
-                         aria-hidden="true"
-                         class="arena-navbar-logo">
-                    <span>{{ brand_name }}</span>
-                </a>
+                <div class="arena-topbar-identity">
+                    <button type="button"
+                            class="arena-topbar-action arena-mobile-menu-toggle"
+                            data-arena-mobile-menu-toggle
+                            aria-label="Open navigation"
+                            aria-controls="arena-sidebar"
+                            aria-expanded="false">{{ render_icon(icon="menu", classes="arena-topbar-icon") }}</button>
+                    <a class="navbar-brand noca-navbar-brand"
+                       href="{{ request.url_for("arena_dashboard") }}"
+                       aria-label="{{ brand_name }} dashboard">
+                        <img src="{{ request.url_for('arena_static_img', path='logo-128x128.png') }}"
+                             width="48"
+                             height="48"
+                             alt=""
+                             aria-hidden="true"
+                             class="arena-navbar-logo">
+                        <span class="arena-navbar-brand-name">{{ brand_name }}</span>
+                    </a>
+                </div>
                 <div class="arena-topbar-main">
                     <div class="arena-topbar-actions">
                         <button type="button"
-                                class="arena-topbar-action arena-mobile-menu-toggle"
-                                data-arena-mobile-menu-toggle
-                                aria-label="Open navigation"
-                                aria-expanded="false">
-                            {{ render_icon(icon="menu", classes="arena-topbar-icon") }}
+                                class="arena-topbar-action"
+                                id="theme-toggle-btn"
+                                aria-label="Toggle theme">
+                            {{ render_icon(icon="dark_mode", classes="arena-topbar-icon") }}
                         </button>
                         {% if current_user %}
                             {% set unread_notifications = request.state.arena_unread_notification_count | default(0) %}
@@ -75,15 +85,21 @@
                                         class="arena-topbar-action arena-notifications-toggle"
                                         aria-label="Notifications"
                                         title="Notifications"
+                                        aria-controls="arena-notifications-menu"
                                         aria-expanded="false"
                                         data-arena-notifications-toggle>
                                     {{ render_icon(icon="notifications", classes="arena-topbar-icon") }}
                                     <span class="arena-notifications-badge{% if unread_notifications == 0 %} d-none{% endif %}"
                                           data-arena-notifications-badge>{{ unread_notifications }}</span>
                                 </button>
-                                <div class="arena-notifications-menu" data-arena-notifications-menu hidden>
+                                <div class="arena-notifications-menu"
+                                     id="arena-notifications-menu"
+                                     data-arena-notifications-menu
+                                     hidden>
                                     <div class="arena-notifications-header">Notifications</div>
-                                    <div class="arena-notifications-list" data-arena-notifications-list>
+                                    <div class="arena-notifications-list"
+                                         data-arena-notifications-list
+                                         aria-live="polite">
                                         <div class="arena-notifications-empty">No notifications.</div>
                                     </div>
                                 </div>
@@ -93,6 +109,7 @@
                                         class="arena-avatar-link"
                                         aria-label="Open user menu"
                                         aria-haspopup="true"
+                                        aria-controls="arena-user-menu-dropdown"
                                         aria-expanded="false"
                                         data-arena-user-menu-toggle>
                                     <span class="avatar-wrapper avatar-wrapper--sm"
@@ -103,7 +120,14 @@
                                              title="{{ current_user.nome }}">
                                     </span>
                                 </button>
-                                <div class="arena-user-menu-dropdown" data-arena-user-menu-dropdown hidden>
+                                <div class="arena-user-menu-dropdown"
+                                     id="arena-user-menu-dropdown"
+                                     data-arena-user-menu-dropdown
+                                     hidden>
+                                    <div class="arena-user-menu-summary">
+                                        <span class="arena-user-menu-summary-label">Signed in as</span>
+                                        <strong>{{ current_user.nome }}</strong>
+                                    </div>
                                     <a href="{{ request.url_for("arena_user_profile") }}"
                                        class="arena-user-menu-item">
                                         {{ render_icon(icon="account_circle", classes="arena-user-menu-icon") }}
@@ -126,7 +150,9 @@
             <div class="arena-sidebar-backdrop"
                  data-arena-mobile-sidebar-backdrop
                  hidden></div>
-            <aside class="arena-sidebar d-md-flex">
+            <aside class="arena-sidebar d-md-flex"
+                   id="arena-sidebar"
+                   aria-label="Primary navigation">
                 <button type="button"
                         class="arena-sidebar-toggle"
                         data-arena-sidebar-toggle
@@ -274,7 +300,7 @@
                     {% endif %}
                 </div>
             </aside>
-            <main class="arena-main">
+            <main class="arena-main" id="arena-main-content" tabindex="-1">
                 <div id="flash-messages">{{ render_flash_messages(full_width=True) }}</div>
                 {% block content %}{% endblock %}
             </main>

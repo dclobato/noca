@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -460,6 +460,8 @@ async def test_admin_user_profile_renders_target_user(session: AsyncSession) -> 
     assert "Personal &amp; Security" in response.text
     assert "AI Credits" in response.text
     assert "Login History" in response.text
+    assert "data-profile-navigation-toggle" in response.text
+    assert 'aria-controls="admin-profile-tabs"' in response.text
     assert "Solved Problems" not in response.text
     assert "Attempted Problems" not in response.text
     assert "Favorites" not in response.text
@@ -1027,6 +1029,9 @@ def test_profile_tab_nav_preserves_non_tab_query_parameters() -> None:
 
     assert "new URLSearchParams(window.location.search)" in script
     assert 'params.set("tab", btn.dataset.profileTab)' in script
+    assert 'PROFILE_NAV_STORAGE_KEY = "noca-arena-profile-sidebar-collapsed"' in script
+    assert 'workspace.classList.toggle("is-profile-navigation-collapsed", collapsed)' in script
+    assert 'toggle.setAttribute("aria-expanded", String(!collapsed))' in script
     tab_params = script.partition("TAB_PARAMS = [")[2].partition("];")[0]
     assert '"search"' not in tab_params
     assert '"per_page"' not in tab_params

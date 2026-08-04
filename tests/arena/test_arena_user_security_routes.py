@@ -323,6 +323,12 @@ async def test_2fa_setup_authenticated_no_2fa_renders_setup_page(session: AsyncS
 
     assert response.status_code == 200
     assert "2fa" in response.text.lower() or "authenticator" in response.text.lower() or "qr" in response.text.lower()
+    assert "Back to account security" in response.text
+    assert response.text.count('name="full_code"') == 1
+    assert 'inputmode="numeric"' in response.text
+    assert 'pattern="[0-9]{6}"' in response.text
+    assert 'name="otp_1"' not in response.text
+    assert "two_factor.js" not in response.text
 
 
 @pytest.mark.asyncio
@@ -655,6 +661,10 @@ async def test_backup_codes_page_with_codes_in_session_renders_page(
     assert response.status_code == 200
     # At least one backup code must appear in the rendered page.
     assert any(code in response.text for code in fake_codes)
+    assert "Two-factor authentication is on" in response.text
+    assert "These codes are shown only once." in response.text
+    assert "data-copy-status" in response.text
+    assert "I've saved my recovery codes" in response.text
     shared_clipboard_position = response.text.index("clipboard.js?v=test")
     backup_codes_position = response.text.index("backup_codes.js?v=test")
     assert shared_clipboard_position < backup_codes_position

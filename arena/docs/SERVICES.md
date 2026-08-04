@@ -559,7 +559,9 @@ helpers never load statements, images, or validator source bodies.
 
 ### `problem_search_service.py`
 
-This service keeps public and administrative problem search semantics aligned.
+This service keeps public and administrative problem search semantics aligned. It shares
+its wildcard-escaping, operator-detection, and trigram-threshold rules with the ranking
+search through `text_search_primitives.py`.
 
 | Symbol | Description |
 |---|---|
@@ -1460,10 +1462,53 @@ Public-facing ranking queries for the Arena Ranking section.
 
 | Function | Description |
 |----------|-------------|
-| `get_ranked_users_paginated(session, *, search, affiliation_id, page, per_page)` | Returns `Pagination[RankedUser]`. Uses a CTE to compute global `RANK()` before applying search/affiliation filters. Eligible: `ativo=True`, `email_confirmado=True`, `role=ARENA_USER`. |
-| `get_ranked_affiliations_paginated(session, *, search, country_code, subdivision_code, page, per_page)` | Returns `Pagination[RankedAffiliation]` with global affiliation rank via `RANK()` CTE ordered by rating desc, name asc. |
+| `get_ranked_users_paginated(session, *, search, affiliation_id, page, per_page)` | Returns `Pagination[RankedUser]`. Uses a CTE to compute global `RANK()` before applying search/affiliation filters. Eligible: `ativo=True`, `email_confirmado=True`, `ranking_visible=True`. Search delegates to `identity_search_service` and is applied as `ranked_cte.c.id.in_(...)`; it filters only and never reorders, so a user's rank is the same whether or not a search is active. |
+| `get_ranked_affiliations_paginated(session, *, search, country_code, subdivision_code, page, per_page)` | Returns `Pagination[RankedAffiliation]` with global affiliation rank via `RANK()` CTE ordered by rating desc, name asc. Search delegates to `identity_search_service` under the same filter-only contract. |
 | `get_affiliation_filter_options(session, *, country_code)` | Returns `(countries, subdivisions)` as two `list[LocationChoice]` sourced only from distinct values in the affiliations table. |
 | `get_affiliation_or_404(session, affiliation_id)` | Fetches `ArenaAffiliation` by ID or raises `HTTPException(404)`. |
+
+---
+
+### `identity_search_service.py`
+
+Indexed candidate-ID search over Arena users and affiliations, shared by the Ranking
+pages and the class-membership student autocomplete. Callers receive a **candidate-ID
+selectable against the base table** and apply it as `<outer query>.c.id.in_(...)`. That
+shape exists because the ranked CTEs carry a `RANK()` window function, so a `WHERE`
+written against their columns can never be pushed down to the base table and can never
+use an index; the same selectable also serves callers that query `arena_users` directly.
+Each branch constrains exactly one column so PostgreSQL can serve it from one index and
+BitmapOr the branches together.
+
+The candidate query deliberately omits every eligibility predicate (`ativo` /
+`email_confirmado` / `ranking_visible` / role, `exclude_from_ranking`): each caller
+already applies the ones it needs, so the join discards any ineligible ID the search
+matched.
+
+| Function | Description |
+|----------|-------------|
+| `prepare_user_search(session, query)` | Returns a selectable of matching `arena_users.id`. On PostgreSQL: a `simple`-configuration FTS branch on `nome` (`ix_arena_users_nome_fts_gin`), plus escaped-substring branches on `nome` (`ix_arena_users_nome_trgm`) and `email_normalizado` (`ix_arena_users_email_normalizado_trgm`) and a 3+-character fuzzy `%` branch on `nome`. Email is substring-only — an address is an exact identifier, so fuzzy email matching would be noise. Queries with quoted phrases, `OR`, or `-` negation keep only the FTS branch so operators stay authoritative. SQLite uses a portable escaped-substring predicate. |
+| `prepare_affiliation_search(session, query)` | Returns a selectable of matching `arena_affiliations.id` using the same three-branch shape on `name` (`ix_arena_affiliations_name_fts_gin`, `ix_arena_affiliations_name_trgm`) and the same operator-suppression and SQLite fallback rules. |
+| `user_relevance_ordering(session, query)` | Returns `ORDER BY` terms over `arena_users` — literal (substring) hits first, then descending `similarity(nome, query)`, then name. **Opt-in, and only for callers that truncate their result set**: fuzzy matching adds rows containing no literal trace of the query, so an alphabetical order can push the intended row past the cut-off. Empty for a blank query, name-only off PostgreSQL. The ranking pages must not use it — they order by `global_rank`. |
+
+The FTS configuration is `simple` on purpose: names are proper nouns, so stemming and
+stopword removal would lose information rather than add recall. Both vector expressions
+must stay byte-identical to the DDL in migration `202608030001` or PostgreSQL will not
+match the expression index; a unit test asserts that.
+
+---
+
+### `text_search_primitives.py`
+
+The narrow kernel shared by `problem_search_service` and `identity_search_service`, holding
+the rules that must not diverge between search paths.
+
+| Symbol | Description |
+|--------|-------------|
+| `escaped_substring_pattern(query)` | Builds a `%`-wrapped ILIKE pattern in which the user's own `%`, `_`, and backslash match literally (backslash escaped first). |
+| `uses_websearch_syntax(query)` | True for a quoted phrase, an `OR`, or a leading `-` negation — the signal to suppress substring and fuzzy fallback branches. |
+| `apply_trigram_threshold(session)` | Pins `pg_trgm.similarity_threshold` for the current transaction (`SET LOCAL`) so `%` matching is deterministic regardless of server configuration. |
+| `LIKE_ESCAPE` / `MIN_FUZZY_QUERY_LENGTH` / `TRIGRAM_SIMILARITY_THRESHOLD` | The shared constants (`\`, `3`, `0.3`). |
 
 ---
 
@@ -1496,7 +1541,7 @@ UI-facing DTOs: `ClassDetail`, `UserClassRow`, `ManagedClassRow`,
 | `list_managed_class_rows_paginated(session, *, actor_id, actor_role, today, params, search="", sort="name", direction="asc")` | UI list for the manage tab. Judges see their assigned classes; admins see all classes. |
 | `list_class_members_management_paginated(session, *, actor_id, actor_role, class_id, params, sort="name", direction="asc")` | Teacher/admin membership page list. Combines active members and pending registration requests. |
 | `search_teacher_autocomplete(session, *, query, affiliation_id=None, limit=10)` | Teacher search helper returning judge users formatted as `Full name <email>`. When `affiliation_id` is set, results are restricted to that affiliation. |
-| `search_student_autocomplete(session, *, actor_id, actor_role, class_id, query, limit=10)` | Teacher/admin student search helper for direct class assignment. Returns active, confirmed `ARENA_USER` accounts formatted as `Full name <email>`, excluding active members and pending registration requests for the class. |
+| `search_student_autocomplete(session, *, actor_id, actor_role, class_id, query, limit=10)` | Teacher/admin student search helper for direct class assignment. Returns active, confirmed `ARENA_USER` accounts formatted as `Full name <email>`, excluding active members and pending registration requests for the class. Matching delegates to `identity_search_service.prepare_user_search` (full-text, substring, and fuzzy on the name; substring-only on the email) and orders by `user_relevance_ordering` — the result set is truncated to `limit`, so the best match must come first or it is never shown. |
 
 ### `arena_class_query_service.py`
 
@@ -1582,6 +1627,7 @@ banner/checkbox.
 | `list_problems_in_set(session, *, actor_id, actor_role, set_id)` | Teacher/admin or active member. Problems ordered by `arena_number`. |
 | `add_problems_to_set(session, *, actor_id, actor_role, set_id, refs)` | Teacher/admin only. `refs` resolve by `arena_number` (digits) or UUID `id`; idempotent. Unknown refs raise validation. |
 | `remove_problems_from_set(session, *, actor_id, actor_role, set_id, refs)` | Teacher/admin only. Removes junction rows and resets related submissions to private. |
+| `set_tied_verdicts_for_sets(session, set_ids)` | Single source of truth for set-tied results, batched over any number of sets. Maps `(set_id, user_id, problem_id)` to that pair's verdicts, taking exactly one verdict per submission (from its active, non-superseded judgment) and joining `arena_problem_set_problems` so a problem removed from the set stops counting. Used by both the per-set report and the class-wide report so the two cannot diverge. |
 | `problem_accepting_set_for_user(session, *, problem_id, user_id, now)` | The most urgent (earliest deadline) accepting set containing the problem in a class the user is active in, or None. |
 | `problem_in_any_set_for_user(session, *, problem_id, user_id)` | True when the problem is in any set (any window) of a class the user is active in. |
 
@@ -1663,6 +1709,37 @@ pages.
 | `list_problem_set_problems(session, *, actor_id, actor_role, set_id)` | Teacher/admin only. Returns the problem rows for the manage-problems page with Arena number, title, plain-text categories, and display rating. |
 | `search_set_candidate_problems(session, *, actor_id, actor_role, set_id, query, limit=10)` | Teacher/admin only. Autocomplete source for adding problems. Searches enabled problems not already in the set by title and, for numeric queries, Arena number prefix. |
 | `build_teacher_problem_set_report(session, *, actor_id, actor_role, set_id, now)` | Teacher/admin only. Builds the UI-ready report matrix over active class members and set problems, with best verdict per cell and an optional snapshot rating column when a due-set snapshot already exists. |
+
+---
+
+### `arena_class_full_report_service.py`
+
+Builds the class-wide problem-set report: one row per active class member, one
+column per problem set whose deadline has already passed, and a weighted total.
+Every query is batched across the whole class, so adding a set or a student does
+not add a query. Read-only; the caller owns the transaction boundary.
+
+Columns are numbered from 1 in deadline-descending order, matching the default
+order of the teacher problem-set list. A cell's AC rate counts *distinct*
+problems accepted through the submission's active (non-superseded) judgment, so
+a re-judged or repeatedly accepted problem still counts once, and it is clamped
+to the set's problem count. The total weights each set by its problem count,
+which reduces to the student's accepted problems over every problem in the
+report.
+
+Each column also carries a `histogram`: `HISTOGRAM_BINS` (10) counts binning the
+class's AC rates for that set across 0-100% in equal steps, with a perfect 100%
+closed into the last bin. It is empty for a set with no problems, since there is
+then no rate to distribute. The legend table renders it as a small chart, so the
+page needs no extra endpoint; `ClassFullReport.histogram_max` carries the
+tallest bin across every set, which the charts share as a fixed y maximum.
+
+**Dataclasses:** `FullReportSetColumn`, `FullReportCell`, `FullReportStudentRow`,
+`ClassFullReport`.
+
+| Function | Description |
+|----------|-------------|
+| `build_class_full_report(session, *, actor_id, actor_role, class_id, now)` | Teacher/admin only. Returns the legend columns, one row per active student, and the per-set and class-wide averages. Raises `ArenaProblemSetNotFoundError` for an unknown class and `ArenaProblemSetPermissionError` for any other actor. A class with no closed sets or no students is a valid empty report, not an error. |
 
 ---
 

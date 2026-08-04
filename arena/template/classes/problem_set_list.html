@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -21,6 +21,9 @@
         {% endif %}
     </a>
 {% endmacro %}
+{% macro sort_aria(field) -%}
+    {{- 'ascending' if sort == field and direction == 'asc' else 'descending' if sort == field and direction == 'desc' else 'none' -}}
+{%- endmacro %}
 {% block title_suffix %}&mdash; Problem Sets{% endblock %}
 {% block nav_classes %}active{% endblock %}
 {% block nav_classes_manage %}active{% endblock %}
@@ -29,18 +32,23 @@
           href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
 {% endblock %}
 {% block content %}
-    <div class="container-fluid px-3 py-3">
-        <div class="arena-card mb-3">
-            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+    <div class="container-fluid px-0 px-md-3 py-3 arena-problem-sets-page">
+        <div class="arena-card arena-problem-sets-card mb-3">
+            <header class="d-flex flex-wrap align-items-center justify-content-between arena-problem-sets-header">
                 <h1 class="arena-card-title mb-0">
                     {{ render_icon(icon="assignment") }}
                     Problem Sets
                 </h1>
-                <div class="d-flex flex-wrap gap-2">
+                <div class="arena-problem-sets-header-actions">
                     <a href="{{ request.url_for("arena_classes_manage") }}#class-{{ class_detail.class_id }}"
                        class="btn btn-secondary btn-sm">
                         {{ render_icon(icon="arrow_back") }}
                         Back to classes
+                    </a>
+                    <a href="{{ request.url_for('arena_class_full_report', class_id=class_detail.class_id).include_query_params(page=pagination.page, sort=sort, direction=direction) }}"
+                       class="btn btn-secondary btn-sm">
+                        {{ render_icon(icon="table_chart") }}
+                        Full report
                     </a>
                     <button type="button"
                             class="btn btn-primary btn-sm"
@@ -50,84 +58,136 @@
                         Add new problem set
                     </button>
                 </div>
+            </header>
+            <div class="arena-problem-sets-context">
+                <p class="arena-problem-sets-class-name">{{ class_detail.name }}</p>
+                <div class="arena-problem-sets-meta">
+                    <span>
+                        {{ render_icon(icon="person") }}
+                        {{ class_detail.teacher_name }}
+                    </span>
+                    <span>
+                        {{ render_icon(icon="date_range") }}
+                        <time datetime="{{ class_detail.starts_on.isoformat() }}">{{ class_detail.starts_on.isoformat() }}</time>
+                        <span aria-hidden="true">–</span>
+                        <time datetime="{{ class_detail.finishes_on.isoformat() }}">{{ class_detail.finishes_on.isoformat() }}</time>
+                    </span>
+                </div>
             </div>
-            <div class="mb-3">
-                <p class="mb-1 fw-semibold">{{ class_detail.name }}</p>
-                <p class="text-muted small mb-0">
-                    {{ class_detail.teacher_name }} · {{ class_detail.starts_on.isoformat() }} to {{ class_detail.finishes_on.isoformat() }}
-                </p>
+            <div class="arena-problem-sets-results">
+                <div>
+                    <h2 class="arena-problem-sets-results-heading">Problem sets</h2>
+                    <p class="arena-problem-sets-results-count">
+                        <strong class="text-body">{{ pagination.total }}</strong>
+                        problem set{{ 's' if pagination.total != 1 else '' }}
+                    </p>
+                </div>
+                <div class="arena-problem-sets-pagination">
+                    {% with pagination=pagination, page_param="page", label="Problem sets pagination", nav_margin="mb-0" %}
+                        {% include "_partials/pagination.html" %}
+                    {% endwith %}
+                </div>
             </div>
-            <p class="text-muted small mb-2">{{ pagination.total }} problem set{{ 's' if pagination.total != 1 else '' }}</p>
-            {% with pagination=pagination, page_param="page", label="Problem sets pagination", nav_margin="mb-2" %}
-                {% include "_partials/pagination.html" %}
-            {% endwith %}
-            <div class="table-responsive">
-                <table class="arena-table">
+            <div class="table-responsive arena-problem-sets-table-wrapper">
+                <table class="arena-table arena-problem-sets-table">
                     <thead>
                         <tr>
-                            <th>{{ sort_link('Name', 'name') }}</th>
+                            <th class="arena-col-sortable" aria-sort="{{ sort_aria("name") }}">{{ sort_link('Name', 'name') }}</th>
                             <th class="text-end">Problems</th>
-                            <th>{{ sort_link('Start date', 'starts_on') }}</th>
-                            <th>{{ sort_link('Deadline', 'deadline') }}</th>
+                            <th class="arena-col-sortable" aria-sort="{{ sort_aria("starts_on") }}">{{ sort_link('Start date', 'starts_on') }}</th>
+                            <th class="arena-col-sortable" aria-sort="{{ sort_aria("deadline") }}">{{ sort_link('Deadline', 'deadline') }}</th>
                             <th class="arena-col-actions">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for row in pagination.items %}
                             <tr id="set-{{ row.set_id }}">
-                                <td>
-                                    <div class="fw-semibold">{{ row.name }}</div>
-                                    {% if row.description %}<div class="small text-muted">{{ row.description }}</div>{% endif %}
+                                <td class="arena-problem-set-name" data-label="Problem set">
+                                    <div class="fw-semibold arena-problem-set-name-text">{{ row.name }}</div>
+                                    {% if row.description %}
+                                        <div class="small text-muted arena-problem-set-description">{{ row.description }}</div>
+                                    {% endif %}
                                 </td>
-                                <td class="text-end">{{ row.problem_count }}</td>
-                                <td class="text-nowrap">{{ arena_format_datetime(row.starts_on, current_user) if row.starts_on else '—' }}</td>
-                                <td class="text-nowrap">
+                                <td class="arena-problem-set-count" data-label="Problems">{{ row.problem_count }}</td>
+                                <td class="arena-problem-set-date" data-label="Start date">
+                                    {{ arena_format_datetime(row.starts_on, current_user) if row.starts_on else '—' }}
+                                </td>
+                                <td class="arena-problem-set-deadline" data-label="Deadline">
                                     {{ arena_format_datetime(row.deadline, current_user) if row.deadline else '—' }}
                                     {% if row.is_accepting %}<span class="badge text-bg-success ms-1">Accepting</span>{% endif %}
                                 </td>
-                                <td class="arena-col-actions">
-                                    <a href="{{ request.url_for('arena_class_problem_set_manage', class_id=class_detail.class_id, set_id=row.set_id) }}?page={{ pagination.page }}&sort={{ sort }}&direction={{ direction }}"
-                                       class="btn arena-icon-button btn-sm"
-                                       data-bs-toggle="tooltip"
-                                       title="Manage problems"
-                                       aria-label="Manage problems">{{ render_icon(icon="list_alt") }}</a>
-                                    <a href="{{ request.url_for('arena_class_problem_set_report', class_id=class_detail.class_id, set_id=row.set_id) }}?page={{ pagination.page }}&sort={{ sort }}&direction={{ direction }}"
-                                       class="btn arena-icon-button btn-sm"
-                                       data-bs-toggle="tooltip"
-                                       title="Report"
-                                       aria-label="Report">{{ render_icon(icon="table_view") }}</a>
-                                    <button type="button"
-                                            class="btn arena-icon-button btn-sm text-danger"
-                                            data-problem-set-delete-button
-                                            data-name="{{ row.name }}"
-                                            data-action="{{ request.url_for('arena_class_problem_set_delete', class_id=class_detail.class_id, set_id=row.set_id) }}"
-                                            data-page="{{ pagination.page }}"
-                                            data-sort="{{ sort }}"
-                                            data-direction="{{ direction }}"
-                                            data-bs-toggle="tooltip"
-                                            title="Remove problem set"
-                                            aria-label="Remove problem set">{{ render_icon(icon="delete") }}</button>
+                                <td class="arena-col-actions" data-label="Actions">
+                                    <div class="arena-problem-set-actions"
+                                         role="group"
+                                         aria-label="Manage {{ row.name }}">
+                                        <a href="{{ request.url_for('arena_class_problem_set_manage', class_id=class_detail.class_id, set_id=row.set_id) }}?page={{ pagination.page }}&sort={{ sort }}&direction={{ direction }}"
+                                           class="btn arena-icon-button btn-sm"
+                                           data-bs-toggle="tooltip"
+                                           title="Manage problems"
+                                           aria-label="Manage problems">
+                                            {{ render_icon(icon="list_alt") }}
+                                            <span class="arena-problem-set-action-label">Manage</span>
+                                        </a>
+                                        <a href="{{ request.url_for('arena_class_problem_set_report', class_id=class_detail.class_id, set_id=row.set_id) }}?page={{ pagination.page }}&sort={{ sort }}&direction={{ direction }}"
+                                           class="btn arena-icon-button btn-sm"
+                                           data-bs-toggle="tooltip"
+                                           title="Report"
+                                           aria-label="Report">
+                                            {{ render_icon(icon="table_view") }}
+                                            <span class="arena-problem-set-action-label">Report</span>
+                                        </a>
+                                        <button type="button"
+                                                class="btn arena-icon-button btn-sm text-danger"
+                                                data-problem-set-delete-button
+                                                data-name="{{ row.name }}"
+                                                data-action="{{ request.url_for('arena_class_problem_set_delete', class_id=class_detail.class_id, set_id=row.set_id) }}"
+                                                data-page="{{ pagination.page }}"
+                                                data-sort="{{ sort }}"
+                                                data-direction="{{ direction }}"
+                                                data-bs-toggle="tooltip"
+                                                title="Remove problem set"
+                                                aria-label="Remove problem set">
+                                            {{ render_icon(icon="delete") }}
+                                            <span class="arena-problem-set-action-label">Remove</span>
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         {% else %}
-                            <tr>
-                                <td colspan="5" class="arena-empty-state">No problem sets found.</td>
+                            <tr class="arena-problem-sets-empty-row">
+                                <td colspan="5" class="arena-empty-state">
+                                    <div class="arena-problem-sets-empty">
+                                        {{ render_icon(icon="assignment") }}
+                                        <strong>No problem sets yet</strong>
+                                        <span>Create a problem set to give this class a practice schedule.</span>
+                                        <button type="button"
+                                                class="btn btn-primary btn-sm"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#problem-set-create-modal">
+                                            {{ render_icon(icon="add") }}
+                                            Add new problem set
+                                        </button>
+                                    </div>
+                                </td>
                             </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            {% with pagination=pagination, page_param="page", label="Problem sets pagination" %}
-                {% include "_partials/pagination.html" %}
-            {% endwith %}
+            <div class="arena-problem-sets-bottom-pagination">
+                {% with pagination=pagination, page_param="page", label="Problem sets pagination" %}
+                    {% include "_partials/pagination.html" %}
+                {% endwith %}
+            </div>
         </div>
     </div>
     <div class="modal fade"
          id="problem-set-create-modal"
          tabindex="-1"
          aria-labelledby="problem-set-create-modal-label"
+         aria-describedby="problem-set-create-modal-description"
          aria-hidden="true">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
             <form method="post"
                   class="modal-content"
                   action="{{ request.url_for('arena_class_problem_set_create', class_id=class_detail.class_id) }}">
@@ -138,7 +198,7 @@
                             data-bs-dismiss="modal"
                             aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
+                <div class="modal-body" id="problem-set-create-modal-description">
                     <div class="mb-3">
                         <label class="form-label" for="problem_set_name">Name</label>
                         <input type="text"
@@ -191,7 +251,7 @@
          tabindex="-1"
          aria-labelledby="problem-set-delete-modal-label"
          aria-hidden="true">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-centered">
             <form method="post" class="modal-content" data-problem-set-delete-form>
                 <input type="hidden"
                        name="page"

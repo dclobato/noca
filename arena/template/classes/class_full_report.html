@@ -1,0 +1,235 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon, render_avatar with context %}
+{% macro rate(value, ac_count=none, problem_count=none) %}
+    {%- if value is none -%}
+        <span class="arena-class-full-report-void" aria-hidden="true">&mdash;</span><span class="visually-hidden">Not applicable</span>
+    {%- else -%}
+        <span class="arena-class-full-report-rate-value">{{ '%.1f'|format(value) }}%</span>
+        {%- if ac_count is not none and problem_count is not none -%}
+            <span class="arena-class-full-report-rate-detail">{{ ac_count }}/{{ problem_count }} <span class="visually-hidden">problems accepted</span></span>
+        {%- endif -%}
+    {%- endif -%}
+{% endmacro %}
+{% block title_suffix %}&mdash; Full Class Report{% endblock %}
+{% block nav_classes %}active{% endblock %}
+{% block nav_classes_manage %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-0 px-md-3 py-3 arena-class-full-report-page">
+        <div class="arena-card arena-class-full-report-card mb-3">
+            <header class="d-flex flex-wrap align-items-center justify-content-between arena-class-full-report-header">
+                <h1 class="arena-card-title mb-0">
+                    {{ render_icon(icon="table_chart") }}
+                    Full Class Report
+                </h1>
+                <div class="arena-class-full-report-header-actions d-print-none">
+                    <a href="{{ back_url }}" class="btn btn-secondary btn-sm">
+                        {{ render_icon(icon="arrow_back") }}
+                        Back to problem sets
+                    </a>
+                    {% if report.sets %}
+                        <a href="{{ csv_url }}" class="btn btn-secondary btn-sm">
+                            {{ render_icon(icon="download") }}
+                            Download CSV
+                        </a>
+                    {% endif %}
+                </div>
+            </header>
+            <div class="arena-class-full-report-context">
+                <div>
+                    <p class="arena-class-full-report-name">{{ class_detail.name }}</p>
+                    <p class="arena-class-full-report-lead mb-0">
+                        Accepted-problem rate per student on every problem set whose deadline has passed.
+                    </p>
+                </div>
+                <div class="arena-class-full-report-meta">
+                    <span>
+                        {{ render_icon(icon="person") }}
+                        <span>{{ class_detail.teacher_name }}</span>
+                    </span>
+                    <span>
+                        {{ render_icon(icon="assignment_turned_in") }}
+                        <span>
+                            <strong>{{ report.sets | length }}</strong> closed problem set{{ 's' if report.sets | length != 1 else '' }}
+                        </span>
+                    </span>
+                    <span>
+                        {{ render_icon(icon="group") }}
+                        <span>
+                            <strong>{{ report.students | length }}</strong> student{{ 's' if report.students | length != 1 else '' }}
+                        </span>
+                    </span>
+                    <span>
+                        {{ render_icon(icon="checklist") }}
+                        <span>
+                            <strong>{{ report.total_problem_count }}</strong> problem{{ 's' if report.total_problem_count != 1 else '' }}
+                        </span>
+                    </span>
+                </div>
+            </div>
+            {% if not report.sets %}
+                <section class="arena-class-full-report-empty"
+                         aria-labelledby="full-report-empty-heading">
+                    {{ render_icon(icon="assignment_late") }}
+                    <h2 id="full-report-empty-heading">No closed problem sets yet</h2>
+                    <p class="mb-0">
+                        A problem set joins this report once its deadline has passed. Sets that are still
+                        open, or that have no deadline, are left out.
+                    </p>
+                </section>
+            {% else %}
+                <section class="arena-class-full-report-legend"
+                         aria-labelledby="full-report-legend-heading">
+                    <h2 class="arena-class-full-report-section-title"
+                        id="full-report-legend-heading">Problem sets</h2>
+                    <p class="arena-class-full-report-section-copy">
+                        The matrix below refers to each set by its number. Each histogram bins the
+                        class into 10 AC-rate steps from 0% to 100%; the vertical axis counts students.
+                    </p>
+                    <div class="table-responsive">
+                        <table class="arena-table arena-class-full-report-legend-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col" class="arena-class-full-report-legend-index-column">#</th>
+                                    <th scope="col">Problem set</th>
+                                    <th scope="col" class="arena-class-full-report-histogram-column">AC rate spread</th>
+                                    <th scope="col" class="text-end">Problems</th>
+                                    <th scope="col">Deadline</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for column in report.sets %}
+                                    <tr>
+                                        <td data-label="#">
+                                            <span class="arena-class-full-report-marker">[{{ column.index }}]</span>
+                                        </td>
+                                        <td data-label="Problem set">
+                                            <a href="{{ request.url_for('arena_class_problem_set_report', class_id=class_id, set_id=column.set_id) }}"
+                                               class="arena-class-full-report-set-link">{{ column.name }}</a>
+                                        </td>
+                                        <td class="arena-class-full-report-histogram-cell"
+                                            data-label="AC rate spread">
+                                            {% if column.histogram %}
+                                                <div class="arena-class-full-report-histogram"
+                                                     data-ac-rate-histogram
+                                                     data-counts="{{ column.histogram | tojson }}"
+                                                     data-y-max="{{ report.histogram_max }}"
+                                                     role="img"
+                                                     aria-label="AC rate distribution for {{ column.name }}; exact rates are in the student matrix below.">
+                                                </div>
+                                            {% else %}
+                                                <span class="arena-class-full-report-void" aria-hidden="true">&mdash;</span>
+                                                <span class="visually-hidden">No rates to distribute</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-end font-monospace small" data-label="Problems">{{ column.problem_count }}</td>
+                                        <td class="text-arena-muted small" data-label="Deadline">
+                                            {{ arena_format_datetime(column.deadline, current_user) }}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="arena-class-full-report-matrix"
+                         aria-labelledby="full-report-matrix-heading">
+                    <div class="arena-class-full-report-section-heading">
+                        <div>
+                            <h2 class="arena-class-full-report-section-title"
+                                id="full-report-matrix-heading">Student matrix</h2>
+                            <p class="arena-class-full-report-section-copy mb-0">
+                                Each cell shows the AC percentage and accepted-problem count. Total weights
+                                each set by its number of problems, across all {{ report.total_problem_count }}.
+                            </p>
+                        </div>
+                        <span class="arena-class-full-report-hint">Scroll horizontally to compare sets.</span>
+                    </div>
+                    <div class="arena-class-full-report-table-wrapper">
+                        <table class="arena-table arena-class-full-report-table">
+                            <caption class="visually-hidden">Accepted-problem rate per student and problem set</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col" class="arena-class-full-report-student-column">Student</th>
+                                    {% for column in report.sets %}
+                                        <th scope="col" class="text-end arena-class-full-report-rate-column">
+                                            <a href="{{ request.url_for('arena_class_problem_set_report', class_id=class_id, set_id=column.set_id) }}"
+                                               aria-label="{{ column.name }}"
+                                               title="{{ column.name }}">[{{ column.index }}]</a>
+                                        </th>
+                                    {% endfor %}
+                                    <th scope="col"
+                                        class="text-end arena-class-full-report-rate-column arena-class-full-report-total-column">
+                                        Total
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in report.students %}
+                                    <tr id="student-{{ row.user_id }}">
+                                        <th scope="row"
+                                            class="arena-class-full-report-student-cell"
+                                            data-label="Student">
+                                            <span class="arena-class-full-report-student-identity">
+                                                {{ render_avatar(row.user_id, request.url_for('arena_user_avatar_by_id', user_id=row.user_id) , img_class="rounded-circle object-fit-cover flex-shrink-0") }}
+                                                <span>{{ row.user_name }}</span>
+                                            </span>
+                                        </th>
+                                        {% for cell in row.cells %}
+                                            {% set column = report.sets[loop.index0] %}
+                                            {% set rate_state = ' arena-class-full-report-rate-cell--complete' if cell.ac_rate == 100 else ' arena-class-full-report-rate-cell--zero' if cell.ac_rate == 0 else '' %}
+                                            <td class="text-end text-nowrap font-monospace small arena-class-full-report-rate-cell{{ rate_state }}"
+                                                data-label="[{{ column.index }}] {{ column.name }}"
+                                                {% if cell.ac_rate is not none %}title="{{ cell.ac_count }} of {{ cell.problem_count }} problem{{ 's' if cell.problem_count != 1 else '' }} accepted"{% endif %}>
+                                                {{ rate(cell.ac_rate, cell.ac_count, cell.problem_count) }}
+                                            </td>
+                                        {% endfor %}
+                                        {% set total_rate_state = ' arena-class-full-report-rate-cell--complete' if row.total_rate == 100 else ' arena-class-full-report-rate-cell--zero' if row.total_rate == 0 else '' %}
+                                        <td class="text-end text-nowrap font-monospace small fw-semibold arena-class-full-report-rate-cell arena-class-full-report-total-cell{{ total_rate_state }}"
+                                            data-label="Total"
+                                            {% if row.total_rate is not none %}title="{{ row.total_ac_count }} of {{ row.total_problem_count }} problem{{ 's' if row.total_problem_count != 1 else '' }} accepted"{% endif %}>
+                                            {{ rate(row.total_rate, row.total_ac_count, row.total_problem_count) }}
+                                        </td>
+                                    </tr>
+                                {% else %}
+                                    <tr>
+                                        <td colspan="{{ 2 + (report.sets | length) }}" class="arena-empty-state">No active students in this class yet.</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                            {% if report.students %}
+                                <tfoot>
+                                    <tr>
+                                        <th scope="row" class="arena-class-full-report-student-cell">Class average</th>
+                                        {% for average in report.set_average_rates %}
+                                            {% set column = report.sets[loop.index0] %}
+                                            <td class="text-end text-nowrap font-monospace small arena-class-full-report-rate-cell"
+                                                data-label="[{{ column.index }}] {{ column.name }} average">
+                                                {{ rate(average) }}
+                                            </td>
+                                        {% endfor %}
+                                        <td class="text-end text-nowrap font-monospace small fw-semibold arena-class-full-report-rate-cell arena-class-full-report-total-cell"
+                                            data-label="Total average">{{ rate(report.class_average_rate) }}</td>
+                                    </tr>
+                                </tfoot>
+                            {% endif %}
+                        </table>
+                    </div>
+                </section>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
+{% block extra_script %}
+    {% if report.sets %}
+        <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
+        <script src="{{ request.url_for('static_shared_js', path='noca-echarts-theme.js') }}?v={{ app_version }}"></script>
+        <script src="{{ request.url_for('arena_static_js', path='arena-ac-rate-histogram.js') }}?v={{ app_version }}"></script>
+    {% endif %}
+{% endblock %}

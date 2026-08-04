@@ -1,19 +1,26 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon, render_avatar with context %}
+{% macro student_report_link(row) %}
+    <a href="{{ request.url_for('arena_class_problem_set_report_student', class_id=class_id, set_id=report.set_id, user_id=row.user_id) }}"
+       class="arena-report-student-link">
+        {{ render_avatar(row.user_id, request.url_for('arena_user_avatar_by_id', user_id=row.user_id) , img_class="rounded-circle object-fit-cover flex-shrink-0") }}
+        <span>{{ row.user_name }}</span>
+    </a>
+{% endmacro %}
 {% block title_suffix %}&mdash; Problem Set Report{% endblock %}
 {% block nav_classes %}active{% endblock %}
 {% block nav_classes_manage %}active{% endblock %}
 {% block content %}
-    <div class="container-fluid px-3 py-3">
-        <div class="arena-card mb-3">
-            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+    <div class="container-fluid px-0 px-md-3 py-3 arena-problem-set-report-page">
+        <div class="arena-card arena-problem-set-report-card mb-3">
+            <header class="d-flex flex-wrap align-items-center justify-content-between arena-problem-set-report-header">
                 <h1 class="arena-card-title mb-0">
                     {{ render_icon(icon="table_view") }}
                     Problem Set Report
@@ -23,81 +30,236 @@
                     {{ render_icon(icon="arrow_back") }}
                     Return to problem sets list
                 </a>
-            </div>
-            <div class="mb-3">
-                <p class="mb-1 fw-semibold">{{ report.name }}</p>
-                <p class="text-muted small mb-0">{{ class_detail.name }}</p>
-            </div>
-            {% if report.students %}
-                <div class="d-flex flex-wrap gap-3 mb-3">
-                    <span class="badge text-bg-warning fs-6">{{ report.no_ac_student_count }} student{{ 's' if report.no_ac_student_count != 1 else '' }} with 0 AC</span>
-                    <span class="badge text-bg-secondary fs-6">{{ report.no_submission_student_count }} student{{ 's' if report.no_submission_student_count != 1 else '' }} with no submission</span>
+            </header>
+            <div class="arena-problem-set-report-context">
+                <div>
+                    <p class="arena-problem-set-report-name">{{ report.name }}</p>
+                    <p class="arena-problem-set-report-class mb-0">{{ class_detail.name }}</p>
+                    {% if report.description %}
+                        <p class="arena-problem-set-report-description mb-0">{{ report.description }}</p>
+                    {% endif %}
                 </div>
-            {% endif %}
-            <div class="table-responsive">
-                <table class="arena-table">
-                    <thead>
-                        <tr>
-                            <th>User</th>
-                            <th></th>
-                            {% for problem in report.problems %}
-                                <th class="text-center">
-                                    <a href="{{ request.url_for('arena_problem_detail', arena_number=problem.arena_number) }}">{{ problem.arena_number }}</a>
-                                </th>
-                            {% endfor %}
-                            {% if report.snapshot_available %}<th class="text-end">Snapshot rating</th>{% endif %}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in report.students %}
-                            <tr id="student-{{ row.user_id }}">
-                                <td>
-                                    <a href="{{ request.url_for('arena_class_problem_set_report_student', class_id=class_id, set_id=report.set_id, user_id=row.user_id) }}"
-                                       class="d-inline-flex align-items-center gap-2">
-                                        {{ render_avatar(row.user_id, request.url_for('arena_user_avatar_by_id', user_id=row.user_id) , img_class="rounded-circle object-fit-cover flex-shrink-0") }}
-                                        <span>{{ row.user_name }}</span>
-                                    </a>
-                                </td>
-                                <td class="text-end text-nowrap font-monospace small">
-                                    {{ row.verdicts | select('equalto', 'AC') | list | length }}/{{ report.problems | length }}
-                                </td>
-                                {% for verdict in row.verdicts %}
-                                    <td class="text-center">
-                                        {% if verdict %}
-                                            <span class="badge {{ verdict_badge_classes.get(verdict, 'bg-secondary') }} font-monospace">{{ verdict }}</span>
-                                        {% else %}
-                                            --
-                                        {% endif %}
-                                    </td>
-                                {% endfor %}
-                                {% if report.snapshot_available %}
-                                    <td class="text-end">{{ row.snapshot_rating if row.snapshot_rating is not none else '—' }}</td>
-                                {% endif %}
-                            </tr>
-                        {% else %}
-                            <tr>
-                                <td colspan="{{ 2 + (report.problems | length) + (1 if report.snapshot_available else 0) }}"
-                                    class="arena-empty-state">No registered students found.</td>
-                            </tr>
-                        {% endfor %}
-                        {% if report.students %}
-                            <tr class="fw-semibold text-muted small">
-                                <td colspan="2">AC per problem</td>
-                                {% for i in range(report.problems | length) %}
-                                    {% set ns = namespace(count=0) %}
-                                    {% for student in report.students %}
-                                        {% if student.verdicts[i] == 'AC' %}
-                                            {% set ns.count = ns.count + 1 %}
-                                        {% endif %}
-                                    {% endfor %}
-                                    <td class="text-center">{{ ns.count }}</td>
-                                {% endfor %}
-                                {% if report.snapshot_available %}<td></td>{% endif %}
-                            </tr>
-                        {% endif %}
-                    </tbody>
-                </table>
+                <div class="arena-problem-set-report-meta">
+                    {% if report.starts_on %}
+                        <span>
+                            {{ render_icon(icon="play_arrow") }}
+                            <span>Starts {{ arena_format_datetime(report.starts_on, current_user) }}</span>
+                        </span>
+                    {% endif %}
+                    {% if report.deadline %}
+                        <span>
+                            {{ render_icon(icon="schedule") }}
+                            <span>Due {{ arena_format_datetime(report.deadline, current_user) }}</span>
+                        </span>
+                    {% endif %}
+                    {% if report.snapshot_available %}<span class="badge text-bg-secondary">Snapshot available</span>{% endif %}
+                </div>
             </div>
+            {% set total_students = report.students | length %}
+            {% set problem_count = report.problems | length %}
+            {% set submitted_no_ac_count = report.no_ac_student_count - report.no_submission_student_count %}
+            {% set ac_student_count = total_students - report.no_ac_student_count %}
+            {% set complete_ac_students = namespace(count=0) %}
+            {% if problem_count > 0 %}
+                {% for student in report.students %}
+                    {% set student_ac_count = student.verdicts | select('equalto', 'AC') | list | length %}
+                    {% if student_ac_count == problem_count %}
+                        {% set complete_ac_students.count = complete_ac_students.count + 1 %}
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+            {% if report.students %}
+                <section class="arena-problem-set-report-overview"
+                         aria-labelledby="report-overview-heading">
+                    <h2 class="arena-problem-set-report-section-title"
+                        id="report-overview-heading">Student progress</h2>
+                    <p class="arena-problem-set-report-section-copy">
+                        Start with the follow-up groups below, then use the matrix for problem-by-problem detail.
+                    </p>
+                    <div class="arena-problem-set-report-status-overview">
+                        <a href="#report-follow-up"
+                           class="arena-problem-set-report-status-summary arena-problem-set-report-status-summary--none">
+                            {{ render_icon(icon="person_outline") }}
+                            <span>
+                                <strong>{{ report.no_submission_student_count }}</strong>
+                                <span>student{{ 's' if report.no_submission_student_count != 1 else '' }} with no submissions</span>
+                                <small>Nothing submitted to this set yet.</small>
+                            </span>
+                        </a>
+                        <a href="#report-follow-up"
+                           class="arena-problem-set-report-status-summary arena-problem-set-report-status-summary--warning">
+                            {{ render_icon(icon="flag") }}
+                            <span>
+                                <strong>{{ report.no_ac_student_count }}</strong>
+                                <span>student{{ 's' if report.no_ac_student_count != 1 else '' }} with no AC yet</span>
+                                <small>{{ submitted_no_ac_count }} submitted without an accepted solution; includes students with no submissions.</small>
+                            </span>
+                        </a>
+                        <a href="#report-student-matrix"
+                           class="arena-problem-set-report-status-summary arena-problem-set-report-status-summary--success">
+                            {{ render_icon(icon="check_circle") }}
+                            <span>
+                                <strong>{{ ac_student_count }}</strong>
+                                <span>student{{ 's' if ac_student_count != 1 else '' }} with an AC</span>
+                                <small>At least one problem accepted.</small>
+                            </span>
+                        </a>
+                        <a href="#report-student-matrix"
+                           class="arena-problem-set-report-status-summary arena-problem-set-report-status-summary--complete">
+                            {{ render_icon(icon="task_alt") }}
+                            <span>
+                                <strong>{{ complete_ac_students.count }}</strong>
+                                <span>student{{ 's' if complete_ac_students.count != 1 else '' }} with 100% AC</span>
+                                <small>Accepted every problem in the set.</small>
+                            </span>
+                        </a>
+                    </div>
+                </section>
+                <section class="arena-problem-set-report-follow-up"
+                         id="report-follow-up"
+                         aria-labelledby="report-follow-up-heading">
+                    <div class="arena-problem-set-report-section-heading">
+                        <div>
+                            <h2 class="arena-problem-set-report-section-title"
+                                id="report-follow-up-heading">Follow-up groups</h2>
+                            <p class="arena-problem-set-report-section-copy mb-0">
+                                No AC submissions includes students who have not submitted anything yet.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="arena-problem-set-report-follow-up-grid">
+                        <article class="arena-problem-set-report-follow-up-panel"
+                                 aria-labelledby="report-no-submissions-heading">
+                            <header>
+                                <div>
+                                    <h3 id="report-no-submissions-heading">No submissions</h3>
+                                    <p>{{ report.no_submission_student_count }} student{{ 's' if report.no_submission_student_count != 1 else '' }}</p>
+                                </div>
+                                {{ render_icon(icon="person_outline") }}
+                            </header>
+                            <ul class="arena-problem-set-report-student-list">
+                                {% set no_submission_students = namespace(found=false) %}
+                                {% for row in report.students %}
+                                    {% set submission_count = row.verdicts | reject('equalto', none) | list | length %}
+                                    {% if submission_count == 0 %}
+                                        {% set no_submission_students.found = true %}
+                                        <li>{{ student_report_link(row) }}</li>
+                                    {% endif %}
+                                {% endfor %}
+                                {% if not no_submission_students.found %}
+                                    <li class="arena-problem-set-report-student-list-empty">Everyone has submitted.</li>
+                                {% endif %}
+                            </ul>
+                        </article>
+                        <article class="arena-problem-set-report-follow-up-panel"
+                                 aria-labelledby="report-no-ac-heading">
+                            <header>
+                                <div>
+                                    <h3 id="report-no-ac-heading">No AC submissions so far</h3>
+                                    <p>{{ report.no_ac_student_count }} student{{ 's' if report.no_ac_student_count != 1 else '' }}</p>
+                                </div>
+                                {{ render_icon(icon="flag") }}
+                            </header>
+                            <ul class="arena-problem-set-report-student-list">
+                                {% set no_ac_students = namespace(found=false) %}
+                                {% for row in report.students %}
+                                    {% set ac_count = row.verdicts | select('equalto', 'AC') | list | length %}
+                                    {% if ac_count == 0 %}
+                                        {% set no_ac_students.found = true %}
+                                        <li>{{ student_report_link(row) }}</li>
+                                    {% endif %}
+                                {% endfor %}
+                                {% if not no_ac_students.found %}
+                                    <li class="arena-problem-set-report-student-list-empty">Everyone has an AC.</li>
+                                {% endif %}
+                            </ul>
+                        </article>
+                    </div>
+                </section>
+            {% else %}
+                <section class="arena-problem-set-report-empty"
+                         aria-labelledby="report-empty-heading">
+                    {{ render_icon(icon="group") }}
+                    <h2 id="report-empty-heading">No registered students</h2>
+                    <p class="mb-0">Students who join this class will appear in the report.</p>
+                </section>
+            {% endif %}
+            <section class="arena-problem-set-report-matrix"
+                     id="report-student-matrix"
+                     aria-labelledby="report-matrix-heading">
+                <div class="arena-problem-set-report-section-heading">
+                    <div>
+                        <h2 class="arena-problem-set-report-section-title"
+                            id="report-matrix-heading">Student matrix</h2>
+                        <p class="arena-problem-set-report-section-copy mb-0">
+                            {{ total_students }} student{{ 's' if total_students != 1 else '' }} across {{ report.problems | length }} problem{{ 's' if report.problems | length != 1 else '' }}.
+                        </p>
+                    </div>
+                    <span class="arena-problem-set-report-matrix-hint">Scroll horizontally to compare problem columns.</span>
+                </div>
+                <div class="table-responsive arena-problem-set-report-table-wrapper">
+                    <table class="arena-table arena-problem-set-report-table">
+                        <caption class="visually-hidden">Student progress by problem</caption>
+                        <thead>
+                            <tr>
+                                <th class="arena-problem-set-report-student-column">Student</th>
+                                <th class="arena-problem-set-report-progress-column text-end">AC rate</th>
+                                {% for problem in report.problems %}
+                                    <th class="text-center">
+                                        <a href="{{ request.url_for('arena_problem_detail', arena_number=problem.arena_number) }}">{{ problem.arena_number }}</a>
+                                    </th>
+                                {% endfor %}
+                                {% if report.snapshot_available %}<th class="text-end">Snapshot rating</th>{% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in report.students %}
+                                {% set ac_count = row.verdicts | select('equalto', 'AC') | list | length %}
+                                {% set ac_percentage = (ac_count / problem_count * 100) if problem_count else 0 %}
+                                <tr id="student-{{ row.user_id }}">
+                                    <td class="arena-problem-set-report-student-cell" data-label="Student">{{ student_report_link(row) }}</td>
+                                    <td class="arena-problem-set-report-progress-cell text-end text-nowrap font-monospace small"
+                                        data-label="AC rate">
+                                        <strong>{{ '%.1f'|format(ac_percentage) }}%</strong>
+                                    </td>
+                                    {% for verdict in row.verdicts %}
+                                        <td class="text-center" data-label="Problem {{ loop.index }}">
+                                            {% if verdict %}
+                                                <span class="badge {{ verdict_badge_classes.get(verdict, 'bg-secondary') }} font-monospace">{{ verdict }}</span>
+                                            {% else %}
+                                                --
+                                            {% endif %}
+                                        </td>
+                                    {% endfor %}
+                                    {% if report.snapshot_available %}
+                                        <td class="text-end">{{ row.snapshot_rating if row.snapshot_rating is not none else '—' }}</td>
+                                    {% endif %}
+                                </tr>
+                            {% else %}
+                                <tr>
+                                    <td colspan="{{ 2 + (report.problems | length) + (1 if report.snapshot_available else 0) }}"
+                                        class="arena-empty-state">No registered students found.</td>
+                                </tr>
+                            {% endfor %}
+                            {% if report.students %}
+                                <tr class="fw-semibold text-muted small">
+                                    <td colspan="2">AC per problem</td>
+                                    {% for i in range(report.problems | length) %}
+                                        {% set ns = namespace(count=0) %}
+                                        {% for student in report.students %}
+                                            {% if student.verdicts[i] == 'AC' %}
+                                                {% set ns.count = ns.count + 1 %}
+                                            {% endif %}
+                                        {% endfor %}
+                                        <td class="text-center">{{ ns.count }}</td>
+                                    {% endfor %}
+                                    {% if report.snapshot_available %}<td></td>{% endif %}
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         </div>
     </div>
 {% endblock %}

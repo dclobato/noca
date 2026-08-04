@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -96,6 +96,10 @@ def _build_app() -> FastAPI:
         "/auth/signup",
         "/auth/activate",
         "/auth/2fa",
+        "/assets/medal/gold",
+        "/assets/medal/silver",
+        "/assets/medal/bronze",
+        "/assets/medal/unsupported",
     ],
 )
 def test_public_paths_are_public(path: str) -> None:
@@ -109,6 +113,7 @@ def test_public_paths_are_public(path: str) -> None:
         "/legalish",
         "/helpdesk",
         "/authorize",
+        "/assets/medalist/gold",
         "/problems/42",
         "/problems/42/statistics",
         "/ranking",

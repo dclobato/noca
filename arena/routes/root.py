@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -14,16 +14,18 @@ from pathlib import Path
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arena.config import settings
 from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_users import ArenaUser
 from arena.services.leaderboard_service import get_top_rated_users
 from arena.services.problem_browse_service import get_latest_problems
 from shared.db_schema import languages as languages_table
+from shared.services.balloon_assets import render_medal_svg
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,7 @@ def _html(response: Any) -> HTMLResponse:
 
 
 _FAVICON_DIR = Path(__file__).parent.parent / "static" / "favicon"
+_IMAGE_CACHE_HEADERS = {"Cache-Control": f"public, max-age={settings.IMAGE_RESPONSE_CACHE_MAX_AGE}"}
 
 # Root-level favicon assets referenced by the favicon snippet in the base
 # templates. Browsers and crawlers request these at the site root, so they are
@@ -98,6 +101,30 @@ def _register_favicon_routes() -> None:
 
 
 _register_favicon_routes()
+
+
+@router.get("/assets/medal/{band}", name="arena_medal")
+async def arena_medal(band: str) -> Response:
+    """Return a cacheable shared medal SVG for a supported podium band.
+
+    Args:
+        band: One of ``gold``, ``silver``, or ``bronze``.
+
+    Returns:
+        The matching medal SVG response.
+
+    Raises:
+        HTTPException: 400 when ``band`` is not supported.
+    """
+    try:
+        svg = render_medal_svg(band)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid medal band") from exc
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers=_IMAGE_CACHE_HEADERS,
+    )
 
 
 @router.get("/", include_in_schema=False)

@@ -1,0 +1,204 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+.arena-public-profile {
+    display: grid;
+    width: 100%;
+    max-width: 90rem;
+    gap: 1.5rem;
+    margin-inline: auto;
+    padding-block: 1.5rem;
+}
+
+.arena-public-profile-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
+    gap: 1.5rem;
+    padding: 1.5rem;
+}
+
+.arena-public-profile-identity {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 1rem;
+    min-width: 0;
+}
+
+.arena-public-profile-avatar {
+    width: 6rem;
+    height: 6rem;
+}
+
+.arena-public-profile-heading {
+    min-width: 0;
+}
+
+.arena-public-profile-heading .arena-profile-name {
+    margin: 0;
+    font-size: 2rem;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+
+.arena-public-profile-affiliation {
+    margin-top: 0.25rem;
+    color: var(--arena-on-surface);
+    font-size: 1rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.arena-public-profile-location,
+.arena-public-profile-last-accepted {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+}
+
+.arena-public-profile-last-accepted .material-symbols-outlined {
+    color: var(--arena-primary);
+    font-size: 1rem;
+}
+
+.arena-public-profile-facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem 1.5rem;
+    margin: 0;
+}
+
+.arena-public-profile-facts > div {
+    min-width: 0;
+}
+
+.arena-public-profile-facts dt {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-bottom: 0.25rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.25;
+    text-transform: uppercase;
+}
+
+.arena-public-profile-facts dt .material-symbols-outlined {
+    font-size: 1rem;
+}
+
+.arena-public-profile-facts dd {
+    margin: 0;
+    color: var(--arena-on-surface);
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.arena-public-profile-facts .arena-profile-rating {
+    margin: 0;
+    color: var(--arena-primary);
+    font-size: 1rem;
+}
+
+.arena-public-profile-layout,
+.arena-public-profile-activity {
+    display: grid;
+    min-width: 0;
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.arena-public-profile-panel,
+.arena-public-profile-badges {
+    min-width: 0;
+}
+
+.arena-public-profile-panel {
+    padding: 1.5rem;
+}
+
+.arena-public-profile-panel .arena-card-title,
+.arena-public-profile-badges .arena-card-title {
+    margin-bottom: 1rem;
+}
+
+.arena-public-profile-heatmap-scroll {
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+}
+
+.arena-public-profile-heatmap-scroll:focus-visible {
+    border-radius: var(--arena-radius);
+    outline: 2px solid var(--arena-primary);
+    outline-offset: 2px;
+}
+
+.arena-public-profile-badges .arena-empty-state {
+    margin-bottom: 0;
+}
+
+.arena-public-profile-badges .arena-badge-name,
+.arena-public-profile-badges .arena-badge-description {
+    overflow-wrap: anywhere;
+}
+
+@media (min-width: 768px) {
+    .arena-public-profile-facts {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 1400px) {
+    .arena-public-profile-header {
+        grid-template-columns: minmax(20rem, 1fr) minmax(34rem, auto);
+    }
+
+    .arena-public-profile-layout {
+        grid-template-columns: minmax(0, 1fr) 20rem;
+    }
+
+    .arena-public-profile-badges .arena-badge-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 575.98px) {
+    .arena-public-profile {
+        gap: 1rem;
+        padding-block: 1rem;
+    }
+
+    .arena-public-profile-header,
+    .arena-public-profile-panel {
+        padding: 1rem;
+    }
+
+    .arena-public-profile-header,
+    .arena-public-profile-layout,
+    .arena-public-profile-activity {
+        gap: 1rem;
+    }
+
+    .arena-public-profile-avatar {
+        width: 4.5rem;
+        height: 4.5rem;
+    }
+
+    .arena-public-profile-heading .arena-profile-name {
+        font-size: 1.25rem;
+    }
+}

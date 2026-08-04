@@ -1,3 +1,8 @@
+{#  NOCA -- Next Online Contest Administrator
+    Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. #}
 {% extends "_auth_base.html" %}
 {% from "_macros.html" import render_icon %}
 {% block title_suffix %}&mdash; Sign Up{% endblock %}
@@ -8,25 +13,32 @@
           href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
 {% endblock %}
 {% block auth_content %}
-    <div class="container">
-        <div class="row justify-content-center">
-            <div class="col-12 col-lg-10 col-xl-9">
-                <div class="text-center mb-4 pt-4">
-                    <h1 class="arena-auth-logo">{{ brand_name }}</h1>
-                    <p class="arena-auth-tagline">Competitive Judge</p>
+    <div class="container arena-signup-page my-auto">
+        <div class="arena-signup-shell">
+            <aside class="arena-signup-welcome">
+                <div class="arena-signup-welcome-copy">
+                    <h2>Practice. Compete. Grow.</h2>
+                    <p>Your next accepted solution starts with showing up.</p>
                 </div>
-                <div class="arena-auth-card">
-                    <h2 class="arena-auth-title">Create Account</h2>
+                <img class="arena-signup-mascot"
+                     src="{{ request.url_for('arena_static_img', path='welcome.png') }}"
+                     alt="Arena capybara mascot welcoming new competitors">
+            </aside>
+            <main class="arena-auth-card arena-signup-card">
+                <div class="arena-signup-heading">
+                    <h1 class="arena-auth-title">Create Account</h1>
                     <p class="arena-auth-subtitle">Join the {{ brand_name }} competitive programming platform</p>
+                </div>
+                <div class="arena-signup-form-area">
                     <form method="post"
                           action="{{ request.url_for("arena_signup_submit") }}"
                           novalidate
                           enctype="multipart/form-data"
                           id="signup-form">
-                        <div class="row g-3">
-                            {# Left column: form fields #}
-                            <div class="col-12 col-md-7">
-                                <div class="mb-3">
+                        <fieldset class="arena-signup-section">
+                            <legend class="arena-signup-section-title">Account details</legend>
+                            <div class="row g-3">
+                                <div class="col-12">
                                     <label for="full_name" class="form-label">Full Name</label>
                                     <input type="text"
                                            class="form-control"
@@ -38,30 +50,28 @@
                                            required
                                            autofocus>
                                 </div>
-                                <div class="row g-3 mb-3">
-                                    <div class="col-6">
-                                        <label for="date_of_birth" class="form-label">Date of Birth</label>
-                                        <input type="text"
-                                               class="form-control arena-date-input"
-                                               id="date_of_birth"
-                                               name="date_of_birth"
-                                               value="{{ signup_form.date_of_birth }}"
-                                               data-fp-date
-                                               required>
-                                    </div>
-                                    <div class="col-6">
-                                        <label for="email" class="form-label">Email Address</label>
-                                        <input type="email"
-                                               class="form-control"
-                                               id="email"
-                                               name="email"
-                                               value="{{ signup_form.email }}"
-                                               placeholder="you@example.com"
-                                               autocomplete="email"
-                                               required>
-                                    </div>
+                                <div class="col-12 col-sm-6">
+                                    <label for="date_of_birth" class="form-label">Date of Birth</label>
+                                    <input type="text"
+                                           class="form-control arena-date-input"
+                                           id="date_of_birth"
+                                           name="date_of_birth"
+                                           value="{{ signup_form.date_of_birth }}"
+                                           data-fp-date
+                                           required>
                                 </div>
-                                <div class="mb-3 d-none" id="parental-email-group">
+                                <div class="col-12 col-sm-6">
+                                    <label for="email" class="form-label">Email Address</label>
+                                    <input type="email"
+                                           class="form-control"
+                                           id="email"
+                                           name="email"
+                                           value="{{ signup_form.email }}"
+                                           placeholder="you@example.com"
+                                           autocomplete="email"
+                                           required>
+                                </div>
+                                <div class="col-12 d-none" id="parental-email-group">
                                     <label for="email_responsavel_legal" class="form-label">Parent or Legal Guardian Email</label>
                                     <input type="email"
                                            class="form-control"
@@ -72,62 +82,60 @@
                                            autocomplete="email">
                                     <div class="arena-form-text arena-2fa-help mt-1">Required for users from 13 to 17 years old.</div>
                                 </div>
-                                <div class="row g-3 mb-3">
-                                    <div class="col-6">
-                                        <label for="password" class="form-label">Password</label>
-                                        <input type="password"
-                                               class="form-control"
-                                               id="password"
-                                               name="password"
-                                               placeholder="Create a password"
-                                               autocomplete="new-password"
-                                               required>
-                                        <div id="password-requirements"
-                                             class="arena-form-text arena-2fa-help mt-1">{{ password_hint }}</div>
-                                    </div>
-                                    <div class="col-6">
-                                        <label for="confirm_password" class="form-label">Confirm Password</label>
-                                        <input type="password"
-                                               class="form-control"
-                                               id="confirm_password"
-                                               name="confirm_password"
-                                               placeholder="Repeat your password"
-                                               autocomplete="new-password"
-                                               required>
-                                    </div>
+                                <div class="col-12 col-sm-6">
+                                    <label for="password" class="form-label">Password</label>
+                                    <input type="password"
+                                           class="form-control"
+                                           id="password"
+                                           name="password"
+                                           placeholder="Create a password"
+                                           autocomplete="new-password"
+                                           aria-describedby="password-requirements"
+                                           required>
+                                    <div id="password-requirements"
+                                         class="arena-form-text arena-2fa-help mt-1">{{ password_hint }}</div>
+                                </div>
+                                <div class="col-12 col-sm-6">
+                                    <label for="confirm_password" class="form-label">Confirm Password</label>
+                                    <input type="password"
+                                           class="form-control"
+                                           id="confirm_password"
+                                           name="confirm_password"
+                                           placeholder="Repeat your password"
+                                           autocomplete="new-password"
+                                           required>
                                 </div>
                             </div>
-                            {# Right column: profile photo (spans left column height) #}
-                            <div class="col-12 col-md-5 d-flex flex-column justify-content-start pt-md-4">
-                                <label for="profile_photo" class="form-label">Profile Photo</label>
-                                <div class="arena-file-upload rounded-2 border border-2 border-dashed p-4 text-center flex-grow-1"
-                                     id="profile-photo-dropzone">
-                                    <input type="file"
-                                           class="arena-file-input"
-                                           id="profile_photo"
-                                           name="profile_photo"
-                                           accept="image/png,image/jpeg,image/webp">
-                                    <div id="profile-photo-placeholder">
-                                        {{ render_icon(icon="add_a_photo", classes="fs-2 text-muted mb-2") }}
-                                        <p class="small text-muted mb-0">
-                                            Upload a file
-                                            <br>
-                                            or drag and drop
-                                            <br>
-                                            <span class="text-muted-emphasis">
-                                                JPEG, PNG, or WebP · up to {{ "%.1f"|format(image_max_file_size_mib|default(2.0) ) }} MiB
-                                                <br>
-                                                Up to {{ image_max_width|default(2048) }} × {{ image_max_height|default(2048) }} px
-                                            </span>
-                                        </p>
-                                    </div>
-                                    <div id="profile-photo-preview" class="d-none">
-                                        {{ render_icon(icon="check_circle", classes="fs-2 text-success mb-2") }}
-                                        <p id="profile-photo-filename" class="small text-muted mt-2 mb-0"></p>
-                                    </div>
+                        </fieldset>
+                        <fieldset class="arena-signup-section arena-signup-photo-section">
+                            <legend class="arena-signup-section-title">
+                                Profile photo
+                                <span>Optional</span>
+                            </legend>
+                            <div class="arena-file-upload rounded-2 border border-2 border-dashed p-3 text-center"
+                                 id="profile-photo-dropzone">
+                                <input type="file"
+                                       class="arena-file-input"
+                                       id="profile_photo"
+                                       name="profile_photo"
+                                       accept="image/png,image/jpeg,image/webp">
+                                <div id="profile-photo-placeholder" class="arena-signup-upload-content">
+                                    {{ render_icon(icon="add_a_photo", classes="fs-2 text-muted") }}
+                                    <p class="small text-muted mb-0">
+                                        <strong class="text-muted-emphasis">Upload a photo</strong>
+                                        or drag and drop
+                                        <br>
+                                        JPEG, PNG, or WebP · up to {{ "%.1f"|format(image_max_file_size_mib|default(2.0) ) }} MiB
+                                        <br>
+                                        Up to {{ image_max_width|default(2048) }} × {{ image_max_height|default(2048) }} px
+                                    </p>
+                                </div>
+                                <div id="profile-photo-preview" class="d-none">
+                                    {{ render_icon(icon="check_circle", classes="fs-2 text-success") }}
+                                    <p id="profile-photo-filename" class="small text-muted mt-2 mb-0"></p>
                                 </div>
                             </div>
-                        </div>
+                        </fieldset>
                         {# Crop modal #}
                         <div class="modal fade"
                              id="cropModal"
@@ -146,7 +154,10 @@
                                     <div class="modal-body">
                                         <div class="row g-3">
                                             <div class="col-md-8">
-                                                <img id="cropImage" src="" alt="Crop preview" class="arena-crop-img">
+                                                <img id="cropImage"
+                                                     src="{{ request.url_for('arena_static_img', path='welcome.png') }}"
+                                                     alt="Crop preview"
+                                                     class="arena-crop-img">
                                             </div>
                                             <div class="col-md-4 d-flex flex-column align-items-center gap-2">
                                                 <p class="small text-muted mb-1">Preview</p>
@@ -161,7 +172,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="form-check mb-4">
+                        <div class="form-check arena-signup-terms">
                             <input type="checkbox"
                                    class="form-check-input"
                                    id="terms"
@@ -177,17 +188,17 @@
                                    class="arena-auth-link">Privacy Policy</a>.
                             </label>
                         </div>
-                        <button type="submit" class="btn arena-btn-primary w-100">Create Account</button>
+                        <button type="submit" class="btn arena-btn-primary arena-signup-submit w-100">
+                            Create Account
+                            {{ render_icon(icon="arrow_forward", classes="arena-signup-submit-icon") }}
+                        </button>
                     </form>
                     <p class="text-center mt-3 mb-0">
                         Already have an account?
                         <a href="{{ request.url_for("arena_login") }}" class="arena-auth-link">Log in</a>
                     </p>
                 </div>
-                <div class="text-center mt-4">
-                    <span class="arena-auth-section-label">ARENA</span>
-                </div>
-            </div>
+            </main>
         </div>
     </div>
 {% endblock %}

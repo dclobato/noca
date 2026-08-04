@@ -1,5 +1,5 @@
 // NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+// Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -40,28 +40,58 @@ function setupOpenClassModal() {
 }
 
 function setupMembershipModals() {
+  const approveModal = document.getElementById("approve-request-modal");
+  const approveForm = document.querySelector("[data-approve-request-form]");
+  const approveBsModal = approveModal ? new bootstrap.Modal(approveModal) : null;
+  let approveTrigger = null;
+  document.querySelectorAll("[data-approve-request-button]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!approveForm || !approveBsModal) return;
+      approveTrigger = button;
+      approveForm.setAttribute("action", button.dataset.action || "");
+      setText("[data-approve-request-user]", button.dataset.userName);
+      approveBsModal.show(button);
+    });
+  });
+  approveModal?.addEventListener("hidden.bs.modal", () => {
+    if (approveTrigger?.isConnected) approveTrigger.focus();
+    approveTrigger = null;
+  });
+
   const denyModal = document.getElementById("deny-request-modal");
   const denyForm = document.querySelector("[data-deny-request-form]");
   const denyBsModal = denyModal ? new bootstrap.Modal(denyModal) : null;
+  let denyTrigger = null;
   document.querySelectorAll("[data-deny-request-button]").forEach((button) => {
     button.addEventListener("click", () => {
       if (!denyForm || !denyBsModal) return;
+      denyTrigger = button;
       denyForm.setAttribute("action", button.dataset.action || "");
       setText("[data-deny-request-user]", button.dataset.userName);
-      denyBsModal.show();
+      denyBsModal.show(button);
     });
+  });
+  denyModal?.addEventListener("hidden.bs.modal", () => {
+    if (denyTrigger?.isConnected) denyTrigger.focus();
+    denyTrigger = null;
   });
 
   const removeModal = document.getElementById("remove-member-modal");
   const removeForm = document.querySelector("[data-remove-member-form]");
   const removeBsModal = removeModal ? new bootstrap.Modal(removeModal) : null;
+  let removeTrigger = null;
   document.querySelectorAll("[data-remove-member-button]").forEach((button) => {
     button.addEventListener("click", () => {
       if (!removeForm || !removeBsModal) return;
+      removeTrigger = button;
       removeForm.setAttribute("action", button.dataset.action || "");
       setText("[data-remove-member-user]", button.dataset.userName);
-      removeBsModal.show();
+      removeBsModal.show(button);
     });
+  });
+  removeModal?.addEventListener("hidden.bs.modal", () => {
+    if (removeTrigger?.isConnected) removeTrigger.focus();
+    removeTrigger = null;
   });
 }
 
@@ -139,6 +169,7 @@ function setupStudentAutocomplete() {
   const searchInput = root.querySelector("[data-student-search]");
   const idList = form ? form.querySelector("[data-student-id-list]") : null;
   const pendingList = form ? form.querySelector("[data-student-pending-list]") : null;
+  const addButton = form ? form.querySelector("[data-student-add-button]") : null;
   const suggestions = root.querySelector("[data-student-suggestions]");
   const searchUrl = root.dataset.searchUrl;
   if (!form || !searchInput || !idList || !pendingList || !suggestions || !searchUrl) return;
@@ -163,7 +194,7 @@ function setupStudentAutocomplete() {
       idList.appendChild(input);
 
       const pill = document.createElement("span");
-      pill.className = "badge bg-secondary d-inline-flex align-items-center gap-1";
+      pill.className = "badge bg-secondary d-inline-flex align-items-center gap-1 arena-class-member-chip";
       pill.textContent = student.label;
 
       const removeButton = document.createElement("button");
@@ -179,6 +210,7 @@ function setupStudentAutocomplete() {
       pill.appendChild(removeButton);
       pendingList.appendChild(pill);
     });
+    if (addButton) addButton.disabled = pendingStudents.size === 0;
   }
 
   function addPendingStudent(row) {

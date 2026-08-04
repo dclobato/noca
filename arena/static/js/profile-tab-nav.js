@@ -1,5 +1,5 @@
 // NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+// Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -30,7 +30,70 @@ const TAB_PARAMS = [
   "login_date_to",
 ];
 
+const PROFILE_NAV_STORAGE_KEY = "noca-arena-profile-sidebar-collapsed";
+
+const readCollapsedPreference = () => {
+  try {
+    return window.localStorage.getItem(PROFILE_NAV_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+};
+
+const writeCollapsedPreference = (collapsed) => {
+  try {
+    window.localStorage.setItem(PROFILE_NAV_STORAGE_KEY, String(collapsed));
+  } catch {
+    // Navigation must keep working when browser storage is unavailable.
+  }
+};
+
+const setupProfileNavigationCollapse = () => {
+  document.querySelectorAll("[data-profile-workspace]").forEach((workspace) => {
+    const toggle = workspace.querySelector("[data-profile-navigation-toggle]");
+    const tabs = workspace.querySelectorAll("[data-profile-tab]");
+
+    if (!toggle) {
+      return;
+    }
+
+    const icon = toggle.querySelector(".arena-profile-navigation-toggle-icon");
+
+    const applyState = (collapsed) => {
+      workspace.classList.toggle("is-profile-navigation-collapsed", collapsed);
+      toggle.setAttribute("aria-expanded", String(!collapsed));
+      toggle.setAttribute(
+        "aria-label",
+        collapsed ? "Expand profile sections" : "Collapse profile sections",
+      );
+
+      if (icon) {
+        icon.textContent = collapsed ? "arrow_circle_right" : "arrow_circle_left";
+      }
+
+      tabs.forEach((tab) => {
+        const label = tab.querySelector("span:not(.material-symbols-outlined)");
+        if (collapsed && label) {
+          tab.title = label.textContent.trim();
+        } else {
+          tab.removeAttribute("title");
+        }
+      });
+    };
+
+    applyState(readCollapsedPreference());
+
+    toggle.addEventListener("click", () => {
+      const collapsed = !workspace.classList.contains("is-profile-navigation-collapsed");
+      writeCollapsedPreference(collapsed);
+      applyState(collapsed);
+    });
+  });
+};
+
 document.addEventListener("DOMContentLoaded", () => {
+  setupProfileNavigationCollapse();
+
   document.querySelectorAll("[data-profile-tab]").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.preventDefault();

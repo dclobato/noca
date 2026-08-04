@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -11,26 +11,34 @@
 {% block nav_ranking %}active{% endblock %}
 {% block nav_ranking_affiliations %}active{% endblock %}
 {% block content %}
-    <div class="container-fluid px-3 py-3">
-        <div class="arena-card mb-3">
-            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
-                <h1 class="arena-card-title mb-0">
+    <div class="arena-ranking-page">
+        <header class="arena-ranking-header">
+            <div class="arena-ranking-heading">
+                <h1 id="affiliation-ranking-title">
                     {{ render_icon(icon="corporate_fare") }}
                     Affiliation Ranking
                 </h1>
-                <a href="{{ request.url_for("arena_ranking_index") }}"
-                   class="btn btn-link btn-sm text-muted text-decoration-none">
-                    {{ render_icon(icon="arrow_back") }}
-                    Ranking
-                </a>
+                <p>Teams and institutions ranked by rating</p>
             </div>
+            <a href="{{ request.url_for("arena_ranking_index") }}"
+               class="arena-ranking-back-link">
+                {{ render_icon(icon="arrow_back") }}
+                Ranking overview
+            </a>
+        </header>
+        <section class="arena-card arena-ranking-panel"
+                 aria-labelledby="affiliation-ranking-title">
             <form method="get"
-                  class="d-flex flex-wrap gap-2 align-items-end mb-3"
+                  class="arena-ranking-filters"
                   id="affiliation-ranking-filter-form">
-                {% with label="Search", input_type="text", value=search, placeholder="Affiliation name…", autocomplete="off" %}
+                {% with label="Search",
+                    input_type="text",
+                    value=search,
+                    placeholder="Affiliation name…",
+                    autocomplete="off" %}
                     {% include "_partials/filter_search_field.html" %}
                 {% endwith %}
-                <div>
+                <div class="arena-ranking-filter-field">
                     <label class="form-label form-label-sm mb-1" for="filter-country-code">Country</label>
                     <select class="form-select form-select-sm"
                             id="filter-country-code"
@@ -42,7 +50,7 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div>
+                <div class="arena-ranking-filter-field">
                     <label class="form-label form-label-sm mb-1" for="filter-subdivision-code">Subdivision</label>
                     <select class="form-select form-select-sm"
                             id="filter-subdivision-code"
@@ -55,77 +63,90 @@
                         {% endfor %}
                     </select>
                 </div>
-                {% include "_partials/filter_submit_button.html" %}
-                {% set _filters_active = search or country_code or subdivision_code %}
-                {% with clear_url=request.url_for("arena_ranking_affiliations"), filters_active=_filters_active %}
-                    {% include "_partials/filter_clear_link.html" %}
-                {% endwith %}
+                <div class="arena-ranking-filter-actions">
+                    {% include "_partials/filter_submit_button.html" %}
+                    {% set _filters_active = search or country_code or subdivision_code %}
+                    {% with clear_url=request.url_for("arena_ranking_affiliations"),
+                        filters_active=_filters_active %}
+                        {% include "_partials/filter_clear_link.html" %}
+                    {% endwith %}
+                </div>
             </form>
-            <p class="text-muted small mb-2">{{ pagination.total }} affiliation{{ 's' if pagination.total != 1 else '' }}</p>
-            {% with pagination=pagination, page_param="page", label="Affiliation ranking pagination", nav_margin="mb-2" %}
-                {% include "_partials/pagination.html" %}
-            {% endwith %}
+            <div class="arena-ranking-results-bar">
+                <p>{{ pagination.total }} affiliation{{ 's' if pagination.total != 1 else '' }}</p>
+                {% with pagination=pagination,
+                    page_param="page",
+                    label="Affiliation ranking pagination",
+                    nav_margin="mb-0" %}
+                    {% include "_partials/pagination.html" %}
+                {% endwith %}
+            </div>
             <div class="table-responsive">
-                <table class="arena-table">
+                <table class="arena-table arena-ranking-table arena-ranking-table--affiliations">
+                    <caption class="visually-hidden">Affiliations ordered by Arena rating</caption>
                     <thead>
                         <tr>
-                            <th class="text-end">#</th>
-                            <th></th>
-                            <th>Name</th>
-                            <th>Country</th>
-                            <th>Subdivision</th>
-                            <th class="text-end">Rating</th>
+                            <th scope="col" class="arena-ranking-col-rank text-end">Rank</th>
+                            <th scope="col">Affiliation</th>
+                            <th scope="col" class="d-none d-md-table-cell">Location</th>
+                            <th scope="col" class="arena-ranking-col-rating text-end">Rating</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for aff in pagination.items %}
+                            {% set affiliation_users_url = request.url_for('arena_ranking_affiliation_users', affiliation_id=aff.id) %}
                             <tr>
-                                <td class="text-end arena-monospace text-muted">{{ aff.rank }}</td>
-                                <td class="text-center">
-                                    {% if aff.has_logo %}
-                                        <img src="{{ request.url_for('arena_affiliation_logo_thumbnail', affiliation_id=aff.id) }}"
-                                             width="32"
-                                             height="32"
-                                             class="rounded object-fit-cover"
-                                             alt="{{ aff.name }} logo">
-                                    {% else %}
-                                        <span class="text-muted">{{ render_icon(icon="corporate_fare") }}</span>
-                                    {% endif %}
-                                </td>
+                                <td class="arena-ranking-rank text-end">{{ aff.rank }}</td>
                                 <td>
-                                    <a href="{{ request.url_for('arena_ranking_affiliation_users', affiliation_id=aff.id) }}"
-                                       class="fw-semibold">{{ aff.name }}</a>
+                                    <a href="{{ affiliation_users_url }}"
+                                       class="arena-ranking-affiliation-link">
+                                        {% if aff.has_logo %}
+                                            {% set affiliation_logo_url = request.url_for('arena_affiliation_logo_thumbnail', affiliation_id=aff.id) %}
+                                            <img src="{{ affiliation_logo_url }}"
+                                                 width="32"
+                                                 height="32"
+                                                 class="rounded object-fit-cover"
+                                                 alt="">
+                                        {% else %}
+                                            <span class="arena-ranking-logo-placeholder" aria-hidden="true">{{ render_icon(icon="corporate_fare") }}</span>
+                                        {% endif %}
+                                        <span class="arena-ranking-name">{{ aff.name }}</span>
+                                    </a>
                                 </td>
-                                <td class="text-nowrap">
+                                <td class="text-nowrap d-none d-md-table-cell">
                                     {% if aff.country_code %}
-                                        <img src="{{ request.url_for('static_vendor', path='img/flags/' + aff.country_code.lower() + '.svg') }}"
-                                             class="arena-country-flag"
-                                             alt="">
+                                        {% set flag_path = 'img/flags/' + aff.country_code.lower() + '.svg' %}
+                                        {% set flag_url = request.url_for('static_vendor', path=flag_path) %}
+                                        <img src="{{ flag_url }}" class="arena-country-flag" alt="">
                                         {{ aff.country_name }}
+                                        {% if aff.subdivision_name %}
+                                            <span class="text-muted">&middot;</span>
+                                            {{ aff.subdivision_name }}
+                                        {% endif %}
                                     {% else %}
                                         <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
-                                <td>
-                                    {% if aff.subdivision_name %}
-                                        {{ aff.subdivision_name }}
-                                    {% else %}
-                                        <span class="text-muted">—</span>
-                                    {% endif %}
-                                </td>
-                                <td class="text-end arena-mono-right">{{ aff.rating }}</td>
+                                <td class="arena-ranking-rating text-end">{{ aff.rating }}</td>
                             </tr>
                         {% else %}
                             <tr>
-                                <td colspan="6" class="arena-empty-state">No affiliations found.</td>
+                                <td colspan="4" class="arena-empty-state">No affiliations found.</td>
                             </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            {% with pagination=pagination, page_param="page", label="Affiliation ranking pagination" %}
-                {% include "_partials/pagination.html" %}
-            {% endwith %}
-        </div>
+            {% if pagination.pages > 1 %}
+                <footer class="arena-ranking-pagination-footer">
+                    {% with pagination=pagination,
+                        page_param="page",
+                        label="Affiliation ranking pagination",
+                        nav_margin="mb-0" %}
+                        {% include "_partials/pagination.html" %}
+                    {% endwith %}
+                </footer>
+            {% endif %}
+        </section>
     </div>
 {% endblock %}

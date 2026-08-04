@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -15,9 +15,9 @@
           href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
 {% endblock %}
 {% block content %}
-    <div class="container-fluid px-3 py-3">
-        <div class="arena-card mb-3">
-            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+    <div class="container-fluid px-0 px-md-3 py-3 arena-problem-set-manage-page">
+        <div class="arena-card arena-problem-set-manage-card mb-3">
+            <header class="d-flex flex-wrap align-items-center justify-content-between arena-problem-set-manage-header">
                 <h1 class="arena-card-title mb-0">
                     {{ render_icon(icon="list_alt") }}
                     Manage Problems
@@ -27,151 +27,227 @@
                     {{ render_icon(icon="arrow_back") }}
                     Back to problem sets
                 </a>
+            </header>
+            <div class="arena-problem-set-manage-context">
+                <div>
+                    <p class="arena-problem-set-manage-name">{{ problem_set.name }}</p>
+                    <p class="arena-problem-set-manage-class mb-0">{{ class_detail.name }}</p>
+                </div>
+                <div class="arena-problem-set-manage-meta">
+                    {% if problem_set.starts_on %}
+                        <span>
+                            {{ render_icon(icon="play_arrow") }}
+                            <span>Starts {{ arena_format_datetime(problem_set.starts_on, current_user) }}</span>
+                        </span>
+                    {% endif %}
+                    {% if problem_set.deadline %}
+                        <span>
+                            {{ render_icon(icon="schedule") }}
+                            <span>Due {{ arena_format_datetime(problem_set.deadline, current_user) }}</span>
+                        </span>
+                    {% endif %}
+                    {% if is_accepting %}<span class="badge text-bg-success">Accepting submissions</span>{% endif %}
+                </div>
             </div>
-            <div class="mb-3">
-                <p class="mb-1 fw-semibold">{{ problem_set.name }}</p>
-                <p class="text-muted small mb-0">{{ class_detail.name }}</p>
-            </div>
-            <form method="post"
-                  action="{{ request.url_for('arena_class_problem_set_update_schedule', class_id=class_detail.class_id, set_id=problem_set.id) }}"
-                  class="mb-3">
-                <div class="row g-3 align-items-end">
-                    <div class="col-12">
-                        <label class="form-label" for="ps_description">Notes / description</label>
-                        <textarea class="form-control" id="ps_description" name="description" rows="3">{{ problem_set.description or '' }}</textarea>
+            <section class="arena-problem-set-schedule"
+                     aria-labelledby="problem-set-schedule-heading">
+                <h2 class="arena-problem-set-section-title"
+                    id="problem-set-schedule-heading">Schedule and notes</h2>
+                <p class="arena-problem-set-section-copy">Update the instructions and availability for this problem set.</p>
+                <form method="post"
+                      action="{{ request.url_for('arena_class_problem_set_update_schedule', class_id=class_detail.class_id, set_id=problem_set.id) }}"
+                      class="arena-problem-set-schedule-form">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-12">
+                            <label class="form-label" for="ps_description">Notes / description</label>
+                            <textarea class="form-control" id="ps_description" name="description" rows="3">{{ problem_set.description or '' }}</textarea>
+                        </div>
+                        <div class="col-12 col-md-6 col-lg-4">
+                            <label class="form-label" for="ps_starts_on">Start date/time</label>
+                            <input type="text"
+                                   class="form-control arena-datetime-input"
+                                   id="ps_starts_on"
+                                   name="starts_on"
+                                   value="{{ arena_datetime_local_value(problem_set.starts_on, current_user) }}"
+                                   data-fp-datetime>
+                        </div>
+                        <div class="col-12 col-md-6 col-lg-4">
+                            <label class="form-label" for="ps_deadline">Deadline</label>
+                            <input type="text"
+                                   class="form-control arena-datetime-input"
+                                   id="ps_deadline"
+                                   name="deadline"
+                                   value="{{ arena_datetime_local_value(problem_set.deadline, current_user) }}"
+                                   data-fp-datetime>
+                        </div>
+                        <div class="col-12 col-lg-4">
+                            <div class="arena-problem-set-schedule-actions">
+                                <button type="submit" class="btn btn-primary btn-sm">
+                                    {{ render_icon(icon="save") }}
+                                    Update schedule
+                                </button>
+                                {% if is_accepting %}
+                                    <button type="submit"
+                                            class="btn btn-warning btn-sm"
+                                            formaction="{{ request.url_for('arena_class_problem_set_stop_now', class_id=class_detail.class_id, set_id=problem_set.id) }}">
+                                        {{ render_icon(icon="stop_circle") }}
+                                        Stop accepting submissions
+                                    </button>
+                                {% endif %}
+                            </div>
+                        </div>
                     </div>
-                    <div class="col-2">
-                        <label class="form-label" for="ps_starts_on">Start date/time</label>
-                        <input type="text"
-                               class="form-control arena-datetime-input"
-                               id="ps_starts_on"
-                               name="starts_on"
-                               value="{{ arena_datetime_local_value(problem_set.starts_on, current_user) }}"
-                               data-fp-datetime>
+                </form>
+            </section>
+            <section class="arena-problem-set-problems"
+                     aria-labelledby="problem-set-problems-heading">
+                <div class="arena-problem-set-problems-toolbar">
+                    <div>
+                        <h2 class="arena-problem-set-section-title"
+                            id="problem-set-problems-heading">Problems</h2>
+                        <p class="arena-problem-set-problems-count">
+                            <strong class="text-body">{{ problem_rows|length }}</strong>
+                            problem{{ 's' if problem_rows|length != 1 else '' }}
+                        </p>
                     </div>
-                    <div class="col-2">
-                        <label class="form-label" for="ps_deadline">Deadline</label>
-                        <input type="text"
-                               class="form-control arena-datetime-input"
-                               id="ps_deadline"
-                               name="deadline"
-                               value="{{ arena_datetime_local_value(problem_set.deadline, current_user) }}"
-                               data-fp-datetime>
-                    </div>
-                    <div class="col-2">
-                        <button type="submit" class="btn btn-primary btn-sm w-100">
-                            {{ render_icon(icon="save") }}
-                            Update
+                </div>
+                <div class="table-responsive arena-problem-set-problems-table-wrapper">
+                    <table class="arena-table arena-problem-set-problems-table">
+                        <caption class="visually-hidden">Problems in {{ problem_set.name }}</caption>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th class="text-center">Feedback</th>
+                                <th>Name</th>
+                                <th>Categories</th>
+                                <th class="text-end">Difficulty</th>
+                                <th class="arena-col-actions">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in problem_rows %}
+                                <tr id="problem-{{ row.problem_id }}">
+                                    <td class="arena-monospace arena-problem-number" data-label="#">
+                                        <a href="{{ request.url_for('arena_problem_detail', arena_number=row.arena_number) }}">{{ row.arena_number }}</a>
+                                    </td>
+                                    <td class="arena-problem-feedback" data-label="Feedback">
+                                        {% set n = non_ac_counts.get(row.problem_id, 0) %}
+                                        {% if n > 0 %}
+                                            <a href="{{ request.url_for('arena_class_problem_set_batch_feedback', class_id=class_detail.class_id, set_id=problem_set.id, problem_id=row.problem_id) }}"
+                                               class="btn arena-icon-button btn-sm text-primary"
+                                               data-bs-toggle="tooltip"
+                                               data-bs-container="body"
+                                               title="{{ n }} submission{{ 's' if n != 1 else '' }} needing feedback"
+                                               aria-label="{{ n }} submissions needing feedback">
+                                                {{ render_icon(icon="rate_review") }}
+                                                <span class="arena-problem-set-problem-action-label">Feedback</span>
+                                            </a>
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="arena-problem-set-title" data-label="Problem">
+                                        <a href="{{ request.url_for('arena_problem_detail', arena_number=row.arena_number) }}">{{ row.title }}</a>
+                                    </td>
+                                    <td class="arena-problem-set-categories" data-label="Categories">
+                                        {{ row.categories | join(", ") if row.categories else '—' }}
+                                    </td>
+                                    <td class="arena-problem-set-difficulty" data-label="Difficulty">
+                                        {{ '%.1f'|format(row.rating) if row.rating is not none else '—' }}
+                                    </td>
+                                    <td class="arena-col-actions" data-label="Actions">
+                                        <div class="arena-problem-set-problem-actions"
+                                             role="group"
+                                             aria-label="Manage {{ row.title }}">
+                                            <button type="button"
+                                                    class="btn arena-icon-button btn-sm text-danger"
+                                                    data-problem-remove-button
+                                                    data-name="{{ row.title }}"
+                                                    data-action="{{ request.url_for('arena_class_problem_set_problem_remove', class_id=class_detail.class_id, set_id=problem_set.id, problem_id=row.problem_id) }}"
+                                                    data-bs-toggle="tooltip"
+                                                    data-bs-container="body"
+                                                    title="Remove problem"
+                                                    aria-label="Remove problem">
+                                                {{ render_icon(icon="delete") }}
+                                                <span class="arena-problem-set-problem-action-label">Remove</span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr>
+                                    <td colspan="6" class="arena-empty-state">
+                                        <div class="arena-problem-set-empty">
+                                            {{ render_icon(icon="assignment") }}
+                                            <strong>No problems yet</strong>
+                                            <span>Search below to add problems to this set.</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <form method="post"
+                      action="{{ request.url_for('arena_class_problem_set_problem_add', class_id=class_detail.class_id, set_id=problem_set.id) }}"
+                      class="arena-problem-set-add">
+                    <input type="hidden"
+                           name="page"
+                           value="{{ request.query_params.get('page', '1') }}">
+                    <input type="hidden"
+                           name="sort"
+                           value="{{ request.query_params.get('sort', 'deadline') }}">
+                    <input type="hidden"
+                           name="direction"
+                           value="{{ request.query_params.get('direction', 'desc') }}">
+                    <div data-problem-ref-list></div>
+                    <h2 class="arena-problem-set-section-title">Add problems</h2>
+                    <p class="arena-problem-set-section-copy">
+                        Search by Arena number or title, select one or more problems, then add them to this set.
+                    </p>
+                    <label class="form-label" for="problem_set_problem_ref">Search problems</label>
+                    <div class="arena-problem-set-pending"
+                         aria-live="polite"
+                         data-problem-pending-list></div>
+                    <div class="arena-problem-set-add-controls">
+                        <div class="position-relative arena-problem-set-add-search"
+                             data-problem-autocomplete
+                             data-search-url="{{ autocomplete_url }}">
+                            <input type="text"
+                                   class="form-control"
+                                   id="problem_set_problem_ref"
+                                   placeholder="Type a problem number or name"
+                                   autocomplete="off"
+                                   role="combobox"
+                                   aria-autocomplete="list"
+                                   aria-controls="problem-set-suggestions"
+                                   aria-expanded="false"
+                                   data-problem-search>
+                            <div class="arena-autocomplete-menu d-none"
+                                 id="problem-set-suggestions"
+                                 role="listbox"
+                                 data-problem-suggestions></div>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            {{ render_icon(icon="add") }}
+                            Add problems
                         </button>
                     </div>
-                    {% if is_accepting %}
-                        <div class="col-3 ms-auto">
-                            <button type="submit"
-                                    class="btn btn-warning btn-sm w-100"
-                                    formaction="{{ request.url_for('arena_class_problem_set_stop_now', class_id=class_detail.class_id, set_id=problem_set.id) }}">
-                                {{ render_icon(icon="stop_circle") }}
-                                Stop accepting submissions now
-                            </button>
-                        </div>
-                    {% endif %}
-                </div>
-            </form>
-            <div class="table-responsive">
-                <table class="arena-table">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th class="text-center">Feedback</th>
-                            <th>Name</th>
-                            <th>Categories</th>
-                            <th class="text-end">Difficulty</th>
-                            <th class="arena-col-actions">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in problem_rows %}
-                            <tr id="problem-{{ row.problem_id }}">
-                                <td class="arena-monospace">
-                                    <a href="{{ request.url_for('arena_problem_detail', arena_number=row.arena_number) }}">{{ row.arena_number }}</a>
-                                </td>
-                                <td class="text-center">
-                                    {% set n = non_ac_counts.get(row.problem_id, 0) %}
-                                    {% if n > 0 %}
-                                        <a href="{{ request.url_for('arena_class_problem_set_batch_feedback', class_id=class_detail.class_id, set_id=problem_set.id, problem_id=row.problem_id) }}"
-                                           class="btn arena-icon-button btn-sm text-primary"
-                                           data-bs-toggle="tooltip"
-                                           title="{{ n }} submission{{ 's' if n != 1 else '' }} needing feedback"
-                                           aria-label="{{ n }} submissions needing feedback">
-                                            {{ render_icon(icon="rate_review") }}
-                                        </a>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <a href="{{ request.url_for('arena_problem_detail', arena_number=row.arena_number) }}">{{ row.title }}</a>
-                                </td>
-                                <td>{{ row.categories | join(", ") if row.categories else '—' }}</td>
-                                <td class="text-end">{{ '%.1f'|format(row.rating) if row.rating is not none else '—' }}</td>
-                                <td class="arena-col-actions">
-                                    <button type="button"
-                                            class="btn arena-icon-button btn-sm text-danger"
-                                            data-problem-remove-button
-                                            data-name="{{ row.title }}"
-                                            data-action="{{ request.url_for('arena_class_problem_set_problem_remove', class_id=class_detail.class_id, set_id=problem_set.id, problem_id=row.problem_id) }}"
-                                            data-bs-toggle="tooltip"
-                                            title="Remove problem"
-                                            aria-label="Remove problem">{{ render_icon(icon="delete") }}</button>
-                                </td>
-                            </tr>
-                        {% else %}
-                            <tr>
-                                <td colspan="6" class="arena-empty-state">This problem set has no problems yet.</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <form method="post"
-                  action="{{ request.url_for('arena_class_problem_set_problem_add', class_id=class_detail.class_id, set_id=problem_set.id) }}"
-                  class="mt-3">
-                <input type="hidden"
-                       name="page"
-                       value="{{ request.query_params.get('page', '1') }}">
-                <input type="hidden"
-                       name="sort"
-                       value="{{ request.query_params.get('sort', 'deadline') }}">
-                <input type="hidden"
-                       name="direction"
-                       value="{{ request.query_params.get('direction', 'desc') }}">
-                <div data-problem-ref-list></div>
-                <label class="form-label" for="problem_set_problem_ref">Add problems</label>
-                <div class="d-flex flex-wrap gap-2 mb-2" data-problem-pending-list></div>
-                <div class="position-relative"
-                     data-problem-autocomplete
-                     data-search-url="{{ autocomplete_url }}">
-                    <input type="text"
-                           class="form-control"
-                           id="problem_set_problem_ref"
-                           placeholder="Type a problem number or name"
-                           autocomplete="off"
-                           data-problem-search>
-                    <div class="arena-autocomplete-menu d-none" data-problem-suggestions></div>
-                </div>
-                <div class="form-text">Suggestions show Arena number, title, and difficulty.</div>
-                <div class="mt-2">
-                    <button type="submit" class="btn btn-primary btn-sm">
-                        {{ render_icon(icon="add") }}
-                        Add problems
-                    </button>
-                </div>
-            </form>
+                    <div class="visually-hidden"
+                         aria-live="polite"
+                         data-problem-suggestions-status></div>
+                    <div class="form-text">Suggestions show Arena number, title, and difficulty.</div>
+                </form>
+            </section>
         </div>
     </div>
     <div class="modal fade"
          id="problem-remove-modal"
          tabindex="-1"
          aria-labelledby="problem-remove-modal-label"
+         aria-describedby="problem-remove-modal-description"
          aria-hidden="true">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-centered">
             <form method="post" class="modal-content" data-problem-remove-form>
                 <div class="modal-header">
                     <h2 class="modal-title fs-5" id="problem-remove-modal-label">Remove problem</h2>
@@ -180,7 +256,7 @@
                             data-bs-dismiss="modal"
                             aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
+                <div class="modal-body" id="problem-remove-modal-description">
                     <p class="mb-0">
                         Remove <strong data-problem-remove-name></strong> from this problem set?
                     </p>

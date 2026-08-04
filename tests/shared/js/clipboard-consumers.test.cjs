@@ -23,12 +23,14 @@ const backupCodesScript = fs.readFileSync(
 );
 
 class FakeElement {
-  constructor(id = "") {
+  constructor(id = "", selectors = []) {
     this.id = id;
     this.disabled = false;
     this.innerHTML = "<span>copy</span> Copy";
     this.textContent = "";
     this.clickHandler = null;
+    this.selectors = selectors;
+    this.children = [];
   }
 
   addEventListener(eventName, handler) {
@@ -37,6 +39,10 @@ class FakeElement {
 
   closest(selector) {
     return selector === `#${this.id}` ? this : null;
+  }
+
+  querySelector(selector) {
+    return this.children.find((child) => child.selectors.includes(selector)) || null;
   }
 }
 
@@ -85,8 +91,12 @@ async function testAnimatorConsumer() {
 
 async function testArenaConsumer() {
   const button = new FakeElement("copy-codes-btn");
+  const label = new FakeElement("", ["[data-copy-label]"]);
+  const status = new FakeElement("", ["[data-copy-status]"]);
   const codeElements = [new FakeElement(), new FakeElement()];
   let copiedText = null;
+  label.textContent = "Copy all codes";
+  button.children.push(label);
   codeElements[0].textContent = "  AAA111  ";
   codeElements[1].textContent = "  BBB222  ";
 
@@ -95,6 +105,9 @@ async function testArenaConsumer() {
     document: {
       getElementById(id) {
         return id === button.id ? button : null;
+      },
+      querySelector(selector) {
+        return status.selectors.includes(selector) ? status : null;
       },
       querySelectorAll() {
         return codeElements;
@@ -118,7 +131,9 @@ async function testArenaConsumer() {
   await flushPromises();
 
   assert.equal(copiedText, "AAA111\nBBB222");
-  assert.equal(button.textContent, "Copied!");
+  assert.equal(label.textContent, "Copied");
+  assert.equal(status.textContent, "Recovery codes copied to your clipboard.");
+  assert.equal(button.disabled, true);
 }
 
 Promise.resolve()

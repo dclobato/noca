@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -18,27 +17,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.database import get_db
 from arena.dependencies.auth import get_current_arena_user
 from arena.models.arena_users import ArenaUser
+from arena.routes.class_route_guards import html, require_user
 from arena.services import arena_student_problem_set_service
 from arena.services.arena_problem_set_service import (
     ArenaProblemSetNotFoundError,
     ArenaProblemSetPermissionError,
 )
-from arena.services.session_service import build_current_next_url, build_login_redirect_response
 from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_LABELS, VERDICT_PRIORITY
 
 router = APIRouter(tags=["arena-classes"])
-
-
-def _html(response: Any) -> HTMLResponse:
-    """Cast a TemplateResponse to HTMLResponse for type-checker satisfaction."""
-    return cast(HTMLResponse, response)
-
-
-def _require_user(request: Request, current_user: ArenaUser | None) -> ArenaUser | RedirectResponse:
-    """Return the current user or a login redirect response."""
-    if current_user is None:
-        return build_login_redirect_response(request, next_url=build_current_next_url(request))
-    return current_user
 
 
 @router.get(
@@ -59,7 +46,7 @@ async def student_class_problem_set_detail(
     verdict per problem, and — after the deadline passes — a footer with the
     student's snapshot rating and a verdict distribution table.
     """
-    user_or_redirect = _require_user(request, current_user)
+    user_or_redirect = require_user(request, current_user)
     if isinstance(user_or_redirect, RedirectResponse):
         return user_or_redirect
     user = user_or_redirect
@@ -102,7 +89,7 @@ async def student_class_problem_set_detail(
     ]
 
     templates = request.app.state.arena_templates
-    return _html(
+    return html(
         templates.TemplateResponse(
             request,
             "classes/student_problem_set_detail.html",

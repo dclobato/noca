@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -367,7 +367,33 @@ async def test_get_renders_submission_context_before_feedback(session: AsyncSess
     assert "AI Review" in resp.text
     assert "The AI suggests checking the boundary case." in resp.text
     assert "Personal API key" in resp.text
+    assert "Feedback type" in resp.text
     assert f'name="feedback__{sub_id}"' in resp.text
+
+
+@pytest.mark.asyncio
+async def test_get_hides_feedback_type_when_only_ac_remains(session: AsyncSession) -> None:
+    """The feedback-type summary is absent when no non-AC verdict needs review."""
+    app = _build_app(session)
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE, prefix="teacher")
+    student = await _make_user(session, prefix="student")
+    lang = await _make_language(session)
+    arena_class = await _make_class(session, teacher)
+    await _enroll(session, arena_class, student)
+    problem = await _make_problem(session, teacher)
+    pset = await _make_set(session, arena_class, problem=problem)
+    await _make_submission(session, student, problem, lang, verdict=Verdict.AC.value, problem_set_id=pset.id)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login(client, app, teacher)
+        resp = await client.get(
+            f"/classes/{arena_class.id}/problem-sets/{pset.id}/problems/{problem.id}/batch-feedback"
+        )
+
+    assert resp.status_code == 200
+    assert "Problem statement" in resp.text
+    assert "Feedback type" not in resp.text
+    assert "No students currently need feedback on this problem." in resp.text
 
 
 @pytest.mark.asyncio

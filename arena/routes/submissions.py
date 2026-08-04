@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Any, cast
+from urllib.parse import urlencode
 
 import anyio
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -67,6 +68,7 @@ from shared.signal_names import describe_signal
 router = APIRouter(tags=["arena-submissions"])
 
 _SUPERSEDED = JudgmentStatus.SUPERSEDED.value
+_STUDENT_REPORT_BACK_CONTEXT = "student_report"
 
 
 @dataclass(frozen=True)
@@ -177,18 +179,24 @@ async def arena_submission_detail(
     back_class_id: str | None = None,
     back_set_id: str | None = None,
     back_user_id: str | None = None,
+    back_context: str | None = None,
     current_user: ArenaUser | None = Depends(get_current_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Render the detail page for a single Arena submission.
 
-    Only the submitting user or an arena admin may view the detail page.
-    The page shows three cards: problem limits and language, resources and
-    verdict, and syntax-highlighted source code.
+    The submitting user or an arena admin may view the detail page directly.
+    An arena judge may view a student's submission through a validated
+    class-report context. The page shows three cards: problem limits and
+    language, resources and verdict, and syntax-highlighted source code.
 
     Args:
         submission_id: UUID of the ``arena_submissions`` row.
         request: Current HTTP request.
+        back_class_id: Navigation-only class id for a report return link.
+        back_set_id: Navigation-only problem-set id for a report return link.
+        back_user_id: Navigation-only student id for a report return link.
+        back_context: Navigation-only origin identifier for the report return link.
         current_user: Authenticated Arena user, or ``None`` for guests.
         session: Active database session.
 
@@ -196,7 +204,8 @@ async def arena_submission_detail(
         HTMLResponse: Submission detail page, or a redirect on auth failure.
 
     Raises:
-        HTTPException: 404 when the submission is not found or not owned by the user.
+        HTTPException: 404 when the submission is not found or the actor lacks
+            a valid owner or report-view context.
     """
     if current_user is None:
         return build_login_redirect_response(request, next_url=build_current_next_url(request))
@@ -264,34 +273,56 @@ async def arena_submission_detail(
 
     submission_problem_set_id = submission_row[14]
 
+    teacher_report_context = bool(
+        is_teacher
+        and not is_owner
+        and back_class_id
+        and back_set_id
+        and back_user_id
+        and submission_row[1] == back_user_id
+        and submission_row[14] == back_set_id
+        and submission_row[16] == back_class_id
+    )
+    admin_report_context = bool(
+        is_admin
+        and back_context == _STUDENT_REPORT_BACK_CONTEXT
+        and back_class_id
+        and back_set_id
+        and back_user_id
+        and submission_row[1] == back_user_id
+        and submission_row[14] == back_set_id
+        and submission_row[16] == back_class_id
+    )
+
     if not is_admin and not is_owner:
-        if (
-            is_teacher
-            and back_set_id
-            and back_user_id
-            and submission_row[1] == back_user_id
-            and back_set_id == submission_problem_set_id
-        ):
+        if teacher_report_context:
+            assert back_set_id is not None
             allowed = await can_teacher_view_submission(session, teacher_id=current_user.id, set_id=back_set_id)
             if not allowed:
                 raise HTTPException(status_code=404, detail="Submission not found.")
             is_teacher_view = True
-            teacher_view_user_name = await session.scalar(
-                select(arena_users.c.nome).where(arena_users.c.id == back_user_id)
-            )
-            teacher_view_back_url = (
-                str(
-                    request.url_for(
-                        "arena_class_problem_set_report_student",
-                        class_id=back_class_id or "",
-                        set_id=back_set_id,
-                        user_id=back_user_id,
-                    )
-                )
-                + f"#{submission_id}"
-            )
         else:
             raise HTTPException(status_code=404, detail="Submission not found.")
+
+    if teacher_report_context or admin_report_context:
+        assert back_class_id is not None
+        assert back_set_id is not None
+        assert back_user_id is not None
+        teacher_view_user_name = await session.scalar(
+            select(arena_users.c.nome).where(arena_users.c.id == back_user_id)
+        )
+        teacher_view_back_url = (
+            str(
+                request.url_for(
+                    "arena_class_problem_set_report_student",
+                    class_id=back_class_id,
+                    set_id=back_set_id,
+                    user_id=back_user_id,
+                )
+            )
+            + f"#{submission_id}"
+        )
+        is_teacher_view = True
 
     # Load the active (non-superseded) judgment — most recent one
     active_j_sq = (
@@ -519,7 +550,7 @@ async def arena_submission_detail(
                 # First failing test case
                 "test_result": test_result,
                 "interactive_attempts": interactive_attempts,
-                # Teacher view context (set when a teacher drills into a student's submission)
+                # Report view context (set when a teacher or admin drills into a student's submission)
                 "is_teacher_view": is_teacher_view,
                 "teacher_view_back_url": teacher_view_back_url,
                 "teacher_view_user_name": teacher_view_user_name,
@@ -529,6 +560,7 @@ async def arena_submission_detail(
                 "back_class_id": back_class_id,
                 "back_set_id": back_set_id,
                 "back_user_id": back_user_id,
+                "back_context": back_context,
             },
         )
     )
@@ -653,12 +685,31 @@ def _feedback_redirect_url(
     back_class_id: str,
     back_set_id: str,
     back_user_id: str,
+    back_context: str,
 ) -> str:
-    """Build the detail-page redirect, forwarding teacher-view ``back_*`` params when present."""
+    """Build the detail-page redirect, forwarding report-view params when present.
+
+    Args:
+        request: Current HTTP request.
+        submission_id: UUID of the submission detail page.
+        back_class_id: Navigation-only class id for the return link.
+        back_set_id: Navigation-only problem-set id for the return link.
+        back_user_id: Navigation-only student id for the return link.
+        back_context: Navigation-only origin identifier.
+
+    Returns:
+        str: The detail-page URL, optionally with report navigation parameters.
+    """
     url = str(request.url_for("arena_submission_detail", submission_id=submission_id))
     if back_set_id and back_user_id:
-        query = f"?back_class_id={back_class_id}&back_set_id={back_set_id}&back_user_id={back_user_id}"
-        return url + query
+        query_params = {
+            "back_class_id": back_class_id,
+            "back_set_id": back_set_id,
+            "back_user_id": back_user_id,
+        }
+        if back_context == _STUDENT_REPORT_BACK_CONTEXT:
+            query_params["back_context"] = back_context
+        return f"{url}?{urlencode(query_params)}"
     return url
 
 
@@ -674,6 +725,7 @@ async def arena_submission_teacher_feedback_submit(
     back_class_id: Annotated[str, Form()] = "",
     back_set_id: Annotated[str, Form()] = "",
     back_user_id: Annotated[str, Form()] = "",
+    back_context: Annotated[str, Form()] = "",
     current_user: ArenaUser | None = Depends(get_current_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -693,6 +745,7 @@ async def arena_submission_teacher_feedback_submit(
         back_class_id: Navigation-only class id for the return link.
         back_set_id: Navigation-only problem-set id for the return link.
         back_user_id: Navigation-only student id for the return link.
+        back_context: Navigation-only origin identifier for the return link.
         current_user: Authenticated Arena user, or ``None`` for guests.
         session: Active database session.
 
@@ -770,6 +823,7 @@ async def arena_submission_teacher_feedback_submit(
         back_class_id=back_class_id,
         back_set_id=back_set_id,
         back_user_id=back_user_id,
+        back_context=back_context,
     )
 
     feedback_text = feedback.strip()
@@ -810,6 +864,7 @@ async def arena_submission_teacher_feedback_remove(
     back_class_id: Annotated[str, Form()] = "",
     back_set_id: Annotated[str, Form()] = "",
     back_user_id: Annotated[str, Form()] = "",
+    back_context: Annotated[str, Form()] = "",
     current_user: ArenaUser | None = Depends(get_current_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -828,6 +883,7 @@ async def arena_submission_teacher_feedback_remove(
         back_class_id: Navigation-only class id for the return link.
         back_set_id: Navigation-only problem-set id for the return link.
         back_user_id: Navigation-only student id for the return link.
+        back_context: Navigation-only origin identifier for the return link.
         current_user: Authenticated Arena user, or ``None`` for guests.
         session: Active database session.
 
@@ -862,6 +918,7 @@ async def arena_submission_teacher_feedback_remove(
         back_class_id=back_class_id,
         back_set_id=back_set_id,
         back_user_id=back_user_id,
+        back_context=back_context,
     )
 
     deleted = await delete_teacher_feedback(session, submission_id=submission_id)

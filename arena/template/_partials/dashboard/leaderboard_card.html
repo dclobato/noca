@@ -1,38 +1,65 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% from "_macros.html" import render_icon %}
-<section class="arena-card h-100">
-    <h2 class="arena-card-title">
-        {{ render_icon(icon="emoji_events") }}
-        Leaderboard
-    </h2>
+<section class="arena-card arena-dashboard-data-card h-100"
+         aria-labelledby="dashboard-leaderboard-title">
+    <div class="arena-dashboard-card-header">
+        <h2 class="arena-card-title" id="dashboard-leaderboard-title">
+            {{ render_icon(icon="emoji_events") }}
+            Leaderboard
+        </h2>
+        <a href="{{ request.url_for("arena_ranking_users") }}"
+           class="arena-dashboard-card-link">
+            Full ranking
+            {{ render_icon(icon="arrow_forward") }}
+        </a>
+    </div>
     <div class="table-responsive">
-        <table class="arena-table arena-dashboard-table">
+        <table class="arena-table arena-dashboard-table"
+               aria-label="Top rated users">
             <thead>
                 <tr>
-                    <th>Rank</th>
-                    <th>Handle</th>
-                    <th class="text-end">Rating</th>
-                    <th class="text-end">Confidence</th>
+                    <th scope="col">Rank</th>
+                    <th scope="col">Name</th>
+                    <th scope="col" class="text-end">Rating</th>
+                    <th scope="col" class="text-end">Confidence</th>
                 </tr>
             </thead>
             <tbody>
                 {% for top_user in top_users %}
                     {% set top_user_profile_url = request.url_for('arena_user_profile_public', user_id=top_user.id) if top_user.public_profile else None %}
+                    {% set medal_band = {1: "gold", 2: "silver", 3: "bronze"}.get(top_user.rank) %}
                     <tr {% if top_user_profile_url %}data-href="{{ top_user_profile_url }}"{% endif %}>
-                        <td>{{ top_user.rank }}</td>
-                        <td class="arena-monospace">{{ top_user.name }}</td>
+                        <td>
+                            <span class="arena-dashboard-rank{% if medal_band %} arena-dashboard-rank--medal{% endif %}">
+                                {% if medal_band %}
+                                    <img src="{{ request.url_for('arena_medal', band=medal_band) }}"
+                                         class="arena-dashboard-medal"
+                                         width="24"
+                                         height="24"
+                                         alt=""
+                                         aria-hidden="true">
+                                {% endif %}
+                                <span class="arena-dashboard-rank-number">{{ top_user.rank }}</span>
+                            </span>
+                        </td>
+                        <td class="arena-dashboard-user-name">{{ top_user.name }}</td>
                         <td class="arena-mono-right">{{ top_user.rating }}</td>
                         <td class="arena-mono-right">{{ top_user.confidence }}%</td>
                     </tr>
                 {% else %}
                     <tr>
-                        <td colspan="4" class="text-muted text-center py-3">No rated users yet.</td>
+                        <td colspan="4">
+                            <div class="arena-dashboard-empty">
+                                {{ render_icon(icon="leaderboard") }}
+                                <p>No rated users yet.</p>
+                            </div>
+                        </td>
                     </tr>
                 {% endfor %}
             </tbody>

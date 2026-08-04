@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -88,7 +88,7 @@
     border-radius: var(--arena-radius);
     background-color: var(--arena-surface-container-lowest);
     color: var(--arena-on-surface);
-    font-size: 0.9375rem;
+    font-size: 0.975rem;
     padding: 0.625rem 0.875rem;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -166,80 +166,6 @@
     opacity: 1;
 }
 
-/* 2FA OTP input */
-.arena-otp-input {
-    letter-spacing: 0.25em;
-    font-family: monospace;
-    font-size: 1.5rem;
-    font-weight: 700;
-    text-align: center;
-    padding: 0.75rem 0.5rem;
-    border: 1px solid var(--arena-outline-variant);
-    border-radius: var(--arena-radius);
-    background-color: var(--arena-surface-container-lowest);
-    color: var(--arena-on-surface);
-    width: 3rem;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.arena-otp-input:focus {
-    border-color: var(--arena-primary);
-    box-shadow: 0 0 0 3px rgba(0, 107, 33, 0.12);
-    outline: none;
-}
-
-/* 2FA helper text */
-.arena-2fa-help {
-    font-size: 0.8125rem;
-    color: var(--arena-on-surface-variant);
-}
-
-.arena-2fa-help a {
-    color: var(--arena-primary);
-    text-decoration: none;
-    font-weight: 500;
-}
-
-.arena-2fa-help a:hover {
-    text-decoration: underline;
-}
-
-.arena-2fa-recovery-icon {
-    font-size: 1rem;
-    color: var(--arena-outline);
-    flex-shrink: 0;
-}
-
-/* 2FA alert box */
-.arena-security-alert {
-    background-color: var(--arena-surface-container);
-    border: 1px solid var(--arena-outline-variant);
-    border-radius: var(--arena-radius);
-    padding: 0.875rem 1rem;
-    display: flex;
-    gap: 0.75rem;
-    align-items: flex-start;
-    margin-top: var(--arena-space-md);
-}
-
-.arena-security-alert .material-symbols-outlined {
-    color: var(--arena-secondary);
-    font-size: 1.125rem;
-    flex-shrink: 0;
-    margin-top: 0.125rem;
-}
-
-.arena-security-alert-text {
-    font-size: 0.8125rem;
-    color: var(--arena-on-surface-variant);
-    line-height: 1.5;
-}
-
-.arena-security-alert-text strong {
-    color: var(--arena-on-surface);
-    font-weight: 600;
-}
-
 .arena-security-actions .btn {
     display: flex;
     align-items: center;
@@ -251,70 +177,4 @@
 .arena-security-actions .btn .material-symbols-outlined {
     flex-shrink: 0;
     line-height: 1;
-}
-
-/* ============================================================
-   2FA setup page
-   ============================================================ */
-.arena-2fa-qr-img {
-    max-width: 200px;
-    width: 100%;
-    height: auto;
-}
-
-.arena-2fa-secret {
-    display: inline-block;
-    font-family: monospace;
-    font-size: 1.125rem;
-    font-weight: 700;
-    letter-spacing: 0.2em;
-    color: var(--arena-primary);
-    background-color: var(--arena-surface-container);
-    border: 1px solid var(--arena-outline-variant);
-    border-radius: var(--arena-radius);
-    padding: 0.5rem 1rem;
-}
-
-/* ============================================================
-   Backup codes page
-   ============================================================ */
-.arena-backup-warning {
-    background-color: #fff8e1;
-    border: 1px solid #ffe082;
-    border-radius: var(--arena-radius);
-    padding: 0.875rem 1rem;
-    display: flex;
-    gap: 0.75rem;
-    align-items: flex-start;
-}
-
-.arena-backup-warning .material-symbols-outlined {
-    color: #f59e0b;
-    font-size: 1.25rem;
-    flex-shrink: 0;
-    margin-top: 0.125rem;
-}
-
-.arena-backup-warning-text {
-    font-size: 0.875rem;
-    color: var(--arena-on-surface);
-    line-height: 1.5;
-}
-
-.arena-backup-warning-text strong {
-    font-weight: 600;
-}
-
-.arena-backup-code-cell {
-    background-color: var(--arena-surface-container);
-    border: 1px solid var(--arena-outline-variant);
-    border-radius: var(--arena-radius);
-    padding: 0.625rem 0.75rem;
-    font-family: monospace;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--arena-on-surface);
-    text-align: center;
-    letter-spacing: 0.05em;
-    word-break: break-all;
 }

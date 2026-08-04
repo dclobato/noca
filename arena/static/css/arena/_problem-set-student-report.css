@@ -1,0 +1,294 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+.arena-problem-set-student-report-page {
+    max-width: var(--arena-max-width);
+    margin-inline: auto;
+}
+.arena-problem-set-student-report-card { padding: 0; }
+.arena-problem-set-student-report-header {
+    gap: var(--arena-space-md);
+    padding: var(--arena-space-md) var(--arena-gutter);
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+.arena-problem-set-student-report-header .arena-card-title {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+.arena-problem-set-student-report-context {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--arena-space-sm) var(--arena-space-lg);
+    padding: var(--arena-space-md) var(--arena-gutter);
+}
+.arena-problem-set-student-report-name {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+.arena-problem-set-student-report-class {
+    overflow-wrap: anywhere;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+.arena-problem-set-student-report-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+.arena-problem-set-student-report-meta .material-symbols-outlined {
+    color: var(--arena-outline);
+    font-size: 1rem;
+}
+.arena-problem-set-student-report-overview {
+    padding: var(--arena-gutter);
+    border-block: 1px solid var(--arena-outline-variant);
+    background-color: var(--arena-surface-container-low);
+}
+.arena-problem-set-student-report-section-title {
+    margin: 0 0 0.25rem;
+    font-size: 1rem;
+    line-height: 1.4;
+}
+.arena-problem-set-student-report-section-copy {
+    max-width: 70ch;
+    margin-bottom: var(--arena-space-md);
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+.arena-problem-set-student-report-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-block: 1px solid var(--arena-outline-variant);
+}
+.arena-problem-set-student-report-stats > div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem;
+    min-width: 0;
+    padding: var(--arena-space-sm) var(--arena-space-md);
+    border-right: 1px solid var(--arena-outline-variant);
+}
+.arena-problem-set-student-report-stats > div:last-child {
+    border-right: 0;
+}
+.arena-problem-set-student-report-stats strong {
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1.25rem;
+}
+.arena-problem-set-student-report-stats span {
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+.arena-problem-set-student-report-accordion {
+    margin-inline: var(--arena-gutter);
+    border-block: 1px solid var(--arena-outline-variant);
+}
+.arena-problem-set-student-report-accordion .accordion-item {
+    border-inline: 0;
+    border-top: 0;
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+.arena-problem-set-student-report-accordion .accordion-item:last-child {
+    border-bottom: 0;
+}
+.arena-problem-set-student-report-accordion .accordion-button {
+    align-items: flex-start;
+    gap: var(--arena-space-md);
+    padding: var(--arena-space-md) 3.25rem var(--arena-space-md) var(--arena-space-md);
+    background-color: var(--arena-surface-container-lowest);
+    box-shadow: none;
+}
+.arena-problem-set-student-report-accordion .accordion-button:not(.collapsed) {
+    background-color: var(--arena-surface-container-low);
+    color: var(--arena-on-surface);
+}
+.arena-problem-set-student-report-problem-main {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: baseline;
+    min-width: 0;
+    gap: var(--arena-space-sm);
+}
+.arena-problem-set-student-report-problem-number {
+    flex: 0 0 auto;
+    color: var(--arena-primary);
+    font-family: monospace;
+    font-weight: 700;
+}
+.arena-problem-set-student-report-problem-title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-weight: 600;
+}
+.arena-problem-set-student-report-problem-meta {
+    display: flex;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--arena-space-sm);
+    max-width: 55%;
+    margin-left: auto;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.875rem;
+}
+.arena-problem-set-student-report-attempt-count {
+    white-space: nowrap;
+}
+.arena-problem-set-student-report-accordion-body {
+    border-top: 1px solid var(--arena-outline-variant);
+    background-color: var(--arena-surface-container-lowest);
+}
+.arena-problem-set-student-report-table-wrapper {
+    overflow-x: auto;
+}
+.arena-problem-set-student-report-table {
+    min-width: 44rem;
+}
+.arena-problem-set-student-report-table th,
+.arena-problem-set-student-report-table td {
+    vertical-align: middle;
+}
+.arena-problem-set-student-report-submitted {
+    width: 16rem;
+    min-width: 16rem;
+}
+.arena-problem-set-student-report-table .arena-col-actions {
+    width: 1%;
+    white-space: nowrap;
+}
+.arena-problem-set-student-report-table .arena-icon-button {
+    min-height: 2.75rem;
+}
+.arena-problem-set-student-report-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    padding: var(--arena-space-lg) var(--arena-gutter);
+    color: var(--arena-on-surface-variant);
+    text-align: center;
+}
+.arena-problem-set-student-report-empty .material-symbols-outlined {
+    color: var(--arena-outline);
+    font-size: 2rem;
+}
+.arena-problem-set-student-report-empty h2 {
+    margin: 0;
+    color: var(--arena-on-surface);
+    font-size: 1rem;
+}
+@media (max-width: 767.98px) {
+    .arena-problem-set-student-report-stats {
+        grid-template-columns: 1fr;
+    }
+    .arena-problem-set-student-report-stats > div {
+        border-right: 0;
+        border-bottom: 1px solid var(--arena-outline-variant);
+    }
+    .arena-problem-set-student-report-stats > div:last-child {
+        border-bottom: 0;
+    }
+    .arena-problem-set-student-report-problem-main,
+    .arena-problem-set-student-report-problem-meta {
+        width: 100%;
+        max-width: none;
+        margin-left: 0;
+    }
+    .arena-problem-set-student-report-problem-meta {
+        justify-content: flex-start;
+    }
+    .arena-problem-set-student-report-accordion .accordion-button {
+        flex-wrap: wrap;
+    }
+    .arena-problem-set-student-report-table-wrapper {
+        overflow: visible;
+    }
+    .arena-problem-set-student-report-table,
+    .arena-problem-set-student-report-table tbody {
+        display: block;
+        width: 100%;
+        min-width: 0;
+    }
+    .arena-problem-set-student-report-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+    .arena-problem-set-student-report-table tbody tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 0.75rem 1rem;
+        padding: var(--arena-space-md);
+        border-bottom: 1px solid var(--arena-outline-variant);
+    }
+    .arena-problem-set-student-report-table tbody tr:last-child {
+        border-bottom: 0;
+    }
+    .arena-problem-set-student-report-table tbody td {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+        width: auto;
+        min-width: 0;
+        padding: 0;
+        text-align: left;
+    }
+    .arena-problem-set-student-report-table tbody td[data-label]::before {
+        color: var(--arena-on-surface-variant);
+        content: attr(data-label);
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+    .arena-problem-set-student-report-table tbody .arena-problem-set-student-report-submitted,
+    .arena-problem-set-student-report-table tbody .arena-col-actions {
+        width: auto;
+        min-width: 0;
+    }
+    .arena-problem-set-student-report-table tbody .arena-col-actions {
+        grid-column: 1 / -1;
+        align-items: stretch;
+    }
+    .arena-problem-set-student-report-table .arena-col-actions .arena-icon-button {
+        justify-content: center;
+        min-height: 2.75rem;
+    }
+}
+@media (max-width: 575.98px) {
+    .arena-problem-set-student-report-card {
+        border-inline: 0;
+        border-radius: 0;
+    }
+    .arena-problem-set-student-report-header,
+    .arena-problem-set-student-report-context,
+    .arena-problem-set-student-report-overview {
+        padding-inline: var(--arena-space-md);
+    }
+    .arena-problem-set-student-report-header > .btn {
+        width: 100%;
+    }
+    .arena-problem-set-student-report-accordion {
+        margin-inline: var(--arena-space-md);
+    }
+}

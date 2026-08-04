@@ -2,94 +2,64 @@
 {% from "_macros.html" import render_icon %}
 {% block title_suffix %}&mdash; Two-Factor Authentication{% endblock %}
 {% block auth_content %}
-    <div class="container">
-        <div class="row justify-content-center">
-            <div class="col-12 col-md-6 col-lg-5 col-xl-4">
-                {# Brand header #}
-                <div class="text-center mb-4 pt-4">
-                    <h1 class="arena-auth-logo">{{ brand_name }}</h1>
-                    <p class="arena-auth-tagline">Competitive Judge</p>
+    <div class="container arena-auth-flow-page">
+        <div class="arena-auth-flow-shell">
+            <aside class="arena-auth-flow-welcome">
+                <div class="arena-auth-flow-welcome-copy">
+                    <p class="arena-auth-flow-welcome-title">One last check.</p>
+                    <p class="arena-auth-flow-welcome-text">Protect your progress. Verify it's really you.</p>
                 </div>
-                {# 2FA card #}
-                <div class="arena-auth-card">
-                    <div class="d-flex align-items-center gap-2 mb-3">
+                <img class="arena-auth-flow-mascot"
+                     src="{{ request.url_for('arena_static_img', path='welcome.png') }}"
+                     alt="">
+            </aside>
+            <main class="arena-auth-card arena-auth-flow-card">
+                <div class="arena-auth-flow-heading">
+                    <div class="arena-auth-flow-title-row">
                         {{ render_icon(icon="shield_person", classes="arena-2fa-icon") }}
-                        <h2 class="arena-auth-title mb-0">Two-Factor Authentication</h2>
-                    </div>
-                    <p class="arena-2fa-help mb-4">
-                        Please enter the 6-digit verification code sent to your registered device to access your {{ brand_name }} account.
-                    </p>
-                    <form action="{{ request.url_for("arena_2fa_submit") }}"
-                          method="post"
-                          novalidate
-                          id="otp-form">
-                        <div class="d-flex gap-2 justify-content-center mb-4" id="otp-inputs">
-                            <input type="text"
-                                   class="arena-otp-input"
-                                   id="otp-1"
-                                   name="otp_1"
-                                   maxlength="1"
-                                   inputmode="text"
-                                   autocomplete="one-time-code"
-                                   aria-label="Digit 1">
-                            <input type="text"
-                                   class="arena-otp-input"
-                                   id="otp-2"
-                                   name="otp_2"
-                                   maxlength="1"
-                                   inputmode="text"
-                                   autocomplete="one-time-code"
-                                   aria-label="Digit 2">
-                            <input type="text"
-                                   class="arena-otp-input"
-                                   id="otp-3"
-                                   name="otp_3"
-                                   maxlength="1"
-                                   inputmode="text"
-                                   autocomplete="one-time-code"
-                                   aria-label="Digit 3">
-                            <input type="text"
-                                   class="arena-otp-input"
-                                   id="otp-4"
-                                   name="otp_4"
-                                   maxlength="1"
-                                   inputmode="text"
-                                   autocomplete="one-time-code"
-                                   aria-label="Digit 4">
-                            <input type="text"
-                                   class="arena-otp-input"
-                                   id="otp-5"
-                                   name="otp_5"
-                                   maxlength="1"
-                                   inputmode="text"
-                                   autocomplete="one-time-code"
-                                   aria-label="Digit 5">
-                            <input type="text"
-                                   class="arena-otp-input"
-                                   id="otp-6"
-                                   name="otp_6"
-                                   maxlength="1"
-                                   inputmode="text"
-                                   autocomplete="one-time-code"
-                                   aria-label="Digit 6">
-                        </div>
-                        <input type="hidden" id="full-code" name="full_code">
-                        <button type="submit" class="btn arena-btn-primary w-100">Verify</button>
-                    </form>
-                    {# Security alert #}
-                    <div class="arena-security-alert">
-                        {{ render_icon(icon="report_problem") }}
-                        <div class="arena-security-alert-text">
-                            <strong>Security Alert</strong>
-                            <br>
-                            Never share your 2FA codes with anyone, including staff.
-                        </div>
+                        <h1 class="arena-auth-title mb-0">Two-Factor Authentication</h1>
                     </div>
                 </div>
-            </div>
+                <p class="arena-2fa-help mb-4" id="two-factor-instructions">
+                    Enter the 6-character code from your authenticator app or one of your backup codes.
+                </p>
+                <form action="{{ request.url_for("arena_2fa_submit") }}"
+                      method="post"
+                      novalidate
+                      id="otp-form">
+                    <div class="arena-2fa-code-field">
+                        <label for="full-code" class="visually-hidden">Verification or backup code</label>
+                        <input type="text"
+                               class="form-control arena-2fa-code-input"
+                               id="full-code"
+                               name="full_code"
+                               maxlength="6"
+                               inputmode="text"
+                               autocomplete="one-time-code"
+                               autocapitalize="none"
+                               autocorrect="off"
+                               spellcheck="false"
+                               enterkeyhint="done"
+                               aria-describedby="two-factor-instructions"
+                               required
+                               autofocus>
+                    </div>
+                    <button type="submit"
+                            class="btn arena-btn-primary arena-auth-flow-submit w-100">
+                        Verify
+                        {{ render_icon(icon="arrow_forward", classes="arena-auth-flow-submit-icon") }}
+                    </button>
+                </form>
+                <div class="arena-security-alert arena-auth-flow-security-alert"
+                     role="note">
+                    {{ render_icon(icon="report_problem") }}
+                    <div class="arena-security-alert-text">
+                        <strong>Security Alert</strong>
+                        <br>
+                        Never share your 2FA codes with anyone, including staff.
+                    </div>
+                </div>
+            </main>
         </div>
     </div>
-{% endblock %}
-{% block extra_script %}
-    <script src="{{ request.url_for("arena_static_js", path="two_factor.js") }}?v={{ app_version }}"></script>
 {% endblock %}
