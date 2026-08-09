@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -205,6 +205,7 @@ def _build_app(session: AsyncSession, admin_user: ArenaUser) -> FastAPI:
 
     for path, name in [
         ("/", "arena_dashboard"),
+        ("/live", "arena_live"),
         ("/status", "arena_status"),
         ("/auth/login", "arena_login"),
         ("/auth/signup", "arena_signup"),
@@ -273,6 +274,7 @@ async def test_admin_can_view_another_users_submission(session: AsyncSession) ->
     lang = await _make_language(session)
     prob = await _make_problem(session, owner.id)
     sub_id = await _insert_submission(session, owner.id, prob.id, lang.id)
+    await _insert_judgment(session, sub_id, final_verdict="AC")
     await session.flush()
 
     app = _build_app(session, admin)
@@ -282,6 +284,8 @@ async def test_admin_can_view_another_users_submission(session: AsyncSession) ->
     assert response.status_code == 200
     assert "Owner User" in response.text
     assert f"/admin/users/{owner.id}" in response.text
+    assert "data-submission-detail-live" not in response.text
+    assert "confetti-celebrate.js" not in response.text
 
 
 @pytest.mark.asyncio

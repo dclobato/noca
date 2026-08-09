@@ -172,6 +172,8 @@
     color: var(--arena-on-surface);
     font-family: var(--noca-font-mono);
     font-size: 2rem;
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-align: center;

@@ -189,9 +189,12 @@ Behavior notes:
   validators. Use `with_reveal_log()` / `with_phase()` / `with_focused_team()` /
   `with_updates()`, which implement `model_dump` → mutate → `model_validate`.
 - **Invariants.** The reveals derived from `step_log` form a duplicate-free
-  subset of a duplicate-free `frozen_submission_ids`. Scope is all-or-nothing: a global session has
-  `site_id`, `site_name`, and `medal_cutoffs` all `None`; a site-scoped session
-  has all three present.
+  subset of a duplicate-free `frozen_submission_ids`. Scope is all-or-nothing for
+  *identity*: `site_name` is set if and only if `site_id` is. `medal_cutoffs` is
+  deliberately outside that pairing — a global ceremony carries the contest's own
+  global cutoffs when they are configured and `None` when they are not, which is
+  also exactly what a ceremony recorded before global medals existed looks like,
+  so old payloads keep loading without a version bump.
 - **Command receipts are recorded state, not derived.** `command_receipts` is
   the bounded ring of applied `Idempotency-Key`s (see
   `models/command_receipt.py`), kept *inside* the state so one fenced write
@@ -414,6 +417,15 @@ Behavior notes:
 - **Medals are not reimplemented.** Bands come from
   `reveal_projection.medal_for_rank` over the current *scoped* rank, applied by
   `build_team_reveal_views`; the engine only decides which runs are revealed.
+  The same shared `medal_band_for_rank` backs the live scoreboard's per-row
+  `medal`, so the projector and the board cannot disagree about the podium.
+- **Cutoffs are snapshotted, not read live.** `initialize_reveal_session` maps
+  the site's cutoffs — or, for a global ceremony, the contest's
+  `global_*_cutoff` triple through `MedalCutoffs.from_optional` — into the state
+  once, when the session is created. A later settings change therefore cannot
+  reshuffle the bands under an operator mid-ceremony; adopting one is an
+  explicit `start-reveal` with `restart=true` (**Start over** in the panel,
+  which is reachable from an idle stored session for exactly this reason).
 
 ---
 

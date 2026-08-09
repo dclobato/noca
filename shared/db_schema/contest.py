@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -187,8 +187,42 @@ contests = Table(
         server_default="false",
         comment="Gate for the animator module: only enabled contests expose snapshot/events/reveal.",
     ),
+    Column(
+        "global_gold_cutoff",
+        Integer,
+        nullable=True,
+        comment="Maximum ranking position (inclusive) awarded a gold medal in the global scope.",
+    ),
+    Column(
+        "global_silver_cutoff",
+        Integer,
+        nullable=True,
+        comment="Maximum ranking position (inclusive) awarded a silver medal in the global scope.",
+    ),
+    Column(
+        "global_bronze_cutoff",
+        Integer,
+        nullable=True,
+        comment="Maximum ranking position (inclusive) awarded a bronze medal in the global scope.",
+    ),
     _created_at_column(),
     _updated_at_column(),
+    # All-or-nothing: either global medals are unconfigured (all three NULL) or
+    # fully configured and ordered. The configured branch must assert IS NOT NULL
+    # explicitly, because a CHECK rejects only FALSE and lets UNKNOWN through --
+    # comparisons alone would happily store a partial triple such as (1, 2, NULL).
+    CheckConstraint(
+        "(global_gold_cutoff IS NULL AND global_silver_cutoff IS NULL AND global_bronze_cutoff IS NULL)"
+        " OR ("
+        "global_gold_cutoff IS NOT NULL"
+        " AND global_silver_cutoff IS NOT NULL"
+        " AND global_bronze_cutoff IS NOT NULL"
+        " AND global_gold_cutoff >= 1"
+        " AND global_gold_cutoff <= global_silver_cutoff"
+        " AND global_silver_cutoff <= global_bronze_cutoff"
+        ")",
+        name="ck_contests_global_medal_cutoffs",
+    ),
 )
 
 sites = Table(

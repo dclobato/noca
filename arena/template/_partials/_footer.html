@@ -4,6 +4,7 @@
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. #}
 {# ── Arena shared footer partial ── #}
+{% from "_macros.html" import render_icon %}
 {% set next_rating_update = next_rating_update_text(request) if next_rating_update_text is defined else none %}
 {% set session_expiry = token_expiry_text(request) if token_expiry_text is defined else none %}
 <footer class="arena-footer">
@@ -30,6 +31,15 @@
                         {{ online_count }} online
                     </span>
                 {% endif %}
+            {% endif %}
+            {% if current_user %}
+                <a href="{{ request.url_for("arena_live") }}"
+                   class="arena-footer-live-link"
+                   aria-label="Open the live submission feed">
+                    <span class="arena-footer-live-dot" aria-hidden="true"></span>
+                    {{ render_icon(icon="sensors") }}
+                    <span>Live feed</span>
+                </a>
             {% endif %}
             {% if healthmon_url %}<a href="{{ healthmon_url }}">Status</a>{% endif %}
             <a href="#">Contact</a>

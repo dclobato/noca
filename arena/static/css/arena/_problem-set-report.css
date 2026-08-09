@@ -195,14 +195,7 @@
     align-items: center;
     min-width: 0;
     gap: var(--arena-space-sm);
-    color: var(--arena-primary);
     overflow-wrap: anywhere;
-    text-decoration: none;
-}
-.arena-report-student-link:hover,
-.arena-report-student-link:focus-visible {
-    color: var(--arena-primary);
-    text-decoration: underline;
 }
 .arena-report-student-link img {
     width: 2rem;

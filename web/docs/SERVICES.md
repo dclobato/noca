@@ -297,6 +297,7 @@ Purpose:
 - contest dashboard grouping
 - contest metadata validation/update
 - past contest deactivation
+- contest-level (global) animator medal-cutoff updates
 - contest creation with initial owner admin
 - contest clock payload generation
 - chief judge assignment validation
@@ -324,6 +325,7 @@ Main entrypoints:
 - `get_contest_by_id(session, contest_id) -> Contest | None`
 - `get_inactive_contests(session) -> list[Contest]`
 - `deactivate_past_contest(session, contest_id) -> Contest | None`
+- `update_contest_global_medals(session, contest, gold, silver, bronze) -> Contest` — thin wrapper over `shared.services.animator_access_service.update_contest_global_medals`, mirroring `site_service.update_site_medals`. All-or-nothing: pass three ordered positive ints, or three `None`s to disable the contest's global medals. Does **not** commit, so the caller can batch the global and per-site cutoffs into one transaction.
 - `ensure_contest_admin_or_uberadmin(actor) -> None`
 - `contest_metadata_validation_errors(exc) -> list[str]`
 - `build_contest_metadata_form_data(contest) -> dict[str, Any]`
@@ -725,7 +727,9 @@ Internal structure:
 - `restore.py` — coordinates the one-transaction Core restore and rollback cleanup
 - `restore_problems.py` — restores problem rows and lazily reads their files
 - `restore_history.py` — restores submissions, judgments, clarifications, and tasks
-- `importing.py` — coordinates validation and restoration
+- `importing.py` — coordinates validation and restoration, and normalizes a
+  pre-NOT-NULL backup's `null` `output_limit_in_bytes` to 65536 **before**
+  integrity validation, which would otherwise reject the whole archive
 
 Main entrypoints:
 
@@ -1048,8 +1052,8 @@ Internal structure:
 - `interactions.py` — sample-interaction persistence (the worked conversations an interactive
   problem shows instead of sample test cases) plus the interactive test-case invariant
 - `queries.py` — contest-scoped problem and allowed-language reads
-- `files.py` — statement/test-case file I/O and ZIP export/import parsing helpers
-- `importing.py` — full ZIP import orchestration for `problem.json`, statements, and test cases
+- `files.py` — statement/test-case file I/O plus the projection of a problem onto the shared package contract
+- `importing.py` — the Contest adapter over the shared problem-package subsystem: balloon colors, contest-allowed languages, ORM rows, and the validator token
 - `language_limits.py` — per-language limits and effective-limit diff helpers
 - `profiling.py` — profiling-run creation, lookup, derived limits, and queueing
 - `limit_batches.py` — persisted running-contest limit-change batch helpers
@@ -1085,7 +1089,7 @@ Additional entrypoints (query helpers):
 Additional entrypoints (language helpers):
 - `get_active_languages(session) -> list[Language]` — all active languages globally; used for contest creation form and uberadmin screens
 - `get_contest_languages(session, contest) -> list[Language]` — languages allowed for the given contest, ordered by name; use this instead of `get_active_languages` for all contest-scoped callers
-- `import_problem_from_zip(session, contest, zip_bytes, testcase_dir, statement_dir, image_service) -> ProblemImportResult` — full atomic import; supports both PDF and Markdown statements; filters `language_limits` to the contest's currently allowed languages and reports skipped IDs; validates an optional packaged illustration image through `shared.services.problem_image.load_packaged_image`
+- `import_problem_package(session, contest, package, testcase_dir, statement_dir, image_service) -> ProblemImportResult` — persists an already-validated `ProblemPackage` (the shared reader having handled every format decision); supports PDF and Markdown statements; picks an unused balloon color when the package states none; filters `language_limits` to the contest's currently allowed languages, reporting the skipped ones as structured warnings; validates a staged illustration image through `shared.services.problem_image.load_staged_image`. Test-case and statement files are **promoted before** the commit and deleted again if it fails, and stale import journals are reconciled first
 - `get_language_limits_map(session, problem) -> dict[str, ProblemLanguageLimit]`
 - `problem_fallback_limits(problem) -> EffectiveProblemLimits` — normalized fallback limits snapshot with `repetitions=1`
 - `submitted_language_limits(languages, submitted_form, existing_limits) -> dict[str, LanguageLimitInput]` — extracts posted per-language limits and preserves repetitions for unchanged rows
@@ -1116,9 +1120,14 @@ Additional entrypoints (file I/O — sync, call via `anyio.to_thread.run_sync`):
 - `reorder_testcase_files(problem_id, ordinal_map, testcase_dir) -> None` — collision-free arbitrary testcase file reorder using temporary paths
 
 Additional entrypoints (ZIP):
-- `parse_testcases_zip(zip_bytes) -> ParsedTestCases` — supports Layout A (dir: `in/001.in`) and Layout B (flat: `001.in`); returns a `ParsedTestCases` dataclass with `.pairs` (ordinal → input/output bytes) and `.explanations` (ordinal → text from optional `explanation/NNN.txt`, UTF-8, ≤1024 chars; invalid UTF-8 or overlength raise `ValueError`)
-- `build_export_zip(problem, testcase_dir, statement_dir, language_limits) -> bytes` — produces Layout A ZIP with all test cases and `problem.json`; writes optional `explanation/NNN.txt` per test case and optional `image.<ext>` for the problem illustration; per-language limits include repetitions, while fallback problem metadata does not; `problem.json` includes `image` and `image_caption`
-- `build_public_export_zip(problem, testcase_dir, statement_dir) -> bytes` — produces Layout A ZIP with statement, optional problem illustration image, and public (sample) test cases only (including any `explanation/NNN.txt`); no `problem.json`, no private test cases; intended for contestant download
+- `parse_testcases_zip(zip_bytes) -> ParsedTestCases` — supports Layout A
+  (directory: `in/001.in`) and Layout B (flat: `001.in`); returns `.pairs`
+  (ordinal to input/output bytes) and `.explanations` (ordinal to UTF-8 text
+  from optional `explanation/NNN.txt`). It rejects mixed layouts, duplicate
+  logical members, invalid ordinals, incomplete pairs, and invalid UTF-8
+  explanations.
+- `problem_to_package(problem, testcase_dir, statement_dir, language_limits) -> ProblemPackage` — projects a contest problem onto the shared package contract; raises `PackageError` when no statement file is stored
+- `build_problem_export(problem, testcase_dir, statement_dir, destination, *, profile, language_limits=None) -> Path` — writes the package ZIP to `destination` through the shared writer. `profile="full"` produces the importable package (every version-1 key, all test cases, `sha256` manifest, validator source) and requires `language_limits`; `profile="public"` produces the contestant statement bundle (statement, image, public cases with explanations, sample interactions) with no `problem.json`, so it is deliberately not importable. Raises `PackageError` when a stored file is missing — both exporters previously wrote `b""` instead, producing packages that re-imported with silently different semantics
 
 Reuse this module when:
 - adding contest-problem management features

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -50,7 +50,7 @@ class _RecordingDb:
     async def get_problem_limits(self, problem_id: str, language_id: str) -> Any:
         from autojudge.types import ProblemLimits
 
-        return ProblemLimits(time_limit_ms=1000, memory_limit_kb=65536, pids_limit=16)
+        return ProblemLimits(time_limit_ms=1000, memory_limit_kb=65536, pids_limit=16, output_limit_in_bytes=65536)
 
     async def get_test_case_id_map(self, problem_id: str) -> dict[int, str]:
         return self._test_case_ids

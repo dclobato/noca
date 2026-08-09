@@ -70,25 +70,30 @@
                 <div class="card shadow-sm border-0 h-100">
                     <div class="card-body">
                         <h2 class="h5 card-title">Medal cutoffs settings</h2>
-                        {% if sites %}
-                            <div class="small text-muted mb-3">
-                                <p class="mb-1">For example, cutoffs 2 / 5 / 8 mean:</p>
-                                <ul class="mb-2 ps-3">
-                                    <li>Positions 1–2: gold</li>
-                                    <li>Positions 3–5: silver</li>
-                                    <li>Positions 6–8: bronze</li>
-                                    <li>Position 9 onward: no medal</li>
-                                </ul>
-                                <p class="mb-0">Values must satisfy gold ≤ silver ≤ bronze.</p>
-                            </div>
-                            <form method="post"
-                                  action="{{ request.url_for('animator_update_all_medals', slug=contest.login_slug) }}">
-                                <div class="table-responsive mb-3">
+                        <div class="small text-muted mb-3">
+                            <p class="mb-1">For example, cutoffs 2 / 5 / 8 mean:</p>
+                            <ul class="mb-2 ps-3">
+                                <li>Positions 1–2: gold</li>
+                                <li>Positions 3–5: silver</li>
+                                <li>Positions 6–8: bronze</li>
+                                <li>Position 9 onward: no medal</li>
+                            </ul>
+                            <p class="mb-0">Values must satisfy gold ≤ silver ≤ bronze.</p>
+                        </div>
+                        {% set medal_bands = [('gold', 'Gold'), ('silver', 'Silver'), ('bronze', 'Bronze')] %}
+                        <form method="post"
+                              action="{{ request.url_for('animator_update_all_medals', slug=contest.login_slug) }}">
+                            <section class="mb-4" aria-labelledby="global-medal-cutoffs-heading">
+                                <h3 id="global-medal-cutoffs-heading" class="h6">Global medal cutoffs</h3>
+                                <div class="table-responsive mb-2">
                                     <table class="table table-sm align-middle mb-0">
+                                        <caption class="visually-hidden">
+                                            Medal cutoffs for the contest-wide scoreboard and reveal ceremony
+                                        </caption>
                                         <thead class="table-light">
                                             <tr>
-                                                <th scope="col">Site</th>
-                                                {% for band, label in [("gold", "Gold"), ("silver", "Silver"), ("bronze", "Bronze")] %}
+                                                <th scope="col">Scope</th>
+                                                {% for band, label in medal_bands %}
                                                     <th scope="col" class="text-center">
                                                         <span class="animator-medal-heading">
                                                             <img class="animator-medal-heading-image"
@@ -102,33 +107,90 @@
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {% for site in sites %}
-                                                <tr>
-                                                    <th scope="row">{{ site.sitename }}</th>
-                                                    {% for band in ["gold", "silver", "bronze"] %}
-                                                        <td class="text-center">
-                                                            <label class="visually-hidden" for="{{ band }}-cutoff-{{ site.id }}">{{ site.sitename }} {{ band }} cutoff</label>
-                                                            <input class="form-control form-control-sm animator-medal-input mx-auto"
-                                                                   type="number"
-                                                                   min="1"
-                                                                   id="{{ band }}-cutoff-{{ site.id }}"
-                                                                   name="{{ band }}_cutoff_{{ site.id }}"
-                                                                   value="{{ site | attr(band ~ '_cutoff') }}">
-                                                        </td>
-                                                    {% endfor %}
-                                                </tr>
-                                            {% endfor %}
+                                            <tr>
+                                                <th scope="row">Whole contest</th>
+                                                {% for band, label in medal_bands %}
+                                                    {% set global_value = contest | attr('global_' ~ band ~ '_cutoff') %}
+                                                    <td class="text-center">
+                                                        <label class="visually-hidden" for="global-{{ band }}-cutoff">Global {{ label | lower }} cutoff</label>
+                                                        <input class="form-control form-control-sm animator-medal-input mx-auto"
+                                                               type="number"
+                                                               min="1"
+                                                               id="global-{{ band }}-cutoff"
+                                                               name="global_{{ band }}_cutoff"
+                                                               value="{{ global_value if global_value is not none else '' }}">
+                                                    </td>
+                                                {% endfor %}
+                                            </tr>
                                         </tbody>
                                     </table>
                                 </div>
-                                <button type="submit" class="btn btn-primary btn-sm">Save medals settings</button>
-                            </form>
-                        {% else %}
-                            <p class="text-muted mb-0">
-                                This contest has no sites yet. Add sites from
-                                <a href="{{ request.url_for('edit_metadata', slug=contest.login_slug) }}">Edit metadata</a>.
-                            </p>
-                        {% endif %}
+                                <div class="small text-muted">
+                                    <p class="mb-1">
+                                        Leave all three fields blank to disable medals on the contest-wide scoreboard and
+                                        reveal ceremony. Fill all three or none — a partially filled row is rejected.
+                                    </p>
+                                    <p class="mb-0">
+                                        A reveal ceremony keeps the cutoffs it was created with. To adopt a change, restart it
+                                        with <strong>Start over</strong> in the reveal controller.
+                                    </p>
+                                </div>
+                            </section>
+                            <section class="mb-3" aria-labelledby="site-medal-cutoffs-heading">
+                                <h3 id="site-medal-cutoffs-heading" class="h6">Per-site medal cutoffs</h3>
+                                {% if sites %}
+                                    <div class="table-responsive mb-2">
+                                        <table class="table table-sm align-middle mb-0">
+                                            <caption class="visually-hidden">
+                                                Medal cutoffs for each contest site
+                                            </caption>
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th scope="col">Site</th>
+                                                    {% for band, label in medal_bands %}
+                                                        <th scope="col" class="text-center">
+                                                            <span class="animator-medal-heading">
+                                                                <img class="animator-medal-heading-image"
+                                                                     src="{{ request.url_for('medal', band=band) }}"
+                                                                     alt=""
+                                                                     aria-hidden="true">
+                                                                <span class="animator-medal-heading-label">{{ label }}</span>
+                                                            </span>
+                                                        </th>
+                                                    {% endfor %}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for site in sites %}
+                                                    <tr>
+                                                        <th scope="row">{{ site.sitename }}</th>
+                                                        {% for band, label in medal_bands %}
+                                                            <td class="text-center">
+                                                                <label class="visually-hidden" for="{{ band }}-cutoff-{{ site.id }}">
+                                                                    {{ site.sitename }} {{ label | lower }} cutoff
+                                                                </label>
+                                                                <input class="form-control form-control-sm animator-medal-input mx-auto"
+                                                                       type="number"
+                                                                       min="1"
+                                                                       id="{{ band }}-cutoff-{{ site.id }}"
+                                                                       name="{{ band }}_cutoff_{{ site.id }}"
+                                                                       value="{{ site | attr(band ~ '_cutoff') }}">
+                                                            </td>
+                                                        {% endfor %}
+                                                    </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                {% else %}
+                                    <p class="text-muted small mb-0">
+                                        This contest has no sites yet. Add sites from
+                                        <a href="{{ request.url_for('edit_metadata', slug=contest.login_slug) }}">Edit metadata</a>.
+                                    </p>
+                                {% endif %}
+                            </section>
+                            <button type="submit" class="btn btn-primary btn-sm">Save medals settings</button>
+                        </form>
                     </div>
                 </div>
             </div>

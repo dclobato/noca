@@ -66,6 +66,7 @@ require authentication.
 | `GET` | `/problems/{arena_number}/statistics` | Public per-problem statistics page. Charts (rating line, verdict + language doughnuts, wall-time distribution stacked bar) and per-language avg±stddev wall-time / peak-memory tables. All data is loaded client-side from the statistics JSON endpoint and the rating-history endpoint. No authentication required. |
 | `GET` | `/problems/{arena_number}/statistics.json` | JSON endpoint returning the precomputed statistics payload (verdicts, languages, time/memory stats, wall-time histogram, `computed_at`). Returns `{}` when statistics have not been computed yet. Snapshots are produced periodically by the rating worker. No authentication required. |
 | `GET` | `/problems/{arena_number}/sample-testcases.zip` | Download a ZIP archive (Layout A: `in/001.in` + `out/001.out`) of the public sample test cases. Returns 404 when the problem is disabled/missing or has no sample test cases. No authentication required. |
+| `GET` | `/problems/{arena_number}/export` | Download the problem's **public** package profile — statement, image, public test cases with their explanations, and sample interactions. Carries no `problem.json`, no secret case, no limits, and no validator source, so it is deliberately not importable. Login required; 404 when the problem is disabled or missing. |
 | `POST` | `/problems/{arena_number}/submit` | Submit a code solution for an Arena problem. Requires authentication; guests are redirected to login with `next` set to the problem detail page. Accepts optional form field `problem_set_id`: when present (the user ticked the problem-set checkbox), the submission is tied to that set and becomes visible to the set's teacher — the service validates the set is accepting, contains the problem, and the user is an active member of its class; when absent, the submission is private. Creates `arena_submissions` and `arena_submission_judgments` (QUEUED) rows, commits, then enqueues the autojudge job. On success redirects to the user's profile Submissions tab; on error (invalid language, empty code, no test cases, invalid problem-set tie) flashes an error and redirects back to the problem detail page. |
 | `POST` | `/problems/{arena_number}/problem-sets` | Add an enabled problem to a problem set from the problem detail page. Requires the exact `ARENA_JUDGE` role and a teacher-owned class whose end date has not passed. Accepts `problem_set_id` plus optional `back_page`, `back_search`, `back_sort_by`, and repeatable `back_category_slugs` form fields. Revalidates problem existence, role, ownership, class end date, deadline, and non-membership before insertion. Returns 403 for an unauthorized actor or foreign set, 404 for a missing problem, and a warning redirect for a stale selection. Commits and flashes success after insertion, then redirects to problem detail with the list-return state preserved. |
 | `POST` | `/problems/{arena_number}/favorite` | Toggle favorite status for the current user. Returns `{"is_favorite": true/false}`. Guests receive 401 JSON; unknown/disabled problems return 404. |
@@ -227,7 +228,9 @@ bypass these checks.
 
 ## User Submission Status (`arena/routes/user_submission_status.py`)
 
-Realtime backing for the profile submissions tab's in-place verdict updates and AC confetti.
+Realtime backing for in-place verdict updates on the profile submissions tab
+and an owner's pending submission detail page. The detail page celebrates only
+when an SSE refresh resolves to a fresh `AC`.
 
 | Method | Path | Description |
 |--------|------|-------------|

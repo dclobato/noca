@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -75,6 +75,7 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
     async def _dashboard() -> Response:
         return Response("dashboard")
 
+    @app.get("/live", name="arena_live")
     @app.get("/status", name="arena_status")
     async def _status() -> Response:
         return Response("status")

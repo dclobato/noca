@@ -25,6 +25,7 @@ from arena.services.identity_search_service import (
     _USER_NAME_VECTOR_SQL,
     _postgres_affiliation_candidates,
     _postgres_user_candidates,
+    affiliation_relevance_ordering,
     prepare_affiliation_search,
     prepare_user_search,
     user_relevance_ordering,
@@ -202,10 +203,16 @@ async def test_affiliation_ranking_search_filters_by_name(session: AsyncSession)
 async def test_relevance_ordering_is_opt_in_and_dialect_aware(session: AsyncSession) -> None:
     """A blank query has no relevance, and SQLite has no similarity function."""
     assert user_relevance_ordering(session, "   ") == []
+    assert affiliation_relevance_ordering(session, "   ") == []
 
     sqlite_terms = user_relevance_ordering(session, "lovelace")
     assert len(sqlite_terms) == 1
     assert "nome ASC" in str(sqlite_terms[0].compile(dialect=sqlite.dialect()))
+
+    affiliation_terms = affiliation_relevance_ordering(session, "university")
+    assert len(affiliation_terms) == 2
+    assert str(affiliation_terms[0].compile(dialect=sqlite.dialect())) == "lower(arena_affiliations.name) ASC"
+    assert str(affiliation_terms[1].compile(dialect=sqlite.dialect())) == "arena_affiliations.name ASC"
 
 
 def test_postgres_relevance_ordering_puts_literal_hits_above_fuzzy_ones() -> None:
@@ -228,6 +235,24 @@ def test_postgres_relevance_ordering_puts_literal_hits_above_fuzzy_ones() -> Non
     assert similarity_term.startswith("similarity(arena_users.nome, 'Lovelce')")
     assert similarity_term.endswith("DESC")
     assert name_term == "arena_users.nome ASC"
+
+
+def test_postgres_affiliation_relevance_ordering_puts_literal_hits_first() -> None:
+    """Affiliation autocomplete must rank literal matches before fuzzy noise."""
+    literal_hit, similarity_term, name_term, case_tiebreaker = (
+        str(term.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))  # type: ignore[no-untyped-call]
+        for term in affiliation_relevance_ordering(
+            cast(AsyncSession, _PostgresSession()),
+            "Federal%",
+        )
+    )
+
+    assert "arena_affiliations.name ILIKE '%%Federal\\\\%%%%'" in literal_hit
+    assert literal_hit.endswith("THEN 1 ELSE 0 END DESC")
+    assert similarity_term.startswith("similarity(arena_affiliations.name, 'Federal%%')")
+    assert similarity_term.endswith("DESC")
+    assert name_term == "lower(arena_affiliations.name) ASC"
+    assert case_tiebreaker == "arena_affiliations.name ASC"
 
 
 def test_ranking_search_migration_uses_transactional_expression_indexes() -> None:

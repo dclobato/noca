@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -9,15 +9,29 @@
 from __future__ import annotations
 
 import io
-import zipfile
+import tempfile
 from base64 import b64decode
+from pathlib import Path
 
 import pytest
 from fastapi import UploadFile
 from PIL import Image, ImageSequence
 
 from shared.services.imageprocessing_service import ImageProcessingConfig, ImageProcessingService
-from shared.services.problem_image import export_image_filename, load_packaged_image, process_problem_image_upload
+from shared.services.problem_image import (
+    EXT_TO_MIME,
+    export_image_filename,
+    load_staged_image,
+    process_problem_image_upload,
+)
+from shared.services.problem_package.model import PackageImage
+
+
+def _staged_image(member: str, data: bytes) -> PackageImage:
+    """Write image bytes to a temporary file, as the package reader would."""
+    path = Path(tempfile.mkdtemp(prefix="noca-test-image-")) / member
+    path.write_bytes(data)
+    return PackageImage(member=member, path=path, mime=EXT_TO_MIME[member.rsplit(".", 1)[-1]])
 
 
 def _png_bytes(*, width: int, height: int) -> bytes:
@@ -88,18 +102,8 @@ def test_packaged_image_uses_fixed_dimensions_instead_of_service_config() -> Non
     image_service = ImageProcessingService(
         ImageProcessingConfig(max_width=1, max_height=1),
     )
-    archive_buffer = io.BytesIO()
-    with zipfile.ZipFile(archive_buffer, "w") as archive:
-        archive.writestr("image.png", _png_bytes(width=2, height=2))
-    archive_buffer.seek(0)
-
-    with zipfile.ZipFile(archive_buffer) as archive:
-        image_base64, mime_type = load_packaged_image(
-            {"image": "image.png"},
-            archive,
-            archive.namelist(),
-            image_service,
-        )
+    staged = _staged_image("image.png", _png_bytes(width=2, height=2))
+    image_base64, mime_type = load_staged_image(staged, image_service)
 
     assert image_base64
     assert mime_type == "image/png"
@@ -110,37 +114,15 @@ def test_packaged_image_rejects_dimensions_above_fixed_limit() -> None:
     image_service = ImageProcessingService(
         ImageProcessingConfig(max_width=4096, max_height=4096),
     )
-    archive_buffer = io.BytesIO()
-    with zipfile.ZipFile(archive_buffer, "w") as archive:
-        archive.writestr("image.png", _png_bytes(width=1, height=2049))
-    archive_buffer.seek(0)
-
-    with (
-        zipfile.ZipFile(archive_buffer) as archive,
-        pytest.raises(ValueError, match="Maximum: 2048x2048 pixels"),
-    ):
-        load_packaged_image(
-            {"image": "image.png"},
-            archive,
-            archive.namelist(),
-            image_service,
-        )
+    with pytest.raises(ValueError, match="Maximum: 2048x2048 pixels"):
+        load_staged_image(_staged_image("image.png", _png_bytes(width=1, height=2049)), image_service)
 
 
 def test_packaged_gif_round_trips_with_gif_extension() -> None:
     """GIF package imports retain their MIME type and export extension."""
-    archive_buffer = io.BytesIO()
-    with zipfile.ZipFile(archive_buffer, "w") as archive:
-        archive.writestr("image.gif", _animated_gif_bytes())
-    archive_buffer.seek(0)
-
-    with zipfile.ZipFile(archive_buffer) as archive:
-        image_base64, mime_type = load_packaged_image(
-            {"image": "image.gif"},
-            archive,
-            archive.namelist(),
-            ImageProcessingService(),
-        )
+    image_base64, mime_type = load_staged_image(
+        _staged_image("image.gif", _animated_gif_bytes()), ImageProcessingService()
+    )
 
     assert image_base64
     assert mime_type == "image/gif"

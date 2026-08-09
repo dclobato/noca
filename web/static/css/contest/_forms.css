@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -62,8 +62,10 @@
 }
 
 textarea.tc-content {
-    font-family: monospace;
+    font-family: var(--noca-font-mono);
     font-size: 0.85em;
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
     resize: vertical;
     white-space: pre;
     overflow-wrap: normal;
@@ -79,8 +81,10 @@ textarea.tc-content {
 }
 
 .tc-preview {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-family: var(--noca-font-mono);
     font-size: 0.78em;
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     max-width: 52ch;

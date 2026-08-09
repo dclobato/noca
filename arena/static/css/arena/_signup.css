@@ -189,14 +189,6 @@
     opacity: 1;
 }
 
-.arena-signup-card .arena-auth-link {
-    color: var(--arena-primary-container);
-}
-
-html[data-bs-theme='dark'] .arena-signup-card .arena-auth-link {
-    color: var(--arena-inverse-primary);
-}
-
 .arena-signup-submit-icon {
     font-size: 1.25rem;
     transition: transform 0.2s ease;

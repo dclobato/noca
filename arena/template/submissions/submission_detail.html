@@ -15,7 +15,8 @@
           href="{{ request.url_for('static_vendor', path='highlight/styles/github.min.css') }}">
 {% endblock %}
 {% block content %}
-    <div class="arena-page-container arena-submission-detail">
+    <div class="arena-page-container arena-submission-detail"
+         {% if watch_submission_status %} data-submission-detail-live data-submission-id="{{ submission_id }}" data-status-url="{{ request.url_for("arena_user_submissions_status") }}" data-events-url="{{ request.url_for("arena_user_submissions_events") }}" {% endif %}>
         {# ── Breadcrumb / report back button ── #}
         {% if is_teacher_view %}
             <div class="arena-submission-back-link">
@@ -56,7 +57,8 @@
             </p>
         </header>
         {# ── Card 1: Result ── #}
-        <section class="arena-card arena-submission-result mb-4">
+        <section class="arena-card arena-submission-result mb-4"
+                 data-submission-result-card>
             <h2 class="arena-card-title">
                 {{ render_icon(icon="analytics") }}
                 Result
@@ -78,8 +80,11 @@
                 {% set j_compile_log = judgment[5] %}
                 {% set j_error_msg = judgment[6] %}
                 {% set j_output_bytes = judgment[7] %}
-                <div class="arena-submission-verdict-summary{% if not j_verdict %} is-pending{% elif j_verdict == 'AC' %} is-accepted{% elif j_verdict in ('WA', 'PE') %} is-rejected{% elif j_verdict in ('TLE', 'MLE', 'OLE', 'RE') %} is-warning{% else %} is-neutral{% endif %}">
-                    <div class="arena-submission-verdict-code">
+                <div class="arena-submission-verdict-summary{% if not j_verdict %} is-pending{% elif j_verdict == 'AC' %} is-accepted{% elif j_verdict in ('WA', 'PE') %} is-rejected{% elif j_verdict in ('TLE', 'MLE', 'OLE', 'RE') %} is-warning{% else %} is-neutral{% endif %}"
+                     data-live-verdict-summary
+                     aria-live="polite"
+                     aria-atomic="true">
+                    <div class="arena-submission-verdict-code" data-live-verdict-code>
                         {% if j_verdict %}
                             <span class="badge {{ verdict_badge_classes.get(j_verdict, 'bg-secondary') }} font-monospace">{{ j_verdict }}</span>
                         {% else %}
@@ -87,14 +92,16 @@
                         {% endif %}
                     </div>
                     <div>
-                        <h3 class="arena-submission-verdict-label">
+                        <h3 class="arena-submission-verdict-label" data-live-verdict-label>
                             {% if j_verdict %}
                                 {{ verdict_labels.get(j_verdict, j_verdict) }}
                             {% else %}
                                 {{ "Judgment failed" if j_status == "FAILED" else "Pending judgment" }}
                             {% endif %}
                         </h3>
-                        {% if not j_verdict %}<p class="arena-submission-verdict-status">Current status: {{ j_status }}</p>{% endif %}
+                        {% if not j_verdict %}
+                            <p class="arena-submission-verdict-status" data-live-verdict-status>Current status: {{ j_status }}</p>
+                        {% endif %}
                     </div>
                 </div>
                 <div class="arena-submission-metrics"
@@ -102,7 +109,7 @@
                      aria-label="Judgment resources">
                     <div class="arena-submission-metric">
                         <span>Wall time</span>
-                        <strong>
+                        <strong data-live-wall-time>
                             {% if j_wall_ms is not none %}
                                 {{ j_wall_ms }} ms
                             {% else %}
@@ -531,6 +538,14 @@
     <script src="{{ request.url_for('static_vendor', path='highlight/languages/' ~ highlight_language ~ '.min.js') }}"></script>
     <script src="{{ request.url_for('static_vendor', path='highlight/plugins/highlightjs-line-numbers.min.js') }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='highlight-code-blocks.js') }}?v={{ app_version }}"></script>
+    {% if watch_submission_status %}
+        <script src="{{ request.url_for('static_vendor', path='tsparticles.confetti.bundle.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='confetti-celebrate.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('arena_static_js', path='submission-detail-live.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
     {% if ai_review %}
         <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
                 defer></script>

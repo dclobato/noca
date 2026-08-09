@@ -115,7 +115,7 @@
                             {% if current_user %}<th class="arena-col-favorite column-width-tiny" aria-label="Favorite"></th>{% endif %}
                             <th class="arena-col-sortable column-width-tiny">
                                 <a href="{{ request.url.include_query_params(sort_by='number_desc' if sort_by == 'number_asc' else 'number_asc', page=1) }}"
-                                   class="text-decoration-none text-reset d-flex align-items-center gap-1">
+                                   class="arena-sort-link d-flex align-items-center gap-1">
                                     #
                                     {% if sort_by == 'number_asc' %}
                                         {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
@@ -128,7 +128,7 @@
                             </th>
                             <th class="arena-col-sortable arena-col-title">
                                 <a href="{{ request.url.include_query_params(sort_by='title_desc' if sort_by == 'title_asc' else 'title_asc', page=1) }}"
-                                   class="text-decoration-none text-reset d-flex align-items-center gap-1">
+                                   class="arena-sort-link d-flex align-items-center gap-1">
                                     Title
                                     {% if sort_by == 'title_asc' %}
                                         {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
@@ -142,7 +142,7 @@
                             <th class="column-width-medium">Categories</th>
                             <th class="arena-col-sortable column-width-tiny">
                                 <a href="{{ request.url.include_query_params(sort_by='solvers_desc' if sort_by == 'solvers_asc' else 'solvers_asc', page=1) }}"
-                                   class="text-decoration-none text-reset d-flex align-items-center gap-1">
+                                   class="arena-sort-link d-flex align-items-center gap-1">
                                     User Solves
                                     {% if sort_by == 'solvers_asc' %}
                                         {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
@@ -157,7 +157,7 @@
                             {% if current_user %}<th class="column-width-tiny">Solved?</th>{% endif %}
                             <th class="arena-col-sortable column-width-narrow">
                                 <a href="{{ request.url.include_query_params(sort_by='rating_desc' if sort_by == 'rating_asc' else 'rating_asc', page=1) }}"
-                                   class="text-decoration-none text-reset d-flex align-items-center gap-1">
+                                   class="arena-sort-link d-flex align-items-center gap-1">
                                     Difficulty
                                     {% if sort_by == 'rating_asc' %}
                                         {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
@@ -184,11 +184,11 @@
                                 {% endif %}
                                 <td class="column-width-tiny">
                                     <a href="{{ request.url_for('arena_problem_detail', arena_number=item.arena_number) }}?{{ back_params_qs }}"
-                                       class="text-decoration-none">{{ item.arena_number }}</a>
+                                       class="arena-link-no-underline">{{ item.arena_number }}</a>
                                 </td>
                                 <td>
                                     <a href="{{ request.url_for('arena_problem_detail', arena_number=item.arena_number) }}?{{ back_params_qs }}"
-                                       class="text-decoration-none fw-medium">{{ item.title }}</a>
+                                       class="fw-medium arena-link-no-underline">{{ item.title }}</a>
                                     {% if item.has_custom_validator %}
                                         {{ render_icon(icon="published_with_changes", classes="text-info", title="This problem uses a custom validator") }}
                                     {% endif %}

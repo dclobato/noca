@@ -4,7 +4,7 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Shared search expressions for Arena problem lists."""
+"""Shared search expressions for Arena problem lists and autocompletes."""
 
 from __future__ import annotations
 
@@ -104,6 +104,7 @@ _FIELD_SEARCH_VECTOR_SQL: dict[ProblemSuggestionField, str] = {
     "author": _FIELD_SEARCH_VECTOR_SQL_TEMPLATE.format(field="author"),
     "source": _FIELD_SEARCH_VECTOR_SQL_TEMPLATE.format(field="source"),
 }
+_TITLE_SEARCH_VECTOR_SQL = _FIELD_SEARCH_VECTOR_SQL_TEMPLATE.format(field="title")
 
 
 @dataclass(frozen=True)
@@ -122,6 +123,17 @@ class ProblemSuggestionSearchExpressions:
     """Predicate and ranking expressions for one author/source suggestion query."""
 
     predicate: ColumnElement[bool]
+    full_text_rank: ColumnElement[Any]
+    trigram_rank: ColumnElement[Any]
+
+
+@dataclass(frozen=True)
+class ProblemPickerSearchExpressions:
+    """Predicate and ranking expressions for the problem-set picker."""
+
+    predicate: ColumnElement[bool]
+    exact_number_match: ColumnElement[bool]
+    full_text_match: ColumnElement[bool]
     full_text_rank: ColumnElement[Any]
     trigram_rank: ColumnElement[Any]
 
@@ -211,6 +223,14 @@ def _field_search_vector(
     """Return the requested field's language-aware PostgreSQL FTS vector."""
     field_sql = _FIELD_SEARCH_VECTOR_SQL[field]
     return literal_column(field_sql.replace("arena_problems.", f"{table_name}."), TSVECTOR())
+
+
+def _title_search_vector(table_name: str = "arena_problems") -> ColumnElement[Any]:
+    """Return the language-aware title-only PostgreSQL FTS vector."""
+    return literal_column(
+        _TITLE_SEARCH_VECTOR_SQL.replace("arena_problems.", f"{table_name}."),
+        TSVECTOR(),
+    )
 
 
 def _full_text_match(
@@ -390,6 +410,73 @@ def _postgres_search(query: str) -> ProblemSearchExpressions:
     )
 
 
+def _portable_problem_picker_search(query: str) -> ProblemPickerSearchExpressions:
+    """Build SQLite-compatible title and number matching for the problem picker."""
+    pattern = escaped_substring_pattern(query)
+    return ProblemPickerSearchExpressions(
+        predicate=or_(
+            cast(ArenaProblem.arena_number, String).ilike(pattern, escape=_LIKE_ESCAPE),
+            ArenaProblem.title.ilike(pattern, escape=_LIKE_ESCAPE),
+        ),
+        exact_number_match=_exact_number_match(query),
+        full_text_match=false(),
+        full_text_rank=literal(0.0),
+        trigram_rank=literal(0.0),
+    )
+
+
+def _problem_picker_candidate_ids(
+    query: str,
+    text_queries: dict[StatementLanguage | None, ColumnElement[Any]],
+) -> Any:
+    """Return independently indexable title and number-substring candidate branches."""
+    problems = ArenaProblem.__table__.alias("picker_problem")
+    search_vector = _search_vector("picker_problem")
+    title_vector = _title_search_vector("picker_problem")
+    conditions_by_query: list[tuple[ColumnElement[bool], ColumnElement[Any]]] = [
+        (problems.c.statement_language == language, text_query)
+        for language, text_query in text_queries.items()
+        if language is not None
+    ]
+    conditions_by_query.append((problems.c.statement_language.is_(None), text_queries[None]))
+    candidates = [
+        select(problems.c.id).where(
+            language_condition,
+            search_vector.bool_op("@@")(text_query),
+            title_vector.bool_op("@@")(text_query),
+        )
+        for language_condition, text_query in conditions_by_query
+    ]
+    if uses_websearch_syntax(query):
+        return union(*candidates)
+
+    pattern = escaped_substring_pattern(query)
+    candidates.extend(
+        [
+            select(problems.c.id).where(cast(problems.c.arena_number, Text).ilike(pattern, escape=_LIKE_ESCAPE)),
+            select(problems.c.id).where(problems.c.title.ilike(pattern, escape=_LIKE_ESCAPE)),
+        ]
+    )
+    if len(query) >= _MIN_FUZZY_QUERY_LENGTH:
+        candidates.append(select(problems.c.id).where(problems.c.title.bool_op("%")(query)))
+    return union(*candidates)
+
+
+def _postgres_problem_picker_search(query: str) -> ProblemPickerSearchExpressions:
+    """Build PostgreSQL title and number matching for the problem picker."""
+    text_queries = _text_queries(query)
+    title_vector = _title_search_vector()
+    return ProblemPickerSearchExpressions(
+        predicate=ArenaProblem.id.in_(_problem_picker_candidate_ids(query, text_queries)),
+        exact_number_match=_exact_number_match(query),
+        full_text_match=_full_text_match(title_vector, text_queries),
+        full_text_rank=_full_text_rank(title_vector, text_queries),
+        # Similarity also ranks literal substring candidates for short queries,
+        # even though those queries do not open the fuzzy ``%`` candidate branch.
+        trigram_rank=func.similarity(ArenaProblem.title, query),
+    )
+
+
 def _portable_suggestion_search(
     field: ProblemSuggestionField,
     query: str,
@@ -457,6 +544,19 @@ async def prepare_problem_search(session: AsyncSession, query: str) -> ProblemSe
     if len(normalized_query) >= _MIN_FUZZY_QUERY_LENGTH and not uses_websearch_syntax(normalized_query):
         await apply_trigram_threshold(session)
     return _postgres_search(normalized_query)
+
+
+async def prepare_problem_picker_search(
+    session: AsyncSession,
+    query: str,
+) -> ProblemPickerSearchExpressions:
+    """Build indexed title and number expressions for the problem-set picker."""
+    normalized_query = query.strip()
+    if session.get_bind().dialect.name != "postgresql":
+        return _portable_problem_picker_search(normalized_query)
+    if len(normalized_query) >= _MIN_FUZZY_QUERY_LENGTH and not uses_websearch_syntax(normalized_query):
+        await apply_trigram_threshold(session)
+    return _postgres_problem_picker_search(normalized_query)
 
 
 async def prepare_problem_suggestion_search(

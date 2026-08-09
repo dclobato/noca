@@ -1,5 +1,5 @@
 //  NOCA -- Next Online Contest Administrator
-//  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 //  This program is distributed in the hope that it will be useful,
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -27,9 +27,11 @@ function makeDeps() {
       calls.apply += 1;
     },
   };
+  calls.renderOptions = [];
   const render = {
-    renderStandings(doc, el, problems, standings) {
+    renderStandings(doc, el, problems, standings, options) {
       calls.render.push(standings);
+      calls.renderOptions.push(options);
       return standings.length > 0;
     },
   };
@@ -67,6 +69,7 @@ function makeDeps() {
       loading: { id: "loading" },
       empty: { id: "empty" },
       board: { id: "board" },
+      medalBase: "/assets/medal",
     },
     setHidden(el, hidden) {
       calls.hidden.push(hidden);
@@ -135,6 +138,27 @@ function makeDeps() {
   // A snapshot without the field renders an empty list rather than throwing.
   b.applySnapshot({ is_frozen: false, standings: [{ team_id: "t1" }] });
   assert.deepStrictEqual(calls.pending[1], [], "missing pending_submissions renders an empty list");
+})();
+
+// ── The medal asset base reaches the renderer ───────────────────────────────
+// This is the only call site that reaches renderStandings on the live board, so
+// plumbing the base as far as animator.js is not enough: without this forward
+// the watermark <img> would be built with no src.
+(function testMedalBaseIsForwarded() {
+  const { deps, calls } = makeDeps();
+  const b = board.createBoard(deps);
+  b.setProblems([{ label: "A" }]);
+  b.applySnapshot({ is_frozen: false, standings: [{ team_id: "t1" }] });
+  assert.deepStrictEqual(calls.renderOptions[0], { medalBase: "/assets/medal" });
+
+  // A page that supplies no base passes null rather than undefined, so the
+  // renderer's own "omit the src" branch is the one that runs.
+  const bare = makeDeps();
+  delete bare.deps.refs.medalBase;
+  const bareBoard = board.createBoard(bare.deps);
+  bareBoard.setProblems([{ label: "A" }]);
+  bareBoard.applySnapshot({ is_frozen: false, standings: [{ team_id: "t1" }] });
+  assert.deepStrictEqual(bare.calls.renderOptions[0], { medalBase: null });
 })();
 
 console.log("animator-board contract: all assertions passed");

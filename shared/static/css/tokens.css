@@ -1,5 +1,5 @@
 /* NOCA -- Next Online Contest Administrator */
-/* Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org> */
+/* Copyright (c) 2026 The NOCA Authors (see AUTHORS) */
 /* This program is distributed in the hope that it will be useful, */
 /* but WITHOUT ANY WARRANTY; without even the implied warranty of */
 /* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. */
@@ -19,7 +19,10 @@
     /* ── Typography (font faces come from shared/vendor/noca-fonts.css) ── */
     --noca-font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     --noca-font-heading: 'Public Sans', 'Inter', system-ui, sans-serif;
-    --noca-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --noca-font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --noca-font-variant-numeric-tabular: tabular-nums;
+    --noca-font-variant-numeric-mono: slashed-zero;
+    --noca-font-variant-ligatures-literal: none;
     --noca-font-size-base: 1rem;
     --noca-line-height: 1.5;
     --noca-heading-weight: 600;
@@ -48,6 +51,35 @@
     --noca-danger: #dc2626;
     --noca-warning: #d97706;
     --noca-info: #0891b2;
+
+    /* ── Presentation tier ───────────────────────────────────────────────────
+       The Animator reads at distance: a projector at the back of a room, a
+       lobby screen, a scoreboard glanced at between problems. DESIGN.md grants
+       it amplification beyond the operational ramp, and these tokens are that
+       grant made explicit, so a projector size is a documented step rather than
+       a local guess. Six steps, endpoints shared between them, and nothing else.
+       Operational surfaces (contest admin, arena task flows) must not use them. */
+    --noca-type-poster: clamp(3rem, 7.5vw, 6rem);
+    --noca-type-display: clamp(2rem, 4vw, 3rem);
+    --noca-type-headline: clamp(1.5rem, 3vw, 2.5rem);
+    --noca-type-title: clamp(1.15rem, 2vw, 1.5rem);
+    --noca-type-body: clamp(1rem, 1.4vw, 1.15rem);
+    --noca-type-label: 0.75rem;
+
+    /* Larger silhouettes read as one object from across a room. Presentation
+       cards use these; dense tables and operational panels keep the core
+       geometry (0.25rem–0.5rem). */
+    --noca-radius-presentation: 1rem;
+    --noca-radius-presentation-lg: 1.5rem;
+
+    /* The one deep field in the system: a night-blue gradient behind the public
+       landing heroes. Deliberately its own ramp rather than the slate dark
+       surfaces, so a presentation hero stays distinct from ordinary dark chrome
+       without inventing a color per surface. Fixed in both themes: it is an
+       illuminated panel, not a themed surface. */
+    --noca-presentation-hero-from: #174f80;
+    --noca-presentation-hero-to: #101c36;
+    --noca-on-presentation-hero: #dbe9f6;
 
     /* ── Propagate to Bootstrap so BOTH modules inherit ── */
     --bs-body-font-family: var(--noca-font-body);

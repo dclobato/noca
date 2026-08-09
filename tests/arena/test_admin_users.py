@@ -112,6 +112,7 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
     async def _dashboard() -> Response:
         return Response("dashboard")
 
+    @app.get("/live", name="arena_live")
     @app.get("/status", name="arena_status")
     async def _status() -> Response:
         return Response("status")

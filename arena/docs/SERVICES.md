@@ -565,7 +565,8 @@ search through `text_search_primitives.py`.
 
 | Symbol | Description |
 |---|---|
-| `prepare_problem_search(session, query)` | Return hybrid full-text, literal substring, fuzzy name, exact-number, and ranking expressions for a normalized query. PostgreSQL uses one weighted FTS expression index plus trigram indexes (including the Arena-number text expression), parses the query with each row's statement-language configuration, and combines independently indexable candidate branches with `UNION`. Queries containing negation, quoted phrases, or `OR` disable raw fallback matching so web-search operators remain authoritative. SQLite uses a portable substring predicate and resolves relevance ties by Arena number for unit tests. This service intentionally does not replace the narrower title/number searches in problem-set autocomplete or submission-history filters. |
+| `prepare_problem_search(session, query)` | Return hybrid full-text, literal substring, fuzzy name, exact-number, and ranking expressions for a normalized query. PostgreSQL uses one weighted FTS expression index plus trigram indexes (including the Arena-number text expression), parses the query with each row's statement-language configuration, and combines independently indexable candidate branches with `UNION`. Queries containing negation, quoted phrases, or `OR` disable raw fallback matching so web-search operators remain authoritative. SQLite uses a portable substring predicate and resolves relevance ties by Arena number for unit tests. Submission-history filters remain deliberately narrower. |
+| `ProblemPickerSearchExpressions` / `prepare_problem_picker_search(session, query)` | Return the narrow number-and-title predicate and ranking expressions used by problem-set autocomplete. PostgreSQL narrows each language-specific weighted FTS index branch to title matches, adds escaped number/title substring branches and a 3+-character title-trigram branch, and suppresses fallback branches for web-search operators. Number matching is intentionally substring-based for every query, so `42` includes `142` and `420`, but exact Arena number `42` ranks first. Remaining ordering uses FTS match, FTS rank, title similarity, and Arena number. The call site must wrap `exact_number_match` in an integer `CASE` before descending ordering: for nonnumeric queries the expression is a constant `false`, which PostgreSQL and SQLite reject as a bare `ORDER BY` term. SQLite keeps the same escaped title/number substring scope with exact-number-first ordering. |
 | `ProblemSuggestionField` / `prepare_problem_suggestion_search(session, field, query)` | Typed author/source autocomplete expressions. PostgreSQL treats `query` as literal text with `plainto_tsquery`, first narrows through the same weighted composite FTS-index candidate expression used by problem search, then confirms the requested field. Separate `UNION` branches provide literal substring and 3+-character fuzzy matching through that field's existing trigram index. SQLite uses field-only escaped-substring matching. |
 
 ---
@@ -668,34 +669,40 @@ enqueue *after* the commit, so a delayed worker never sees a token that was roll
 
 ### `admin_problem_io_service.py`
 
-Admin/judge service for problem ZIP import and export. The package format is kept compatible with
-the web module's problem packages (shared `problem.json` keys, `statement.md`, `in/NNN.in` +
-`out/NNN.out` test-case layout, optional `explanation/NNN.txt`) so packages can move between
-platforms.
+Arena's thin adapter over the shared problem-package subsystem
+(`shared/services/problem_package/`), which owns the entire format: archive safety, coercion,
+defaults, field widths, UTF-8, the integrity manifest, and the export field set. What remains here
+is what only Arena knows.
 
 **Key behavior**
 
-- export writes all problem data: `problem.json` (author as plain text, optional license, and
-  categories as a list of strings), `statement.md`, every test case (with optional
-  `explanation/NNN.txt`), and the image decoded from base64 to a real image file
-- import sets the importing user as owner and preserves a non-empty package author as free text;
+- consumes an already-validated, frozen `ProblemPackage`; the route spools the upload to disk and
+  the shared reader stages its payloads, so nothing is held in RAM
+- sets the importing user as owner and preserves a non-empty package author as free text;
   packages without an author use owner-backed authorship
-- import preserves `source` and `license` independently, marks test cases secret, validates
-  optional images, and links only existing categories; unknown categories are dropped
-- the optional `statement_language` key (`pt`/`en`/`es`) is exported only when the problem has one
-  and, when absent on import, is detected from the statement; the result is reported through
+- applies the package's `sample_testcases` to decide which imported cases are public
+- links only existing categories, matched by name or slug; unknown ones are dropped and reported
+  as a structured `PackageWarning` the route flashes
+- resolves the statement language: a stated `pt`/`en`/`es` is authoritative, otherwise it is
+  detected from the statement, and the outcome is reported through
   `ArenaProblemImportResult.language_source` (`package` / `detected` / `undetermined`) so the route
   can ask the importer to confirm it
-- web-only keys (`color`, `language_limits`) are accepted and ignored on import
-- delegates problem creation to `admin_problem_service.create_problem` and test-case parsing to
-  `shared.tc_zip.parse_testcases_zip`
+- refuses a package whose statement is a PDF — Arena stores Markdown statements
+- orders its writes through the shared `ArtifactPromoter`: rows are flushed, test-case files are
+  promoted, and only then is the transaction committed; a failed commit deletes what was promoted.
+  This replaces the old order, which committed rows *before* writing files
+- reconciles any stale import journal before starting, so a crashed earlier import is cleaned up
+- exports through the shared writer, which writes to a path on disk and **fails loudly** when a
+  stored test-case file is missing rather than shipping an empty member. Contest-only keys
+  (`color`, `language_limits`) are still written, as `null` / `{}`
+- delegates problem creation to `admin_problem_service.create_problem`
 
 **Public API:**
 
 | Function | Description |
 |---|---|
-| `build_export_zip(problem, owner_name, testcase_dir)` | Build the in-memory export ZIP, reading test-case content from `<testcase_dir>/<problem_id>/NNN.in\|out` and resolving its plain-text author from the problem's authorship mode. |
-| `import_problem_from_zip(session, *, zip_bytes, caller_id, image_service, testcase_dir)` | Parse, validate, and persist a problem package; writes test-case files + sizes under `testcase_dir`; resolves the statement language from the package or by detection; returns an `ArenaProblemImportResult` holding the committed `ArenaProblem`, the resolved `statement_language`, and its `language_source`. |
+| `export_problem_package(problem, owner_name, testcase_dir, destination, *, profile="full")` | Write the package ZIP to `destination`, reading test-case content from `<testcase_dir>/<problem_id>/NNN.in\|out` and resolving its plain-text author from the problem's authorship mode. `profile="public"` produces the contestant statement bundle. Raises `PackageError` when a stored file is missing. |
+| `import_problem_package(session, package, *, caller_id, image_service, testcase_dir)` | Persist a validated `ProblemPackage`; promotes test-case files under `testcase_dir` before committing; resolves the statement language from the package or by detection; returns an `ArenaProblemImportResult` holding the committed `ArenaProblem`, the resolved `statement_language`, its `language_source`, and the structured `warnings` the route flashes. |
 
 ---
 
@@ -881,8 +888,8 @@ Uses the following services:
 
 Uses the following services:
 
-- **`admin_problem_io_service.import_problem_from_zip()`** — Import a problem package via `POST /admin/problems/import`
-- **`admin_problem_io_service.build_export_zip()`** — Build the export ZIP for `GET /admin/problems/{problem_id}/export`
+- **`admin_problem_io_service.import_problem_package()`** — Import a problem package via `POST /admin/problems/import`
+- **`admin_problem_io_service.export_problem_package()`** — Write the export ZIP for `GET /admin/problems/{problem_id}/export`
 - **`admin_problem_service.get_problem()`** — Shared fetch + judge ownership enforcement helper before export
 
 ### `arena/routes/admin_problem_tc.py`
@@ -966,13 +973,16 @@ database transaction and then call `enqueue_arena_submission_job(valkey_runtime,
 result.job)` — this ordering guarantees the worker never picks up a job whose
 rows are not yet visible in the database. The autojudge adapter publishes an
 `ArenaVerdictEvent` to the `arena:results` Valkey channel that powers both the
-public live feed (see `live_feed_service.py`) and the per-user profile submissions
-tab. The profile tab consumes that channel through a user-scoped SSE endpoint
+public live feed (see `live_feed_service.py`), the per-user profile submissions
+tab, and an owner's pending submission detail page. The authenticated Arena
+surfaces consume that channel through a user-scoped SSE endpoint
 (`arena/routes/user_submission_status.py`) which only signals a refresh when one
-of the viewer's own submissions finalizes; the browser then refetches the
-owner-scoped `status.json` snapshot and updates verdict/runtime cells in place
-(firing confetti on a fresh `AC`). A low-frequency client fallback poll bounds
-staleness because Valkey pub/sub is not durable.
+of the viewer's own submissions finalizes. The browser then refetches the
+owner-scoped `status.json` snapshot and updates the visible verdict state in
+place. A low-frequency client fallback poll renders intermediate states and
+bounds staleness because Valkey pub/sub is not durable. Submission detail fires
+confetti only when an SSE refresh resolves to a fresh `AC`, never for an `AC`
+that was already present when the page loaded.
 
 ---
 
@@ -1138,6 +1148,22 @@ Used by the public dashboard Top Users card; reuse for any compact top-k Arena u
 
 ---
 
+### `ranking_medals.py`
+
+Resolves the medal band shown behind a ranking position.
+
+**Public API:**
+
+| Symbol | Description |
+|--------|-------------|
+| `arena_medal_band(rank)` | Returns `"gold"`, `"silver"`, `"bronze"`, or `None` for a 1-based ranking position, delegating to `shared.services.balloon_assets.medal_band_for_rank` with the `NOCA_ARENA_RANKING_MEDAL_*_CUTOFF` settings. The cutoffs are read at call time, so the value always reflects current configuration. |
+
+Registered as the `arena_medal_band` Jinja global in `arena/main.py` and consumed by the
+`render_rank_medal(request, rank)` macro in `_macros.html` (dashboard leaderboard card,
+`/ranking/users`, `/ranking/affiliations`).
+
+---
+
 ### `pagination_service.py`
 
 Small internal pagination helper for server-rendered Arena pages.
@@ -1171,7 +1197,7 @@ Validates and formats Arena profile country, subdivision, and affiliation data.
 | `update_user_location(user, country_code, subdivision_code)` | Validates optional country/subdivision input and mutates the user profile fields. |
 | `map_reverse_geocode_response(data)` | Maps a Nominatim-compatible JSON response to country/subdivision display data. |
 | `reverse_geocode_location(...)` | Calls the configured reverse-geocoder through `NetworkService` and returns mapped ISO values. |
-| `search_affiliations(session, query, limit)` | Case-insensitive partial affiliation name search ordered by lowercase name. |
+| `search_affiliations(session, query, limit)` | Indexed affiliation autocomplete. Matching delegates to `identity_search_service.prepare_affiliation_search` for full-text, escaped substring, and fuzzy name candidates, then orders with `affiliation_relevance_ordering` so literal and closest matches survive the result limit. Blank queries return no rows. |
 | `update_user_affiliation(session, user, affiliation_id)` | Sets or clears the user's selected affiliation. |
 
 Used by the profile Personal Data tab and JSON endpoints in `user_profile_api.py`.
@@ -1490,6 +1516,7 @@ matched.
 | `prepare_user_search(session, query)` | Returns a selectable of matching `arena_users.id`. On PostgreSQL: a `simple`-configuration FTS branch on `nome` (`ix_arena_users_nome_fts_gin`), plus escaped-substring branches on `nome` (`ix_arena_users_nome_trgm`) and `email_normalizado` (`ix_arena_users_email_normalizado_trgm`) and a 3+-character fuzzy `%` branch on `nome`. Email is substring-only — an address is an exact identifier, so fuzzy email matching would be noise. Queries with quoted phrases, `OR`, or `-` negation keep only the FTS branch so operators stay authoritative. SQLite uses a portable escaped-substring predicate. |
 | `prepare_affiliation_search(session, query)` | Returns a selectable of matching `arena_affiliations.id` using the same three-branch shape on `name` (`ix_arena_affiliations_name_fts_gin`, `ix_arena_affiliations_name_trgm`) and the same operator-suppression and SQLite fallback rules. |
 | `user_relevance_ordering(session, query)` | Returns `ORDER BY` terms over `arena_users` — literal (substring) hits first, then descending `similarity(nome, query)`, then name. **Opt-in, and only for callers that truncate their result set**: fuzzy matching adds rows containing no literal trace of the query, so an alphabetical order can push the intended row past the cut-off. Empty for a blank query, name-only off PostgreSQL. The ranking pages must not use it — they order by `global_rank`. |
+| `affiliation_relevance_ordering(session, query)` | Returns opt-in `ORDER BY` terms over `arena_affiliations` for truncated autocomplete lists: literal substring hits first, then descending `similarity(name, query)`, then case-insensitive name with the original name as a deterministic case-only tie-breaker. Empty for a blank query, and deterministic name ordering off PostgreSQL. Ranking pages do not use it because they retain global-rank ordering. |
 
 The FTS configuration is `simple` on purpose: names are proper nouns, so stemming and
 stopword removal would lose information rather than add recall. Both vector expressions
@@ -1540,7 +1567,7 @@ UI-facing DTOs: `ClassDetail`, `UserClassRow`, `ManagedClassRow`,
 | `list_open_class_rows_paginated(session, *, user_id, user_affiliation_id, actor_role, today, params, search="", teacher_id=None, sort="starts_on", direction="desc")` | UI list for the open tab. Excludes active members, pending requests, and classes where the user is the assigned teacher; non-admin users are restricted to their affiliation, while admins see all open classes. |
 | `list_managed_class_rows_paginated(session, *, actor_id, actor_role, today, params, search="", sort="name", direction="asc")` | UI list for the manage tab. Judges see their assigned classes; admins see all classes. |
 | `list_class_members_management_paginated(session, *, actor_id, actor_role, class_id, params, sort="name", direction="asc")` | Teacher/admin membership page list. Combines active members and pending registration requests. |
-| `search_teacher_autocomplete(session, *, query, affiliation_id=None, limit=10)` | Teacher search helper returning judge users formatted as `Full name <email>`. When `affiliation_id` is set, results are restricted to that affiliation. |
+| `search_teacher_autocomplete(session, *, query, affiliation_id=None, limit=10)` | Teacher search helper returning judge users formatted as `Full name <email>`. Matching delegates to `identity_search_service.prepare_user_search` for full-text, escaped substring, and fuzzy name candidates, then orders with `user_relevance_ordering`. Blank queries return all judges ordered by name. When `affiliation_id` is set, the outer query restricts results to that affiliation. |
 | `search_student_autocomplete(session, *, actor_id, actor_role, class_id, query, limit=10)` | Teacher/admin student search helper for direct class assignment. Returns active, confirmed `ARENA_USER` accounts formatted as `Full name <email>`, excluding active members and pending registration requests for the class. Matching delegates to `identity_search_service.prepare_user_search` (full-text, substring, and fuzzy on the name; substring-only on the email) and orders by `user_relevance_ordering` — the result set is truncated to `limit`, so the best match must come first or it is never shown. |
 
 ### `arena_class_query_service.py`
@@ -1573,7 +1600,7 @@ out from `arena_class_service.py`. Provides the `_base_class_detail_stmt`,
 |----------|-------------|
 | `get_class_detail(session, *, class_id, today)` | Returns `ClassDetail` DTO with teacher info, active member count, and upcoming/running flags. Raises `ArenaClassNotFoundError` when missing. |
 | `list_class_members_management_paginated(session, *, actor_id, actor_role, class_id, params, sort, direction)` | Teacher/admin membership page list. |
-| `search_teacher_autocomplete(session, *, query, affiliation_id, limit)` | Teacher search helper. |
+| `search_teacher_autocomplete(session, *, query, affiliation_id, limit)` | Judge-only teacher autocomplete using indexed identity matching and relevance ordering, with an optional outer-query affiliation restriction. Blank queries return judges ordered by name. |
 | `search_student_autocomplete(session, *, actor_id, actor_role, class_id, query, limit)` | Student search helper for direct class assignment. |
 
 ---
@@ -1707,7 +1734,7 @@ pages.
 | `normalize_sort_dir(value, default='desc')` | Normalizes the teacher list sort direction. |
 | `list_problem_sets_paginated(session, *, actor_id, actor_role, class_id, now, params, sort='deadline', direction='desc')` | Teacher/admin only. Returns the paginated list page rows with problem count and `is_accepting`. |
 | `list_problem_set_problems(session, *, actor_id, actor_role, set_id)` | Teacher/admin only. Returns the problem rows for the manage-problems page with Arena number, title, plain-text categories, and display rating. |
-| `search_set_candidate_problems(session, *, actor_id, actor_role, set_id, query, limit=10)` | Teacher/admin only. Autocomplete source for adding problems. Searches enabled problems not already in the set by title and, for numeric queries, Arena number prefix. |
+| `search_set_candidate_problems(session, *, actor_id, actor_role, set_id, query, limit=10)` | Teacher/admin only. Autocomplete source for adding enabled problems not already in the set. Delegates to `prepare_problem_picker_search` for indexed, escaped, and typo-tolerant number/title matching. Relevance ordering puts an exact Arena number before other number-substring/title matches; blank queries remain ordered by Arena number. |
 | `build_teacher_problem_set_report(session, *, actor_id, actor_role, set_id, now)` | Teacher/admin only. Builds the UI-ready report matrix over active class members and set problems, with best verdict per cell and an optional snapshot rating column when a due-set snapshot already exists. |
 
 ---

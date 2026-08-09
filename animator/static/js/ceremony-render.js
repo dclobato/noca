@@ -49,7 +49,6 @@
       : (typeof window !== "undefined" ? window : {}).AnimatorKeyedRows;
 
   var MODAL_SELECTOR = "#ceremony-team-modal";
-  var MEDAL_BANDS = ["gold", "silver", "bronze"];
 
   // Natural label order: length first, then lexicographic. "B" < "Z" < "AA".
   function compareLabels(a, b) {
@@ -109,18 +108,6 @@
       el.setAttribute("class", className);
     }
     return setText(el, text);
-  }
-
-  // The oversized medal watermark served by the animator's own
-  // /assets/medal/{band} route.
-  function medalImage(doc, medalBase, medal) {
-    var img = doc.createElement("img");
-    img.setAttribute("class", "ceremony-medal-watermark");
-    if (medalBase) {
-      img.setAttribute("src", medalBase + "/" + encodeURIComponent(medal));
-    }
-    img.setAttribute("alt", medal + " medal");
-    return img;
   }
 
   // Build the header row: the four fixed columns plus one per problem label.
@@ -199,7 +186,7 @@
   function renderTeamCell(doc, team, medalBase) {
     var th = doc.createElement("th");
     th.setAttribute("scope", "row");
-    th.setAttribute("class", "animator-col-team ceremony-cell-team");
+    th.setAttribute("class", "animator-col-team");
     var button = doc.createElement("button");
     button.setAttribute("type", "button");
     button.setAttribute("class", "ceremony-team-name animator-team-primary");
@@ -218,8 +205,9 @@
         cell(doc, "span", "ceremony-team-site animator-team-secondary", team.site_name),
       );
     }
-    if (team.medal) {
-      th.appendChild(medalImage(doc, medalBase, team.medal));
+    var medalImage = scoreboardRender.createMedalImage(doc, medalBase, team.medal);
+    if (medalImage) {
+      th.appendChild(medalImage);
     }
     return th;
   }
@@ -231,13 +219,11 @@
       classes.push("ceremony-row--focused");
     }
     if (options.bandEnd) {
-      classes.push("ceremony-row--band-end");
+      classes.push("animator-row--band-end");
     }
     tr.setAttribute("class", classes.join(" "));
     tr.setAttribute("data-team-id", String(team.team_id));
-    if (team.medal) {
-      tr.setAttribute("data-medal", team.medal);
-    }
+    scoreboardRender.syncMedalAttribute(tr, team.medal);
 
     tr.appendChild(
       cell(doc, "td", "animator-col-rank ceremony-cell-rank", team.current_rank),
@@ -271,24 +257,9 @@
     var next = renderRow(doc, team, labels, options);
     tr.setAttribute("class", next.getAttribute("class"));
     tr.setAttribute("data-team-id", next.getAttribute("data-team-id"));
-    var medal = next.getAttribute("data-medal");
-    if (medal) {
-      tr.setAttribute("data-medal", medal);
-    } else {
-      tr.removeAttribute("data-medal");
-    }
+    scoreboardRender.syncMedalAttribute(tr, team.medal);
     tr.replaceChildren.apply(tr, Array.prototype.slice.call(next.children));
     return tr;
-  }
-
-  // Whether this row is the last of its medal band (used for the heavier rule).
-  function isBandEnd(teams, index) {
-    var medal = teams[index].medal;
-    if (!medal || MEDAL_BANDS.indexOf(medal) === -1) {
-      return false;
-    }
-    var next = teams[index + 1];
-    return !next || next.medal !== medal;
   }
 
   // Draw the whole projection in authoritative server order. Surviving rows
@@ -321,7 +292,7 @@
         nextCell: (projection && projection.next_cell) || null,
         medalBase: opts.medalBase || null,
         problemsByLabel: problemsByLabel,
-        bandEnd: isBandEnd(teams, index),
+        bandEnd: scoreboardRender.isBandEnd(teams, index),
       };
       return rowOptions;
     }

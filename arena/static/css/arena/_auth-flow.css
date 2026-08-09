@@ -156,11 +156,6 @@
     transform: translateX(0.25rem);
 }
 
-.arena-auth-flow-card .arena-auth-link {
-    color: var(--arena-primary-container);
-}
-
-html[data-bs-theme='dark'] .arena-auth-flow-card .arena-auth-link,
 html[data-bs-theme='dark'] .arena-auth-flow-title-row .material-symbols-outlined {
     color: var(--arena-inverse-primary);
 }

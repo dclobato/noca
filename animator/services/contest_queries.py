@@ -39,6 +39,11 @@ from shared.db_schema import (
 from shared.enumerations import JudgmentStatus, RoleEnum, Verdict
 
 
+def _optional_int(value: int | None) -> int | None:
+    """Coerce a nullable integer column to ``int | None``."""
+    return None if value is None else int(value)
+
+
 async def load_enabled_contest(session: AsyncSession, slug: str) -> ContestRecord | None:
     """Load a contest by slug, gated on ``animator_enabled``.
 
@@ -67,6 +72,9 @@ async def load_enabled_contest(session: AsyncSession, slug: str) -> ContestRecor
                 contests.c.wa_penalty,
                 contests.c.accept_pe,
                 contests.c.ce_adds_penalty,
+                contests.c.global_gold_cutoff,
+                contests.c.global_silver_cutoff,
+                contests.c.global_bronze_cutoff,
             ).where(
                 contests.c.login_slug == slug,
                 contests.c.animator_enabled.is_(True),
@@ -87,6 +95,9 @@ async def load_enabled_contest(session: AsyncSession, slug: str) -> ContestRecor
         wa_penalty=int(row.wa_penalty),
         accept_pe=bool(row.accept_pe),
         ce_adds_penalty=bool(row.ce_adds_penalty),
+        global_gold_cutoff=_optional_int(row.global_gold_cutoff),
+        global_silver_cutoff=_optional_int(row.global_silver_cutoff),
+        global_bronze_cutoff=_optional_int(row.global_bronze_cutoff),
     )
 
 

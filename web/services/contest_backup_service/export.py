@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,7 +8,7 @@
 
 The archive serializes the persisted replay dataset (verbatim ids and timestamps)
 plus the bulky per-problem package payload produced by
-:func:`web.services.problem_service.build_export_zip`. It never re-judges; the
+:func:`web.services.problem_service.build_problem_export`. It never re-judges; the
 companion importer replays the exported verdicts as-is. The read-side JSON
 members are assembled by
 :func:`web.services.contest_backup_service.export_payload.gather_json_members`.
@@ -16,18 +16,20 @@ members are assembled by
 
 from __future__ import annotations
 
-import io
+import shutil
 import zipfile
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 import anyio
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.problem_package.upload import temporary_package_path
 from web.models.contest import Contest
 from web.services.problem_service import (
-    build_export_zip,
+    build_problem_export,
     get_contest_problems,
     get_language_limits_map,
 )
@@ -69,15 +71,20 @@ def _write_archive(
             archive.writestr(name, text)
 
 
-def _append_problem_folder(dest_path: Path, prefix: str, package_bytes: bytes) -> None:
-    """Append one problem package and release it before the next is built."""
-    with (
-        zipfile.ZipFile(dest_path, "a", compression=zipfile.ZIP_DEFLATED) as archive,
-        zipfile.ZipFile(io.BytesIO(package_bytes)) as inner,
-    ):
-        for info in inner.infolist():
-            if not info.is_dir():
-                archive.writestr(f"{prefix}/{info.filename}", inner.read(info.filename))
+def _append_problem_folder(dest_path: Path, prefix: str, package_path: Path) -> None:
+    """Append one problem package and delete it before the next is built."""
+    try:
+        with (
+            zipfile.ZipFile(dest_path, "a", compression=zipfile.ZIP_DEFLATED) as archive,
+            zipfile.ZipFile(package_path) as inner,
+        ):
+            for info in inner.infolist():
+                if info.is_dir():
+                    continue
+                with inner.open(info) as source, archive.open(f"{prefix}/{info.filename}", "w") as sink:
+                    shutil.copyfileobj(source, sink, length=1024 * 1024)
+    finally:
+        package_path.unlink(missing_ok=True)
 
 
 def ensure_contest_exportable(contest: Contest) -> None:
@@ -119,8 +126,19 @@ async def build_contest_backup(
     for entry in problems_payload:
         problem = orm_problems[entry["problem"]["id"]]
         limits_map = await get_language_limits_map(session, problem)
-        package = await anyio.to_thread.run_sync(build_export_zip, problem, testcase_dir, statement_dir, limits_map)
-        await anyio.to_thread.run_sync(_append_problem_folder, dest_path, entry["dir"], package)
+        with temporary_package_path() as package_path:
+            await anyio.to_thread.run_sync(
+                partial(
+                    build_problem_export,
+                    problem,
+                    testcase_dir,
+                    statement_dir,
+                    package_path,
+                    profile="full",
+                    language_limits=limits_map,
+                )
+            )
+        await anyio.to_thread.run_sync(_append_problem_folder, dest_path, entry["dir"], package_path)
     await anyio.to_thread.run_sync(inspect_archive, dest_path)
 
 

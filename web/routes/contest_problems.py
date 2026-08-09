@@ -1,20 +1,24 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import PurePosixPath
 from typing import cast
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
+from starlette.background import BackgroundTask
 
 from shared.enumerations import RoleEnum
 from shared.services.custom_validator import status_view
+from shared.services.problem_package import PackageError
+from shared.services.problem_package.upload import safe_package_filename, temporary_package_path
 from web.config import settings
 from web.dependencies import ContestContext, get_contest_context
 from web.models.contest import Contest
@@ -23,7 +27,7 @@ from web.models.problem import Problem
 from web.models.users import UberAdmin, User
 from web.routes.contest_admin_problem_helpers import _label
 from web.services.problem_service import (
-    build_public_export_zip,
+    build_problem_export,
     get_active_statement_path,
     get_contest_languages,
     get_contest_problems,
@@ -236,15 +240,26 @@ async def problem_export(
         raise HTTPException(status_code=404)
     statement_dir = settings.PROBLEM_STATEMENT_DIR
     testcase_dir = settings.PROBLEM_TESTCASE_DIR
-    active_stmt = await anyio.to_thread.run_sync(lambda: get_active_statement_path(problem.id, statement_dir))
-    if active_stmt is None:
-        return Response(content="Statement file is missing — cannot export.", status_code=409)
-    zip_bytes = await anyio.to_thread.run_sync(lambda: build_public_export_zip(problem, testcase_dir, statement_dir))
-    safe_title = "".join(c if c.isalnum() or c in "-_" else "_" for c in problem.title)
-    return Response(
-        content=zip_bytes,
+    with temporary_package_path() as destination:
+        try:
+            await anyio.to_thread.run_sync(
+                partial(
+                    build_problem_export,
+                    problem,
+                    testcase_dir,
+                    statement_dir,
+                    destination,
+                    profile="public",
+                )
+            )
+        except PackageError as exc:
+            destination.unlink(missing_ok=True)
+            return Response(content=str(exc), status_code=409)
+    return FileResponse(
+        destination,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{safe_title}-public.zip"'},
+        filename=safe_package_filename(problem.title, suffix="-public.zip"),
+        background=BackgroundTask(destination.unlink, missing_ok=True),
     )
 
 

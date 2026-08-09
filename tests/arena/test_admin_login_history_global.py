@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -296,6 +296,7 @@ def _build_app(session: Any, *, authorized: bool = True) -> FastAPI:
     # Stub routes required by _base.html and dashboard_login_history.html
     for path, name in [
         ("/", "arena_dashboard"),
+        ("/live", "arena_live"),
         ("/status", "arena_status"),
         ("/auth/login", "arena_login"),
         ("/auth/signup", "arena_signup"),

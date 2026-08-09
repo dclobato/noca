@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -38,6 +38,41 @@ def problem_fallback_limits(problem: Problem) -> EffectiveProblemLimits:
     )
 
 
+def _required_int(override: ProblemLanguageLimit | LanguageLimitInput, key: str) -> int:
+    """Read a mandatory limit field from either an ORM row or a submitted dict."""
+    if isinstance(override, ProblemLanguageLimit):
+        return int(getattr(override, key))
+    value = override[key]
+    if value is None:
+        raise ValueError(f"Language limit is missing '{key}'.")
+    return int(value)
+
+
+def _optional_int(value: str | int | None) -> int | None:
+    """Read a limit field that may legitimately be absent.
+
+    A blank string is how the form reports an untouched optional field, so it
+    means the same thing as absence — but a literal ``0`` must not, which is why
+    this tests emptiness rather than truthiness.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return int(value)
+
+
+def _effective_output_limit(
+    problem: Problem,
+    override: ProblemLanguageLimit | LanguageLimitInput,
+) -> int:
+    """Return the output limit one language actually runs under."""
+    raw = (
+        override.output_limit_in_bytes
+        if isinstance(override, ProblemLanguageLimit)
+        else _optional_int(override.get("output_limit_in_bytes"))
+    )
+    return raw if raw is not None else problem.output_limit_in_bytes
+
+
 def effective_limits_for_language(
     problem: Problem,
     override: ProblemLanguageLimit | LanguageLimitInput | None,
@@ -47,26 +82,18 @@ def effective_limits_for_language(
         return problem_fallback_limits(problem)
 
     return EffectiveProblemLimits(
-        time_limit_ms=int(
-            override.time_limit_ms if isinstance(override, ProblemLanguageLimit) else override["time_limit_ms"]
-        ),
-        memory_limit_kb=int(
-            override.memory_limit_kb if isinstance(override, ProblemLanguageLimit) else override["memory_limit_kb"]
-        ),
-        pids_limit=int(override.pids_limit if isinstance(override, ProblemLanguageLimit) else override["pids_limit"]),
-        output_limit_in_bytes=(
-            override.output_limit_in_bytes
-            if isinstance(override, ProblemLanguageLimit)
-            else int(override["output_limit_in_bytes"])
-            if override.get("output_limit_in_bytes")
-            else None
-        ),
+        time_limit_ms=_required_int(override, "time_limit_ms"),
+        memory_limit_kb=_required_int(override, "memory_limit_kb"),
+        pids_limit=_required_int(override, "pids_limit"),
+        # A per-language output limit stays nullable, where NULL means "inherit
+        # the problem's limit" — so the *effective* value falls back to the
+        # problem exactly as the judge's coalesce(lang, problem) does. Testing
+        # absence rather than truthiness also keeps an explicit 0 from vanishing.
+        output_limit_in_bytes=_effective_output_limit(problem, override),
         repetitions=(
             override.repetitions
             if isinstance(override, ProblemLanguageLimit)
-            else int(override["repetitions"])
-            if override.get("repetitions") is not None
-            else 1
+            else _optional_int(override.get("repetitions")) or 1
         ),
     )
 
@@ -130,10 +157,11 @@ async def upsert_language_limits(
         limit = ProblemLanguageLimit(
             problem_id=problem.id,
             language_id=language_id,
-            time_limit_ms=int(fields["time_limit_ms"]),
-            memory_limit_kb=int(fields["memory_limit_kb"]),
-            pids_limit=int(fields["pids_limit"]),
-            output_limit_in_bytes=int(fields["output_limit_in_bytes"]) if fields.get("output_limit_in_bytes") else None,
+            time_limit_ms=_required_int(fields, "time_limit_ms"),
+            memory_limit_kb=_required_int(fields, "memory_limit_kb"),
+            pids_limit=_required_int(fields, "pids_limit"),
+            # Absent means the language inherits the problem's own output limit.
+            output_limit_in_bytes=_optional_int(fields.get("output_limit_in_bytes")),
             repetitions=repetitions,
         )
         session.add(limit)
@@ -157,7 +185,11 @@ async def apply_fallback_limits(session: AsyncSession, problem: Problem) -> bool
     problem.time_limit_ms = int(row[0])
     problem.memory_limit_kb = int(row[1])
     problem.pids_limit = int(row[2])
-    problem.output_limit_in_bytes = int(row[3]) if row[3] is not None else None
+    # The problem-level column is NOT NULL. Every override inheriting (all NULL)
+    # means the maximum is undefined, so the problem keeps the value it has
+    # rather than being handed a null it cannot store.
+    if row[3] is not None:
+        problem.output_limit_in_bytes = int(row[3])
     await session.flush()
     return True
 

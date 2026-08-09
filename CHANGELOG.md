@@ -4,6 +4,34 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [16.0.0] - 2026-08-09
+
+### ⚠ Breaking Changes
+
+- **problem-package:** Unify import and export contracts
+
+  Problem-level output limits are now required positive values and
+  the problems.output_limit_in_bytes column is NOT NULL. Package imports reject
+  explicit null limits and malformed or logically ambiguous members that older paths
+  could accept. Apply migration 202608080001 before starting the updated services.
+
+### Features
+
+- **arena:** Polish live feed and standardize link styles
+- **arena:** Configurable medal cutoffs on ranking pages
+- **animator:** Contest-wide medal cutoffs
+- **arena:** Migrate remaining autocompletes to indexed search
+- **[BREAKING]** **problem-package:** Unify import and export contracts
+- **typography:** Adopt IBM Plex Mono across NOCA
+- **arena:** Pair slug and color on one row in category modals
+- **arena:** Stream submission detail verdict updates
+
+### Bug Fixes
+
+- **tests:** Isolate xdist filesystem storage
+
+
+
 ## [15.2.0] - 2026-08-04
 
 ### Features

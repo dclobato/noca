@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -145,9 +145,9 @@ async def run_test_case(
     cpu_limit_s = limits.time_limit_ms / 1000.0
     inner_wall_limit_s = cpu_limit_s * settings.ISOLATE_WALL_TIME_MULTIPLIER
     outer_timeout_s = inner_wall_limit_s * settings.OUTER_TIMEOUT_MULTIPLIER
-    effective_output_limit = settings.OUTPUT_LIMIT_BYTES
-    if limits.output_limit_in_bytes is not None:
-        effective_output_limit = min(effective_output_limit, limits.output_limit_in_bytes)
+    # The configured global limit is a hard ceiling over the problem's own limit,
+    # never a fallback: the problem always states one.
+    effective_output_limit = min(settings.OUTPUT_LIMIT_BYTES, limits.output_limit_in_bytes)
 
     try:
         container = await loop.run_in_executor(

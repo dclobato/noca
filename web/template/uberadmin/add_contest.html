@@ -5,6 +5,8 @@
 {% block extra_head %}
     <link rel="stylesheet"
           href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
+    <script src="{{ request.url_for('static_shared_js', path='slugify.js') }}?v={{ app_version }}"
+            defer></script>
     <script src="{{ request.url_for('static_js', path='contest-slug.js') }}"
             defer></script>
     <script src="{{ request.url_for('static_js', path='language-checkbox-actions.js') }}?v={{ app_version }}"

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -161,6 +161,98 @@ async def test_update_site_medals_rejects_non_positive_cutoff(session: AsyncSess
             silver=2,
             bronze=3,
         )
+
+
+# ---------------------------------------------------------------------------
+# Global (contest-level) medal cutoffs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("gold", "silver", "bronze"),
+    [(None, None, None), (1, 2, 3), (4, 8, 12), (1, 1, 1)],
+    ids=["all-blank", "defaults", "wide-bands", "single-position"],
+)
+def test_validate_optional_cutoffs_accepts_none_or_a_full_ordered_triple(
+    gold: int | None, silver: int | None, bronze: int | None
+) -> None:
+    """Global medals are all-or-nothing: no values, or three ordered ones."""
+    access.validate_optional_cutoffs(gold, silver, bronze)
+
+
+@pytest.mark.parametrize(
+    ("gold", "silver", "bronze"),
+    [(1, 2, None), (1, None, 3), (None, 2, 3), (1, None, None), (None, None, 3)],
+    ids=["missing-bronze", "missing-silver", "missing-gold", "gold-only", "bronze-only"],
+)
+def test_validate_optional_cutoffs_rejects_a_partial_triple(
+    gold: int | None, silver: int | None, bronze: int | None
+) -> None:
+    """A half-filled triple is an error, mirroring the database CHECK."""
+    with pytest.raises(AnimatorAccessError):
+        access.validate_optional_cutoffs(gold, silver, bronze)
+
+
+@pytest.mark.parametrize(
+    ("gold", "silver", "bronze"),
+    [(5, 2, 3), (0, 2, 3), (1, 9, 3)],
+    ids=["gold-above-silver", "gold-not-positive", "silver-above-bronze"],
+)
+def test_validate_optional_cutoffs_applies_the_site_rules_when_configured(gold: int, silver: int, bronze: int) -> None:
+    """Configured global cutoffs must be positive and ordered, like a site's."""
+    with pytest.raises(AnimatorAccessError):
+        access.validate_optional_cutoffs(gold, silver, bronze)
+
+
+@pytest.mark.asyncio
+async def test_update_contest_global_medals_persists_ordered_values(
+    session: AsyncSession, uberadmin: UberAdmin
+) -> None:
+    """Valid, ordered cutoffs are written back to the contest."""
+    contest = await _make_contest(session, uberadmin, "global-medals-ok")
+
+    await access.update_contest_global_medals(session, contest_id=contest.id, gold=2, silver=4, bronze=6)
+    await session.refresh(contest)
+
+    assert (contest.global_gold_cutoff, contest.global_silver_cutoff, contest.global_bronze_cutoff) == (2, 4, 6)
+
+
+@pytest.mark.asyncio
+async def test_update_contest_global_medals_clears_with_all_none(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """Passing all three as None disables global medals again."""
+    contest = await _make_contest(session, uberadmin, "global-medals-clear")
+    await access.update_contest_global_medals(session, contest_id=contest.id, gold=2, silver=4, bronze=6)
+
+    await access.update_contest_global_medals(session, contest_id=contest.id, gold=None, silver=None, bronze=None)
+    await session.refresh(contest)
+
+    assert contest.global_gold_cutoff is None
+    assert contest.global_silver_cutoff is None
+    assert contest.global_bronze_cutoff is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gold", "silver", "bronze"),
+    [(1, 2, None), (5, 2, 3), (0, 2, 3)],
+    ids=["partial", "unordered", "non-positive"],
+)
+async def test_update_contest_global_medals_rejects_invalid_input(
+    session: AsyncSession,
+    uberadmin: UberAdmin,
+    gold: int | None,
+    silver: int | None,
+    bronze: int | None,
+) -> None:
+    """Invalid input is rejected before the database is touched."""
+    contest = await _make_contest(session, uberadmin, f"global-medals-bad-{gold}-{silver}-{bronze}")
+
+    with pytest.raises(AnimatorAccessError):
+        await access.update_contest_global_medals(
+            session, contest_id=contest.id, gold=gold, silver=silver, bronze=bronze
+        )
+    await session.refresh(contest)
+    assert contest.global_gold_cutoff is None
 
 
 # ---------------------------------------------------------------------------

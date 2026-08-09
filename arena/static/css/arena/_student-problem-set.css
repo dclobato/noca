@@ -147,6 +147,7 @@
     border-top: 1px solid var(--arena-outline-variant);
 }
 .arena-student-problem-set-rating {
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;

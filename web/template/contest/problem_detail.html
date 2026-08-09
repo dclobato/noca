@@ -173,13 +173,7 @@
                                         <td class="text-end text-nowrap">{{ left.time_limit_ms }}</td>
                                         <td class="text-end text-nowrap">{{ left.memory_limit_kb }}</td>
                                         <td class="text-end text-nowrap">{{ left.pids_limit }}</td>
-                                        <td class="text-end text-nowrap pe-3">
-                                            {% if left.output_limit_in_bytes %}
-                                                {{ left.output_limit_in_bytes }}
-                                            {% else %}
-                                                No limit
-                                            {% endif %}
-                                        </td>
+                                        <td class="text-end text-nowrap pe-3">{{ left.output_limit_in_bytes }}</td>
                                         <td class="noca-limits-divider d-none d-lg-table-cell"></td>
                                         {% if right %}
                                             <td class="ps-3 fw-semibold text-nowrap d-none d-lg-table-cell">
@@ -188,13 +182,7 @@
                                             <td class="text-end text-nowrap d-none d-lg-table-cell">{{ right.time_limit_ms }}</td>
                                             <td class="text-end text-nowrap d-none d-lg-table-cell">{{ right.memory_limit_kb }}</td>
                                             <td class="text-end text-nowrap d-none d-lg-table-cell">{{ right.pids_limit }}</td>
-                                            <td class="text-end text-nowrap pe-3 d-none d-lg-table-cell">
-                                                {% if right.output_limit_in_bytes %}
-                                                    {{ right.output_limit_in_bytes }}
-                                                {% else %}
-                                                    No limit
-                                                {% endif %}
-                                            </td>
+                                            <td class="text-end text-nowrap pe-3 d-none d-lg-table-cell">{{ right.output_limit_in_bytes }}</td>
                                         {% else %}
                                             <td colspan="5" class="d-none d-lg-table-cell"></td>
                                         {% endif %}
@@ -207,13 +195,7 @@
                                             <td class="text-end text-nowrap">{{ right.time_limit_ms }}</td>
                                             <td class="text-end text-nowrap">{{ right.memory_limit_kb }}</td>
                                             <td class="text-end text-nowrap">{{ right.pids_limit }}</td>
-                                            <td class="text-end text-nowrap pe-3">
-                                                {% if right.output_limit_in_bytes %}
-                                                    {{ right.output_limit_in_bytes }}
-                                                {% else %}
-                                                    No limit
-                                                {% endif %}
-                                            </td>
+                                            <td class="text-end text-nowrap pe-3">{{ right.output_limit_in_bytes }}</td>
                                         </tr>
                                     {% endif %}
                                 {% endfor %}

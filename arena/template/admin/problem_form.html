@@ -150,7 +150,7 @@
                                    name="author"
                                    form="edit-form"
                                    value="{{ form.author }}"
-                                   maxlength="80"
+                                   maxlength="256"
                                    list="author-suggestions"
                                    data-suggestions-url="{{ request.url_for("arena_admin_problem_suggestions") }}"
                                    data-suggestions-field="author"
@@ -169,7 +169,7 @@
                            name="time_limit_ms"
                            form="edit-form"
                            value="{{ form.time_limit_ms }}"
-                           min="100"
+                           min="1"
                            required>
                 </div>
                 <div class="col-12 col-md-3">
@@ -182,7 +182,7 @@
                            name="memory_limit_kb"
                            form="edit-form"
                            value="{{ form.memory_limit_kb }}"
-                           min="1024"
+                           min="1"
                            required>
                 </div>
                 <div class="col-12 col-md-3">
@@ -231,7 +231,7 @@
                            name="notes"
                            form="edit-form"
                            value="{{ form.notes }}"
-                           maxlength="256"
+                           maxlength="512"
                            placeholder="Management-only note, not visible to users">
                 </div>
                 <div class="col-12">

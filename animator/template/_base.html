@@ -22,6 +22,8 @@
         {# ── Animator CSS (imports shared common.css) ── #}
         <link href="{{ request.url_for('animator_static_css', path='animator.css') }}?v={{ app_version }}"
               rel="stylesheet">
+        <link href="{{ request.url_for('animator_static_css', path='animator-scoreboard.css') }}?v={{ app_version }}"
+              rel="stylesheet">
         <link href="{{ request.url_for('animator_static_css', path='animator-events.css') }}?v={{ app_version }}"
               rel="stylesheet">
         {% block extra_head %}{% endblock %}

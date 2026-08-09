@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from textwrap import dedent
 from typing import Any, cast
 
 from sqlalchemy import select
@@ -21,8 +22,12 @@ from arena.routes.admin_problems import _effective_problem_sort
 from arena.routes.problems import _safe_sort
 from arena.services.admin_problem_service import DEFAULT_SORT
 from arena.services.problem_search_service import (
+    _SEARCH_VECTOR_SQL,
+    _TITLE_SEARCH_VECTOR_SQL,
     _exact_number_match,
+    _postgres_problem_picker_search,
     _postgres_search,
+    prepare_problem_picker_search,
     prepare_problem_search,
 )
 
@@ -79,6 +84,57 @@ async def test_sqlite_search_treats_wildcards_literally_and_has_zero_rank(
     assert expressions.trigram_rank.value == 0.0
 
 
+async def test_sqlite_problem_picker_search_is_narrow_and_escapes_wildcards(
+    session: AsyncSession,
+) -> None:
+    expressions = await prepare_problem_picker_search(session, "50%_off")
+    sql = str(
+        select(ArenaProblem.id)
+        .where(expressions.predicate)
+        .compile(dialect=sqlite.dialect(), compile_kwargs={"literal_binds": True})
+    )
+
+    assert "50\\%\\_off" in sql
+    assert "arena_problems.arena_number" in sql
+    assert "arena_problems.title" in sql
+    assert "arena_problems.problem_statement" not in sql
+    assert "arena_problems.source" not in sql
+    assert "arena_problems.author" not in sql
+    assert expressions.full_text_rank.value == 0.0
+    assert expressions.trigram_rank.value == 0.0
+
+
+def test_postgresql_problem_picker_search_uses_title_and_number_indexes() -> None:
+    expressions = _postgres_problem_picker_search("Airplne")
+    sql = str(
+        select(ArenaProblem.id)
+        .where(expressions.predicate)
+        .compile(
+            dialect=postgresql.dialect(),  # type: ignore[no-untyped-call]
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+
+    assert "coalesce(picker_problem.title, '')" in sql
+    assert "picker_problem.arena_number AS TEXT" in sql
+    assert "picker_problem.title ILIKE" in sql
+    assert "picker_problem.title %% 'Airplne'" in sql
+    assert "picker_problem.problem_statement ILIKE" not in sql
+    assert "picker_problem.source ILIKE" not in sql
+    assert "picker_problem.author ILIKE" not in sql
+
+    phrase_sql = str(
+        select(ArenaProblem.id)
+        .where(_postgres_problem_picker_search('"Airplane Routes"').predicate)
+        .compile(
+            dialect=postgresql.dialect(),  # type: ignore[no-untyped-call]
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    assert " ILIKE " not in phrase_sql
+    assert "picker_problem.title %%" not in phrase_sql
+
+
 def test_problem_routes_default_to_relevance_only_while_searching() -> None:
     assert _safe_sort(None, "graph") == "relevance"
     assert _safe_sort("title_asc", "graph") == "title_asc"
@@ -132,3 +188,12 @@ def test_problem_search_migration_uses_transactional_expression_indexes() -> Non
     assert "coalesce(author, '')" in source
     assert "(arena_number::text) gin_trgm_ops" in source
     assert source.count("CREATE INDEX") == 7
+
+
+def test_problem_search_vectors_match_the_migration_expression() -> None:
+    """Picker vectors must stay aligned with the indexed composite expression."""
+    source = _MIGRATION.read_text(encoding="utf-8")
+    indexed_expression = source.split("ON arena_problems USING gin ((", 1)[1].split("\n        ))", 1)[0]
+
+    assert dedent(indexed_expression).strip() == _SEARCH_VECTOR_SQL.replace("arena_problems.", "")
+    assert " ".join(_TITLE_SEARCH_VECTOR_SQL.split()) in " ".join(_SEARCH_VECTOR_SQL.split())

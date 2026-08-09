@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -12,6 +12,7 @@ from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.db_schema import contest_languages as contest_languages_table
+from shared.services import animator_access_service
 from web.models.contest import Contest
 from web.models.language import Language
 from web.models.problem import Problem, ProblemLanguageLimit
@@ -81,6 +82,47 @@ async def deactivate_past_contest(session: AsyncSession, contest_id: str) -> Con
 
     contest.active = False
     await session.commit()
+    await session.refresh(contest)
+    return contest
+
+
+async def update_contest_global_medals(
+    session: AsyncSession,
+    contest: Contest,
+    gold: int | None,
+    silver: int | None,
+    bronze: int | None,
+) -> Contest:
+    """Update a contest's validated global (contest-level) medal cutoffs.
+
+    Thin Web wrapper over the shared animator access service, mirroring
+    ``web.services.site_service.update_site_medals`` so both medal scopes are
+    administered through the same kind of boundary. Passing all three values as
+    ``None`` clears the configuration and disables global medals.
+
+    The write is not committed here: the caller batches the global cutoffs and
+    every site's cutoffs into a single transaction.
+
+    Args:
+        session: Active async session.
+        contest: The contest to update (its ``id`` scopes the write).
+        gold: Maximum ranking position awarded a gold medal, or None.
+        silver: Maximum ranking position awarded a silver medal, or None.
+        bronze: Maximum ranking position awarded a bronze medal, or None.
+
+    Returns:
+        The same ``Contest`` instance, refreshed with the new values.
+
+    Raises:
+        AnimatorAccessError: If the cutoffs fail validation.
+    """
+    await animator_access_service.update_contest_global_medals(
+        session,
+        contest_id=contest.id,
+        gold=gold,
+        silver=silver,
+        bronze=bronze,
+    )
     await session.refresh(contest)
     return contest
 

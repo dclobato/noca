@@ -20,6 +20,9 @@ colors:
   dark-surface: "#0f172a"
   dark-surface-lowest: "#0b1220"
   dark-on-surface: "#e2e8f0"
+  presentation-hero-from: "#174f80"
+  presentation-hero-to: "#101c36"
+  on-presentation-hero: "#dbe9f6"
 typography:
   display:
     fontFamily: "Public Sans, Inter, system-ui, sans-serif"
@@ -48,15 +51,44 @@ typography:
     lineHeight: 1
     letterSpacing: "0.05em"
   mono:
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+    fontFamily: "IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
     fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.5
+  poster:
+    fontFamily: "Public Sans, Inter, system-ui, sans-serif"
+    fontSize: "clamp(3rem, 7.5vw, 6rem)"
+    fontWeight: 600
+    lineHeight: 0.95
+    letterSpacing: "-0.04em"
+  display-projector:
+    fontFamily: "Public Sans, Inter, system-ui, sans-serif"
+    fontSize: "clamp(2rem, 4vw, 3rem)"
+    fontWeight: 600
+    lineHeight: 1.05
+    letterSpacing: "-0.02em"
+  headline-projector:
+    fontFamily: "Public Sans, Inter, system-ui, sans-serif"
+    fontSize: "clamp(1.5rem, 3vw, 2.5rem)"
+    fontWeight: 600
+    lineHeight: 1.15
+  title-projector:
+    fontFamily: "Public Sans, Inter, system-ui, sans-serif"
+    fontSize: "clamp(1.15rem, 2vw, 1.5rem)"
+    fontWeight: 600
+    lineHeight: 1.3
+  body-projector:
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "clamp(1rem, 1.4vw, 1.15rem)"
+    fontWeight: 400
+    lineHeight: 1.4
 rounded:
   sm: "0.25rem"
   md: "0.375rem"
   lg: "0.5rem"
   xl: "1rem"
+  presentation: "1rem"
+  presentation-lg: "1.5rem"
   full: "50rem"
 spacing:
   one: "0.25rem"
@@ -175,15 +207,33 @@ Semantic colors communicate operational outcomes and required attention.
 - **Information cyan** (`#0891b2`) marks informational state without competing
   with the brand.
 
+### Presentation
+
+One deep field exists for the public presentation surfaces, and only for them.
+
+- **Night harbour** (`#174f80` → `#101c36`) is a single top-left-to-bottom-right
+  gradient behind the Animator's landing hero and contest index hero. It is
+  deliberately blue rather than the slate dark surfaces, so a presentation panel
+  reads as an illuminated object rather than as ordinary dark chrome.
+- **Harbour light** (`#dbe9f6`) is its supporting text — a cool tint drawn from
+  the field's own hue, never neutral gray on colored ground.
+
+This ramp is fixed in both themes. A hero is a lit panel, not a themed surface,
+so it does not invert when the viewer switches to light.
+
 **The Signal Rarity Rule.** Use brand and semantic colors to communicate
 identity, action, or state. Do not flood large operational surfaces with them.
+
+**The One Field Rule.** Night harbour is the only gradient in NOCA, and it
+appears at most once per page, behind the hero. A second deep field on the same
+screen turns presentation into decoration.
 
 ## Typography
 
 Public Sans supplies institutional authority for headings and the shared NOCA
 wordmark. Inter carries body text and controls with high screen legibility. The
-system monospace stack distinguishes source, samples, identifiers, timings, and
-machine output.
+The IBM Plex Mono stack distinguishes source, samples, identifiers, timings, and
+machine output. System monospace faces remain fallbacks while local assets load.
 
 ### Hierarchy
 
@@ -200,8 +250,52 @@ The type hierarchy separates major structure, dense metadata, and artifacts.
 - **Mono** (400, `0.875rem`, 1.5) carries code, input and output, limits, and
   identifiers.
 
+Inline code is the exception to the compact Mono step: it matches the
+surrounding prose size at weight 600, retaining the theme-aware code color. This
+keeps exact tokens legible without turning them into headings. Code nested in
+`pre` retains its code-block hierarchy.
+
+Monospace roles use a slashed zero so `0` and `O` remain distinct. Literal text
+such as code, samples, credentials, and machine output disables ligatures so the
+rendered characters match what a learner must type. Every table uses tabular
+figures so values align consistently across modules; live scores, timers,
+ratings, and progress values outside tables opt in explicitly. Ordinary prose
+and static quantities keep proportional figures.
+
 **The Artifact Legibility Rule.** Code, statements, scores, verdicts, and
 operational state must remain easier to scan than surrounding interface chrome.
+
+### Presentation tier
+
+The operational ramp above is sized for a screen an arm's length away. The
+Animator is not read that way: a projector at the back of a hall, a lobby
+display, a scoreboard glanced at between problems. It therefore has its own
+six-step ramp, every step fluid so one stylesheet serves a phone-sized control
+panel and a 4K projector without a breakpoint.
+
+The steps share endpoints (`0.75` · `1` · `1.15` · `1.5` · `2` · `2.5` · `3` ·
+`6rem`), so the tier is a scale rather than a collection of sizes.
+
+- **Poster** (600, `clamp(3rem, 7.5vw, 6rem)`, 0.95, `-0.04em`) is the
+  full-bleed landing title, and nothing else. One per page.
+- **Display (projector)** (600, `clamp(2rem, 4vw, 3rem)`, 1.05) carries a
+  standalone numeral or a presentation headline — the live contest count, a
+  ceremony's own title.
+- **Headline (projector)** (600, `clamp(1.5rem, 3vw, 2.5rem)`) introduces
+  presentation sections and names the contest on the scoreboard.
+- **Title (projector)** (600, `clamp(1.15rem, 2vw, 1.5rem)`) labels presentation
+  cards, timers, and prominent single values.
+- **Body (projector)** (400, `clamp(1rem, 1.4vw, 1.15rem)`, 1.4) carries
+  scoreboard rows, status text, and list items. This is the smallest size an
+  audience is ever asked to read.
+- **Label** (the operational `0.75rem` step, unchanged) carries presentation
+  metadata: timestamps, state pills, uppercase kickers. Anything at this size is
+  for the operator standing at the machine, never for the room.
+
+**The Distance Rule.** A presentation step is earned by viewing distance, not by
+importance. If the reader is at a keyboard, the operational ramp applies —
+including inside the Animator, whose operator control panel is an Operate
+surface that happens to live in a presentation module.
 
 ## Layout
 
@@ -216,9 +310,10 @@ Reading and editing zones favor whitespace, while navigation and data tables
 favor useful density. At narrow breakpoints, preserve task order, allow tables
 to scroll, and convert persistent sidebars into explicit mobile navigation.
 
-Animator can exceed ordinary container widths and type scale for projector
-legibility. That exception must preserve alignment, status meaning, reduced
-motion behavior, and a clear reading order.
+Animator can exceed ordinary container widths for projector legibility, and uses
+the presentation type tier documented above rather than the operational ramp.
+That exception must preserve alignment, status meaning, reduced motion behavior,
+and a clear reading order.
 
 ## Elevation & Depth
 
@@ -242,9 +337,19 @@ default remains compatible. Pills are reserved for statuses, filters, counts,
 and compact stateful controls; circles are reserved for avatars, icon controls,
 and presence indicators.
 
-Animator entry and ceremony surfaces may use `1rem` to `1.5rem` corners when
-larger silhouettes improve distance recognition. Dense tables, code blocks,
-and operational panels retain the tighter core geometry.
+Animator entry and ceremony surfaces use two presentation corners when larger
+silhouettes improve distance recognition: **presentation** (`1rem`) for cards in
+a grid, and **presentation-lg** (`1.5rem`) for the full-width panels that hold
+them — a hero, a global scope block, an empty state. The larger radius belongs to
+the larger silhouette; using it on a small card makes the corner, not the
+content, the thing you notice from across a room.
+
+Dense tables, code blocks, and operational panels retain the tighter core
+geometry, including inside the Animator.
+
+**The Two Corners Rule.** A presentation surface picks `1rem` or `1.5rem`.
+Values between them read as imprecision at projector scale, where a corner is
+several inches across.
 
 ## Components
 
@@ -296,8 +401,8 @@ behavior.
 
 ### Code and problem content
 
-Source, samples, and machine output use the monospace stack on an inset tonal
-surface. Copy actions, line references, and syntax treatment are included when
+Source, samples, and machine output use IBM Plex Mono on an inset tonal surface.
+Copy actions, line references, and syntax treatment are included when
 the workflow supports them; they are not mandatory decoration. Problem
 statements retain generous line height and a clear sequence from statement to
 constraints, samples, and submission.
@@ -324,6 +429,9 @@ Apply these practices to new and revised interfaces:
 - **Do** preserve semantic state, focus visibility, and light/dark parity.
 - **Do** scale Animator for distance and ceremony only when the context needs
   amplification.
+- **Do** reach for a presentation step by name (`--noca-type-title`,
+  `--noca-radius-presentation`) rather than typing a literal size into a
+  module stylesheet.
 
 ### Don't
 
@@ -336,3 +444,9 @@ Avoid these patterns across the product:
 - **Don't** introduce a new typeface, token scale, or component primitive for a
   single screen.
 - **Don't** carry presentation-scale motion into ordinary task flows.
+- **Don't** use the presentation tier outside a surface read at distance. The
+  Animator's own operator panel is an Operate surface and uses the operational
+  ramp.
+- **Don't** invent a size between two presentation steps. If a step feels wrong,
+  the surface is at the wrong distance or the step is wrong for everyone — fix
+  the tier here, not one stylesheet.

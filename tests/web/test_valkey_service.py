@@ -77,7 +77,7 @@ async def test_create_valkey_pool_connects_to_real_valkey() -> None:
     try:
         assert pool.connection_kwargs["host"] == settings.VALKEY_SERVER
         assert pool.connection_kwargs["port"] == settings.VALKEY_PORT
-        assert pool.connection_kwargs["db"] == 15
+        assert pool.connection_kwargs["db"] == settings.VALKEY_DB
         try:
             assert await client.ping() is True
         except (ResponseError, ValkeyConnectionError) as exc:

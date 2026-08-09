@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import Select, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.models.arena_classes import ArenaClass
@@ -277,22 +277,16 @@ async def search_teacher_autocomplete(
         A list of ``TeacherAutocompleteRow``.
     """
     clean_query = query.strip()
-    stmt = (
-        select(arena_users.c.id, arena_users.c.nome, arena_users.c.email_normalizado)
-        .where(arena_users.c.role == ArenaRole.ARENA_JUDGE.value)
-        .order_by(arena_users.c.nome.asc())
-        .limit(max(1, min(limit, 25)))
+    stmt = select(arena_users.c.id, arena_users.c.nome, arena_users.c.email_normalizado).where(
+        arena_users.c.role == ArenaRole.ARENA_JUDGE.value
     )
     if clean_query:
-        like = f"%{clean_query}%"
-        stmt = stmt.where(
-            or_(
-                arena_users.c.nome.ilike(like),
-                arena_users.c.email_normalizado.ilike(like),
-            )
-        )
+        stmt = stmt.where(arena_users.c.id.in_(await prepare_user_search(session, clean_query)))
     if affiliation_id is not None:
         stmt = stmt.where(arena_users.c.affiliation_id == affiliation_id)
+    stmt = stmt.order_by(*user_relevance_ordering(session, clean_query), arena_users.c.nome.asc()).limit(
+        max(1, min(limit, 25))
+    )
     rows = (await session.execute(stmt)).all()
     return [TeacherAutocompleteRow(user_id=user_id, label=f"{name} <{email}>") for user_id, name, email in rows]
 

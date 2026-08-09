@@ -14,37 +14,9 @@
   const colorInput = document.getElementById("category_color");
   const colorText = colorInput ? colorInput.parentElement.querySelector(".arena-monospace") : null;
 
-  // Stop words removed before building a slug so that prepositions and articles
-  // do not inflate URL length.  Mirrors the Python set in admin_category_service.py.
-  const SLUG_STOP_WORDS = new Set([
-    // Portuguese articles
-    "a", "o", "as", "os", "um", "uma",
-    // Portuguese prepositions & contractions
-    "de", "do", "da", "dos", "das",
-    "em", "no", "na", "nos", "nas",
-    "por", "para", "com",
-    "pelo", "pela", "pelos", "pelas",
-    // Portuguese conjunctions / pronouns
-    "e", "ou", "se",
-    // English articles / prepositions / conjunctions
-    "the", "an", "and", "or",
-    "of", "in", "on", "for", "to", "from", "with", "by", "at",
-    // English copula
-    "is", "are",
-  ]);
-
-  const slugify = (value) => {
-    const normalized = value
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "");
-    const words = normalized
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim()
-      .split(" ")
-      .filter((w) => w && !SLUG_STOP_WORDS.has(w));
-    return words.join("-");
-  };
+  // Slug preview comes from category-slug.js, shared with the category list
+  // modals, so both agree with the server's normalize_slug().
+  const slugify = (value) => window.NocaCategorySlug?.slugify(value) ?? value;
 
   if (nameInput && slugInput) {
     nameInput.addEventListener("input", () => {

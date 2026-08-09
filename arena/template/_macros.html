@@ -57,3 +57,19 @@
         </div>
     {% endif %}
 {% endmacro %}
+{% macro render_rank_medal(request, rank) %}
+    {# Rank number with the configured medal band behind it (arena_medal_band
+       resolves the cutoffs from the Arena settings at render time). #}
+    {% set band = arena_medal_band(rank) %}
+    <span class="arena-rank{% if band %} arena-rank--medal{% endif %}">
+        {% if band %}
+            <img src="{{ request.url_for('arena_medal', band=band) }}"
+                 class="arena-rank-medal"
+                 width="24"
+                 height="24"
+                 alt=""
+                 aria-hidden="true">
+        {% endif %}
+        <span class="arena-rank-number">{{ rank }}</span>
+    </span>
+{% endmacro %}

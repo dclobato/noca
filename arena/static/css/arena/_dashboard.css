@@ -43,19 +43,12 @@
     gap: 0.25rem;
     flex: 0 0 auto;
     padding: 0.5rem 0;
-    color: var(--arena-primary);
     font-size: 0.875rem;
     font-weight: 600;
-    text-decoration: none;
 }
 
 .arena-dashboard-card-link .material-symbols-outlined {
     font-size: 1.25rem;
-}
-
-.arena-dashboard-card-link:hover {
-    color: var(--arena-primary-container);
-    text-decoration: none;
 }
 
 .arena-dashboard-card-link:focus-visible {
@@ -117,16 +110,6 @@
     vertical-align: middle;
 }
 
-.arena-dashboard-table tbody a {
-    color: inherit;
-}
-
-.arena-dashboard-table tbody a:hover {
-    color: var(--arena-primary);
-    text-decoration: underline !important;
-    text-underline-offset: 0.2em;
-}
-
 .arena-dashboard-updated-column {
     width: 8.75rem;
     white-space: nowrap;
@@ -138,36 +121,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: 500;
-}
-
-.arena-dashboard-rank {
-    position: relative;
-    width: 1.75rem;
-    height: 1.75rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--arena-on-surface-variant);
-    font-family: monospace;
-    font-size: 0.875rem;
-    font-weight: 700;
-}
-
-.arena-dashboard-rank--medal {
-    color: #1e293b;
-}
-
-.arena-dashboard-medal {
-    position: absolute;
-    inset: 0;
-    width: 1.75rem;
-    height: 1.75rem;
-    object-fit: contain;
-}
-
-.arena-dashboard-rank-number {
-    position: relative;
-    z-index: 1;
 }
 
 .arena-dashboard-empty {

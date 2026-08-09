@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -39,7 +39,7 @@ from .queries import (
     get_contest_language_ids,
     get_inactive_contests,
 )
-from .updates import deactivate_past_contest
+from .updates import deactivate_past_contest, update_contest_global_medals
 from .validation import validate_contest_metadata_fields as _validate_contest_metadata_fields
 
 __all__ = [
@@ -71,6 +71,7 @@ __all__ = [
     "reconcile_chief_judge",
     "slug_format_is_valid",
     "_validate_contest_metadata_fields",
+    "update_contest_global_medals",
     "update_contest_metadata",
     "validate_chief_judge_assignment",
     "validate_contest_language_selection",

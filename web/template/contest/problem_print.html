@@ -119,13 +119,7 @@
                                                 <td class="text-end text-nowrap">{{ row.time_limit_ms }}</td>
                                                 <td class="text-end text-nowrap">{{ row.memory_limit_kb }}</td>
                                                 <td class="text-end text-nowrap">{{ row.pids_limit }}</td>
-                                                <td class="text-end text-nowrap pe-3">
-                                                    {% if row.output_limit_in_bytes %}
-                                                        {{ row.output_limit_in_bytes }}
-                                                    {% else %}
-                                                        No limit
-                                                    {% endif %}
-                                                </td>
+                                                <td class="text-end text-nowrap pe-3">{{ row.output_limit_in_bytes }}</td>
                                             </tr>
                                         {% endfor %}
                                     </tbody>

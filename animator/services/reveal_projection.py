@@ -27,6 +27,7 @@ from animator.models.reveal_session import (
     TeamRevealView,
 )
 from animator.services.reveal_loader import RevealDataset, submission_sort_key
+from shared.services.balloon_assets import medal_band_for_rank
 from shared.services.scoreboard_projection import TeamStanding, compute_icpc
 
 __all__ = [
@@ -129,13 +130,7 @@ def medal_for_rank(cutoffs: MedalCutoffs | None, rank: int) -> Medal | None:
     """
     if cutoffs is None:
         return None
-    if rank <= cutoffs.gold:
-        return "gold"
-    if rank <= cutoffs.silver:
-        return "silver"
-    if rank <= cutoffs.bronze:
-        return "bronze"
-    return None
+    return medal_band_for_rank(rank, gold=cutoffs.gold, silver=cutoffs.silver, bronze=cutoffs.bronze)
 
 
 def build_team_reveal_views(

@@ -17,19 +17,25 @@ from typing import Any, cast
 
 import anyio
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
 
 from arena.config import settings
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_problem_editor
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_io_service, admin_problem_service
-from arena.services.admin_category_service import normalize_slug
 from shared.enumerations import ArenaRole
 from shared.services.custom_validator import build_validation_job
 from shared.services.imageprocessing_service import ImageProcessingError, ImageProcessingService
+from shared.services.problem_package import PackageError, open_problem_package
+from shared.services.problem_package.upload import (
+    safe_package_filename,
+    spool_upload,
+    temporary_package_path,
+)
 from shared.services.sample_problem_package import SAMPLE_PACKAGE_FILENAME, build_sample_problem_package
 from shared.services.valkey_service import enqueue_custom_validator_validation_job
 
@@ -71,10 +77,13 @@ async def admin_problem_sample_package(
 ) -> Response:
     """Download the reference \"A + B\" problem package."""
     del current_user
-    return Response(
-        content=build_sample_problem_package(),
+    with temporary_package_path() as destination:
+        await anyio.to_thread.run_sync(build_sample_problem_package, destination)
+    return FileResponse(
+        destination,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{SAMPLE_PACKAGE_FILENAME}"'},
+        filename=SAMPLE_PACKAGE_FILENAME,
+        background=BackgroundTask(destination.unlink, missing_ok=True),
     )
 
 
@@ -92,20 +101,32 @@ async def admin_problem_import_submit(
         flash("Please choose a ZIP file to import.", FlashCategory.DANGER)
         return RedirectResponse(url=form_url, status_code=303)
 
-    zip_bytes = await package.read()
     image_service: ImageProcessingService = request.app.state.image_service
     try:
-        result = await admin_problem_io_service.import_problem_from_zip(
-            session,
-            zip_bytes=zip_bytes,
-            caller_id=current_user.id,
-            image_service=image_service,
-            testcase_dir=settings.PROBLEM_TESTCASE_DIR,
-        )
+        # The upload is spooled to disk in bounded chunks and the archive is
+        # opened exactly once; nothing here ever holds the package in RAM.
+        async with spool_upload(package) as zip_path:
+            # Scanning, extracting, hashing, and validating are blocking I/O and
+            # CPU: they run in a worker thread so a large package cannot stall
+            # the event loop. This side then owns closing the staging area.
+            staged = await anyio.to_thread.run_sync(open_problem_package, zip_path)
+            try:
+                result = await admin_problem_io_service.import_problem_package(
+                    session,
+                    staged.package,
+                    caller_id=current_user.id,
+                    image_service=image_service,
+                    testcase_dir=settings.PROBLEM_TESTCASE_DIR,
+                )
+            finally:
+                await anyio.to_thread.run_sync(staged.staging.close)
     except (ValueError, ImageProcessingError) as exc:
         await session.rollback()
         flash(str(exc), FlashCategory.DANGER)
         return RedirectResponse(url=form_url, status_code=303)
+
+    for warning in result.warnings:
+        flash(warning.message, FlashCategory.WARNING)
 
     problem = result.problem
     await session.refresh(problem, attribute_names=["custom_validator"])
@@ -170,15 +191,22 @@ async def admin_problem_export(
 
     owner = await session.get(ArenaUser, problem.owner_id)
     owner_name = owner.nome if owner else ""
-    zip_bytes = await anyio.to_thread.run_sync(
-        admin_problem_io_service.build_export_zip,
-        problem,
-        owner_name,
-        settings.PROBLEM_TESTCASE_DIR,
-    )
-    filename = f"problem-{problem.arena_number}-{normalize_slug(problem.title)}.zip"
-    return Response(
-        content=zip_bytes,
+    with temporary_package_path() as destination:
+        try:
+            await anyio.to_thread.run_sync(
+                admin_problem_io_service.export_problem_package,
+                problem,
+                owner_name,
+                settings.PROBLEM_TESTCASE_DIR,
+                destination,
+            )
+        except PackageError as exc:
+            destination.unlink(missing_ok=True)
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    filename = safe_package_filename(f"problem-{problem.arena_number}-{problem.title}")
+    return FileResponse(
+        destination,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        filename=filename,
+        background=BackgroundTask(destination.unlink, missing_ok=True),
     )

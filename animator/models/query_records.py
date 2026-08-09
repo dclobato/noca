@@ -54,6 +54,14 @@ class ContestRecord:
         ce_adds_penalty: Whether compilation errors count as penalizing attempts.
         release_scoreboard_after_end: Whether the public final scoreboard is
             released after the contest ends.
+        global_gold_cutoff: Maximum ranking position awarded a gold medal in the
+            global scope, or ``None`` when global medals are unconfigured.
+        global_silver_cutoff: Same, for silver.
+        global_bronze_cutoff: Same, for bronze.
+
+    The three global cutoffs are all-or-nothing: either all are ``None`` (the
+    contest shows no global medals) or all are set and ordered. The database
+    CHECK constraint guarantees no other combination is stored.
     """
 
     id: str
@@ -67,6 +75,9 @@ class ContestRecord:
     accept_pe: bool
     ce_adds_penalty: bool
     release_scoreboard_after_end: bool = False
+    global_gold_cutoff: int | None = None
+    global_silver_cutoff: int | None = None
+    global_bronze_cutoff: int | None = None
 
     @property
     def start_time_utc(self) -> datetime:

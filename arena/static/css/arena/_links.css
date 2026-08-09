@@ -1,0 +1,140 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Arena links
+   ============================================================ */
+a[href]:where(
+    :not(
+        .btn,
+        .nav-link,
+        .page-link,
+        .arena-card,
+        .arena-icon-link,
+        .arena-problem-row,
+        .arena-problem-set-report-status-summary,
+        .arena-ranking-affiliation-link
+    )
+) {
+    color: var(--arena-primary);
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+a[href]:where(
+    :not(
+        .btn,
+        .nav-link,
+        .page-link,
+        .arena-card,
+        .arena-icon-link,
+        .arena-problem-row,
+        .arena-problem-set-report-status-summary,
+        .arena-ranking-affiliation-link
+    )
+):visited {
+    color: var(--arena-primary);
+}
+
+a[href]:where(
+    :not(
+        .btn,
+        .nav-link,
+        .page-link,
+        .arena-card,
+        .arena-icon-link,
+        .arena-problem-row,
+        .arena-problem-set-report-status-summary,
+        .arena-ranking-affiliation-link
+    )
+):hover,
+a[href]:where(
+    :not(
+        .btn,
+        .nav-link,
+        .page-link,
+        .arena-card,
+        .arena-icon-link,
+        .arena-problem-row,
+        .arena-problem-set-report-status-summary,
+        .arena-ranking-affiliation-link
+    )
+):focus-visible {
+    color: var(--arena-primary-container);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
+}
+
+/* Header and footer links are intentionally quieter than content links. */
+.arena-topbar a[href],
+.arena-topbar a[href]:visited,
+.arena-footer a[href],
+.arena-footer a[href]:visited {
+    color: var(--arena-on-surface-variant);
+    text-decoration: none;
+}
+
+.arena-topbar a[href]:hover,
+.arena-topbar a[href]:focus-visible,
+.arena-footer a[href]:hover,
+.arena-footer a[href]:focus-visible {
+    color: var(--arena-primary-container);
+    text-decoration: none;
+}
+
+.arena-topbar a[href]:focus-visible,
+.arena-footer a[href]:focus-visible {
+    border-radius: var(--arena-radius);
+    outline: 2px solid var(--arena-primary);
+    outline-offset: 2px;
+}
+
+.arena-topbar a[href] .material-symbols-outlined {
+    color: inherit;
+}
+
+/* Icon-only links keep their control treatment instead of reading as text. */
+.arena-icon-link,
+.arena-icon-link:visited,
+.arena-icon-link:hover,
+.arena-icon-link:focus-visible {
+    color: var(--arena-on-surface-variant);
+    text-decoration: none;
+}
+
+.arena-icon-link:focus-visible {
+    border-radius: var(--arena-radius);
+    outline: 2px solid var(--arena-primary);
+    outline-offset: 2px;
+}
+
+/* Pagination remains a control, but its selected state uses Arena identity. */
+.arena-pagination .page-item.active > .page-link {
+    border-color: var(--arena-primary);
+    background-color: var(--arena-primary);
+    color: var(--arena-on-primary);
+}
+
+.arena-pagination .page-link:focus {
+    box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--arena-primary) 25%, transparent);
+}
+
+/* Sort controls and links that duplicate a clickable row avoid extra noise. */
+a[href].arena-sort-link:hover,
+a[href].arena-sort-link:focus-visible,
+a[href].arena-link-no-underline:hover,
+a[href].arena-link-no-underline:focus-visible {
+    text-decoration: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    a[href] {
+        transition: none;
+    }
+}

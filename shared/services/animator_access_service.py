@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import delete, select, update
 
-from shared.db_schema import site_secrets, sites
+from shared.db_schema import contests, site_secrets, sites
 
 # 32 bytes of ``secrets.token_urlsafe`` entropy yields a 256-bit opaque token.
 _TOKEN_ENTROPY_BYTES = 32
@@ -142,6 +142,67 @@ def _validate_cutoffs(gold: int, silver: int, bronze: int) -> None:
         raise AnimatorAccessError("Gold cutoff must be a positive ranking position.")
     if not (gold <= silver <= bronze):
         raise AnimatorAccessError("Medal cutoffs must satisfy gold <= silver <= bronze.")
+
+
+def validate_optional_cutoffs(gold: int | None, silver: int | None, bronze: int | None) -> None:
+    """Validate an *optional* medal-cutoff triple, all-or-nothing.
+
+    Global (contest-level) medals are either unconfigured -- all three values
+    ``None``, meaning no medals -- or fully configured, in which case they must
+    satisfy the same positivity and ordering rules a site's cutoffs do. A
+    partially filled triple is always an error: it mirrors the database CHECK
+    constraint, so the two boundaries cannot drift.
+
+    Args:
+        gold: Maximum ranking position awarded a gold medal, or None.
+        silver: Maximum ranking position awarded a silver medal, or None.
+        bronze: Maximum ranking position awarded a bronze medal, or None.
+
+    Raises:
+        AnimatorAccessError: If only some of the three values are set, or if the
+            configured values are not positive and correctly ordered.
+    """
+    if gold is None and silver is None and bronze is None:
+        return
+    if gold is None or silver is None or bronze is None:
+        raise AnimatorAccessError("Set all three medal cutoffs, or leave all three blank to disable medals.")
+    _validate_cutoffs(gold, silver, bronze)
+
+
+async def update_contest_global_medals(
+    executor: _Executor,
+    *,
+    contest_id: str,
+    gold: int | None,
+    silver: int | None,
+    bronze: int | None,
+) -> None:
+    """Update the validated contest-level (global) medal cutoffs.
+
+    Passing all three values as ``None`` clears the configuration, disabling
+    medals for the contest's global scope.
+
+    Args:
+        executor: AsyncSession or AsyncConnection with an ``execute`` method.
+        contest_id: Contest to update (scopes the update).
+        gold: Maximum ranking position awarded a gold medal, or None.
+        silver: Maximum ranking position awarded a silver medal, or None.
+        bronze: Maximum ranking position awarded a bronze medal, or None.
+
+    Raises:
+        AnimatorAccessError: If the cutoffs fail validation.
+    """
+    validate_optional_cutoffs(gold, silver, bronze)
+    stmt = (
+        update(contests)
+        .where(contests.c.id == contest_id)
+        .values(
+            global_gold_cutoff=gold,
+            global_silver_cutoff=silver,
+            global_bronze_cutoff=bronze,
+        )
+    )
+    await executor.execute(stmt)  # type: ignore[attr-defined]
 
 
 async def update_site_medals(

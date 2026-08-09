@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -53,7 +53,7 @@
                                     <span class="text-arena-muted small">by {{ tx.admin.nome }}</span>
                                 {% elif tx.submission_id %}
                                     <a href="{{ request.url_for('arena_submission_detail', submission_id=tx.submission_id) }}"
-                                       class="text-decoration-none small">Submission</a>
+                                       class="small">Submission</a>
                                 {% else %}
                                     <span class="text-arena-muted">&mdash;</span>
                                 {% endif %}

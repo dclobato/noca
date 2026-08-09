@@ -280,7 +280,7 @@ function testMedalBandsAndBoundaries() {
   );
   // Each medalled row here is the last of its band, so each carries the rule;
   // the unmedalled row never does.
-  const bandEnds = tbody.children.map((r) => r.getAttribute("class").includes("ceremony-row--band-end"));
+  const bandEnds = tbody.children.map((r) => r.getAttribute("class").includes("animator-row--band-end"));
   assert.deepStrictEqual(bandEnds, [true, true, true, false]);
   // The numeric rank stays uncluttered while the team cell carries the
   // accessible watermark served by the animator's own /assets route.
@@ -289,7 +289,7 @@ function testMedalBandsAndBoundaries() {
   assert.strictEqual(goldRow.children[0].children.length, 0);
   const watermark = goldRow.children[1].children.at(-1);
   assert.strictEqual(watermark.tagName, "IMG");
-  assert.strictEqual(watermark.getAttribute("class"), "ceremony-medal-watermark");
+  assert.strictEqual(watermark.getAttribute("class"), "animator-medal-watermark");
   assert.strictEqual(watermark.getAttribute("src"), "/assets/medal/gold");
   assert.strictEqual(watermark.getAttribute("alt"), "gold medal");
   assert.ok(
@@ -306,7 +306,7 @@ function testMedalBandsAndBoundaries() {
     ],
   });
   assert.deepStrictEqual(
-    wide.tbody.children.map((r) => r.getAttribute("class").includes("ceremony-row--band-end")),
+    wide.tbody.children.map((r) => r.getAttribute("class").includes("animator-row--band-end")),
     [false, true, true],
   );
 }

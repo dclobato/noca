@@ -91,9 +91,9 @@ variant with identical `404` behavior.
 | Method | URL | Name | Description |
 |--------|-----|------|-------------|
 | `GET` | `/c/{slug}/` | `animator_contest_page` | Presentation launcher. Shows a prominent global section followed by every contest site, with scoped links to the animated scoreboard, reveal projector, and reveal controller. Renders `contest_index.html`; it loads no presentation JavaScript. |
-| `GET` | `/c/{slug}/scoreboard?scope=…` | `animator_scoreboard_page` | Public live-scoreboard presentation page for `global` (the default) or one validated contest site. A static HTML shell (no scoreboard state embedded) that fetches `/meta` and the scoped `/snapshot` client-side, renders the standings and a locally ticking contest timer, and then opens the contest live SSE connection. It embeds only wiring config: the `/meta`, scoped `/snapshot`, and `/events` URLs, the selected site name, `data-poll-fallback` (`NOCA_ANIMATOR_POLL_FALLBACK_SECONDS`), and `data-balloon-base`/`data-star-base`. Renders `animator.html`. |
+| `GET` | `/c/{slug}/scoreboard?scope=…` | `animator_scoreboard_page` | Public live-scoreboard presentation page for `global` (the default) or one validated contest site. A static HTML shell (no scoreboard state embedded) that fetches `/meta` and the scoped `/snapshot` client-side, renders the standings and a locally ticking contest timer, and then opens the contest live SSE connection. It embeds only wiring config: the `/meta`, scoped `/snapshot`, and `/events` URLs, the selected site name, `data-poll-fallback` (`NOCA_ANIMATOR_POLL_FALLBACK_SECONDS`), and `data-balloon-base`/`data-star-base`/`data-medal-base`. Renders `animator.html`. |
 | `GET` | `/c/{slug}/meta` | `animator_contest_meta` | Contest identity, problem labels and balloon colors, start/end/freeze timing, current public `is_frozen` state, and per-site medal-cutoff summary with team counts. An ended contest with `release_scoreboard_after_end=true` reports `is_frozen=false`. Returns `ContestMetaResponse`. |
-| `GET` | `/c/{slug}/snapshot?scope=…` | `animator_contest_snapshot` | Public ICPC scoreboard snapshot computed with the shared `compute_icpc` for `global` or one validated site scope, plus a server-generated `version` (equal to `generated_at`) for client refresh and a freeze-safe `pending_submissions` array. Each standing includes `team_fullname` and `site_name`; each problem cell includes the accumulated attempt `penalty`, including while unsolved. Post-freeze submissions remain hidden while the contest runs and after an unreleased end; an ended, released contest exposes all final results and reports `is_frozen=false`, matching Web. Site scope filters teams and their submissions before scoring, so ranks and first-solver markers are local to that site. Returns `ScoreboardSnapshotResponse`. |
+| `GET` | `/c/{slug}/snapshot?scope=…` | `animator_contest_snapshot` | Public ICPC scoreboard snapshot computed with the shared `compute_icpc` for `global` or one validated site scope, plus a server-generated `version` (equal to `generated_at`) for client refresh and a freeze-safe `pending_submissions` array. Each standing includes `team_fullname`, `site_name`, and `medal` — the band that row's rank falls into under the cutoffs in force for the requested scope (the site's own for a site scope, the contest's `global_*_cutoff` triple for `global`), or `null` when the row wins no medal or the scope has no cutoffs configured; each problem cell includes the accumulated attempt `penalty`, including while unsolved. Post-freeze submissions remain hidden while the contest runs and after an unreleased end; an ended, released contest exposes all final results and reports `is_frozen=false`, matching Web. Site scope filters teams and their submissions before scoring, so ranks and first-solver markers are local to that site. Returns `ScoreboardSnapshotResponse`. |
 | `GET` | `/c/{slug}/events` | `animator_contest_events` | Live Server-Sent Events stream (native `EventSourceResponse` / typed `ServerSentEvent`). Fans out `verdict` (finalized judgment, no logs; redacted to `{"redacted": true}` while the contest is frozen), `submission` (new-submission nudge `{submission_id, team_id, problem_id}`, suppressed entirely while frozen), `scoreboard_refresh` (bare signal to refetch `/snapshot`), and `timer_tick` (`{"server_time": "<ISO8601 UTC>"}`) events for this contest. FastAPI sends a native 15 s idle-only comment heartbeat. Resolves the contest through the **detached** short-lived resolver (`get_enabled_contest_detached`) so the long-lived stream holds no PostgreSQL connection, with the same `404` uniformity. PostgreSQL snapshots remain authoritative. |
 
 ### Streaming notes (`/events`)
@@ -462,11 +462,16 @@ ceremony. It is a **static shell**, not a control operation.
   stay. **Back** is deliberately *not* gated on `revealed_count` — a step can be
   a pure cursor move, so "0 revealed" does not mean "nothing to undo".
 - **Starting over is a dedicated, modal-confirmed action.** **Start over…**
-  (visible only while `revealing`/`done`) opens a modal that states how many
-  teams were already revealed and warns that the ranking is rebuilt from current
-  contest data; confirming sends `start-reveal` with `restart: true`. Plain
-  **Start reveal** always sends `restart: false` and is hidden whenever a live
-  session would refuse it with `409`.
+  opens a modal that states how many teams were already revealed and warns that
+  the ceremony is discarded and rebuilt from current contest data *and settings*,
+  medal cutoffs included; confirming sends `start-reveal` with `restart: true`.
+  Plain **Start reveal** always sends `restart: false` and is hidden whenever a
+  live session would refuse it with `409`. Start over is offered whenever a
+  ceremony is stored — `idle` as well as `revealing`/`done` — because plain Start
+  reuses a stored idle session along with the cutoffs it was created with, so
+  without it a configuration change could never be adopted through the UI. It is
+  hidden only when there is no stored session at all, where there is nothing to
+  rebuild.
 - **Recovery controls remain visible.** A warning block immediately before the
   action reference keeps **Rebuild state…** and **Reload state** available in
   every phase and tells operators not to use them during normal operation.

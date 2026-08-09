@@ -145,7 +145,7 @@
                         <tr>
                             <th class="arena-col-sortable">
                                 <a href="{{ request.url.include_query_params(sort_by='number_desc' if sort_by == 'number_asc' else 'number_asc', page=1) }}"
-                                   class="text-decoration-none text-reset d-flex align-items-center gap-1">
+                                   class="arena-sort-link d-flex align-items-center gap-1">
                                     #
                                     {% if sort_by == 'number_asc' %}
                                         {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
@@ -158,7 +158,7 @@
                             </th>
                             <th class="arena-col-sortable arena-col-title">
                                 <a href="{{ request.url.include_query_params(sort_by='title_desc' if sort_by == 'title_asc' else 'title_asc', page=1) }}"
-                                   class="text-decoration-none text-reset d-flex align-items-center gap-1">
+                                   class="arena-sort-link d-flex align-items-center gap-1">
                                     Title
                                     {% if sort_by == 'title_asc' %}
                                         {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
@@ -174,7 +174,7 @@
                             <th class="text-end">Private TCs</th>
                             <th class="text-end arena-col-sortable">
                                 <a href="{{ request.url.include_query_params(sort_by='rating_desc' if sort_by == 'rating_asc' else 'rating_asc', page=1) }}"
-                                   class="text-decoration-none text-reset d-flex align-items-center justify-content-end gap-1">
+                                   class="arena-sort-link d-flex align-items-center justify-content-end gap-1">
                                     Difficulty
                                     {% if sort_by == 'rating_asc' %}
                                         {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
@@ -191,7 +191,7 @@
                     <tbody>
                         {% for row in pagination.items %}
                             <tr id="{{ row.id }}">
-                                <td class="arena-monospace">
+                                <td>
                                     <a href="{{ request.url_for('arena_problem_detail', arena_number=row.arena_number) }}">{{ row.arena_number }}</a>
                                 </td>
                                 <td>

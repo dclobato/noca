@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -253,6 +253,25 @@ def test_parse_packaged_interactions_rejects_more_than_the_cap() -> None:
     }
 
     with pytest.raises(InteractionParseError, match="at most"):
+        _package(members)
+
+
+@pytest.mark.parametrize("suffix", ["interaction", "explain"])
+def test_parse_packaged_interactions_rejects_ordinal_aliases(suffix: str) -> None:
+    content = json.dumps(parse_interaction_text("> x")).encode() if suffix == "interaction" else b"why"
+    members = {
+        f"interaction/1.{suffix}": content,
+        f"interaction/001.{suffix}": content,
+    }
+
+    with pytest.raises(InteractionParseError, match="both provide"):
+        _package(members)
+
+
+def test_parse_packaged_interactions_rejects_an_ordinal_above_the_shared_range() -> None:
+    members = {"interaction/5000.interaction": json.dumps(parse_interaction_text("> x")).encode()}
+
+    with pytest.raises(InteractionParseError, match="outside the supported range"):
         _package(members)
 
 

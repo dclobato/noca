@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -7,8 +7,7 @@
 """Problem service package."""
 
 from .files import (
-    build_export_zip,
-    build_public_export_zip,
+    build_problem_export,
     delete_all_testcase_files,
     delete_md_statement,
     delete_problem_statement,
@@ -27,7 +26,7 @@ from .files import (
     save_testcase_files,
     validate_md_content,
 )
-from .importing import BALLOON_COLORS, import_problem_from_zip
+from .importing import BALLOON_COLORS, import_problem_package
 from .interactions import (
     append_sample_interaction,
     convert_sample_test_cases_to_secret,
@@ -83,8 +82,7 @@ __all__ = [
     "append_sample_interaction",
     "append_test_case",
     "apply_fallback_limits",
-    "build_export_zip",
-    "build_public_export_zip",
+    "build_problem_export",
     "changed_effective_limits",
     "compute_profiling_limits_map",
     "convert_sample_test_cases_to_secret",
@@ -111,7 +109,7 @@ __all__ = [
     "get_statement_path",
     "get_testcase_path",
     "hide_sample_interactions",
-    "import_problem_from_zip",
+    "import_problem_package",
     "interactive_testcase_error",
     "load_sample_interactions",
     "move_problem",

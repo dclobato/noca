@@ -73,9 +73,15 @@
     vertical-align: middle;
 }
 
-.arena-table .arena-monospace   { font-family: monospace; color: var(--arena-primary); }
-.arena-table .arena-mono-right  { font-family: monospace; text-align: right; color: var(--arena-on-surface); }
-.arena-monospace                { font-family: monospace; }
+.arena-table .arena-monospace,
+.arena-monospace {
+    font-family: var(--noca-font-mono);
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+}
+
+.arena-table .arena-monospace {
+    color: var(--arena-primary);
+}
 
 /* Live submission feed — shared rules in shared/static/css/common.css */
 .live-feed-summary {
@@ -86,10 +92,6 @@
 /* ── Sortable column headers ─────────────────────────────────── */
 .arena-table thead th.arena-col-sortable {
     cursor: pointer;
-}
-
-.arena-table thead th.arena-col-sortable > a:hover {
-    color: var(--arena-primary) !important;
 }
 
 .arena-table thead th.arena-col-sortable > a:hover .arena-sort-icon--idle {

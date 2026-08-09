@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -135,11 +135,21 @@ async def test_affiliation_search_ordering_filtering(session: AsyncSession) -> N
     """Affiliation search should filter partially and order names case-insensitively."""
     await _affiliation(session, "Zeta University")
     await _affiliation(session, "alpha University")
+    await _affiliation(session, "Alpha University")
     await _affiliation(session, "Beta College")
+    await _affiliation(session, "50% Institute")
 
     results = await search_affiliations(session, query="University")
+    wildcard_results = await search_affiliations(session, query="%")
+    blank_results = await search_affiliations(session, query="   ")
 
-    assert [item.name for item in results] == ["alpha University", "Zeta University"]
+    assert [item.name for item in results] == [
+        "Alpha University",
+        "alpha University",
+        "Zeta University",
+    ]
+    assert [item.name for item in wildcard_results] == ["50% Institute"]
+    assert blank_results == []
 
 
 @pytest.mark.asyncio

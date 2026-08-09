@@ -109,14 +109,6 @@
     width: 6rem;
     text-align: center;
 }
-.arena-problem-set-problems-table .arena-problem-number a,
-.arena-problem-set-problems-table .arena-problem-set-title a {
-    text-decoration: none;
-}
-.arena-problem-set-problems-table .arena-problem-number a:hover,
-.arena-problem-set-problems-table .arena-problem-set-title a:hover {
-    text-decoration: underline;
-}
 .arena-problem-set-title,
 .arena-problem-set-categories {
     overflow-wrap: anywhere;

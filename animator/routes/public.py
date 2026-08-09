@@ -106,6 +106,7 @@ async def scoreboard_page(
     # segment, so a reverse-proxy sub-path mount is honored (like the feed URLs).
     balloon_base = str(request.url_for("animator_balloon", color="_")).rsplit("/", 1)[0]
     star_base = str(request.url_for("animator_star", color="_")).rsplit("/", 1)[0]
+    medal_base = str(request.url_for("animator_medal", band="_")).rsplit("/", 1)[0]
     slug = contest.login_slug
     return request.app.state.templates.TemplateResponse(  # type: ignore[no-any-return]
         request,
@@ -120,6 +121,7 @@ async def scoreboard_page(
             "poll_fallback_seconds": settings.POLL_FALLBACK_SECONDS,
             "balloon_base": balloon_base,
             "star_base": star_base,
+            "medal_base": medal_base,
         },
     )
 
@@ -136,8 +138,13 @@ async def contest_snapshot(
     db: DbSession,
     scope: PublicScopeDep,
 ) -> ScoreboardSnapshotResponse:
-    """Return a scoped public ICPC scoreboard snapshot and refresh token."""
-    return await build_snapshot_response(db, contest, site_id=scope.site_id)
+    """Return a scoped public ICPC scoreboard snapshot and refresh token.
+
+    The resolved scope's medal cutoffs are passed explicitly: ``site_id`` alone
+    would force the builder to load every site again just to reach the selected
+    one's cutoffs, which the scope resolution already had in hand.
+    """
+    return await build_snapshot_response(db, contest, site_id=scope.site_id, cutoffs=scope.medal_cutoffs)
 
 
 @router.get("/events", response_class=EventSourceResponse, name="animator_contest_events")

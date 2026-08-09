@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -23,6 +23,7 @@ from arena.services.arena_class_detail_service import (
     get_class_detail,
     list_class_members_management_paginated,
     search_student_autocomplete,
+    search_teacher_autocomplete,
 )
 from arena.services.arena_class_membership_service import (
     assign_users,
@@ -753,3 +754,21 @@ async def test_student_autocomplete_excludes_active_and_pending_members(session:
     ]
     assert active_student.id not in {row.user_id for row in broad_rows}
     assert pending_student.id not in {row.user_id for row in broad_rows}
+
+
+@pytest.mark.asyncio
+async def test_teacher_autocomplete_orders_blank_queries_and_escapes_wildcards(
+    session: AsyncSession,
+) -> None:
+    """Teacher autocomplete keeps blank ordering and treats ``%`` literally."""
+    judge_zeta = await _make_user(session, role=ArenaRole.ARENA_JUDGE)
+    judge_alpha = await _make_user(session, role=ArenaRole.ARENA_JUDGE)
+    judge_zeta.nome = "Zeta Judge"
+    judge_alpha.nome = "Alpha Judge"
+    await session.flush()
+
+    blank_rows = await search_teacher_autocomplete(session, query="")
+    wildcard_rows = await search_teacher_autocomplete(session, query="%")
+
+    assert [row.user_id for row in blank_rows] == [judge_alpha.id, judge_zeta.id]
+    assert wildcard_rows == []

@@ -124,7 +124,7 @@
 .arena-problem-set-student-report-problem-number {
     flex: 0 0 auto;
     color: var(--arena-primary);
-    font-family: monospace;
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     font-weight: 700;
 }
 .arena-problem-set-student-report-problem-title {

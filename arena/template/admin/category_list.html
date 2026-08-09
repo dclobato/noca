@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -55,7 +55,7 @@
                         <tr>
                             <th class="arena-col-sortable arena-col-title">
                                 <a href="{{ request.url.include_query_params(sort_by='name_desc' if sort_by == 'name_asc' else 'name_asc', page=1) }}"
-                                   class="text-decoration-none text-reset d-flex align-items-center gap-1">
+                                   class="arena-sort-link d-flex align-items-center gap-1">
                                     Name
                                     {% if sort_by == 'name_asc' %}
                                         {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
@@ -70,7 +70,7 @@
                             <th>Color</th>
                             <th class="text-end arena-col-sortable">
                                 <a href="{{ request.url.include_query_params(sort_by='problems_asc' if sort_by == 'problems_desc' else 'problems_desc', page=1) }}"
-                                   class="text-decoration-none text-reset d-flex align-items-center justify-content-end gap-1">
+                                   class="arena-sort-link d-flex align-items-center justify-content-end gap-1">
                                     Problems
                                     {% if sort_by == 'problems_asc' %}
                                         {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}
@@ -88,8 +88,7 @@
                         {% for row in pagination.items %}
                             <tr id="{{ row.category.id }}">
                                 <td>
-                                    <a href="{{ request.url_for("arena_admin_problem_list") }}?category_slugs={{ row.category.slug }}"
-                                       class="text-decoration-none">{{ row.category.name }}</a>
+                                    <a href="{{ request.url_for("arena_admin_problem_list") }}?category_slugs={{ row.category.slug }}">{{ row.category.name }}</a>
                                 </td>
                                 <td class="arena-monospace">{{ row.category.slug }}</td>
                                 <td>
@@ -171,7 +170,7 @@
                                        required
                                        autocomplete="off">
                             </div>
-                            <div class="col-12">
+                            <div class="col-md-6">
                                 <label class="form-label" for="new_category_slug">Slug</label>
                                 <input type="text"
                                        class="form-control"
@@ -181,8 +180,9 @@
                                        pattern="[a-z0-9]+(-[a-z0-9]+)*"
                                        required>
                             </div>
-                            <div class="col-12">
+                            <div class="col-md-6">
                                 <label class="form-label" for="new_category_color">Color</label>
+                                {# The hex field carries no name: `color` is submitted by the swatch. #}
                                 <div class="input-group">
                                     <input type="color"
                                            class="form-control form-control-color"
@@ -190,7 +190,16 @@
                                            name="color"
                                            value="#6c757d"
                                            required>
-                                    <span class="input-group-text arena-monospace" id="new_category_color_text">#6c757d</span>
+                                    <input type="text"
+                                           class="form-control arena-monospace arena-color-hex-input"
+                                           id="new_category_color_hex"
+                                           value="#6c757d"
+                                           maxlength="7"
+                                           pattern="#[0-9a-fA-F]{6}"
+                                           title="Six-digit hex color, like #2f9e41"
+                                           spellcheck="false"
+                                           autocomplete="off"
+                                           aria-label="Hex color value">
                                     <button type="button"
                                             class="btn btn-outline-secondary"
                                             id="new_category_color_random"
@@ -248,7 +257,7 @@
                                        required
                                        autocomplete="off">
                             </div>
-                            <div class="col-12">
+                            <div class="col-md-6">
                                 <label class="form-label" for="edit_category_slug">Slug</label>
                                 <input type="text"
                                        class="form-control"
@@ -258,8 +267,9 @@
                                        pattern="[a-z0-9]+(-[a-z0-9]+)*"
                                        required>
                             </div>
-                            <div class="col-12">
+                            <div class="col-md-6">
                                 <label class="form-label" for="edit_category_color">Color</label>
+                                {# The hex field carries no name: `color` is submitted by the swatch. #}
                                 <div class="input-group">
                                     <input type="color"
                                            class="form-control form-control-color"
@@ -267,8 +277,16 @@
                                            name="color"
                                            value="#6c757d"
                                            required>
-                                    <span class="input-group-text arena-monospace"
-                                          id="edit_category_color_text">#6c757d</span>
+                                    <input type="text"
+                                           class="form-control arena-monospace arena-color-hex-input"
+                                           id="edit_category_color_hex"
+                                           value="#6c757d"
+                                           maxlength="7"
+                                           pattern="#[0-9a-fA-F]{6}"
+                                           title="Six-digit hex color, like #2f9e41"
+                                           spellcheck="false"
+                                           autocomplete="off"
+                                           aria-label="Hex color value">
                                     <button type="button"
                                             class="btn btn-outline-secondary"
                                             id="edit_category_color_random"
@@ -330,5 +348,7 @@
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('static_shared_js', path='slugify.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='category-slug.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='admin-category-list.js') }}?v={{ app_version }}"></script>
 {% endblock %}

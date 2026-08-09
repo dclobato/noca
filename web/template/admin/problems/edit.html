@@ -158,7 +158,7 @@
                                            id="title"
                                            name="title"
                                            form="edit-form"
-                                           maxlength="200"
+                                           maxlength="256"
                                            required
                                            value="{{ form_data.title if form_data.title is defined else '' }}"
                                            {% if not is_edit_allowed %}disabled{% endif %}>
@@ -218,6 +218,7 @@
                                            id="author"
                                            name="author"
                                            form="edit-form"
+                                           maxlength="256"
                                            value="{{ form_data.author if form_data.author is defined else '' }}"
                                            {% if not is_edit_allowed %}disabled{% endif %}>
                                 </div>
@@ -229,6 +230,7 @@
                                               id="notes"
                                               name="notes"
                                               form="edit-form"
+                                              maxlength="512"
                                               rows="2"
                                               {% if not is_edit_allowed %} disabled {% endif %}>{{ form_data.notes if form_data.notes is defined else '' }}</textarea>
                                 </div>
@@ -618,9 +620,7 @@
                                            {% if not is_edit_allowed %}disabled{% endif %}>
                                 </div>
                                 <div class="col-6 col-md-3">
-                                    <label for="output_limit_in_bytes" class="form-label">
-                                        Output limit (bytes) <span class="text-muted small">(optional)</span>
-                                    </label>
+                                    <label for="output_limit_in_bytes" class="form-label">Output limit (bytes)</label>
                                     <input type="number"
                                            class="form-control"
                                            id="output_limit_in_bytes"
@@ -628,8 +628,9 @@
                                            form="edit-form"
                                            min="1"
                                            step="1"
-                                           placeholder="blank = no limit"
-                                           value="{{ form_data.output_limit_in_bytes if form_data.output_limit_in_bytes is defined and form_data.output_limit_in_bytes else '' }}"
+                                           required
+                                           placeholder="e.g. 65536"
+                                           value="{{ form_data.output_limit_in_bytes if form_data.output_limit_in_bytes is defined and form_data.output_limit_in_bytes else 65536 }}"
                                            {% if not is_edit_allowed %}disabled{% endif %}>
                                 </div>
                                 <div class="col-12 mt-2">

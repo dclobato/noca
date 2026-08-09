@@ -390,12 +390,160 @@ Model:
 
 ---
 
+## `problem_package/`
+
+Purpose:
+- own the **entire** problem-package format — reading, writing, staging, and crash recovery — so
+  the Arena and Contest domains cannot drift apart on any format decision
+
+Before this package existed, `shared/tc_zip.py` factored out test-case parsing and everything else
+(integer coercion, null semantics, string lengths, UTF-8, image resolution, archive safety, export
+field sets) was re-implemented independently on each side. The drift was observable: a "no limit"
+Contest package silently became 64 KiB on Arena, a binary test case was rejected by one importer
+and accepted by the other, and over-long metadata reached the driver as a `DataError` instead of a
+message.
+
+Canonical location:
+- `shared/services/problem_package/`
+
+| Module | Responsibility |
+| --- | --- |
+| `constants.py` | `FORMAT_VERSION`, field-length caps, archive ceilings, member regexes |
+| `errors.py` | `PackageError(ValueError)`, frozen `PackageWarning(code, message)` |
+| `model.py` | the frozen slotted records both domains consume |
+| `metadata.py` | `problem.json` parse → validate → defaults |
+| `preflight.py` | archive safety scan and member classification |
+| `extraction.py` | streaming extraction with SHA-256 accounting and manifest verification |
+| `content.py` | statement (Markdown / PDF), explanation, and test-case content validation |
+| `testcase_archive.py` | shared multi-case classification, pairing, and bare-ZIP parsing |
+| `reader.py` | ZIP path → `StagedPackage` |
+| `writer.py` | `ProblemPackage` + profile → ZIP on disk |
+| `staging.py` | `PackageStagingArea`, reversible `ArtifactPromotion` |
+| `promotion.py` | `ArtifactPromoter` — orders filesystem writes against the transaction |
+| `journal.py` | the crash-safe import journal |
+| `reconcile.py` | resolving stale journals at startup and before each import |
+| `upload.py` | chunked upload spooling, temp export paths, safe download filenames |
+
+Main entrypoints:
+- `read_problem_package(zip_path)` — a context manager yielding a `StagedPackage`: the immutable
+  `ProblemPackage` plus the staging area holding its payloads. Leaving the context removes every
+  temporary path, which is why the live handle lives *outside* the frozen value object
+- `build_package(package, destination, *, profile)` — writes `"full"` (importable, every version-1
+  key) or `"public"` (contestant statement bundle, no `problem.json`) to a path on disk
+- `ArtifactPromoter` — `stage` → `promote` → commit → `finish`, with `rollback` deleting exactly
+  what was promoted when the commit fails
+- `reconcile_import_journals(session, domain=..., testcase_dir=..., statement_dir=...)`
+- `spool_upload(upload)` / `temporary_package_path()` / `safe_package_filename(title)`
+
+`pypdf` is declared in `shared/pyproject.toml` rather than Web's: the shared reader owns PDF
+statement validation, and a lazy import of a dependency another package declares would make
+shared behavior depend on which module happened to be installed.
+
+### No archive in RAM, in either direction
+
+Both routes previously read the whole upload into memory with no size cap, then opened the ZIP
+twice. Now the route spools the upload to an owned temporary file in 64 KiB chunks while enforcing
+the 256 MiB ceiling, the archive is opened **once**, and recognized members are streamed to the
+staging area. Exports mirror this: the writer copies stored files into the archive in 1 MiB chunks
+at an owned temporary path, and the route serves it through a `FileResponse` whose background task
+deletes it. If archive construction fails or is cancelled before the response takes ownership, the
+temporary-path context removes the partial archive. Newline normalization and the UTF-8 check are
+equally incremental — a `\r` or a partial multi-byte sequence landing on a chunk boundary is carried
+into the next chunk.
+
+Scanning, extracting, hashing, and validating are blocking work, so the async routes call
+`open_problem_package` through `anyio.to_thread.run_sync` and own closing the staging area
+afterwards; `read_problem_package` is the synchronous context-manager form that owns it for you.
+
+### Staging lifecycle and promotion
+
+Arena used to commit rows **before** writing test-case files; Contest wrote files **before**
+committing. Either order leaves orphans when the other half fails. Both now do the same thing:
+
+1. the reader extracts validated members into a staging area;
+2. before any database mutation, artifacts are prepared in hidden sibling locations under their
+   **configured final roots** — note these are *two different roots* on Contest
+   (`PROBLEM_STATEMENT_DIR` holds standalone files, `PROBLEM_TESTCASE_DIR` holds per-problem
+   directories) — so every promotion is a same-filesystem rename;
+3. rows are built and flushed in a caller-owned transaction;
+4. staged artifacts are **promoted**, and only then is the transaction committed;
+5. a failed commit deletes every promoted artifact, and any remaining staging path is removed on
+   every exit path.
+
+`commit_with_promotion` owns that sequence, and its asymmetry is the point: anything that fails
+**before** the commit rolls back and deletes exactly what was promoted, while anything that fails
+**after** it deletes *nothing*. The rows are durable at that point, so their files must stay; a
+post-commit cleanup failure is logged and leaves the journal for reconciliation, which looks the
+problem up, finds it, and simply clears the journal. Every filesystem step runs in a worker
+thread — copying and renaming a problem's whole test-case directory is blocking I/O.
+
+Validator compile tokens stay in the result and are enqueued **after** the commit.
+
+### Import journal
+
+Promotion spans multiple roots and mixes files with directories, so a marker written *inside* the
+promoted directory cannot describe it. One guarded journal file per import, under
+`<testcase_dir>/.noca-import-journals/`, records the problem id and domain, every staged source
+path with its final target and configured root, and the promotion state
+(`staged` → `promoting` → `promoted` → `committed`). It is `fsync`'d and renamed into place at each
+transition and deleted on success. The directory name starts with a dot, which
+`get_problem_testcase_dir` forbids in a problem id, so it cannot collide with a problem's files
+and needs no configuration of its own.
+
+Reconciliation runs **at application startup** (the `web` and `arena` lifespans, alongside the
+existing reaper registrations) **and before each import**, not only when another import happens:
+for each journal, look up the problem row — if it exists, the commit won, so clear the journal; if
+it does not, delete the recorded artifacts. Both problem tables live in the shared schema, so one
+query answers this for either domain.
+
+**Every path read from a journal is re-validated against its configured root before anything is
+deleted**, so a corrupted or tampered journal can never direct a delete outside the problem
+storage roots. A journal that cannot be parsed is logged and left in place rather than acted on.
+
+### Warnings vs. errors
+
+Anything that would lose data silently is a `PackageError` and refuses the package; anything the
+reader resolves on its own is a structured `PackageWarning` carried through to the route and
+flashed. This replaces the ad-hoc `skipped_language_ids` list the Contest importer used to return.
+See [PROBLEM_PACKAGE_FORMAT.md](PROBLEM_PACKAGE_FORMAT.md) for the full contract.
+
+### What the reader deliberately does not decide
+
+Some checks depend on the *target install* and cannot be made once, centrally, without lying about
+what a package means somewhere else. Those stay with the importer, run before anything commits, and
+are documented as such in the format reference:
+
+- whether the validator's `language_id` is an active judge language here;
+- whether the named categories exist (Arena drops unknown ones, Contest creates them);
+- whether the contest allows the languages in `language_limits`;
+
+`scripts/validate_problem_package.py` says so explicitly rather than implying a package it accepts
+will import anywhere.
+
+### Relationship to `tc_zip.py`
+
+`shared/services/problem_package/testcase_archive.py` owns multi-case member classification,
+logical-duplicate rejection, layout validation, pairing, ordinal remapping, and line-ending
+normalization. The full package reader uses the same index over staged paths, while bare bulk
+test-case uploads use its byte-oriented parser. `shared/tc_zip.py` re-exports that public parser
+for compatibility and keeps only the separate single-case ZIP helpers.
+
+Reused by:
+- `arena/services/admin_problem_io_service.py`, `arena/routes/admin_problem_io.py`,
+  `arena/routes/problems.py` (public export), `web/services/problem_service/`
+  (`importing.py`, `files.py`), `web/routes/contest_admin_problem_io.py`,
+  `web/routes/contest_problems.py` (public export),
+  `web/services/contest_backup_service/export.py`,
+  `shared/services/sample_problem_package.py`, and `scripts/validate_problem_package.py`
+
+---
+
 ## `problem_image.py`
 
 Purpose:
 - own the problem illustration image contract shared by the Arena and Contest problem domains:
   the fixed file-size and dimension limits, the extension/MIME maps, the upload processor, and
-  the packaged-image loader, so the two domains cannot drift apart when the rules change
+  the staged-image loader, so the two domains cannot drift apart when the rules change
 
 Both domains store the image in the database as base64 text plus its MIME type and an optional
 caption (unlike test cases, which live on the filesystem), render it as a `data:` URI with no
@@ -414,9 +562,11 @@ Main entrypoints:
 - `MAX_PROBLEM_IMAGE_WIDTH` and `MAX_PROBLEM_IMAGE_HEIGHT` — fixed 2048 × 2048-pixel
   limits that keep package validation independent from deployment configuration
 - `process_problem_image_upload(image_service, upload) -> (base64, mime)` — validates a form upload
-- `load_packaged_image(meta, archive, names, image_service) -> (base64 | None, mime | None)` — a
-  `problem.json`-referenced filename **must** exist in the archive (a missing referenced image
-  rejects the package); otherwise a root-level image file is auto-detected
+- `load_staged_image(image, image_service) -> (base64 | None, mime | None)` — validates the bytes
+  of the image the shared package reader already resolved and staged. Deciding *which* archive
+  member is the image (and rejecting a `problem.json` that names one the package does not carry)
+  belongs to `problem_package`; what is left here is deciding whether the bytes are an acceptable
+  image
 - `export_image_filename(mime) -> str` — the `image.<ext>` package member name
 
 Reused by:
@@ -452,6 +602,11 @@ Main entrypoints:
 - `render_balloon_svg(fill_color, letter=None) -> str` / `render_star_svg(fill_color, letter=None) -> str`
   — memoized renderers returning the SVG document string
 - `render_medal_svg(band) -> str` — return the Gold, Silver, or Bronze SVG, else `ValueError`
+- `medal_band_for_rank(rank, *, gold, silver, bronze) -> MedalBand | None` — map a 1-based
+  ranking position to its medal band. Each cutoff is the last rank in its band, tried gold →
+  silver → bronze; a cutoff of `0` disables that band and a rank below 1 earns nothing. Used
+  by the animator reveal projection (per-site cutoffs) and by Arena's ranking pages
+  (`NOCA_ARENA_RANKING_MEDAL_*_CUTOFF`)
 
 Reused by:
 - `animator/routes/assets.py` and `web/routes/assets.py` (thin `/assets/balloon|star|medal`
@@ -953,6 +1108,7 @@ Purpose:
   administration and the future animator runtime share it without importing each
   other
 - update a site's validated medal cutoffs
+- update a contest's validated global (contest-wide) medal cutoffs
 - manage the lifecycle of scoped operator credentials (site-scoped and
   contest-global) for the reveal engine
 - resolve an operator token to its authorized scope in constant time
@@ -961,8 +1117,14 @@ Canonical location:
 - `shared/services/animator_access_service.py`
 
 Design:
-- operates over the shared SQLAlchemy Core tables `sites` and `site_secrets`;
-  never imports FastAPI or the Web ORM models
+- operates over the shared SQLAlchemy Core tables `contests`, `sites`, and
+  `site_secrets`; never imports FastAPI or the Web ORM models
+- one validator per medal contract, shared by both boundaries that use it (the
+  route's Pydantic model and the update function) so they cannot drift: the
+  strict per-site one rejects `None`, and `validate_optional_cutoffs` adds the
+  all-or-nothing rule that global medals need. `validate_optional_cutoffs`
+  mirrors the `ck_contests_global_medal_cutoffs` CHECK exactly, including its
+  refusal of a partly filled triple
 - accepts any executor exposing `execute` (an `AsyncSession` from web or an
   `AsyncConnection` from a worker), matching the other shared database services
 - generates at least 256 bits of entropy with `secrets.token_urlsafe(32)`;
@@ -984,6 +1146,11 @@ Main entrypoints:
 - `digest_token(raw_token) -> str`
 - `verify_digest(stored_digest, candidate_digest) -> bool` (constant-time)
 - `update_site_medals(executor, *, site_id, contest_id, gold, silver, bronze) -> None`
+- `validate_optional_cutoffs(gold, silver, bronze) -> None` — all-or-nothing
+  validation for an optional cutoff triple: all three `None` (medals disabled)
+  or all three set, positive, and ordered. Raises `AnimatorAccessError` otherwise
+- `update_contest_global_medals(executor, *, contest_id, gold, silver, bronze) -> None`
+  — writes the contest's global cutoffs; three `None`s clear them
 - `list_site_secrets(executor, contest_id, site_id=None) -> list[SiteSecretMetadata]`
 - `create_site_secret(executor, *, contest_id, site_id, label) -> str`
 - `create_global_secret(executor, *, contest_id, label) -> str`
@@ -1816,13 +1983,15 @@ one edit, and a save that would still overflow fails before mutating anything.
 
 # Sample problem package
 
-`shared.services.sample_problem_package.build_sample_problem_package()` builds the
-reference "A + B" import package (statement, three test cases with an explanation,
-global limits, and `python3` / `rust` per-language limits) offered for download from
-both import pages.
+`shared.services.sample_problem_package.build_sample_problem_package(destination)` writes the
+reference "A + B" import package (statement, three test cases with an explanation — one of them
+public — global limits, and `python3` / `rust` per-language limits) offered for download from both
+import pages. It writes to a caller-owned path, exactly as a real export does, and the routes
+stream it with a `FileResponse` that deletes the file afterwards.
 
-It is generated from code rather than committed as a binary so it cannot drift from
-the importers, and it deliberately carries fields from both domains (Arena's `source` /
-`license` / `statement_language`, the Contest's `color` / `language_limits`) — each importer reads
-`problem.json` as a plain mapping and ignores keys it does not know, so one package
-imports cleanly on either side. Round-trip tests import it through both real importers.
+It is generated from code rather than committed as a binary so it cannot drift from the reader,
+and it goes through the **shared writer**, so it carries every version-1 key and a valid `sha256`
+manifest — what a real export looks like. Its fields deliberately span both domains (Arena's
+`source` / `license` / `statement_language`, the Contest's `color` / `language_limits`), because
+the format is their union and each importer keeps what its own schema can store. Round-trip tests
+import it through both real importers.

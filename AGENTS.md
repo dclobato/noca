@@ -5,6 +5,7 @@
 - `uv run ruff format .`: format code
 - `uv run ruff check --fix .`: lint code
 - `uv run pytest`: run tests (full suite); use `uv run pytest tests/<module>` for one module's slice
+- `uv run pytest -n auto`: run tests in parallel via pytest-xdist (one Valkey logical DB per worker; supports up to 14 workers)
 - `uv run mypy web shared autojudge arena rating aiassistant healthmonitor animator`: type check
 - `uv run python scripts/fetch_assets.py`: after fresh install, fetch shared web/arena assets
 - `uv run noca-web`: run web server
@@ -16,7 +17,9 @@
 - `uv run noca-animator`: run the animator presentation server
 - `uv run djlint web/template --reformat`: format HTML templates
 
-NOTE: Full test suite takes over 8 minutes, so keep timeout above this value
+NOTE: The full test suite takes over 8 minutes serially, so keep the timeout above this value
+for `uv run pytest`; `uv run pytest -n auto` finishes considerably faster but still needs a
+generous timeout.
 
 The repo is a uv workspace with eight members: `shared`, `web`, `arena`, `autojudge`, `rating`,
 `aiassistant`, `healthmonitor`, `animator`. Each

@@ -1,10 +1,15 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Shared utility for parsing test-case ZIP archives.
+"""Shared utility for parsing **bulk test-case** ZIP archives.
+
+Problem packages and bare bulk test-case uploads use the same classifier,
+pairing rules, ordinal checks, and normalization implementation in
+``shared.services.problem_package.testcase_archive``. This module preserves the
+historical public imports and owns only the separate single-case ZIP helpers.
 
 Supports two ZIP layouts:
 
@@ -13,9 +18,6 @@ Supports two ZIP layouts:
 
 Leading zeros in filenames are stripped so ``001.in`` and ``1.in`` refer to the
 same ordinal.  Ordinals are remapped contiguously starting at 1 in the output.
-
-This module has no runtime dependencies beyond the Python standard library and
-is safe to import from both the ``arena`` and ``web`` packages.
 
 **Line-ending contract**: test case content is treated as UTF-8 text with Unix
 line endings (LF only). ``normalize_testcase_bytes`` and
@@ -27,172 +29,33 @@ line endings (LF only). ``normalize_testcase_bytes`` and
 from __future__ import annotations
 
 import io
-import re
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-_TC_DIR_RE = re.compile(r"^(in|out)/0*([1-9]\d{0,2})(\.in|\.out|\.sol)?$", re.IGNORECASE)
+from shared.services.problem_package.testcase_archive import (
+    ParsedTestCases,
+    decode_testcase_explanation,
+    normalize_testcase_bytes,
+    normalize_testcase_text,
+    parse_testcases_zip,
+)
 
-
-def normalize_testcase_bytes(data: bytes) -> bytes:
-    """Normalize CRLF and lone CR to LF in test case content bytes.
-
-    Args:
-        data: Raw test case bytes to normalize.
-
-    Returns:
-        bytes: Content with all ``\\r\\n`` and lone ``\\r`` replaced by ``\\n``.
-    """
-    return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-
-
-def normalize_testcase_text(text: str) -> str:
-    """Normalize CRLF and lone CR to LF in test case content text.
-
-    Args:
-        text: Raw test case string to normalize.
-
-    Returns:
-        str: Content with all ``\\r\\n`` and lone ``\\r`` replaced by ``\\n``.
-    """
-    return text.replace("\r\n", "\n").replace("\r", "\n")
-
-
-_TC_FLAT_RE = re.compile(r"^0*([1-9]\d{0,2})\.(in|out|sol)$", re.IGNORECASE)
-_TC_EXP_RE = re.compile(r"^explanation/0*([1-9]\d{0,2})\.txt$", re.IGNORECASE)
-
-_MAX_TESTCASES = 1000
+__all__ = [
+    "MAX_INLINE_TESTCASE_BYTES",
+    "ParsedTestCases",
+    "SingleTestCase",
+    "build_single_testcase_zip",
+    "normalize_testcase_bytes",
+    "normalize_testcase_text",
+    "parse_single_testcase_zip",
+    "parse_testcases_zip",
+]
 
 #: Maximum normalized (LF) UTF-8 byte length of a single test-case side (input
 #: or output) that may be edited inline through a textarea. Larger cases must be
 #: edited offline via the single-case ZIP download/replace round-trip. This is
 #: the single source of truth for the inline-edit gate in both Arena and Web.
 MAX_INLINE_TESTCASE_BYTES = 10 * 1024
-
-
-@dataclass
-class ParsedTestCases:
-    """Result of parsing a test-case ZIP archive.
-
-    Ordinals are remapped contiguously starting at 1; ``pairs`` and
-    ``explanations`` share the same remapped ordinal space.
-
-    Attributes:
-        pairs: Mapping of 1-based ordinal to ``(input_bytes, output_bytes)``.
-            The output is ``None`` for an interactive problem's cases, which
-            carry input only.
-        explanations: Mapping of 1-based ordinal to the decoded explanation
-            string. Only present for ordinals that had an ``explanation/NNN.txt``
-            entry; ordinals without one are simply absent.
-    """
-
-    pairs: dict[int, tuple[bytes, bytes | None]]
-    explanations: dict[int, str] = field(default_factory=dict)
-
-
-def parse_testcases_zip(zip_bytes: bytes, *, require_output: bool = True) -> ParsedTestCases:
-    """Parse a ZIP archive into test cases and optional explanations.
-
-    Ordinals in the result are remapped so they start at 1 and are contiguous,
-    regardless of gaps in the source filenames. Explanations follow the same
-    remapping; an explanation file for an ordinal without a matching input is
-    ignored.
-
-    Args:
-        zip_bytes: Raw bytes of the ZIP file to parse.
-        require_output: False for an interactive problem, whose cases carry input
-            only. Output files in the archive are then ignored and every parsed
-            case gets a ``None`` output.
-
-    Returns:
-        ParsedTestCases: The remapped cases and explanations.
-
-    Raises:
-        ValueError: If the bytes are not a valid ZIP file, if (when outputs are
-            required) any input file has no matching output or vice-versa, if no
-            valid test cases are found, if the archive contains more than 1000
-            test cases, or if an explanation file is not valid UTF-8.
-    """
-    try:
-        archive = zipfile.ZipFile(io.BytesIO(zip_bytes))
-    except zipfile.BadZipFile as exc:
-        raise ValueError("Invalid ZIP file.") from exc
-
-    inputs: dict[int, bytes] = {}
-    outputs: dict[int, bytes] = {}
-    explanation_bytes: dict[int, bytes] = {}
-
-    for name in archive.namelist():
-        match_dir = _TC_DIR_RE.match(name)
-        match_flat = _TC_FLAT_RE.match(name)
-        match_exp = _TC_EXP_RE.match(name)
-
-        if match_dir:
-            direction = match_dir.group(1).lower()
-            ordinal = int(match_dir.group(2))
-            data = archive.read(name)
-            if direction == "in":
-                inputs[ordinal] = data
-            else:
-                outputs[ordinal] = data
-        elif match_flat:
-            ordinal = int(match_flat.group(1))
-            direction = match_flat.group(2).lower()
-            data = archive.read(name)
-            if direction == "in":
-                inputs[ordinal] = data
-            else:
-                outputs[ordinal] = data
-        elif match_exp:
-            ordinal = int(match_exp.group(1))
-            explanation_bytes[ordinal] = archive.read(name)
-
-    if require_output:
-        kept_ordinals = sorted(set(inputs) & set(outputs))
-        unpaired_in = set(inputs) - set(outputs)
-        unpaired_out = set(outputs) - set(inputs)
-        if unpaired_in:
-            raise ValueError(f"Input files without matching output: ordinals {sorted(unpaired_in)}")
-        if unpaired_out:
-            raise ValueError(f"Output files without matching input: ordinals {sorted(unpaired_out)}")
-    else:
-        kept_ordinals = sorted(inputs)
-
-    if not kept_ordinals:
-        raise ValueError("No valid test cases found in ZIP.")
-    if len(kept_ordinals) > _MAX_TESTCASES:
-        raise ValueError(f"Too many test cases: {len(kept_ordinals)} (max {_MAX_TESTCASES}).")
-
-    # Decode/validate explanations only for kept ordinals; orphan explanations
-    # (no matching input) are ignored without being decoded or validated.
-    pairs: dict[int, tuple[bytes, bytes | None]] = {}
-    remapped_explanations: dict[int, str] = {}
-    for new_ordinal, old_ordinal in enumerate(kept_ordinals, start=1):
-        expected_output = normalize_testcase_bytes(outputs[old_ordinal]) if require_output else None
-        pairs[new_ordinal] = (normalize_testcase_bytes(inputs[old_ordinal]), expected_output)
-        if old_ordinal in explanation_bytes:
-            remapped_explanations[new_ordinal] = _decode_explanation(explanation_bytes[old_ordinal], old_ordinal)
-    return ParsedTestCases(pairs=pairs, explanations=remapped_explanations)
-
-
-def _decode_explanation(data: bytes, ordinal: int) -> str:
-    """Decode and validate a single explanation file's bytes.
-
-    Args:
-        data: Raw bytes of the ``explanation/NNN.txt`` file.
-        ordinal: Source ordinal, used only for error messages.
-
-    Returns:
-        str: The decoded explanation text.
-
-    Raises:
-        ValueError: If the bytes are not valid UTF-8.
-    """
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ValueError(f"Explanation for ordinal {ordinal} is not valid UTF-8.") from exc
-    return text
 
 
 @dataclass
@@ -260,7 +123,7 @@ def parse_single_testcase_zip(zip_bytes: bytes, *, require_output: bool = True) 
 
     explanation: str | None = None
     if "explanation" in found:
-        text = _decode_explanation(found["explanation"], 1)
+        text = decode_testcase_explanation(found["explanation"], 1)
         explanation = text.strip() or None
 
     return SingleTestCase(

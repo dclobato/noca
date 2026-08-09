@@ -1,43 +1,41 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Problem ZIP import orchestration."""
+"""Contest problem package import.
+
+Every format decision belongs to ``shared.services.problem_package``. What is
+left here is what only the Contest domain knows: balloon colors, contest-scoped
+language availability, ORM row construction, and the validator token the route
+enqueues after commit.
+"""
 
 from __future__ import annotations
 
-import io
-import json
 import random
-import zipfile
 from pathlib import Path
-from typing import Any, cast
 
-import anyio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.custom_validator import parse_packaged_validator, stage_candidate
+from shared.services.custom_validator import stage_candidate
 from shared.services.imageprocessing_service import ImageProcessingService
-from shared.services.problem_image import load_packaged_image
-from shared.services.sample_interactions import parse_packaged_interactions
+from shared.services.problem_image import load_staged_image
+from shared.services.problem_package import PackageError, PackageWarning, ProblemPackage
+from shared.services.problem_package.errors import WARN_DISALLOWED_LANGUAGE_LIMITS
+from shared.services.problem_package.journal import journal_root_for
+from shared.services.problem_package.promotion import ArtifactPromoter, commit_with_promotion
+from shared.services.problem_package.reconcile import reconcile_import_journals
 from web.models.contest import Contest
 from web.models.problem import Problem, ProblemCustomValidator, ProblemSampleInteraction, ProblemTestCase
 from web.services.category_service import get_or_create_categories, replace_problem_categories
 
-from .files import (
-    parse_testcases_zip,
-    save_md_statement,
-    save_problem_statement,
-    save_testcase_files,
-    validate_md_content,
-)
 from .language_limits import upsert_language_limits
-from .models import LanguageLimitInput, ProblemImportResult, problem_meta
+from .models import LanguageLimitInput, ProblemImportResult
 from .ordering import append_problem, append_test_case
-from .queries import get_contest_languages
+from .queries import get_active_languages, get_contest_languages
 
 BALLOON_COLORS: tuple[str, ...] = (
     "#FF0000",
@@ -68,163 +66,96 @@ def _pick_balloon_color(used: set[str]) -> str:
     return random.choice(available if available else list(BALLOON_COLORS))
 
 
-async def import_problem_from_zip(
+async def import_problem_package(
     session: AsyncSession,
     contest: Contest,
-    zip_bytes: bytes,
+    package: ProblemPackage,
     testcase_dir: Path,
     statement_dir: Path,
     image_service: ImageProcessingService,
 ) -> ProblemImportResult:
-    """Import a problem from a ZIP archive.
+    """Persist an already-validated package as a new contest problem.
+
+    Statement and test-case artifacts are promoted before the commit and removed
+    again if it fails, so neither orphaned files nor rows pointing at missing
+    files can survive.
 
     Args:
         session: Active async database session.
         contest: Contest that receives the imported problem.
-        zip_bytes: Raw bytes of the uploaded ZIP package.
+        package: The validated package, with payloads staged on disk.
         testcase_dir: Contest test-case root.
         statement_dir: Contest statement root.
-        image_service: Service used to validate a packaged image, if present.
+        image_service: Service used to validate the packaged image, if present.
 
     Returns:
-        ProblemImportResult: The imported problem and its staged validator token.
+        ProblemImportResult: The imported problem, its staged validator token,
+        and the structured warnings the route flashes.
 
     Raises:
-        ValueError: On any malformed package or validation failure.
+        ValueError: On any Contest-side validation failure.
     """
-    try:
-        archive = zipfile.ZipFile(io.BytesIO(zip_bytes))
-    except zipfile.BadZipFile as exc:
-        raise ValueError("Invalid ZIP file.") from exc
+    await reconcile_import_journals(session, domain="contest", testcase_dir=testcase_dir, statement_dir=statement_dir)
 
-    if "problem.json" not in archive.namelist():
-        raise ValueError("problem.json not found in ZIP.")
-    try:
-        meta = problem_meta(json.loads(archive.read("problem.json").decode("utf-8")))
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise ValueError(f"Invalid problem.json: {exc}") from exc
+    metadata = package.metadata
+    warnings = list(package.warnings)
+    image_b64, image_mime = load_staged_image(package.image, image_service)
 
-    title = str(meta.get("title", "")).strip()
-    if not title:
-        raise ValueError("problem.json: 'title' is required.")
-
-    for field in ("time_limit_ms", "memory_limit_kb", "pids_limit"):
-        value = meta.get(field)
-        if value is None:
-            raise ValueError(f"problem.json: '{field}' is required.")
-        try:
-            if int(str(value)) < 1:
-                raise ValueError(f"problem.json: '{field}' must be >= 1.")
-        except (TypeError, ValueError) as err:
-            raise ValueError(f"problem.json: '{field}' must be a positive integer.") from err
-
-    statement_type: str
-    statement_bytes: bytes
-    if "statement.pdf" in archive.namelist():
-        statement_type = "pdf"
-        statement_bytes = archive.read("statement.pdf")
-    elif "statement.md" in archive.namelist():
-        statement_type = "md"
-        raw_md = archive.read("statement.md").decode("utf-8")
-        md_errors = validate_md_content(raw_md)
-        if md_errors:
-            raise ValueError(f"statement.md inválido: {'; '.join(md_errors)}")
-        statement_bytes = raw_md.encode("utf-8")
-    else:
-        raise ValueError("statement.pdf or statement.md is required in the ZIP.")
-
-    packaged_validator = parse_packaged_validator(
-        meta.get("custom_validator"),
-        read_file=archive.read,
-        archive_names=set(archive.namelist()),
-    )
-    # Sample interactions only mean anything alongside a validator, so a package
-    # without one has its interaction/ members dropped rather than imported.
-    packaged_interactions = (
-        parse_packaged_interactions(archive_names=set(archive.namelist()), read_file=archive.read)
-        if packaged_validator is not None
-        else []
-    )
-    # A validator package's cases carry input only: the input parametrizes the
-    # validator, which decides the verdict instead of an expected-output file.
-    parsed = parse_testcases_zip(zip_bytes, require_output=packaged_validator is None)
-
-    image_b64, image_mime = load_packaged_image(cast(dict[str, Any], meta), archive, archive.namelist(), image_service)
-    raw_caption = meta.get("image_caption")
-    image_caption = str(raw_caption).strip() or None if raw_caption else None
-
-    used_colors = set(await session.scalars(select(Problem.color).where(Problem.contest_id == contest.id)))
-    color = _pick_balloon_color(used_colors)
+    # A package's own color is preserved when it has one; otherwise the contest
+    # picks an unused balloon color, since Arena packages carry none.
+    color = metadata.color
+    if color is None:
+        used_colors = set(await session.scalars(select(Problem.color).where(Problem.contest_id == contest.id)))
+        color = _pick_balloon_color(used_colors)
 
     problem = Problem(
-        title=title,
-        author=meta.get("author"),
-        notes=meta.get("notes"),
+        title=metadata.title,
+        author=metadata.author,
+        notes=metadata.notes,
         color=color,
-        time_limit_ms=int(str(meta["time_limit_ms"])),
-        memory_limit_kb=int(str(meta["memory_limit_kb"])),
-        pids_limit=int(str(meta["pids_limit"])),
-        output_limit_in_bytes=int(str(meta["output_limit_in_bytes"])) if meta.get("output_limit_in_bytes") else None,
+        time_limit_ms=metadata.time_limit_ms,
+        memory_limit_kb=metadata.memory_limit_kb,
+        pids_limit=metadata.pids_limit,
+        output_limit_in_bytes=metadata.output_limit_in_bytes,
         problem_image_base64=image_b64,
         problem_image_mime=image_mime,
-        problem_image_caption=image_caption,
+        problem_image_caption=metadata.image_caption,
     )
     await append_problem(session, contest, problem)
 
-    if statement_type == "pdf":
-        await anyio.to_thread.run_sync(lambda: save_problem_statement(problem.id, statement_bytes, statement_dir))
-    else:
-        statement_text = statement_bytes.decode("utf-8")
-        await anyio.to_thread.run_sync(lambda: save_md_statement(problem.id, statement_text, statement_dir))
-
-    def write_imported_test_case(in_bytes: bytes, out_bytes: bytes | None, ordinal: int) -> tuple[int, int | None]:
-        return save_testcase_files(problem.id, ordinal, in_bytes, out_bytes, testcase_dir)
-
-    for source_ordinal, (in_bytes, out_bytes) in sorted(parsed.pairs.items()):
+    for case in package.test_cases:
         test_case = ProblemTestCase(
-            is_sample=False,
-            explanation=parsed.explanations.get(source_ordinal),
+            is_sample=case.is_sample,
+            explanation=case.explanation,
+            input_size_bytes=case.input_path.stat().st_size,
+            output_size_bytes=(case.output_path.stat().st_size if case.output_path is not None else None),
         )
         await append_test_case(session, problem, test_case)
-        input_size_bytes, output_size_bytes = await anyio.to_thread.run_sync(
-            write_imported_test_case, in_bytes, out_bytes, test_case.ordinal
-        )
-        test_case.input_size_bytes = input_size_bytes
-        test_case.output_size_bytes = output_size_bytes
 
-    raw_categories = meta.get("categories")
-    category_names: list[str] = raw_categories if isinstance(raw_categories, list) else []
-    if category_names:
-        categories = await get_or_create_categories(session, category_names)
+    if metadata.categories:
+        categories = await get_or_create_categories(session, list(metadata.categories))
         await replace_problem_categories(session, problem, categories)
 
-    raw_language_limits = meta.get("language_limits")
-    language_limits: dict[str, LanguageLimitInput] = (
-        raw_language_limits if isinstance(raw_language_limits, dict) else {}
-    )
-    contest_language_ids = {language.id for language in await get_contest_languages(session, contest)}
-    skipped_language_ids: list[str] = []
-    if language_limits:
-        filtered_language_limits: dict[str, LanguageLimitInput] = {}
-        for language_id, limit_fields in language_limits.items():
-            if language_id in contest_language_ids:
-                filtered_language_limits[language_id] = limit_fields
-                continue
-            skipped_language_ids.append(language_id)
-        if filtered_language_limits:
-            await upsert_language_limits(session, problem, filtered_language_limits)
+    await _apply_language_limits(session, contest, problem, package, warnings)
 
     validator_candidate_token: str | None = None
-    if packaged_validator is not None:
+    if package.validator is not None:
+        # Whether the validator's language is available is a target-specific
+        # question the shared reader cannot answer; ask it before committing.
+        active_ids = {language.id for language in await get_active_languages(session)}
+        if package.validator.language_id not in active_ids:
+            raise PackageError(
+                f"The package's custom validator language {package.validator.language_id!r} is not active."
+            )
         validator = ProblemCustomValidator(problem_id=problem.id)
         validator_candidate_token = stage_candidate(
             validator,
-            language_id=packaged_validator.language_id,
-            source=packaged_validator.source,
+            language_id=package.validator.language_id,
+            source=package.validator.source,
         )
         session.add(validator)
 
-    for ordinal, packaged in enumerate(packaged_interactions, start=1):
+    for ordinal, packaged in enumerate(package.interactions, start=1):
         session.add(
             ProblemSampleInteraction(
                 problem_id=problem.id,
@@ -234,10 +165,56 @@ async def import_problem_from_zip(
             )
         )
 
-    await session.commit()
+    promoter = ArtifactPromoter(
+        domain="contest",
+        journal_root=journal_root_for(testcase_dir),
+        testcase_dir=testcase_dir,
+        statement_dir=statement_dir,
+    )
+    await commit_with_promotion(session, promoter, package, problem.id)
+
     return ProblemImportResult(
         problem=problem,
-        skipped_language_ids=sorted(skipped_language_ids),
         validator_candidate_token=validator_candidate_token,
-        imported_interaction_count=len(packaged_interactions),
+        imported_interaction_count=len(package.interactions),
+        warnings=tuple(warnings),
     )
+
+
+async def _apply_language_limits(
+    session: AsyncSession,
+    contest: Contest,
+    problem: Problem,
+    package: ProblemPackage,
+    warnings: list[PackageWarning],
+) -> None:
+    """Apply the package's per-language limits the contest actually allows."""
+    declared = package.metadata.language_limits
+    if not declared:
+        return
+    contest_language_ids = {language.id for language in await get_contest_languages(session, contest)}
+    allowed: dict[str, LanguageLimitInput] = {}
+    skipped: list[str] = []
+    for language_id, limit in declared.items():
+        if language_id not in contest_language_ids:
+            skipped.append(language_id)
+            continue
+        allowed[language_id] = {
+            "time_limit_ms": limit.time_limit_ms,
+            "memory_limit_kb": limit.memory_limit_kb,
+            "pids_limit": limit.pids_limit,
+            "output_limit_in_bytes": limit.output_limit_in_bytes,
+            # None lets upsert_language_limits fall back to the language
+            # registry's profiling default, which only this side knows.
+            "repetitions": limit.repetitions,
+        }
+    if skipped:
+        warnings.append(
+            PackageWarning(
+                WARN_DISALLOWED_LANGUAGE_LIMITS,
+                "Per-language limits were skipped for languages this contest does not allow: "
+                f"{', '.join(sorted(skipped))}.",
+            )
+        )
+    if allowed:
+        await upsert_language_limits(session, problem, allowed)

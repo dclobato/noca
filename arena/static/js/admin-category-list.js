@@ -27,13 +27,9 @@
   });
 
   // ── Shared utilities ──────────────────────────────────────────────────────
-  const slugify = (value) =>
-    value
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
+  // Slug preview comes from category-slug.js, shared with the legacy category
+  // form, so both agree with the server's normalize_slug().
+  const slugify = (value) => window.NocaCategorySlug?.slugify(value) ?? value;
 
   function randomCategoryColor() {
     const hueToRgb = (p, q, t) => {
@@ -56,9 +52,48 @@
     return "#" + [r, g, b].map((x) => Math.round(x * 255).toString(16).padStart(2, "0")).join("");
   }
 
-  function applyColor(colorInput, colorText, color) {
+  const HEX_COLOR = /^#[0-9a-f]{6}$/;
+
+  function applyColor(colorInput, hexInput, color) {
     if (colorInput) colorInput.value = color;
-    if (colorText) colorText.textContent = color;
+    if (hexInput) {
+      hexInput.value = color;
+      hexInput.classList.remove("is-invalid");
+    }
+  }
+
+  /*
+   * Wires one swatch + hex + dice group.  The hex field carries no `name`: it is
+   * a two-way mirror of the `<input type="color">`, which is the field actually
+   * submitted, so a half-typed hex can never reach the server.
+   */
+  function wireColorGroup(root, prefix) {
+    const colorInput = root.querySelector(`#${prefix}_category_color`);
+    const hexInput = root.querySelector(`#${prefix}_category_color_hex`);
+    const randomBtn = root.querySelector(`#${prefix}_category_color_random`);
+
+    if (colorInput && hexInput) {
+      colorInput.addEventListener("input", () => applyColor(null, hexInput, colorInput.value));
+
+      hexInput.addEventListener("input", () => {
+        const normalized = "#" + hexInput.value.toLowerCase().replace(/[^0-9a-f]/g, "").slice(0, 6);
+        hexInput.value = normalized;
+        const valid = HEX_COLOR.test(normalized);
+        hexInput.classList.toggle("is-invalid", !valid);
+        if (valid) colorInput.value = normalized;
+      });
+
+      // An incomplete hex is only ever a display mismatch; restore the real value.
+      hexInput.addEventListener("blur", () => {
+        if (!HEX_COLOR.test(hexInput.value)) applyColor(null, hexInput, colorInput.value);
+      });
+    }
+
+    if (randomBtn) {
+      randomBtn.addEventListener("click", () => applyColor(colorInput, hexInput, randomCategoryColor()));
+    }
+
+    return { colorInput, hexInput };
   }
 
   // ── Delete category modal ─────────────────────────────────────────────────
@@ -98,9 +133,7 @@
   if (newModalEl) {
     const nameInput = newModalEl.querySelector("#new_category_name");
     const slugInput = newModalEl.querySelector("#new_category_slug");
-    const colorInput = newModalEl.querySelector("#new_category_color");
-    const colorText = newModalEl.querySelector("#new_category_color_text");
-    const randomBtn = newModalEl.querySelector("#new_category_color_random");
+    const { colorInput, hexInput } = wireColorGroup(newModalEl, "new");
 
     if (nameInput && slugInput) {
       nameInput.addEventListener("input", () => {
@@ -113,16 +146,6 @@
       });
     }
 
-    if (colorInput && colorText) {
-      colorInput.addEventListener("input", () => {
-        colorText.textContent = colorInput.value;
-      });
-    }
-
-    if (randomBtn) {
-      randomBtn.addEventListener("click", () => applyColor(colorInput, colorText, randomCategoryColor()));
-    }
-
     // Reset fields and seed a fresh random color each time the modal opens.
     newModalEl.addEventListener("show.bs.modal", () => {
       if (nameInput) nameInput.value = "";
@@ -130,7 +153,7 @@
         slugInput.value = "";
         delete slugInput.dataset.userEdited;
       }
-      applyColor(colorInput, colorText, randomCategoryColor());
+      applyColor(colorInput, hexInput, randomCategoryColor());
     });
 
     newModalEl.addEventListener("shown.bs.modal", () => nameInput?.focus());
@@ -143,19 +166,7 @@
     const editForm = editModalEl.querySelector("[data-category-edit-form]");
     const nameInput = editModalEl.querySelector("#edit_category_name");
     const slugInput = editModalEl.querySelector("#edit_category_slug");
-    const colorInput = editModalEl.querySelector("#edit_category_color");
-    const colorText = editModalEl.querySelector("#edit_category_color_text");
-    const randomBtn = editModalEl.querySelector("#edit_category_color_random");
-
-    if (colorInput && colorText) {
-      colorInput.addEventListener("input", () => {
-        colorText.textContent = colorInput.value;
-      });
-    }
-
-    if (randomBtn) {
-      randomBtn.addEventListener("click", () => applyColor(colorInput, colorText, randomCategoryColor()));
-    }
+    const { colorInput, hexInput } = wireColorGroup(editModalEl, "edit");
 
     document.querySelectorAll("[data-category-edit-button]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -167,7 +178,7 @@
         if (editForm) editForm.setAttribute("action", action);
         if (nameInput) nameInput.value = name;
         if (slugInput) slugInput.value = slug;
-        applyColor(colorInput, colorText, color);
+        applyColor(colorInput, hexInput, color);
 
         editModal.show();
       });

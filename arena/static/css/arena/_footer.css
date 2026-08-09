@@ -94,13 +94,21 @@
     width: 0.5rem;
 }
 
-.arena-footer a {
-    color: var(--arena-on-surface-variant);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    transition: color 0.15s ease;
+.arena-footer-live-link {
+    align-items: center;
+    display: inline-flex;
+    gap: 0.3rem;
+    font-weight: 600;
 }
 
-.arena-footer a:hover {
-    color: var(--arena-primary);
+.arena-footer-live-link .material-symbols-outlined {
+    font-size: 1rem;
+}
+
+.arena-footer-live-dot {
+    background-color: var(--arena-primary);
+    border-radius: 50%;
+    display: inline-block;
+    height: 0.45rem;
+    width: 0.45rem;
 }

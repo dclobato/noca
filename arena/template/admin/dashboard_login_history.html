@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -90,8 +90,7 @@
                             <tr>
                                 <td class="text-nowrap">{{ arena_format_datetime(login.dta_login, current_user) }}</td>
                                 <td>
-                                    <a href="{{ request.url_for('arena_admin_user_profile', user_id=login.arena_user.id) }}"
-                                       class="text-decoration-none">
+                                    <a href="{{ request.url_for('arena_admin_user_profile', user_id=login.arena_user.id) }}">
                                         <div class="d-flex align-items-center gap-2">
                                             {{ render_avatar(login.arena_user.id, request.url_for('arena_user_avatar_by_id', user_id=login.arena_user.id) , img_class="rounded-circle object-fit-cover flex-shrink-0") }}
                                             <span>{{ login.arena_user.nome }}</span>

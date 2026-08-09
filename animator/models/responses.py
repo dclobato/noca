@@ -25,6 +25,7 @@ from animator.models.reveal_session import (
     TeamRevealView,
 )
 from shared.reveal_schema import GLOBAL_SCOPE, RevealPhase
+from shared.services.balloon_assets import MedalBand
 
 
 class ProblemMeta(BaseModel):
@@ -75,7 +76,12 @@ class ProblemCellResponse(BaseModel):
 
 
 class TeamStandingResponse(BaseModel):
-    """Scoreboard row for one team."""
+    """Scoreboard row for one team.
+
+    ``medal`` is the band this row's rank falls into under the cutoffs in force
+    for the requested scope, or ``None`` when the row wins no medal or the scope
+    has no cutoffs configured.
+    """
 
     rank: int
     team_id: str
@@ -85,6 +91,7 @@ class TeamStandingResponse(BaseModel):
     problems_solved: int
     total_time: int
     problems: dict[str, ProblemCellResponse]
+    medal: MedalBand | None = None
 
 
 class PendingSubmissionResponse(BaseModel):
@@ -185,7 +192,9 @@ class RevealProjectionResponse(BaseModel):
         focused_team_id: The team currently in focus, if any.
         revealed_count: How many frozen submissions have been revealed.
         frozen_count: Size of the immutable frozen universe.
-        medal_cutoffs: The site's cutoffs; ``None`` for a global ceremony.
+        medal_cutoffs: The cutoffs in force for this ceremony -- the site's for a
+            site ceremony, the contest's global ones for a global ceremony, and
+            ``None`` when the global cutoffs are unconfigured.
         teams: Derived team views in current ranking order.
         next_cell: The cell the next ``step`` will change — **position only**, no
             verdict — so a projector can draw the audience's attention to it.

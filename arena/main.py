@@ -85,6 +85,7 @@ from arena.routes.user_submission_status import router as arena_user_submission_
 from arena.routes.users import router as arena_users_router
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.qrcode_service import QRCodeService
+from arena.services.ranking_medals import arena_medal_band
 from arena.services.session_service import ARENA_REMEMBER_ME_MAX_AGE, get_session_started_at, is_remembered_login
 from arena.services.startup_seeds import ensure_sem_afiliacao
 from arena.services.token_service import ArenaTokenAction, JWTService, load_token_config_from_dict
@@ -116,6 +117,7 @@ from shared.services.problem_image import (
     MAX_PROBLEM_IMAGE_HEIGHT,
     MAX_PROBLEM_IMAGE_WIDTH,
 )
+from shared.services.problem_package.reconcile import reconcile_import_journals
 from shared.services.security_events_reaper import run_security_events_reaper
 from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
 from shared.services.startup_wait import wait_for_db, wait_for_valkey
@@ -452,6 +454,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     arena_templates.env.globals["arena_format_relative_datetime"] = format_relative_datetime
     arena_templates.env.globals["format_compact_duration"] = format_compact_duration
     arena_templates.env.globals["arena_user_timezone_name"] = timezone_name_for_user
+    arena_templates.env.globals["arena_medal_band"] = arena_medal_band
     arena_templates.env.globals["app_version"] = APP_VERSION
     arena_templates.env.globals["brand_name"] = settings.BRAND_NAME
     arena_templates.env.globals["healthmon_url"] = settings.HEALTHMON_URL
@@ -500,6 +503,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             name="online-users-count-poller",
         )
         logger.info("- Online-users count poller started")
+
+    # A crashed import leaves artifacts a journal describes; resolve those now
+    # rather than waiting for the next import to happen to notice them.
+    # Best-effort: the same reconciliation runs before every import, so a failure
+    # here delays cleanup rather than losing it, and must not stop the app booting.
+    try:
+        async with app.state.arena_db_session() as reconcile_session:
+            resolved = await reconcile_import_journals(
+                reconcile_session,
+                domain="arena",
+                testcase_dir=settings.PROBLEM_TESTCASE_DIR,
+            )
+        logger.info("- Problem-import journals reconciled (%d resolved)", resolved)
+    except Exception:
+        logger.exception("- Problem-import journal reconciliation failed; it will retry at the next import")
 
     worker_presence_stop = asyncio.Event()
     app.state.worker_presence_stop = worker_presence_stop

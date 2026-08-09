@@ -124,6 +124,71 @@ def test_arena_live_feed_limit_is_capped(monkeypatch: pytest.MonkeyPatch) -> Non
         Settings(_env_file=None)  # type: ignore[call-arg]
 
 
+def test_ranking_medal_cutoffs_default_to_one_two_three(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Out of the box the podium keeps the historical 1/2/3 bands."""
+    settings = _make_settings(monkeypatch, tmp_path)
+
+    assert settings.ARENA_RANKING_MEDAL_GOLD_CUTOFF == 1
+    assert settings.ARENA_RANKING_MEDAL_SILVER_CUTOFF == 2
+    assert settings.ARENA_RANKING_MEDAL_BRONZE_CUTOFF == 3
+
+
+def test_ranking_medal_cutoffs_read_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The three NOCA_ARENA_RANKING_MEDAL_* variables widen the bands."""
+    settings = _make_settings(
+        monkeypatch,
+        tmp_path,
+        NOCA_ARENA_RANKING_MEDAL_GOLD_CUTOFF="3",
+        NOCA_ARENA_RANKING_MEDAL_SILVER_CUTOFF="10",
+        NOCA_ARENA_RANKING_MEDAL_BRONZE_CUTOFF="25",
+    )
+
+    assert settings.ARENA_RANKING_MEDAL_GOLD_CUTOFF == 3
+    assert settings.ARENA_RANKING_MEDAL_SILVER_CUTOFF == 10
+    assert settings.ARENA_RANKING_MEDAL_BRONZE_CUTOFF == 25
+
+
+@pytest.mark.parametrize(
+    ("gold", "silver", "bronze"),
+    [("0", "2", "3"), ("1", "0", "3"), ("1", "2", "0"), ("0", "0", "0"), ("2", "2", "5")],
+)
+def test_ranking_medal_cutoffs_accept_disabled_and_equal_bands(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, gold: str, silver: str, bronze: str
+) -> None:
+    """A 0 disables its band and is skipped by the ordering rule; equal cutoffs are legal."""
+    settings = _make_settings(
+        monkeypatch,
+        tmp_path,
+        NOCA_ARENA_RANKING_MEDAL_GOLD_CUTOFF=gold,
+        NOCA_ARENA_RANKING_MEDAL_SILVER_CUTOFF=silver,
+        NOCA_ARENA_RANKING_MEDAL_BRONZE_CUTOFF=bronze,
+    )
+
+    assert int(gold) == settings.ARENA_RANKING_MEDAL_GOLD_CUTOFF
+
+
+@pytest.mark.parametrize(("gold", "silver", "bronze"), [("3", "2", "1"), ("5", "2", "10"), ("0", "5", "2")])
+def test_ranking_medal_cutoffs_reject_decreasing_bands(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, gold: str, silver: str, bronze: str
+) -> None:
+    """Enabled cutoffs must not decrease, and the error names the env vars."""
+    with pytest.raises(ValidationError, match="NOCA_ARENA_RANKING_MEDAL_GOLD_CUTOFF"):
+        _make_settings(
+            monkeypatch,
+            tmp_path,
+            NOCA_ARENA_RANKING_MEDAL_GOLD_CUTOFF=gold,
+            NOCA_ARENA_RANKING_MEDAL_SILVER_CUTOFF=silver,
+            NOCA_ARENA_RANKING_MEDAL_BRONZE_CUTOFF=bronze,
+        )
+
+
+@pytest.mark.parametrize("value", ["-1", "1001"])
+def test_ranking_medal_cutoffs_are_bounded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, value: str) -> None:
+    """Cutoffs outside 0..1000 are rejected."""
+    with pytest.raises(ValidationError):
+        _make_settings(monkeypatch, tmp_path, NOCA_ARENA_RANKING_MEDAL_GOLD_CUTOFF=value)
+
+
 def test_health_rate_limit_trusted_cidrs_accepts_valid_cidrs() -> None:
     """Health rate-limit trusted networks are normalized."""
     value = Settings.normalize_health_rate_limit_trusted_cidrs(" 127.0.0.0/8 , ::1/128 ")

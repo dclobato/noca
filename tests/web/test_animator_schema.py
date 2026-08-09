@@ -1,15 +1,15 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Schema and migration-boundary tests for the animator access-control tables.
+"""Schema tests for Animator access control and medal settings.
 
-These exercise the Phase 01 contract: the ``contests.animator_enabled`` gate,
-the ``sites`` medal cutoff columns and their ordering constraint, and the
-``site_secrets`` table (contest-global vs. site-scoped rows, cross-contest
-foreign-key rejection, and digest uniqueness).
+These retain the Phase 01 contracts for the ``contests.animator_enabled`` gate,
+per-site medal cutoffs, and ``site_secrets`` while also covering the nullable,
+all-or-nothing contest-global medal cutoff triple added for global scoreboards
+and reveal ceremonies.
 """
 
 from __future__ import annotations
@@ -63,6 +63,84 @@ async def test_animator_enabled_defaults_false(session: AsyncSession, uberadmin:
     contest = await _make_contest(session, uberadmin, "gate-default")
 
     assert contest.animator_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_global_medal_cutoffs_default_to_unconfigured(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """A contest starts with no global medals, so nothing needed backfilling."""
+    contest = await _make_contest(session, uberadmin, "global-default")
+
+    assert contest.global_gold_cutoff is None
+    assert contest.global_silver_cutoff is None
+    assert contest.global_bronze_cutoff is None
+
+
+@pytest.mark.asyncio
+async def test_global_medal_cutoffs_accept_a_full_ordered_triple(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """All three set, positive, and ordered satisfies the CHECK constraint."""
+    contest = await _make_contest(session, uberadmin, "global-set")
+    contest.global_gold_cutoff = 4
+    contest.global_silver_cutoff = 8
+    contest.global_bronze_cutoff = 12
+    await session.flush()
+
+    assert contest.global_bronze_cutoff == 12
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gold", "silver", "bronze"),
+    [
+        (1, 2, None),
+        (1, None, 3),
+        (None, 2, 3),
+        (1, None, None),
+        (None, 2, None),
+        (None, None, 3),
+    ],
+    ids=["missing-bronze", "missing-silver", "missing-gold", "gold-only", "silver-only", "bronze-only"],
+)
+async def test_global_medal_partial_triple_rejected(
+    session: AsyncSession,
+    uberadmin: UberAdmin,
+    gold: int | None,
+    silver: int | None,
+    bronze: int | None,
+) -> None:
+    """The database itself refuses a partly configured triple.
+
+    This is the case a naive CHECK would let through: a comparison against NULL
+    evaluates to UNKNOWN, and a CHECK rejects only FALSE, so the constraint must
+    assert ``IS NOT NULL`` explicitly on its configured branch.
+    """
+    contest = await _make_contest(session, uberadmin, f"global-partial-{gold}-{silver}-{bronze}")
+    contest.global_gold_cutoff = gold
+    contest.global_silver_cutoff = silver
+    contest.global_bronze_cutoff = bronze
+    with pytest.raises(IntegrityError):
+        await session.flush()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gold", "silver", "bronze"),
+    [(5, 2, 3), (0, 2, 3), (1, 9, 3)],
+    ids=["gold-above-silver", "gold-not-positive", "silver-above-bronze"],
+)
+async def test_global_medal_unordered_or_nonpositive_rejected(
+    session: AsyncSession,
+    uberadmin: UberAdmin,
+    gold: int,
+    silver: int,
+    bronze: int,
+) -> None:
+    """Configured global cutoffs obey the same rules a site's do."""
+    contest = await _make_contest(session, uberadmin, f"global-bad-{gold}-{silver}-{bronze}")
+    contest.global_gold_cutoff = gold
+    contest.global_silver_cutoff = silver
+    contest.global_bronze_cutoff = bronze
+    with pytest.raises(IntegrityError):
+        await session.flush()
 
 
 @pytest.mark.asyncio

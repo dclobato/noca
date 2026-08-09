@@ -54,7 +54,13 @@ from shared.db_schema.arena import (
     arena_test_cases,
     arena_users,
 )
-from shared.enumerations import ArenaNotificationKind, ArenaRole, JudgmentStatus, Verdict
+from shared.enumerations import (
+    TERMINAL_JUDGMENT_STATUSES,
+    ArenaNotificationKind,
+    ArenaRole,
+    JudgmentStatus,
+    Verdict,
+)
 from shared.language_registry import highlightjs_language_for_language_id
 from shared.queue_schema import ArenaAIReviewJob
 from shared.services.arena_notification_service import create_arena_notification
@@ -362,6 +368,9 @@ async def arena_submission_detail(
 
     language_id = submission_row[2]
     highlight_language = highlightjs_language_for_language_id(language_id)
+    watch_submission_status = bool(
+        is_owner and (judgment_row is None or judgment_row[1] not in TERMINAL_JUDGMENT_STATUSES)
+    )
 
     # Load submit_to_ai flag, AI review row, batch job status, and teacher feedback (all LEFT JOINs)
     sub_extra = (
@@ -538,6 +547,7 @@ async def arena_submission_detail(
                 # AI review
                 "is_owner": is_owner,
                 "is_admin": is_admin,
+                "watch_submission_status": watch_submission_status,
                 "submission_submit_to_ai": submission_submit_to_ai,
                 "batch_local_status": batch_local_status,
                 "ai_review": ai_review,

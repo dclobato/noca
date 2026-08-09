@@ -186,6 +186,29 @@ operators authenticate with a token whose fixed-length digest lives in `site_sec
 in another contest, and `(contest_id, secret_digest)` is unique. These three tables are
 low-churn configuration data and use the server-wide autovacuum defaults.
 
+Medals also exist at the **contest** level, for the global scope that has no site:
+`contests.global_gold_cutoff`, `global_silver_cutoff`, and `global_bronze_cutoff` are nullable
+and **all-or-nothing** — either all three are NULL (no global medals, the pre-existing
+behavior, so nothing needed backfilling) or all three are set, positive, and ordered.
+`ck_contests_global_medal_cutoffs` enforces exactly that, asserting `IS NOT NULL` explicitly on
+its configured branch because a CHECK rejects only FALSE and would otherwise let a partial
+triple such as `(1, 2, NULL)` through as UNKNOWN. Both scopes' cutoffs are edited on the same
+Web admin form (`POST /c/{slug}/admin/animator/medals`) and validated in one transaction.
+
+The cutoffs reach the animator in two places. The `/snapshot` feed bands each standing row with
+a `medal` field computed from the cutoffs of the *requested* scope — the site's for a site
+scope, the contest's global triple for `global` — so medals render on the live scoreboard in
+both scopes. A reveal ceremony instead **snapshots** its cutoffs into
+`RevealSessionState.medal_cutoffs` when the session is created, exactly as site cutoffs already
+behaved: a settings change cannot reshuffle bands under an operator mid-ceremony, and adopting
+one is an explicit `start-reveal` with `restart=true` (**Start over**, which the control panel
+therefore also offers on an idle stored session). Both surfaces derive their band from the same
+shared `medal_band_for_rank`, so they cannot disagree. The persisted state version is
+deliberately **not** bumped: the change is forward-compatible, since a global ceremony recorded
+before global medals existed simply carries `medal_cutoffs=None` and shows no medals. Rolling
+back with a configured global ceremony in flight is recovered the same way every unreadable
+payload is — `start-reveal` with `restart=true`.
+
 Problem test-case content (both Web and Arena) lives on a single shared filesystem mount
 configured by `NOCA_PROBLEM_TESTCASE_DIR`, namespaced by identity domain:
 `<root>/contest/<problem_id>/NNN.in|out` for Web and `<root>/arena/<problem_id>/NNN.in|out`
@@ -196,6 +219,32 @@ for Arena. The database keeps only metadata and the normalized (LF) on-disk byte
 gated to cases where both sides are ≤ `MAX_INLINE_TESTCASE_BYTES` (10 KB); larger cases are
 edited offline via a single-case ZIP download/replace round-trip. The autojudge reads test
 files directly from the appropriate domain subdirectory.
+
+Problem **packages** — the import/export ZIP both domains speak — are owned end to end by
+`shared/services/problem_package/`, which is the single place every format decision is made:
+integer coercion, null semantics, string widths, UTF-8, image resolution, archive safety, and the
+export field set. Both domain importers consume one frozen `ProblemPackage` and are left with only
+category resolution, target-language availability, ORM row construction, and lifecycle queueing.
+Neither direction ever holds an archive in RAM: an upload is spooled to disk in bounded chunks and
+opened once, and an export is written to a temporary path the route streams and deletes.
+
+That subsystem also owns the ordering between an import's filesystem writes and its transaction.
+Artifacts are prepared in hidden siblings of their final locations (so promotion is a
+same-filesystem rename), promoted, and only then committed; a failed commit deletes exactly what
+was promoted. A guarded, `fsync`'d journal per import makes a crash *between* promotion and commit
+recoverable, and is reconciled at Web and Arena startup as well as before each import — with every
+journal-supplied path re-validated against its configured root before anything is deleted. See
+[SHARED_SERVICES.md](SHARED_SERVICES.md) and
+[PROBLEM_PACKAGE_FORMAT.md](PROBLEM_PACKAGE_FORMAT.md).
+
+Both problem tables make `output_limit_in_bytes` **NOT NULL** (server default 65536): a problem
+always states an output limit, and `NOCA_JUDGE_OUTPUT_LIMIT_BYTES` is a hard global ceiling applied
+as `min(problem_limit, global_limit)` rather than a fallback for a missing value. The *per-language*
+`problem_language_limits.output_limit_in_bytes` deliberately stays nullable, where NULL means
+"inherit the problem's limit" — which is exactly what the judge's `coalesce(per-language, problem)`
+computes. Field widths are unified across the two domains (`title` 256, `author` 256, `notes` 512,
+`source` 256, `license` 256, `image_caption` 512) so a value that survives on one side survives a
+round trip through the other.
 
 Permanent inactive-contest removal coordinates all three infrastructure
 boundaries synchronously. Web locks and rechecks the inactive contest row,
@@ -446,7 +495,7 @@ scoreboard shell lives at `GET /c/{slug}/scoreboard?scope=...`.
 The animator exposes a read-only public feed for one enabled contest:
 `GET /c/{slug}/meta` (contest identity, problem labels and balloon
 colors, start/end/freeze timing, freeze state, and per-site medal-cutoff
-summaries) and `GET /c/{slug}/snapshot?scope=...` (a shared
+summaries only) and `GET /c/{slug}/snapshot?scope=...` (a shared
 `ScoreboardSnapshot` plus a server-generated refresh version). The snapshot
 defaults to the global scope; a validated site scope filters teams and
 submissions before scoring. Animator loads `release_scoreboard_after_end` into

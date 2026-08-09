@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -10,18 +10,24 @@ Both domains store the image in the database as base64 text plus its MIME type a
 an optional caption, and both round-trip it through the problem package ZIP as a
 root-level ``image.<ext>`` member declared by the ``image`` key of ``problem.json``.
 This module owns the size and dimension caps, the extension/MIME maps, the upload
-processor, and the packaged-image loader so the two domains cannot drift apart.
+processor, and the staged-image loader so the two domains cannot drift apart.
+Deciding *which* archive member is the image belongs to the shared package
+reader; what is left here is deciding whether its bytes are an acceptable image.
 """
 
 from __future__ import annotations
 
-import zipfile
 from base64 import b64encode
-from typing import Any
+from typing import TYPE_CHECKING
 
 from fastapi import UploadFile
 
 from shared.services.imageprocessing_service import ImageProcessingError, ImageProcessingService
+
+if TYPE_CHECKING:
+    # Type-only: the package reader imports this module for its MIME maps, so a
+    # runtime import here would close the cycle.
+    from shared.services.problem_package.model import PackageImage
 
 MAX_PROBLEM_IMAGE_BYTES = 2 * 1024 * 1024
 """Per-problem image file-size limit (2 MiB)."""
@@ -78,58 +84,30 @@ def export_image_filename(mime: str | None) -> str:
     return f"image.{MIME_TO_EXT.get(mime or '', 'png')}"
 
 
-def find_packaged_image(names: list[str]) -> str | None:
-    """Return the first root-level image file in the archive, if any."""
-    for name in names:
-        if "/" in name:
-            continue
-        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
-        if ext in EXT_TO_MIME:
-            return name
-    return None
-
-
-def load_packaged_image(
-    meta: dict[str, Any],
-    archive: zipfile.ZipFile,
-    names: list[str],
+def load_staged_image(
+    image: PackageImage | None,
     image_service: ImageProcessingService,
 ) -> tuple[str | None, str | None]:
-    """Validate and return the packaged image as ``(base64, mime)`` or ``(None, None)``.
+    """Validate a staged package image and return it as ``(base64, mime)``.
 
-    When ``problem.json`` explicitly references an image filename, that file must
-    exist in the archive — a missing referenced image rejects the package rather
-    than silently dropping the image. Only when no image is referenced does the
-    loader fall back to auto-detecting a root-level image file.
+    The shared package reader has already resolved which archive member the image
+    is and streamed it to disk; what is left is deciding whether the bytes are an
+    image this platform accepts, which is what the image service owns.
 
     Args:
-        meta: The parsed ``problem.json`` mapping.
-        archive: The open problem package archive.
-        names: The archive member names.
+        image: The package's image record, or ``None`` when it ships none.
         image_service: The application's image processing service.
 
     Returns:
         tuple[str | None, str | None]: The base64 image and its MIME type, or
-        ``(None, None)`` when the package ships no image.
+        ``(None, None)`` when there is no image.
 
     Raises:
-        ValueError: The referenced image is missing, or the image is invalid.
+        ValueError: The image is not valid or exceeds a problem-image limit.
     """
-    referenced = meta.get("image")
-    filename: str | None
-    if isinstance(referenced, str) and referenced.strip():
-        filename = referenced.strip()
-        if filename not in names:
-            raise ValueError(f"problem.json references image '{filename}' which is not present in the ZIP.")
-    else:
-        filename = find_packaged_image(names)
-    if not filename:
+    if image is None or image.path is None:
         return None, None
-
-    image_bytes = archive.read(filename)
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "png"
-    mime = EXT_TO_MIME.get(ext, "image/png")
-    data_uri = f"data:{mime};base64,{b64encode(image_bytes).decode('ascii')}"
+    data_uri = f"data:{image.mime};base64,{b64encode(image.path.read_bytes()).decode('ascii')}"
     try:
         result = image_service.process_base64(
             data_uri,

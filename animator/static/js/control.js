@@ -111,10 +111,27 @@
         jumpVisible: false,
       };
     }
-    if (!projection || projection.phase === "idle") {
+    if (!projection) {
+      // No stored ceremony at all: there is nothing to rebuild, so plain Start
+      // is the only meaningful command.
       return {
         startVisible: true,
         startOverVisible: false,
+        resetVisible: false,
+        stepVisible: false,
+        backVisible: false,
+        jumpVisible: false,
+      };
+    }
+    if (projection.phase === "idle") {
+      // A *stored* idle ceremony. Plain Start reuses that stored session — and
+      // with it the medal cutoffs snapshotted when it was created. Start over is
+      // the only way to rebuild from current settings, so it must be reachable
+      // from here; without it a configuration change could never be adopted
+      // through the UI.
+      return {
+        startVisible: true,
+        startOverVisible: true,
         resetVisible: false,
         stepVisible: false,
         backVisible: false,
@@ -614,8 +631,9 @@
       if (action === "start-over") {
         els.confirmationTitle.textContent = "Start the ceremony over?";
         els.confirmationMessage.textContent =
-          "This rebuilds the ranking from current contest data. Runs judged since the ceremony began are included, " +
-          "so the reveal order may differ from what was already shown.";
+          "This discards the stored ceremony and rebuilds it from current contest data and settings — including the " +
+          "medal cutoffs. Runs judged since the ceremony began are included, so the reveal order may differ from " +
+          "what was already shown.";
         els.confirmationCounts.textContent = lastProjection
           ? lastProjection.revealed_count + " / " + lastProjection.frozen_count + " revealed"
           : "";

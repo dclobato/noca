@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -29,7 +29,7 @@
                         <tr>
                             <td>
                                 <a href="{{ request.url_for('arena_problem_detail', arena_number=item.arena_number) }}"
-                                   class="text-decoration-none fw-medium">{{ item.arena_number }}: {{ item.title }}</a>
+                                   class="fw-medium">{{ item.arena_number }}: {{ item.title }}</a>
                             </td>
                             <td>
                                 {% if item.categories %}

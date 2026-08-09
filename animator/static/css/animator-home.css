@@ -32,8 +32,9 @@
     margin: 0 0 0.5rem;
     color: var(--noca-brand);
     font-family: var(--noca-font-mono);
-    font-size: 0.76rem;
-    font-weight: 800;
+    font-size: var(--noca-type-label);
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
 }
@@ -42,7 +43,7 @@
     max-width: 12ch;
     margin: 0;
     font-family: var(--noca-font-heading);
-    font-size: clamp(3rem, 8vw, 6.7rem);
+    font-size: var(--noca-type-poster);
     font-weight: 900;
     letter-spacing: -0.055em;
     line-height: 0.88;
@@ -52,7 +53,7 @@
     max-width: 45rem;
     margin: 1.5rem 0 0;
     color: var(--noca-on-surface-variant);
-    font-size: clamp(1rem, 2vw, 1.2rem);
+    font-size: var(--noca-type-body);
 }
 
 .animator-home-signal {
@@ -65,8 +66,8 @@
     justify-content: flex-end;
     padding: 1.4rem;
     border: 1px solid rgb(255 255 255 / 16%);
-    border-radius: 1.25rem;
-    background: linear-gradient(145deg, #174f80 0%, #101c36 100%);
+    border-radius: var(--noca-radius-presentation);
+    background: linear-gradient(145deg, var(--noca-presentation-hero-from) 0%, var(--noca-presentation-hero-to) 100%);
     box-shadow: 0 1.5rem 4rem rgb(0 0 0 / 18%);
     color: white;
 }
@@ -85,24 +86,25 @@
 
 .animator-home-signal-label {
     margin-bottom: auto;
-    color: #dbe9f6;
+    color: var(--noca-on-presentation-hero);
     font-family: var(--noca-font-mono);
-    font-size: 0.7rem;
-    font-weight: 800;
+    font-size: var(--noca-type-label);
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
 }
 
 .animator-home-signal strong {
     font-family: var(--noca-font-heading);
-    font-size: 3.8rem;
+    font-size: var(--noca-type-display);
     letter-spacing: -0.05em;
     line-height: 0.9;
 }
 
 .animator-home-signal > span:last-child {
     margin-top: 0.4rem;
-    color: #dbe9f6;
+    color: var(--noca-on-presentation-hero);
 }
 
 .animator-home-section + .animator-home-section {
@@ -121,7 +123,7 @@
 .animator-home-empty h2 {
     margin: 0;
     font-family: var(--noca-font-heading);
-    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    font-size: var(--noca-type-display);
     font-weight: 850;
     letter-spacing: -0.035em;
 }
@@ -146,7 +148,7 @@
     flex-direction: column;
     padding: 1.35rem;
     border: 1px solid var(--noca-outline-variant);
-    border-radius: 1.15rem;
+    border-radius: var(--noca-radius-presentation);
     background: var(--noca-surface-container-low);
     box-shadow: 0 0.7rem 2rem rgb(0 0 0 / 7%);
     color: var(--noca-on-surface);
@@ -199,8 +201,9 @@
     gap: 0.5rem;
     color: var(--noca-on-surface-variant);
     font-family: var(--noca-font-mono);
-    font-size: 0.72rem;
-    font-weight: 800;
+    font-size: var(--noca-type-label);
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
@@ -223,7 +226,7 @@
 
 .animator-home-arrow {
     color: var(--noca-brand);
-    font-size: 1.3rem;
+    font-size: var(--noca-type-title);
     transition: transform 160ms ease;
 }
 
@@ -235,7 +238,7 @@
 .animator-home-card-name {
     margin: auto 0 1.5rem;
     font-family: var(--noca-font-heading);
-    font-size: clamp(1.35rem, 3vw, 1.8rem);
+    font-size: var(--noca-type-headline);
     font-weight: 850;
     letter-spacing: -0.025em;
     line-height: 1.08;
@@ -245,7 +248,7 @@
     display: flex;
     flex-direction: column;
     color: var(--noca-on-surface-variant);
-    font-size: 0.76rem;
+    font-size: var(--noca-type-label);
     font-weight: 700;
     letter-spacing: 0.05em;
     text-transform: uppercase;
@@ -254,8 +257,8 @@
 .animator-home-card-time time {
     margin-top: 0.2rem;
     color: var(--noca-on-surface);
-    font-size: 0.88rem;
-    font-variant-numeric: tabular-nums;
+    font-size: var(--noca-type-label);
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     letter-spacing: 0;
     text-transform: none;
 }
@@ -263,7 +266,7 @@
 .animator-home-empty {
     padding: clamp(2rem, 7vw, 5rem);
     border: 1px dashed var(--noca-outline);
-    border-radius: 1.5rem;
+    border-radius: var(--noca-radius-presentation-lg);
     background: var(--noca-surface-container-low);
     text-align: center;
 }

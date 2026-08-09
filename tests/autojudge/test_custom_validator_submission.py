@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -88,17 +88,27 @@ async def _run(
 
 def test_build_validator_environment_exposes_effective_limits() -> None:
     environment = service.build_validator_environment(
-        limits=ProblemLimits(1000, 65536, 16, None),
+        limits=ProblemLimits(1000, 65536, 16, 4096),
         user_language_id="python3",
     )
 
     assert environment == {
         "PROBLEM_TIME_LIMIT": "1000",
-        "PROBLEM_OUTPUT_LIMIT": str(service.settings.OUTPUT_LIMIT_BYTES),
+        "PROBLEM_OUTPUT_LIMIT": "4096",
         "PROBLEM_MEMORY_LIMIT": "65536",
         "PROBLEM_PID_LIMIT": "16",
         "USER_LANGUAGE": "python3",
     }
+
+
+def test_the_global_output_limit_is_a_ceiling_not_a_fallback() -> None:
+    """A problem limit above NOCA_JUDGE_OUTPUT_LIMIT_BYTES is clamped to it."""
+    environment = service.build_validator_environment(
+        limits=ProblemLimits(1000, 65536, 16, service.settings.OUTPUT_LIMIT_BYTES * 2),
+        user_language_id="python3",
+    )
+
+    assert environment["PROBLEM_OUTPUT_LIMIT"] == str(service.settings.OUTPUT_LIMIT_BYTES)
 
 
 def test_validator_environment_is_forwarded_through_isolate() -> None:
@@ -125,7 +135,8 @@ def test_build_validator_environment_includes_web_per_language_limits() -> None:
         user_language_id="cpp",
         per_language_limits={
             "cpp": ProblemLimits(2000, 131072, 32, 4096, repetitions=3),
-            "python3": ProblemLimits(3000, 262144, 64, None),
+            # Above the global ceiling: it must be clamped, not passed through.
+            "python3": ProblemLimits(3000, 262144, 64, service.settings.OUTPUT_LIMIT_BYTES * 2),
         },
     )
 

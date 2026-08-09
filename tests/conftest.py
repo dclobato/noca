@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -16,8 +16,10 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-_tmp_stmt = tempfile.mkdtemp()
-_tmp_tc = tempfile.mkdtemp()
+_xdist_worker = os.environ.get("PYTEST_XDIST_WORKER", "")
+_storage_label = _xdist_worker or "serial"
+_tmp_stmt = tempfile.mkdtemp(prefix=f"noca-test-statements-{_storage_label}-")
+_tmp_tc = tempfile.mkdtemp(prefix=f"noca-testcases-{_storage_label}-")
 
 os.environ.setdefault("NOCA_DB_USER", "test")
 os.environ.setdefault("NOCA_DB_PASSWORD", "test")
@@ -25,11 +27,24 @@ os.environ.setdefault("NOCA_DB_SERVER", "localhost")
 os.environ.setdefault("NOCA_DB_NAME", "test")
 os.environ.setdefault("NOCA_JWT_SECRET_KEY", "0a2b72ba8dc0cf8798d19b8e9fd5ae5361d294588cc8c5056abc5af1eb4b17a6d")
 os.environ.setdefault("NOCA_WEB_ENABLE_CLARIFICATION_REAPER", "false")
-os.environ.setdefault("NOCA_WEB_PROBLEM_STATEMENT_DIR", _tmp_stmt)
-os.environ.setdefault("NOCA_PROBLEM_TESTCASE_DIR", _tmp_tc)
+if _xdist_worker:
+    # The controller's environment is inherited by every xdist worker. Override
+    # shared application paths inside each worker so parallel tests cannot see or
+    # reconcile another worker's in-flight filesystem artifacts.
+    os.environ["NOCA_WEB_PROBLEM_STATEMENT_DIR"] = _tmp_stmt
+    os.environ["NOCA_PROBLEM_TESTCASE_DIR"] = _tmp_tc
+else:
+    os.environ.setdefault("NOCA_WEB_PROBLEM_STATEMENT_DIR", _tmp_stmt)
+    os.environ.setdefault("NOCA_PROBLEM_TESTCASE_DIR", _tmp_tc)
 os.environ.setdefault("NOCA_VALKEY_SERVER", "127.0.0.1")
 os.environ.setdefault("NOCA_VALKEY_PORT", "6379")
-os.environ["NOCA_VALKEY_DB"] = "15"
+# Each pytest-xdist worker gets its own Valkey logical DB so per-test
+# flushdb calls never wipe keys written by tests running on another worker.
+# Plain (serial) runs keep DB 15; worker gwN uses 15 - ((N + 1) % 15)
+# (gw0 -> 14, gw1 -> 13, ..., gw13 -> 1). DB 0 stays untouched because it is
+# the apps' configured default. This supports up to 14 parallel workers.
+_test_valkey_db = 15 - (int(_xdist_worker[2:]) + 1) % 15 if _xdist_worker.startswith("gw") else 15
+os.environ["NOCA_VALKEY_DB"] = str(_test_valkey_db)
 
 import aiosqlite.core  # noqa: E402
 import pytest  # noqa: E402
@@ -112,8 +127,10 @@ from shared.enumerations import RoleEnum  # noqa: E402
 from web.config import settings  # noqa: E402
 from web.database import Base  # noqa: E402
 
-if settings.VALKEY_DB != 15:
-    raise RuntimeError(f"Tests must use Valkey DB 15, got DB {settings.VALKEY_DB}")
+if _test_valkey_db != settings.VALKEY_DB:
+    raise RuntimeError(
+        f"Tests must use Valkey DB {_test_valkey_db} (worker {_xdist_worker or 'serial'}), got DB {settings.VALKEY_DB}"
+    )
 from tests.fixtures.interif_2026 import (  # noqa: E402
     InterIF2026ContestFixture,
     load_interif_2026_contest,

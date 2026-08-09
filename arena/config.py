@@ -388,6 +388,28 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
+    # Ranking medals (dashboard leaderboard and /ranking pages)
+    # ------------------------------------------------------------------
+    ARENA_RANKING_MEDAL_GOLD_CUTOFF: int = Field(
+        default=1,
+        ge=0,
+        le=1000,
+        description="Last ranking position awarded a gold medal (0 disables the gold band).",
+    )
+    ARENA_RANKING_MEDAL_SILVER_CUTOFF: int = Field(
+        default=2,
+        ge=0,
+        le=1000,
+        description="Last ranking position awarded a silver medal (0 disables the silver band).",
+    )
+    ARENA_RANKING_MEDAL_BRONZE_CUTOFF: int = Field(
+        default=3,
+        ge=0,
+        le=1000,
+        description="Last ranking position awarded a bronze medal (0 disables the bronze band).",
+    )
+
+    # ------------------------------------------------------------------
     # Online presence (green-dot indicator on user avatars)
     # ------------------------------------------------------------------
     PRESENCE_ENABLED: bool = Field(
@@ -596,6 +618,29 @@ class Settings(BaseSettings):
             raise ValueError(
                 "NOCA_ARENA_WORKER_PRESENCE_TTL_SECONDS must be greater than "
                 "NOCA_ARENA_WORKER_PRESENCE_INTERVAL_SECONDS."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_ranking_medal_cutoffs(self) -> Settings:
+        """Require the enabled medal cutoffs to grow from gold to bronze.
+
+        A cutoff of 0 disables its band and is skipped by the ordering check, so
+        'no gold, silver up to 2, bronze up to 3' (0/2/3) is a valid setup.
+        """
+        enabled = [
+            value
+            for value in (
+                self.ARENA_RANKING_MEDAL_GOLD_CUTOFF,
+                self.ARENA_RANKING_MEDAL_SILVER_CUTOFF,
+                self.ARENA_RANKING_MEDAL_BRONZE_CUTOFF,
+            )
+            if value > 0
+        ]
+        if any(later < earlier for earlier, later in zip(enabled, enabled[1:], strict=False)):
+            raise ValueError(
+                "NOCA_ARENA_RANKING_MEDAL_GOLD_CUTOFF, NOCA_ARENA_RANKING_MEDAL_SILVER_CUTOFF and "
+                "NOCA_ARENA_RANKING_MEDAL_BRONZE_CUTOFF must not decrease (ignoring bands disabled with 0)."
             )
         return self
 

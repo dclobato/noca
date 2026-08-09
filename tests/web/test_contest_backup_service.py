@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -47,9 +47,39 @@ from web.services.contest_backup_service import (
     build_contest_backup,
     import_contest_backup,
 )
+from web.services.contest_backup_service.export import _append_problem_folder
 from web.services.problem_service.files import save_md_statement, save_testcase_files
 
 LANGUAGE_ID = "python3"
+
+
+def test_problem_package_members_are_streamed_into_the_backup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_path = tmp_path / "problem.zip"
+    backup_path = tmp_path / "backup.zip"
+    with zipfile.ZipFile(package_path, "w") as package:
+        package.writestr("in/001.in", b"x" * (2 * 1024 * 1024))
+    with zipfile.ZipFile(backup_path, "w"):
+        pass
+
+    read_sizes: list[int] = []
+    original_read = zipfile.ZipExtFile.read
+
+    def tracked_read(handle: zipfile.ZipExtFile, size: int = -1) -> bytes:
+        read_sizes.append(size)
+        return original_read(handle, size)
+
+    monkeypatch.setattr(zipfile.ZipExtFile, "read", tracked_read)
+
+    _append_problem_folder(backup_path, "problems/p1", package_path)
+
+    assert read_sizes
+    assert all(size == 1024 * 1024 for size in read_sizes)
+    assert not package_path.exists()
+    with zipfile.ZipFile(backup_path) as backup:
+        assert backup.getinfo("problems/p1/in/001.in").file_size == 2 * 1024 * 1024
 
 
 async def _seed_language(session: AsyncSession) -> None:
@@ -728,3 +758,34 @@ async def test_solution_test_runs_are_excluded_from_the_archive(
         .all()
     )
     assert restored_runs == []
+
+
+@pytest.mark.asyncio
+async def test_legacy_backup_with_a_null_output_limit_is_still_restorable(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """``problems.output_limit_in_bytes`` used to be nullable; NULL meant "no limit".
+
+    The column is now NOT NULL and row validation rejects NULL for a non-nullable
+    column, so an older backup would otherwise be unrestorable. The value is
+    normalized to the documented default instead.
+    """
+    contest = await _seed_contest(session, uberadmin)
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    legacy_path = tmp_path / "legacy-backup.zip"
+    with zipfile.ZipFile(zip_path) as source, zipfile.ZipFile(legacy_path, "w") as target:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename.endswith("problems.json"):
+                payload = json.loads(data)
+                for entry in payload if isinstance(payload, list) else payload.get("rows", []):
+                    entry["problem"]["output_limit_in_bytes"] = None
+                data = json.dumps(payload).encode("utf-8")
+            target.writestr(info.filename, data)
+
+    restored = await _restore(session, legacy_path, uberadmin, slug="legacy", name="Legacy")
+
+    problems = (await session.execute(select(Problem).where(Problem.contest_id == restored.id))).scalars().all()
+    assert [problem.output_limit_in_bytes for problem in problems] == [65536]

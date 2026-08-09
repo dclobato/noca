@@ -1,5 +1,5 @@
 //  NOCA -- Next Online Contest Administrator
-//  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 //  This program is distributed in the hope that it will be useful,
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -30,7 +30,7 @@
   //   timer:    object exposing setFrozen(bool) (optional)
   //   pending:  object exposing render(pendingSubmissions) (optional)
   //   activity: object exposing reconcile(previous, next) (optional)
-  //   refs:     { standings, loading, empty, board }
+  //   refs:     { standings, loading, empty, board, medalBase }
   //   setHidden(el, hidden): visibility toggle
   function createBoard(deps) {
     var problems = [];
@@ -45,7 +45,16 @@
     // no focusable content, so replacing the tbody cannot move focus.
     function applySnapshot(snapshot) {
       var firstTops = deps.applier.measureRows();
-      var hasRows = deps.render.renderStandings(deps.doc, deps.refs.standings, problems, snapshot.standings);
+      // The medal base must be forwarded here: the renderer builds each row's
+      // watermark <img> src from it, and this is the only call site that reaches
+      // renderStandings on the live board.
+      var hasRows = deps.render.renderStandings(
+        deps.doc,
+        deps.refs.standings,
+        problems,
+        snapshot.standings,
+        { medalBase: deps.refs.medalBase || null },
+      );
       deps.setHidden(deps.refs.loading, true);
       // Empty placeholder is hidden when there ARE rows; board is hidden when
       // there are none.

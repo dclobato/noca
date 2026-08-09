@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -18,6 +18,9 @@ import math
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
+
+MedalBand = Literal["gold", "silver", "bronze"]
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
 _BALLOON_TEMPLATE = (_ASSETS_DIR / "balloontemplate.svg").read_text(encoding="utf-8")
@@ -83,6 +86,33 @@ def render_medal_svg(band: str) -> str:
         return _MEDAL_SVGS[band]
     except KeyError as exc:
         raise ValueError("Invalid medal band") from exc
+
+
+def medal_band_for_rank(rank: int, *, gold: int, silver: int, bronze: int) -> MedalBand | None:
+    """Map a 1-based ranking position to its medal band.
+
+    Each cutoff is the last rank belonging to that band, and bands are tried in
+    ``gold``, ``silver``, ``bronze`` order. A cutoff of ``0`` disables its band,
+    so ``gold=0, silver=2, bronze=3`` awards silver to ranks 1 and 2.
+
+    Args:
+        rank: The 1-based ranking position.
+        gold: Last rank awarded gold, or ``0`` to disable gold.
+        silver: Last rank awarded silver, or ``0`` to disable silver.
+        bronze: Last rank awarded bronze, or ``0`` to disable bronze.
+
+    Returns:
+        The medal band, or ``None`` when the rank earns no medal. A ``rank``
+        below ``1`` is not a standing position and always yields ``None``.
+    """
+    if rank < 1:
+        return None
+
+    bands: tuple[tuple[MedalBand, int], ...] = (("gold", gold), ("silver", silver), ("bronze", bronze))
+    for band, cutoff in bands:
+        if cutoff > 0 and rank <= cutoff:
+            return band
+    return None
 
 
 def _relative_luminance(fill_color: str) -> float:

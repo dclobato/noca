@@ -47,6 +47,7 @@
 }
 
 .arena-profile-rating {
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
@@ -125,6 +126,7 @@
 }
 
 .arena-rating-sparkline-label {
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
@@ -260,6 +262,7 @@
 }
 
 .arena-progress-table {
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     margin-bottom: 0.75rem;
 }
 

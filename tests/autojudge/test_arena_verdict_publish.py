@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -35,7 +35,7 @@ def _submission() -> QueuedArenaSubmission:
         problem_title="Echo",
         language_id=_LANGUAGE_ID,
         source_code="x",
-        limits=ProblemLimits(time_limit_ms=1000, memory_limit_kb=65536, pids_limit=16),
+        limits=ProblemLimits(time_limit_ms=1000, memory_limit_kb=65536, pids_limit=16, output_limit_in_bytes=65536),
         test_cases=(ArenaQueuedTestCase(test_case_id="tc-1", ordinal=1, input_data=b"1\n", expected_output=b"1\n"),),
     )
 

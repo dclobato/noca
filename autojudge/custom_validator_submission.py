@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -61,7 +61,7 @@ def _limits_payload(limits: ProblemLimits) -> dict[str, int]:
         "time_limit_ms": limits.time_limit_ms,
         "memory_limit_kb": limits.memory_limit_kb,
         "pids_limit": limits.pids_limit,
-        "output_limit_in_bytes": limits.output_limit_in_bytes or settings.OUTPUT_LIMIT_BYTES,
+        "output_limit_in_bytes": min(limits.output_limit_in_bytes, settings.OUTPUT_LIMIT_BYTES),
         "repetitions": limits.repetitions,
     }
 
@@ -75,7 +75,7 @@ def build_validator_environment(
     """Build environment variables exposed to the trusted validator process."""
     environment = {
         "PROBLEM_TIME_LIMIT": str(limits.time_limit_ms),
-        "PROBLEM_OUTPUT_LIMIT": str(limits.output_limit_in_bytes or settings.OUTPUT_LIMIT_BYTES),
+        "PROBLEM_OUTPUT_LIMIT": str(min(limits.output_limit_in_bytes, settings.OUTPUT_LIMIT_BYTES)),
         "PROBLEM_MEMORY_LIMIT": str(limits.memory_limit_kb),
         "PROBLEM_PID_LIMIT": str(limits.pids_limit),
         "USER_LANGUAGE": user_language_id,
@@ -242,7 +242,7 @@ async def _judge_test_case(
                     limits=limits,
                     docker_client=docker_client,
                     executor=executor,
-                    output_limit_bytes=limits.output_limit_in_bytes or settings.OUTPUT_LIMIT_BYTES,
+                    output_limit_bytes=min(limits.output_limit_in_bytes, settings.OUTPUT_LIMIT_BYTES),
                     watchdog_seconds=settings.CUSTOM_VALIDATOR_WATCHDOG_SECONDS,
                     validator_environment=validator_environment,
                 ),

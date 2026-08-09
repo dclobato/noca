@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -269,6 +269,15 @@ def _write_local_fonts_css(config: dict[str, str], vendor_dir: Path, webfonts_di
                 f"family=Public+Sans:wght@{config['public_sans_weights']}&display=swap"
             ),
             prefix="public-sans",
+            webfonts_dir=webfonts_dir,
+            failures=failures,
+        ),
+        _download_google_font_css(
+            css_url=(
+                "https://fonts.googleapis.com/css2?"
+                f"family=IBM+Plex+Mono:wght@{config['ibm_plex_mono_weights']}&display=swap"
+            ),
+            prefix="ibm-plex-mono",
             webfonts_dir=webfonts_dir,
             failures=failures,
         ),

@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -112,8 +112,7 @@
                                     <div class="d-flex align-items-center gap-2">
                                         {{ render_avatar(tx.user_id, request.url_for('arena_user_avatar_by_id', user_id=tx.user_id) , img_class="rounded-circle object-fit-cover flex-shrink-0") }}
                                         <div>
-                                            <a href="{{ request.url_for('arena_admin_user_profile', user_id=tx.user_id) }}"
-                                               class="text-decoration-none">{{ tx.user.nome }}</a>
+                                            <a href="{{ request.url_for('arena_admin_user_profile', user_id=tx.user_id) }}">{{ tx.user.nome }}</a>
                                             <br>
                                             <small class="text-muted">{{ tx.user.email }}</small>
                                         </div>
@@ -122,7 +121,7 @@
                                 <td>
                                     {% if tx.submission_id %}
                                         <a href="{{ request.url_for('arena_submission_detail', submission_id=tx.submission_id) }}"
-                                           class="text-decoration-none small">Submission</a>
+                                           class="small">Submission</a>
                                     {% else %}
                                         <span class="text-muted">&mdash;</span>
                                     {% endif %}
@@ -142,7 +141,7 @@
                                     {% endif %}
                                     {% if is_refunded %}<span class="badge bg-light text-secondary border ms-1">Refunded</span>{% endif %}
                                 </td>
-                                <td class="text-nowrap text-end font-monospace">
+                                <td class="text-nowrap text-end">
                                     {% if tx.submission
                                         and tx.submission.ai_review
                                         and tx.submission.ai_review.ai_review_cost is not none %}
@@ -151,7 +150,7 @@
                                         <span class="text-muted">&mdash;</span>
                                     {% endif %}
                                 </td>
-                                <td class="text-nowrap text-end font-monospace">
+                                <td class="text-nowrap text-end">
                                     {% if tx.submission_id in turnaround_seconds %}
                                         {{ format_compact_duration(turnaround_seconds[tx.submission_id]) }}
                                     {% else %}

@@ -108,6 +108,9 @@ async def test_page_enabled_renders_dom_hooks(session: AsyncSession, uberadmin: 
     # URLs served by the animator's own /assets route.
     assert 'data-balloon-base="http://test/assets/balloon"' in html
     assert 'data-star-base="http://test/assets/star"' in html
+    # The medal base drives the podium watermark, which the live board renders
+    # from the same primitives the reveal projector uses.
+    assert 'data-medal-base="http://test/assets/medal"' in html
     # State changes are politely announced; elapsed seconds remain non-blocking.
     assert 'id="animator-connection-label"' in html
     assert 'id="animator-connection-elapsed"' in html
@@ -149,6 +152,7 @@ async def test_page_loads_shared_and_module_assets(session: AsyncSession, uberad
     assert "bootstrap.min.css" in html
     assert "noca-fonts.css" in html
     assert "animator.css" in html
+    assert "animator-scoreboard.css" in html
     assert "animator-events.css" in html
     assert "animator.js" in html
     assert "animator-keyed-rows.js" in html
@@ -276,26 +280,41 @@ def test_every_animator_page_uses_the_shared_footer_shell() -> None:
         assert '{% extends "_base.html" %}' in template, template_name
 
 
+def _shell_css() -> str:
+    """Page shell, chrome, and reduced-motion rules."""
+    return (_STATIC_DIR / "css" / "animator.css").read_text(encoding="utf-8")
+
+
+def _board_css() -> str:
+    """Scoreboard table, problem cells, live transitions, and medal bands.
+
+    Split out of ``animator.css`` when that file outgrew the project's soft
+    size bound; both are loaded from ``_base.html`` on every animator page.
+    """
+    return (_STATIC_DIR / "css" / "animator-scoreboard.css").read_text(encoding="utf-8")
+
+
 def test_static_css_reduced_motion_and_overflow() -> None:
-    css = (_STATIC_DIR / "css" / "animator.css").read_text(encoding="utf-8")
+    css = _shell_css()
+    board = _board_css()
     events_css = (_STATIC_DIR / "css" / "animator-events.css").read_text(encoding="utf-8")
     assert "prefers-reduced-motion" in css
     assert "prefers-reduced-motion" in events_css
     assert "animation-play-state: paused" in events_css
     # The bounded board scrolls in both directions, giving the sticky header a
     # vertical scroll container instead of scrolling the whole page.
-    assert ".animator-board-scroll" in css
+    assert ".animator-board-scroll" in board
     assert ".animator-scoreboard-root" in css
     assert "height: 100dvh" in _rule_body(css, ".animator-body")
     assert "height: auto" in _rule_body(css, ".animator-scoreboard-root")
     assert "overflow: hidden" in _rule_body(css, ".animator-scoreboard-root")
-    board_scroll = _rule_body(css, ".animator-board-scroll")
+    board_scroll = _rule_body(board, ".animator-board-scroll")
     assert "overflow: auto" in board_scroll
     assert "min-height: 0" in board_scroll
 
 
 def test_scoreboard_header_is_sticky_and_opaque() -> None:
-    css = (_STATIC_DIR / "css" / "animator.css").read_text(encoding="utf-8")
+    css = _board_css()
     header = _rule_body(css, ".animator-scoreboard thead th")
 
     assert "position: sticky" in header
@@ -304,7 +323,7 @@ def test_scoreboard_header_is_sticky_and_opaque() -> None:
 
 
 def test_problem_columns_share_one_fixed_width_and_neutral_result_backgrounds() -> None:
-    css = (_STATIC_DIR / "css" / "animator.css").read_text(encoding="utf-8")
+    css = _board_css()
     header = _rule_body(css, ".animator-problem-col")
     cell = _rule_body(css, ".animator-cell")
 
@@ -320,7 +339,7 @@ def test_problem_columns_share_one_fixed_width_and_neutral_result_backgrounds() 
 
 
 def test_team_site_typography_is_explicit_and_shared() -> None:
-    css = (_STATIC_DIR / "css" / "animator.css").read_text(encoding="utf-8")
+    css = _board_css()
     secondary = _rule_body(css, ".animator-team-secondary")
 
     assert "font-size: 0.8em" in secondary
@@ -329,7 +348,8 @@ def test_team_site_typography_is_explicit_and_shared() -> None:
 
 
 def test_static_css_transient_highlights_are_static_not_motion() -> None:
-    css = (_STATIC_DIR / "css" / "animator.css").read_text(encoding="utf-8")
+    css = _shell_css()
+    board = _board_css()
     # All six transient classes exist so reduced-motion viewers still see change.
     for cls in [
         ".animator-row--rank-up",
@@ -339,7 +359,7 @@ def test_static_css_transient_highlights_are_static_not_motion() -> None:
         ".animator-cell--flash-pending",
         ".animator-cell--flash-first",
     ]:
-        assert cls in css, cls
+        assert cls in board, cls
     # The highlights are expressed as static outline/box-shadow (not @keyframes),
     # so the reduced-motion block — which neutralizes animation/transition — leaves
     # the state highlight intact while removing the FLIP transform motion.
@@ -349,10 +369,10 @@ def test_static_css_transient_highlights_are_static_not_motion() -> None:
 
 
 def test_row_movement_and_cell_highlights_use_independent_timings() -> None:
-    css = (_STATIC_DIR / "css" / "animator.css").read_text(encoding="utf-8")
-    root = _rule_body(css, ".animator-root")
-    row = _rule_body(css, ".animator-scoreboard tbody tr")
-    cell = _rule_body(css, ".animator-cell")
+    root = _rule_body(_shell_css(), ".animator-root")
+    board = _board_css()
+    row = _rule_body(board, ".animator-scoreboard tbody tr")
+    cell = _rule_body(board, ".animator-cell")
 
     assert "--animator-row-motion-duration: 1s" in root
     assert "--animator-row-motion-easing: ease" in root
@@ -362,7 +382,7 @@ def test_row_movement_and_cell_highlights_use_independent_timings() -> None:
 
 
 def test_flash_first_is_visually_distinct_from_persistent_first() -> None:
-    css = (_STATIC_DIR / "css" / "animator.css").read_text(encoding="utf-8")
+    css = _board_css()
     # The persistent first-solve marker and the transient first-balloon-change
     # flash must not render identically, or the transient class would be a no-op.
     persistent = _rule_body(css, ".animator-cell--first")

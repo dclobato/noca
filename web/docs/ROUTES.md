@@ -356,10 +356,15 @@ Route ownership is split across `contest_admin.py`,
 ## Contest Animator Administration (`web/routes/contest_admin_animator.py`)
 
 Dedicated page (kept off the already large metadata page) for enabling the animator,
-editing all site medal bands in one form, and managing operator credentials. Same
+editing the contest-wide and all per-site medal bands in one form, and managing
+operator credentials. Note that a reveal ceremony snapshots its cutoffs when it is
+created, so a change here reaches an already-stored ceremony only after the operator
+restarts it with **Start over** (`start-reveal` with `restart=true`). Same
 authorization as the rest of contest administration: a valid UberAdmin JWT **or** a
 contest JWT with role `a` (admin); other contest roles get 403. Reuses the shared
-`site_service` animator wrappers — no new service. A freshly generated operator token
+`site_service` animator wrappers for the per-site cutoffs and
+`contest_service.update_contest_global_medals` for the contest-wide ones; both are thin
+wrappers over `shared.services.animator_access_service`. A freshly generated operator token
 is shown **exactly once** in an HTMX partial, optionally emailed to the administrator,
 and never persisted or flashed; only its digest is stored and no digest is ever
 rendered.
@@ -368,7 +373,7 @@ rendered.
 |--------|-----|---------|-------------|
 | `GET` | `/c/{slug}/admin/animator/` | ua, a | Renders the animator settings page with the `animator_enabled` toggle, one bulk medal-cutoff table, and one digest-free operator-credential table for site-scoped and contest-global secrets. Implemented in `contest_admin_animator.py`. |
 | `POST` | `/c/{slug}/admin/animator/settings` | ua, a | Updates `contests.animator_enabled` from the `animator_enabled` switch (`yes`/absent). Audited via `admin_action`. Redirects to the settings page (303). Implemented in `contest_admin_animator.py`. |
-| `POST` | `/c/{slug}/admin/animator/medals` | ua, a | Validates dynamic `gold_cutoff_{site_id}`, `silver_cutoff_{site_id}`, and `bronze_cutoff_{site_id}` fields for every site before updating any row. Invalid input flashes the site-specific error and changes nothing; success commits all rows once. Redirects (303). Implemented in `contest_admin_animator.py`. |
+| `POST` | `/c/{slug}/admin/animator/medals` | ua, a | Validates the contest-wide `global_gold_cutoff` / `global_silver_cutoff` / `global_bronze_cutoff` fields **and** the dynamic `gold_cutoff_{site_id}`, `silver_cutoff_{site_id}`, `bronze_cutoff_{site_id}` fields for every site before updating any row. The global triple is all-or-nothing: all three blank (or whitespace) clears it and disables global medals, a partially filled triple is rejected, and a form carrying none of the three fields leaves the stored values alone rather than clearing them. Invalid input flashes the scope-specific error and changes nothing; success commits the global row and all site rows in one transaction. Redirects (303). Implemented in `contest_admin_animator.py`. |
 | `POST` | `/c/{slug}/admin/animator/secrets` | ua, a | Creates a site-scoped or global operator credential from the `scope` and `label` fields and records the action in the shared admin audit log in the same transaction. Returns the `admin/animator_operators.html` HTMX partial with the plaintext token shown once and email-delivery feedback. Invalid input returns the same swappable partial with an inline error and HTTP 200. Implemented in `contest_admin_animator.py`. |
 | `POST` | `/c/{slug}/admin/animator/secrets/{secret_id}/revoke` | ua, a | Revokes a site or global credential owned by the contest, records the action in the shared admin audit log in the same transaction, and returns the updated HTMX operators partial. A missing or foreign `secret_id` changes nothing and returns the partial with an inline error and HTTP 200. Implemented in `contest_admin_animator.py`. |
 

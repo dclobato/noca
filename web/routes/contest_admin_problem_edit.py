@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -25,6 +25,7 @@ from shared.services.custom_validator import (
 )
 from shared.services.imageprocessing_service import ImageProcessingError
 from shared.services.problem_image import process_problem_image_upload
+from shared.services.problem_package import DEFAULT_OUTPUT_LIMIT_BYTES, MAX_TITLE_CHARS
 from shared.services.sample_interactions import MAX_SAMPLE_INTERACTIONS, InteractionParseError
 from shared.services.valkey_service import enqueue_custom_validator_validation_job
 from shared.tc_zip import normalize_testcase_bytes
@@ -473,8 +474,8 @@ async def edit_problem_submit(
     title = title.strip()
     if not title:
         errors.append("Title is required.")
-    elif len(title) > 200:
-        errors.append("Title must be 200 characters or fewer.")
+    elif len(title) > MAX_TITLE_CHARS:
+        errors.append(f"Title must be {MAX_TITLE_CHARS} characters or fewer.")
 
     tlms: int | None = None
     if not time_limit_ms.strip():
@@ -509,12 +510,14 @@ async def edit_problem_submit(
         except ValueError:
             errors.append("PIDs limit must be a positive integer.")
 
-    output_limit_value: int | None = None
+    output_limit_value: int = DEFAULT_OUTPUT_LIMIT_BYTES
     if output_limit_in_bytes.strip():
         try:
             output_limit_value = int(output_limit_in_bytes)
+            if output_limit_value < 1:
+                errors.append("Output limit must be at least 1 byte.")
         except ValueError:
-            errors.append("Output limit must be a positive integer or blank.")
+            errors.append("Output limit must be a positive integer.")
 
     statement_dir = settings.PROBLEM_STATEMENT_DIR
     existing_has_pdf = await anyio.to_thread.run_sync(lambda: get_statement_path(problem.id, statement_dir).exists())

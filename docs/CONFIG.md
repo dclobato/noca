@@ -384,6 +384,20 @@ Arena admin dashboard or pause UI.
 |----------|---------|-------------|
 | `NOCA_ARENA_LIVE_FEED_LIMIT` | `20` | Maximum number of finalized submissions returned by `/live/feed.json` and shown on the public Arena live feed page (1–100). |
 
+### Ranking medals
+
+Each cutoff is the last ranking position awarded that medal, applied to the dashboard
+leaderboard card, `/ranking/users` and `/ranking/affiliations` (the affiliation-scoped
+user list shows plain global ranks). Bands are tried gold → silver → bronze, and `0`
+disables a band: `0/2/3` gives no gold and silver to positions 1–2. Ignoring disabled
+bands, the values must not decrease, otherwise Arena refuses to start.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOCA_ARENA_RANKING_MEDAL_GOLD_CUTOFF` | `1` | Last ranking position awarded a gold medal (0–1000; `0` disables gold). |
+| `NOCA_ARENA_RANKING_MEDAL_SILVER_CUTOFF` | `2` | Last ranking position awarded a silver medal (0–1000; `0` disables silver). |
+| `NOCA_ARENA_RANKING_MEDAL_BRONZE_CUTOFF` | `3` | Last ranking position awarded a bronze medal (0–1000; `0` disables bronze). |
+
 ### Online presence
 
 | Variable | Default | Description |
@@ -606,7 +620,7 @@ For the full startup behavior matrix covering image sync, pull policy, and lazy 
 | `NOCA_JUDGE_ISOLATE_WALL_TIME_MULTIPLIER` | `3` | Multiplier applied to each problem's CPU time limit to compute the authoritative inner isolate `--wall-time` budget (1.0–10.0). |
 | `NOCA_JUDGE_OUTER_TIMEOUT_MULTIPLIER` | `2` | Multiplier applied to the computed inner isolate wall-time budget to derive the outer `asyncio.wait_for()` safety timeout (1.0–10.0). |
 | `NOCA_JUDGE_COMPILE_TIMEOUT_S` | `180` | Global ceiling for the compile phase in seconds (minimum 5 s). Per-language values configured in the database take precedence when set. |
-| `NOCA_JUDGE_OUTPUT_LIMIT_BYTES` | `67108864` (64 MiB) | Global hard ceiling for stdout handling per test case. The effective NOCA output limit is `min(problem_or_language_output_limit, NOCA_JUDGE_OUTPUT_LIMIT_BYTES)` when a problem-level limit exists, otherwise this global value alone applies (minimum 1024). |
+| `NOCA_JUDGE_OUTPUT_LIMIT_BYTES` | `67108864` (64 MiB) | Global hard ceiling for stdout handling per test case. This is a **hard ceiling**, never a fallback: every problem states an output limit of its own (the column is NOT NULL, defaulting to 65536), so the effective limit is always `min(problem_or_language_output_limit, NOCA_JUDGE_OUTPUT_LIMIT_BYTES)` (minimum 1024). |
 | `NOCA_JUDGE_STDOUT_EXCERPT_BYTES` | `8192` | How many bytes of contestant stdout to persist in `submission_test_results.stdout_excerpt` for display in the UI (minimum 256). |
 | `NOCA_JUDGE_STDERR_EXCERPT_BYTES` | `4096` | Same as `NOCA_JUDGE_STDOUT_EXCERPT_BYTES` but for stderr (minimum 256). |
 | `NOCA_JUDGE_PROFILING_MAX_CPU_TIME_SEC` | `30` | Hard CPU-time ceiling applied to each profiling repetition run before Auto-Limit metrics are collected. |

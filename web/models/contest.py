@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -60,6 +60,9 @@ class Contest(Base):
     ce_adds_penalty: Mapped[bool]
     release_scoreboard_after_end: Mapped[bool]
     animator_enabled: Mapped[bool]
+    global_gold_cutoff: Mapped[int | None]
+    global_silver_cutoff: Mapped[int | None]
+    global_bronze_cutoff: Mapped[int | None]
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 

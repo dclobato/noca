@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -75,10 +75,17 @@ async def _make_language(session: AsyncSession) -> Language:
     return language
 
 
-async def _make_problem(session: AsyncSession, author: ArenaUser, *, rating: int | None = None) -> ArenaProblem:
+async def _make_problem(
+    session: AsyncSession,
+    author: ArenaUser,
+    *,
+    rating: int | None = None,
+    arena_number: int | None = None,
+    title: str | None = None,
+) -> ArenaProblem:
     problem = ArenaProblem(
-        arena_number=int(uuid.uuid4().int % 1_000_000_000) + 1,
-        title=f"Problem {uuid.uuid4().hex[:8]}",
+        arena_number=arena_number or int(uuid.uuid4().int % 1_000_000_000) + 1,
+        title=title or f"Problem {uuid.uuid4().hex[:8]}",
         owner_id=author.id,
         problem_statement="<p>Echo.</p>",
     )
@@ -1158,6 +1165,49 @@ async def test_search_set_candidate_problems_filters_by_query(session: AsyncSess
         query="Problem",
     )
     assert all("Problem" in r.title or str(r.arena_number).startswith("Problem") for r in matches)
+
+
+@pytest.mark.asyncio
+async def test_problem_picker_escapes_wildcards_and_orders_exact_number_first(
+    session: AsyncSession,
+) -> None:
+    """The picker escapes wildcards and intentionally matches number substrings."""
+    teacher = await _make_user(session, role=ArenaRole.ARENA_JUDGE)
+    arena_class = await _make_class(session, teacher)
+    existing = await _make_problem(session, teacher)
+    exact = await _make_problem(session, teacher, arena_number=42, title="Forty Two")
+    prefix = await _make_problem(session, teacher, arena_number=142, title="Prefix Match")
+    suffix = await _make_problem(session, teacher, arena_number=420, title="Suffix Match")
+    title_match = await _make_problem(session, teacher, arena_number=500, title="Contains 42")
+    for candidate in (exact, prefix, suffix, title_match):
+        candidate.enabled = True
+    set_id = await _accepting_set(session, teacher, arena_class, problems=[existing])
+
+    wildcard_rows = await mgmt.search_set_candidate_problems(
+        session,
+        actor_id=teacher.id,
+        actor_role=teacher.role,
+        set_id=set_id,
+        query="%",
+    )
+    number_rows = await mgmt.search_set_candidate_problems(
+        session,
+        actor_id=teacher.id,
+        actor_role=teacher.role,
+        set_id=set_id,
+        query="42",
+    )
+
+    assert wildcard_rows == []
+    assert number_rows[0].problem_id == exact.id
+    # Number matching is deliberately substring-based: 42, 142, and 420 all
+    # remain candidates, while the exact Arena number is ranked first.
+    assert {row.problem_id for row in number_rows} == {
+        exact.id,
+        prefix.id,
+        suffix.id,
+        title_match.id,
+    }
 
 
 @pytest.mark.asyncio

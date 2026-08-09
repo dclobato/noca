@@ -107,6 +107,42 @@
         return el && el.getBoundingClientRect ? el.getBoundingClientRect().top : 0;
       };
 
+    // `will-change` is a hint about imminent work, not a property a row should
+    // wear at rest. A blanket stylesheet rule promotes every row of the board to
+    // its own compositor layer permanently, which on a large contest is a
+    // standing memory cost on the machine driving a projector. It is written
+    // here only on rows that are actually moving, and cleared once they stop.
+    var MOTION_HINT_FALLBACK_MS = 1200;
+
+    function motionLifetimeMs() {
+      if (rowAnimation && typeof rowAnimation.duration === "number") {
+        return rowAnimation.duration;
+      }
+      var fromCss = rowAnimationFromCss(tbody);
+      return fromCss && typeof fromCss.duration === "number" ? fromCss.duration : MOTION_HINT_FALLBACK_MS;
+    }
+
+    // Promote for the duration of one move. A later update re-promotes before
+    // its own motion, so an early clear from an overlapping update costs at most
+    // the hint — never the animation.
+    function hintMotion(rows) {
+      var hinted = [];
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i] && rows[i].style) {
+          rows[i].style.willChange = "transform";
+          hinted.push(rows[i]);
+        }
+      }
+      if (!setTimer || hinted.length === 0) {
+        return;
+      }
+      setTimer(function () {
+        for (var j = 0; j < hinted.length; j++) {
+          hinted[j].style.willChange = "";
+        }
+      }, motionLifetimeMs());
+    }
+
     // Track one pending removal timer per (element, class). Reapplying the same
     // class to the same element clears the previous timer first, so a rapid
     // second update never has its stale timeout strip a fresh highlight.
@@ -180,7 +216,13 @@
         return;
       }
       var rows = tbody ? tbody.children : [];
-      var moved = [];
+
+      // Pass 1 — read only. Every getBoundingClientRect() happens before the
+      // first style write, so the browser answers them all from one layout.
+      // Interleaving the write below into this loop would invalidate layout on
+      // each iteration and force a synchronous recalc for the next row's read:
+      // one forced layout per moved row, on the hot path of every rank change.
+      var pendingMoves = [];
       for (var i = 0; i < rows.length; i++) {
         var row = rows[i];
         var teamId = row.getAttribute ? row.getAttribute("data-team-id") : null;
@@ -189,21 +231,38 @@
         }
         var delta = firstTops[teamId] - row.getBoundingClientRect().top;
         if (delta) {
-          // The reveal projector opts into Web Animations so table-row motion
-          // starts reliably even when a browser coalesces style writes around a
-          // complete tbody replacement. The live board keeps its established
-          // CSS-transition path unless its caller opts in too.
-          if (rowAnimation && typeof row.animate === "function") {
-            row.animate(
-              [{ transform: "translateY(" + delta + "px)" }, { transform: "translateY(0)" }],
-              rowAnimation,
-            );
-            continue;
-          }
-          row.style.transform = "translateY(" + delta + "px)";
-          row.style.transition = "none";
-          moved.push(row);
+          pendingMoves.push({ row: row, delta: delta });
         }
+      }
+      if (pendingMoves.length === 0) {
+        return;
+      }
+
+      // Pass 2 — write only. The compositor hint goes on first, before any
+      // transform, so the browser can prepare the layers it is about to move.
+      var movingRows = [];
+      for (var h = 0; h < pendingMoves.length; h++) {
+        movingRows.push(pendingMoves[h].row);
+      }
+      hintMotion(movingRows);
+
+      var moved = [];
+      for (var j = 0; j < pendingMoves.length; j++) {
+        var move = pendingMoves[j];
+        // The reveal projector opts into Web Animations so table-row motion
+        // starts reliably even when a browser coalesces style writes around a
+        // complete tbody replacement. The live board keeps its established
+        // CSS-transition path unless its caller opts in too.
+        if (rowAnimation && typeof move.row.animate === "function") {
+          move.row.animate(
+            [{ transform: "translateY(" + move.delta + "px)" }, { transform: "translateY(0)" }],
+            rowAnimation,
+          );
+          continue;
+        }
+        move.row.style.transform = "translateY(" + move.delta + "px)";
+        move.row.style.transition = "none";
+        moved.push(move.row);
       }
       if (moved.length === 0) {
         return;

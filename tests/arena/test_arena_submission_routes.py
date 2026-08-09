@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -168,6 +168,7 @@ def _build_app(session: AsyncSession, *, valkey_runtime: object | None = None) -
     async def _dashboard() -> Response:
         return Response("dashboard")
 
+    @app.get("/live", name="arena_live")
     @app.get("/status", name="arena_status")
     async def _status() -> Response:
         return Response("status")
@@ -197,6 +198,14 @@ def _build_app(session: AsyncSession, *, valkey_runtime: object | None = None) -
         # Render flashed messages so redirect-then-flash flows are observable.
         messages = get_flash_service(request).get_flashed_messages()
         return Response("profile " + " ".join(str(m) for m in messages))
+
+    @app.get("/user/submissions/status.json", name="arena_user_submissions_status")
+    async def _user_submissions_status() -> Response:
+        return Response('{"submissions": []}', media_type="application/json")
+
+    @app.get("/user/submissions/status/events", name="arena_user_submissions_events")
+    async def _user_submissions_events() -> Response:
+        return Response("data: refresh\n\n", media_type="text/event-stream")
 
     @app.get("/user/profile/2fa/setup", name="arena_2fa_setup")
     async def _2fa_setup() -> Response:
@@ -742,6 +751,7 @@ async def test_submission_detail_shows_help_button(session: AsyncSession) -> Non
     assert 'type="button"' in resp.text
     assert 'data-bs-target="#ai-review-confirm-modal"' in resp.text
     assert "Confirm AI review" in resp.text
+    assert "confetti-celebrate.js" not in resp.text
 
 
 @pytest.mark.asyncio
@@ -1103,6 +1113,46 @@ async def test_submission_detail_ac_hides_ai_section(session: AsyncSession) -> N
     assert resp.status_code == 200
     assert "Want some help?" not in resp.text
     assert "AI Review" not in resp.text
+    assert "data-submission-detail-live" not in resp.text
+    assert "confetti-celebrate.js" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_submission_detail_pending_owner_loads_live_confetti_watcher(
+    session: AsyncSession,
+) -> None:
+    """A pending owner view watches SSE without celebrating the rendered state."""
+    app = _build_app(session)
+
+    author = await _make_arena_user(session, email_prefix="author-live-detail")
+    problem = await _make_problem_with_tc(session, author)
+    lang = await _make_language(session)
+    owner = await _make_arena_user(session, email_prefix="owner-live-detail")
+    sub_id, _ = await _make_submission_with_judgment(
+        session,
+        owner,
+        problem,
+        lang,
+        status="JUDGING",
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login_user(client, app, owner)
+        resp = await client.get(f"/submissions/{sub_id}", follow_redirects=False)
+
+    assert resp.status_code == 200
+    assert "data-submission-detail-live" in resp.text
+    assert f'data-submission-id="{sub_id}"' in resp.text
+    assert "data-live-verdict-summary" in resp.text
+    assert "data-live-verdict-status" in resp.text
+    assert "data-live-wall-time" in resp.text
+    assert "data-submission-result-card" in resp.text
+    assert "/user/submissions/status.json" in resp.text
+    assert "/user/submissions/status/events" in resp.text
+    assert "tsparticles.confetti.bundle.min.js" in resp.text
+    assert "confetti-celebrate.js" in resp.text
+    assert "submission-detail-live.js" in resp.text
+    assert resp.text.index("confetti-celebrate.js") < resp.text.index("submission-detail-live.js")
 
 
 @pytest.mark.asyncio

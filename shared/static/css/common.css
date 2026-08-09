@@ -22,6 +22,32 @@
 /* Dark-mode overrides for shared third-party components (highlight.js, EasyMDE). */
 @import url("/static/shared-css/components-dark.css");
 
+/* ── Literal text and stable figures ────────────────────────────────────────
+   IBM Plex Mono is the shared face for code, machine data, credentials, and
+   identifiers. Preserve the literal characters authors must type, distinguish
+   zero from O, and keep changing proportional figures from shifting layouts. */
+:where(code, kbd, pre, samp, .font-monospace, .noca-literal-text) {
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+}
+
+:where(code, kbd, pre, samp, .noca-literal-text) {
+    font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
+}
+
+.noca-literal-text {
+    font-family: var(--noca-font-mono);
+}
+
+.noca-tabular-nums {
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+}
+
+/* Tables compare values by column across every NOCA module. Keep their figures
+   stable without changing the proportional interface typeface. */
+table {
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+}
+
 /* ── Block quotations ────────────────────────────────────────────────────────
    Bootstrap's reset removes the browser's indentation from <blockquote>, while
    Markdown renderers emit the semantic element without Bootstrap's optional
@@ -36,6 +62,17 @@ blockquote {
 
 blockquote > :last-child {
     margin-bottom: 0;
+}
+
+/* Inline code is part of the sentence's reading rhythm everywhere in NOCA, so
+   it keeps the surrounding text size. A semibold mono face makes exact tokens
+   scannable without changing the hierarchy of code nested inside <pre>. */
+code:not(pre code) {
+    font-family: var(--noca-font-mono);
+    font-size: 1em;
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
+    font-weight: 600;
 }
 
 /* Marked emits classless tables, so Bootstrap's `.table` spacing does not
@@ -104,6 +141,12 @@ blockquote > :last-child {
     overflow-y: hidden;
     white-space: nowrap;
     text-align: left;
+}
+
+.EasyMDEContainer .CodeMirror {
+    font-family: var(--noca-font-mono);
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
 }
 
 /* ── Navbar brand ────────────────────────────────────────────────────────────
@@ -236,7 +279,9 @@ blockquote > :last-child {
 .noca-tc-preview-cell {
     max-width: 200px;
     white-space: pre-wrap;
-    font-family: monospace;
+    font-family: var(--noca-font-mono);
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
 }
 
 /* Test-case row marked for removal on the next save (see tc-pending-remove.js) */
@@ -259,8 +304,10 @@ blockquote > :last-child {
 }
 
 .noca-transcript-table {
-    font-family: monospace;
+    font-family: var(--noca-font-mono);
     font-size: 0.85rem;
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
 }
 
 /* A row header, so the line stays attributed for screen readers even on the rows
@@ -334,6 +381,8 @@ blockquote > :last-child {
     font-style: italic;
     text-align: center;
     margin-top: 0.25rem;
+    margin-left: 5rem;
+    margin-right: 5rem;
     color: var(--bs-secondary-color, #6c757d);
 }
 

@@ -1,33 +1,42 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 from __future__ import annotations
 
+from functools import partial
+
 import anyio
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
+from starlette.background import BackgroundTask
 
 from shared.services.custom_validator import build_validation_job
 from shared.services.imageprocessing_service import ImageProcessingError
+from shared.services.problem_package import PackageError, open_problem_package
+from shared.services.problem_package.upload import (
+    safe_package_filename,
+    spool_upload,
+    temporary_package_path,
+)
 from shared.services.sample_problem_package import SAMPLE_PACKAGE_FILENAME, build_sample_problem_package
 from shared.services.valkey_service import enqueue_custom_validator_validation_job
 from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes.contest_admin_problem_helpers import (
-    _build_export_zip_for,
     _html,
     _is_edit_allowed,
     _redirect,
 )
 from web.services.problem_service import (
+    build_problem_export,
     get_active_statement_path,
     get_language_limits_map,
     get_problem_in_contest,
-    import_problem_from_zip,
+    import_problem_package,
 )
 
 router = APIRouter(prefix="/c/{slug}/admin/problems", tags=["contest_admin_problems"])
@@ -63,10 +72,13 @@ async def download_sample_problem_package(
 ) -> Response:
     """Download the reference \"A + B\" problem package."""
     del ctx
-    return Response(
-        content=build_sample_problem_package(),
+    with temporary_package_path() as destination:
+        await anyio.to_thread.run_sync(build_sample_problem_package, destination)
+    return FileResponse(
+        destination,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{SAMPLE_PACKAGE_FILENAME}"'},
+        filename=SAMPLE_PACKAGE_FILENAME,
+        background=BackgroundTask(destination.unlink, missing_ok=True),
     )
 
 
@@ -80,17 +92,27 @@ async def import_problem_submit(
     if not _is_edit_allowed(ctx.contest):
         flash("Contest is not editable.", FlashCategory.DANGER)
         return _redirect(str(request.url_for("import_problem_form", slug=ctx.contest.login_slug)))
-    zip_bytes = await zip_file.read()
     try:
-        import_result = await import_problem_from_zip(
-            ctx.session,
-            ctx.contest,
-            zip_bytes,
-            settings.PROBLEM_TESTCASE_DIR,
-            settings.PROBLEM_STATEMENT_DIR,
-            request.app.state.image_service,
-        )
+        # The upload is spooled to disk in bounded chunks and the archive is
+        # opened exactly once; nothing here ever holds the package in RAM.
+        async with spool_upload(zip_file) as zip_path:
+            # Scanning, extracting, hashing, and validating are blocking I/O and
+            # CPU: they run in a worker thread so a large package cannot stall
+            # the event loop. This side then owns closing the staging area.
+            staged = await anyio.to_thread.run_sync(open_problem_package, zip_path)
+            try:
+                import_result = await import_problem_package(
+                    ctx.session,
+                    ctx.contest,
+                    staged.package,
+                    settings.PROBLEM_TESTCASE_DIR,
+                    settings.PROBLEM_STATEMENT_DIR,
+                    request.app.state.image_service,
+                )
+            finally:
+                await anyio.to_thread.run_sync(staged.staging.close)
     except (ImageProcessingError, ValueError) as exc:
+        await ctx.session.rollback()
         flash(str(exc), FlashCategory.DANGER)
         return _redirect(str(request.url_for("import_problem_form", slug=ctx.contest.login_slug)))
     if import_result.validator_candidate_token is not None:
@@ -102,12 +124,8 @@ async def import_problem_submit(
                 candidate_token=import_result.validator_candidate_token,
             ),
         )
-    if import_result.skipped_language_ids:
-        skipped_languages = ", ".join(import_result.skipped_language_ids)
-        flash(
-            f"Problem imported, but skipped per-language limits for disallowed languages: {skipped_languages}.",
-            FlashCategory.WARNING,
-        )
+    for warning in import_result.warnings:
+        flash(warning.message, FlashCategory.WARNING)
     # An interactive problem shows sample interactions instead of sample test cases,
     # so one imported without any has nothing public to show a contestant.
     if import_result.validator_candidate_token is not None and import_result.imported_interaction_count == 0:
@@ -178,10 +196,25 @@ async def export_problem(
     limits_map = await get_language_limits_map(ctx.session, problem)
     testcase_dir = settings.PROBLEM_TESTCASE_DIR
 
-    zip_bytes = await anyio.to_thread.run_sync(_build_export_zip_for(problem, testcase_dir, statement_dir, limits_map))
-    safe_title = "".join(c if c.isalnum() or c in "-_" else "_" for c in problem.title)
-    return Response(
-        content=zip_bytes,
+    with temporary_package_path() as destination:
+        try:
+            await anyio.to_thread.run_sync(
+                partial(
+                    build_problem_export,
+                    problem,
+                    testcase_dir,
+                    statement_dir,
+                    destination,
+                    profile="full",
+                    language_limits=limits_map,
+                )
+            )
+        except PackageError as exc:
+            destination.unlink(missing_ok=True)
+            return Response(content=str(exc), status_code=409)
+    return FileResponse(
+        destination,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{safe_title}.zip"'},
+        filename=safe_package_filename(problem.title),
+        background=BackgroundTask(destination.unlink, missing_ok=True),
     )

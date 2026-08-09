@@ -45,6 +45,8 @@ from shared.services.problem_image import (
     MAX_PROBLEM_IMAGE_HEIGHT,
     MAX_PROBLEM_IMAGE_WIDTH,
 )
+from shared.services.problem_package import MAX_UPLOAD_BYTES
+from shared.services.problem_package.reconcile import reconcile_import_journals
 from shared.services.security_events_reaper import run_security_events_reaper
 from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
 from shared.services.startup_wait import wait_for_db, wait_for_valkey
@@ -344,6 +346,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     else:
         logger.warning("- Security-events reaper disabled (retention=0)")
 
+    # A crashed import leaves artifacts a journal describes; resolve those now
+    # rather than waiting for the next import to happen to notice them.
+    # Best-effort: the same reconciliation runs before every import, so a failure
+    # here delays cleanup rather than losing it, and must not stop the app booting.
+    try:
+        async with app.state.db_session() as reconcile_session:
+            resolved = await reconcile_import_journals(
+                reconcile_session,
+                domain="contest",
+                testcase_dir=settings.PROBLEM_TESTCASE_DIR,
+                statement_dir=settings.PROBLEM_STATEMENT_DIR,
+            )
+        logger.info("- Problem-import journals reconciled (%d resolved)", resolved)
+    except Exception:
+        logger.exception("- Problem-import journal reconciliation failed; it will retry at the next import")
+
     worker_presence_stop = asyncio.Event()
     app.state.worker_presence_stop = worker_presence_stop
     app.state.worker_id = resolve_worker_id(settings.WORKER_ID)
@@ -459,6 +477,14 @@ app.add_middleware(
             path_pattern=r"^/user/[^/]+/audio$",
             max_file_size=settings.AUDIO_MAX_FILE_SIZE,
             label="Audio",
+        ),
+        # Refuse an oversized package while its body streams, so the route never
+        # spools bytes it is going to reject anyway.
+        MultipartFileSizeRule(
+            path_pattern=r"^/c/[^/]+/admin/problems/import$",
+            max_file_size=MAX_UPLOAD_BYTES,
+            label="Problem package",
+            field_names=frozenset({"zip_file"}),
         ),
     ),
 )

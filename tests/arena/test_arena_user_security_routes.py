@@ -138,6 +138,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
         """Stub dashboard page."""
         return HTMLResponse("dashboard")
 
+    @app.get("/live", name="arena_live")
     @app.get("/status", name="arena_status")
     async def _stub_status() -> HTMLResponse:
         """Stub status page."""

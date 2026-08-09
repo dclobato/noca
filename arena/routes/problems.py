@@ -20,6 +20,7 @@ Routes:
   GET  /problems/{arena_number}/statistics              arena_problem_statistics
   GET  /problems/{arena_number}/statistics.json         arena_problem_statistics_data
   GET  /problems/{arena_number}/sample-testcases.zip    arena_problem_sample_testcases_zip
+  GET  /problems/{arena_number}/export                  arena_problem_export
   POST /problems/{arena_number}/submit                  arena_problem_submit
   POST /problems/{arena_number}/favorite                arena_problem_toggle_favorite
   POST /problems/{arena_number}/request-removal         arena_problem_request_removal
@@ -34,10 +35,11 @@ from urllib.parse import urlencode
 
 import anyio
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
 
 from arena.config import settings
 from arena.database import get_db
@@ -45,6 +47,7 @@ from arena.dependencies.auth import get_current_arena_user, require_arena_user
 from arena.models.arena_users import ArenaUser
 from arena.services import (
     admin_problem_interaction_service,
+    admin_problem_io_service,
     arena_favorite_service,
     arena_problem_assignment_service,
     problem_browse_service,
@@ -69,6 +72,8 @@ from shared.enumerations import ArenaNotificationKind, ArenaRole, StatementLangu
 from shared.language_registry import ace_mode_for_language_id, default_stub_for_language_id
 from shared.services.arena_notification_service import create_arena_notification
 from shared.services.custom_validator import status_view
+from shared.services.problem_package import PackageError
+from shared.services.problem_package.upload import safe_package_filename, temporary_package_path
 from shared.services.testcase_files import read_testcase_full
 from shared.services.valkey_service.queue_ops import enqueue_arena_submission_job
 
@@ -709,6 +714,61 @@ async def arena_problem_sample_testcases_zip(
         content=zip_bytes,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/problems/{arena_number:int}/export", name="arena_problem_export")
+async def arena_problem_export(
+    arena_number: int,
+    current_user: ArenaUser = Depends(require_arena_user),
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    """Download the public statement bundle for one problem.
+
+    This mirrors the Contest side's participant-facing export: it is a
+    contestant surface, not an admin one, and it ships the ``public`` package
+    profile — statement, image, public test cases with their explanations, and
+    sample interactions. It carries no ``problem.json``, no secret case, no
+    limits, and no validator source, so it is deliberately **not** importable.
+
+    Args:
+        arena_number: Public arena number of the problem.
+        current_user: The authenticated Arena user (login required).
+        session: Async database session.
+
+    Returns:
+        Response: application/zip attachment, or 404 when the problem is
+            disabled or missing.
+    """
+    del current_user
+    result = await problem_browse_service.get_enabled_problem_by_number(session, arena_number)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Problem not found")
+    problem, author_info = result
+
+    owner_name = (author_info.name if author_info else None) or ""
+    # The projection runs in a worker thread, where a lazy load would raise
+    # MissingGreenlet: everything it touches must be resolved on the loop first.
+    await session.refresh(problem, attribute_names=["sample_interactions"])
+    with temporary_package_path() as destination:
+        try:
+            await anyio.to_thread.run_sync(
+                lambda: admin_problem_io_service.export_problem_package(
+                    problem,
+                    owner_name,
+                    settings.PROBLEM_TESTCASE_DIR,
+                    destination,
+                    profile="public",
+                )
+            )
+        except PackageError as exc:
+            destination.unlink(missing_ok=True)
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return FileResponse(
+        destination,
+        media_type="application/zip",
+        filename=safe_package_filename(f"problem-{arena_number}-{problem.title}"),
+        background=BackgroundTask(destination.unlink, missing_ok=True),
     )
 
 

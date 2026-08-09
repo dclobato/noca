@@ -11,8 +11,8 @@ Callers get a **candidate-ID selectable** against the base table and apply it as
 filter a CTE carrying a ``RANK()`` window function: a ``WHERE`` on the output of
 a windowed CTE cannot be pushed down to the base table, so a predicate written
 against the CTE's columns can never use an index. The same selectable serves
-callers that query ``arena_users`` directly, such as the class-membership
-student autocomplete.
+callers that query the base tables directly, such as the class teacher/student
+and profile affiliation autocompletes.
 
 Each branch of that selectable constrains exactly one column so PostgreSQL can
 serve it from one index and combine the branches with a BitmapOr, mirroring
@@ -262,4 +262,44 @@ def user_relevance_ordering(session: AsyncSession, query: str) -> list[ColumnEle
         literal_hit.desc(),
         func.similarity(arena_users.c.nome, normalized_query).desc(),
         arena_users.c.nome.asc(),
+    ]
+
+
+def affiliation_relevance_ordering(session: AsyncSession, query: str) -> list[ColumnElement[Any]]:
+    """Return ``ORDER BY`` terms that put the best affiliation matches first.
+
+    The ranking pages must not use this helper because they preserve global-rank
+    ordering. It is only for truncated autocomplete lists.
+
+    Args:
+        session: Active async database session.
+        query: Raw user-supplied search text.
+
+    Returns:
+        Ordering expressions over ``arena_affiliations``. Empty for a blank
+        query, and deterministic case-insensitive name ordering on
+        non-PostgreSQL dialects.
+    """
+    normalized_query = query.strip()
+    if not normalized_query:
+        return []
+
+    name_order = func.lower(arena_affiliations.c.name).asc()
+    case_tiebreaker = arena_affiliations.c.name.asc()
+    if session.get_bind().dialect.name != "postgresql":
+        return [name_order, case_tiebreaker]
+
+    pattern = escaped_substring_pattern(normalized_query)
+    literal_hit = case(
+        (
+            arena_affiliations.c.name.ilike(pattern, escape=LIKE_ESCAPE),
+            1,
+        ),
+        else_=0,
+    )
+    return [
+        literal_hit.desc(),
+        func.similarity(arena_affiliations.c.name, normalized_query).desc(),
+        name_order,
+        case_tiebreaker,
     ]

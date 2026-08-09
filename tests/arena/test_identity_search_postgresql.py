@@ -19,12 +19,16 @@ from sqlalchemy.pool import NullPool
 
 from arena.config import settings
 from arena.database import create_engine
-from arena.services.arena_class_detail_service import search_student_autocomplete
+from arena.services.arena_class_detail_service import (
+    search_student_autocomplete,
+    search_teacher_autocomplete,
+)
 from arena.services.arena_class_service import create_class
 from arena.services.identity_search_service import (
     _postgres_affiliation_candidates,
     _postgres_user_candidates,
 )
+from arena.services.profile_location_service import search_affiliations
 from arena.services.ranking_service import get_ranked_affiliations_paginated, get_ranked_users_paginated
 from arena.services.text_search_primitives import apply_trigram_threshold
 from shared.db_schema.arena import arena_affiliations, arena_users
@@ -240,6 +244,52 @@ async def _assert_student_autocomplete_ranks_the_typed_name_first(session: Async
     assert any(label.startswith("Aaa Lovelacz <") for label in literal_labels), literal_labels
 
 
+async def _assert_remaining_autocompletes_rank_typo_matches_first(session: AsyncSession) -> None:
+    """Teacher and affiliation type-aheads must keep the intended fuzzy match."""
+    teacher_id = "00000000-0000-4000-8000-000000000a31"
+    await session.execute(
+        insert(arena_users).values(
+            id=teacher_id,
+            nome="Teacher Lovelace",
+            email_normalizado="teacher-lovelace@ranking-search.invalid",
+            password_hash="unused",
+            ativo=True,
+            email_confirmado=True,
+            role=ArenaRole.ARENA_JUDGE.value,
+        )
+    )
+    await session.execute(
+        insert(arena_users),
+        [
+            {
+                "id": f"00000000-0000-4000-8000-{series:012d}",
+                "nome": f"Aaa Filler Judge {series}",
+                "email_normalizado": f"filler-judge-{series}@ranking-search.invalid",
+                "password_hash": "unused",
+                "ativo": True,
+                "email_confirmado": True,
+                "role": ArenaRole.ARENA_JUDGE.value,
+            }
+            for series in range(1, 13)
+        ],
+    )
+
+    teacher_rows = await search_teacher_autocomplete(
+        session,
+        query="Teacher Lovelce",
+        limit=10,
+    )
+    assert teacher_rows
+    assert teacher_rows[0].user_id == teacher_id
+
+    affiliation_rows = await search_affiliations(
+        session,
+        query="Univrsidade Federal",
+        limit=1,
+    )
+    assert [row.name for row in affiliation_rows] == ["Universidade Federal do Ceara"]
+
+
 @pytest.mark.real_db
 async def test_postgresql_ranking_search_behavior_and_index_usage(
     postgres_ranking_session: AsyncSession,
@@ -309,6 +359,7 @@ async def test_postgresql_ranking_search_behavior_and_index_usage(
     assert grace.rank == (higher_rated or 0) + 1
 
     await _assert_student_autocomplete_ranks_the_typed_name_first(session)
+    await _assert_remaining_autocompletes_rank_typo_matches_first(session)
 
     await apply_trigram_threshold(session)
     await session.execute(text("SET LOCAL enable_seqscan = off"))

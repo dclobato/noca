@@ -10,7 +10,7 @@
    Class detail
    ============================================================ */
 .arena-class-detail-page {
-    max-width: var(--arena-max-width);
+    max-width: calc(var(--arena-max-width) + 8rem);
     margin-inline: auto;
 }
 
@@ -45,7 +45,7 @@
 
 .arena-class-detail-overview {
     display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(20rem, 0.75fr);
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 1fr);
     gap: var(--arena-space-lg);
     padding: var(--arena-gutter);
 }
@@ -131,10 +131,10 @@
 }
 
 .arena-class-detail-table .arena-class-detail-date {
-    width: 11rem;
-    min-width: 11rem;
-    overflow-wrap: anywhere;
+    width: 12rem;
+    min-width: 12rem;
     text-align: center;
+    white-space: nowrap;
 }
 
 .arena-class-detail-table .arena-class-detail-status {

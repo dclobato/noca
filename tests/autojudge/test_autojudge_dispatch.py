@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -174,7 +174,7 @@ async def test_process_arena_submission_records_only_first_non_ac(monkeypatch) -
         problem_title="Arena Problem",
         language_id="python3",
         source_code="print('bad')",
-        limits=ProblemLimits(time_limit_ms=1000, memory_limit_kb=65536, pids_limit=16),
+        limits=ProblemLimits(time_limit_ms=1000, memory_limit_kb=65536, pids_limit=16, output_limit_in_bytes=65536),
         test_cases=(
             ArenaQueuedTestCase("case-1", 1, b"1\n", b"1\n"),
             ArenaQueuedTestCase("case-2", 2, b"2\n", b"2\n"),

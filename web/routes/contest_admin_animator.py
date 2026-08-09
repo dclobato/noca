@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -30,6 +30,7 @@ from shared.services.animator_access_service import AnimatorAccessError, SiteSec
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.models.site import Site
 from web.routes.contest_admin_helpers import _html
+from web.services.contest_service import update_contest_global_medals
 from web.services.site_service import (
     create_global_secret,
     create_site_secret,
@@ -77,6 +78,46 @@ class MedalSettingsInput(BaseModel):
         """Require the medal bands to be ordered gold <= silver <= bronze."""
         if not (self.gold_cutoff <= self.silver_cutoff <= self.bronze_cutoff):
             raise ValueError("Medal cutoffs must satisfy gold <= silver <= bronze.")
+        return self
+
+
+class GlobalMedalSettingsInput(BaseModel):
+    """Validated contest-level (global) medal cutoffs, all-or-nothing.
+
+    Global medals are optional: all three cutoffs blank means the contest-wide
+    scoreboard and reveal ceremony show no medals. Validation is delegated to
+    the shared ``validate_optional_cutoffs`` so this boundary and the service
+    layer can never drift.
+    """
+
+    global_gold_cutoff: int | None = None
+    global_silver_cutoff: int | None = None
+    global_bronze_cutoff: int | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _blank_means_unset(cls, data: object) -> object:
+        """Map blank or whitespace-only form values to ``None``.
+
+        Pydantic does not coerce ``""`` to ``None`` for ``int | None``; it raises
+        an integer-parsing error instead. Without this the "clear the fields"
+        path would fail validation rather than disable global medals.
+        """
+        if not isinstance(data, dict):
+            return data
+        return {key: (None if isinstance(value, str) and not value.strip() else value) for key, value in data.items()}
+
+    @model_validator(mode="after")
+    def _check_optional_cutoffs(self) -> GlobalMedalSettingsInput:
+        """Require all three cutoffs together, positive and correctly ordered."""
+        try:
+            animator_access_service.validate_optional_cutoffs(
+                self.global_gold_cutoff,
+                self.global_silver_cutoff,
+                self.global_bronze_cutoff,
+            )
+        except AnimatorAccessError as exc:
+            raise ValueError(str(exc)) from exc
         return self
 
 
@@ -263,9 +304,27 @@ async def update_all_medals(
     flash: FlashDep,
     ctx: Annotated[ContestAdminContext, Depends(get_contest_admin_context)],
 ) -> Response:
-    """Validate and update every site's medal cutoffs atomically."""
+    """Validate and update the global and every site's medal cutoffs atomically.
+
+    Everything is validated before anything is written, and all writes land in a
+    single commit, so a rejected site cannot leave the global cutoffs changed.
+    """
     redirect = RedirectResponse(request.url_for("animator_settings", slug=ctx.contest.login_slug), status_code=303)
     form = await request.form()
+
+    # A form that carries none of the global fields is left alone rather than
+    # read as "clear them": only an explicit blank triple disables global medals.
+    global_field_names = ("global_gold_cutoff", "global_silver_cutoff", "global_bronze_cutoff")
+    global_payload: GlobalMedalSettingsInput | None = None
+    if any(field_name in form for field_name in global_field_names):
+        try:
+            global_payload = GlobalMedalSettingsInput.model_validate(
+                {field_name: form.get(field_name, "") for field_name in global_field_names}
+            )
+        except ValidationError as exc:
+            flash(f"Global medals: {_first_error_message(exc)}", FlashCategory.DANGER)
+            return redirect
+
     sites = await list_contest_sites(ctx.session, ctx.contest.id)
     validated: list[tuple[Site, MedalSettingsInput]] = []
     for site in sites:
@@ -289,7 +348,22 @@ async def update_all_medals(
             return redirect
         validated.append((site, payload))
 
+    if global_payload is not None:
+        try:
+            await update_contest_global_medals(
+                ctx.session,
+                ctx.contest,
+                global_payload.global_gold_cutoff,
+                global_payload.global_silver_cutoff,
+                global_payload.global_bronze_cutoff,
+            )
+        except AnimatorAccessError as exc:
+            await ctx.session.rollback()
+            flash(f"Global medals: {exc}", FlashCategory.DANGER)
+            return redirect
+
     for site, payload in validated:
+        site_name = site.sitename
         try:
             await update_site_medals(
                 ctx.session,
@@ -300,10 +374,10 @@ async def update_all_medals(
             )
         except AnimatorAccessError as exc:
             await ctx.session.rollback()
-            flash(f"{site.sitename}: {exc}", FlashCategory.DANGER)
+            flash(f"{site_name}: {exc}", FlashCategory.DANGER)
             return redirect
     await ctx.session.commit()
-    flash("Medal settings saved for all sites.", FlashCategory.SUCCESS)
+    flash("Medal settings saved.", FlashCategory.SUCCESS)
     return redirect
 
 

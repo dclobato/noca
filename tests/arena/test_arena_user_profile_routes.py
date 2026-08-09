@@ -28,6 +28,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import arena.models.arena_problems  # noqa: F401
 import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
+from arena.config import settings as arena_settings
 from arena.dependencies.auth import get_current_arena_user
 from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.models.arena_affiliations import ArenaAffiliation
@@ -41,6 +42,7 @@ from arena.routes.root import router as arena_root_router
 from arena.routes.user_public_profile import router as arena_user_public_profile_router
 from arena.routes.user_submission_status import router as arena_user_submission_status_router
 from arena.routes.users import router as arena_users_router
+from arena.services.ranking_medals import arena_medal_band
 from arena.services.session_service import missing_profile_fields
 from arena.services.token_service import ArenaTokenAction
 from arena.services.user_timezone_service import (
@@ -121,6 +123,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     templates.env.globals["arena_user_timezone_name"] = timezone_name_for_user
     templates.env.globals["verdict_badge_classes"] = VERDICT_BADGE_CLASSES
     templates.env.globals["verdict_labels"] = VERDICT_LABELS
+    templates.env.globals["arena_medal_band"] = arena_medal_band
     setup_flash(templates)
     app.state.arena_templates = templates
 
@@ -203,6 +206,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     async def _arena_classes_manage() -> Response:
         return Response("classes manage")
 
+    @app.get("/live", name="arena_live")
     @app.get("/status", name="arena_status")
     async def _arena_status() -> Response:
         """Stub for the status route referenced by the footer."""
@@ -416,8 +420,12 @@ async def test_guest_dashboard_hides_notifications_and_avatar(session: AsyncSess
 
 
 @pytest.mark.asyncio
-async def test_dashboard_renders_real_top_rated_users(session: AsyncSession) -> None:
+async def test_dashboard_renders_real_top_rated_users(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
     """Dashboard Leaderboard card should render persisted Arena ratings (top 10)."""
+    # Pin the podium so the assertions never depend on the developer's .env.
+    monkeypatch.setattr(arena_settings, "ARENA_RANKING_MEDAL_GOLD_CUTOFF", 1)
+    monkeypatch.setattr(arena_settings, "ARENA_RANKING_MEDAL_SILVER_CUTOFF", 2)
+    monkeypatch.setattr(arena_settings, "ARENA_RANKING_MEDAL_BRONZE_CUTOFF", 3)
     await _create_ranked_arena_user(session, name="Top One", rating=900)
     await _create_ranked_arena_user(session, name="Top Two", rating=800)
     await _create_ranked_arena_user(session, name="Below Cutoff", rating=100)
@@ -443,6 +451,27 @@ async def test_dashboard_renders_real_top_rated_users(session: AsyncSession) -> 
     assert "/assets/medal/gold" in response.text
     assert "/assets/medal/silver" in response.text
     assert "/assets/medal/bronze" in response.text
+
+
+@pytest.mark.asyncio
+async def test_dashboard_medals_follow_configured_cutoffs(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Widened cutoffs must reach further down the leaderboard than the top three."""
+    monkeypatch.setattr(arena_settings, "ARENA_RANKING_MEDAL_GOLD_CUTOFF", 5)
+    monkeypatch.setattr(arena_settings, "ARENA_RANKING_MEDAL_SILVER_CUTOFF", 0)
+    monkeypatch.setattr(arena_settings, "ARENA_RANKING_MEDAL_BRONZE_CUTOFF", 0)
+    for index in range(1, 7):
+        await _create_ranked_arena_user(session, name=f"Ranked User {index}", rating=900 - index)
+    app = _build_arena_app(session)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert response.text.count("/assets/medal/gold") == 5
+    assert "/assets/medal/silver" not in response.text
+    assert "/assets/medal/bronze" not in response.text
 
 
 @pytest.mark.asyncio

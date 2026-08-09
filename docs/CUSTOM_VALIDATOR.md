@@ -500,7 +500,7 @@ shown to other contestants.
 | Attempts per test case | 2 (one retry, only for unclean validator exits) |
 | Attempt rows kept per judgment | 2 (the last executed case only) |
 | Interactive watchdog | `NOCA_JUDGE_CUSTOM_VALIDATOR_WATCHDOG_SECONDS`, default **300 s**, **per test case** |
-| Contestant output limit | the problem's `output_limit_in_bytes`, else `NOCA_JUDGE_OUTPUT_LIMIT_BYTES` (default 64 MB), counted per test case |
+| Contestant output limit | `min(` the problem's `output_limit_in_bytes`, `NOCA_JUDGE_OUTPUT_LIMIT_BYTES)` (global ceiling, default 64 MB), counted per test case. The problem always states one — the column is NOT NULL — so the global value is a ceiling, not a fallback. |
 | Validator limit env vars | `PROBLEM_TIME_LIMIT`, `PROBLEM_OUTPUT_LIMIT`, `PROBLEM_MEMORY_LIMIT`, `PROBLEM_PID_LIMIT`, `USER_LANGUAGE`; Web contest problems also set `PER_LANGUAGE_LIMITS` |
 | Transcript recording cap | 256 KiB per attempt, then flagged truncated |
 | stderr excerpt cap (per side) | 16 KiB |

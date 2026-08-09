@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -36,7 +36,7 @@ problems = Table(
     metadata,
     _id_column(),
     Column("contest_id", String(36), ForeignKey("contests.id", ondelete="CASCADE"), nullable=False, index=True),
-    Column("title", String(200), nullable=False),
+    Column("title", String(256), nullable=False),
     Column(
         "time_limit_ms",
         Integer,
@@ -61,8 +61,10 @@ problems = Table(
     Column(
         "output_limit_in_bytes",
         Integer,
-        nullable=True,
-        comment="Max stdout bytes; NULL = no limit. Per-language overrides in problem_language_limits.",
+        nullable=False,
+        default=65536,
+        server_default="65536",
+        comment="Max stdout bytes. Per-language overrides in problem_language_limits.",
     ),
     Column("author", String(256), nullable=True),
     Column("notes", String(512), nullable=True),
@@ -93,6 +95,10 @@ problems = Table(
     _updated_at_column(),
     UniqueConstraint("contest_id", "ordinal", name="uq_problems_contest_ordinal"),
     CheckConstraint("ordinal >= 1", name="ck_problems_ordinal_positive"),
+    CheckConstraint("time_limit_ms >= 1", name="ck_problems_time_limit_positive"),
+    CheckConstraint("memory_limit_kb >= 1", name="ck_problems_memory_limit_positive"),
+    CheckConstraint("pids_limit >= 1", name="ck_problems_pids_limit_positive"),
+    CheckConstraint("output_limit_in_bytes >= 1", name="ck_problems_output_limit_positive"),
 )
 
 problem_custom_validators = Table(
@@ -223,6 +229,11 @@ problem_language_limits = Table(
     _created_at_column(),
     _updated_at_column(),
     CheckConstraint("repetitions >= 1", name="ck_problem_language_limits_repetitions_positive"),
+    CheckConstraint("time_limit_ms >= 1", name="ck_problem_language_limits_time_limit_positive"),
+    CheckConstraint("memory_limit_kb >= 1", name="ck_problem_language_limits_memory_limit_positive"),
+    CheckConstraint("pids_limit >= 1", name="ck_problem_language_limits_pids_limit_positive"),
+    # NULL stays legal here: it means "inherit the problem's limit".
+    CheckConstraint("output_limit_in_bytes >= 1", name="ck_problem_language_limits_output_limit_positive"),
 )
 
 profiling_runs = Table(

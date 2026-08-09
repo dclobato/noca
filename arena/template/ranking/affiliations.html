@@ -6,7 +6,7 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon with context %}
+{% from "_macros.html" import render_icon, render_rank_medal with context %}
 {% block title_suffix %}&mdash; Affiliation Ranking{% endblock %}
 {% block nav_ranking %}active{% endblock %}
 {% block nav_ranking_affiliations %}active{% endblock %}
@@ -96,7 +96,7 @@
                         {% for aff in pagination.items %}
                             {% set affiliation_users_url = request.url_for('arena_ranking_affiliation_users', affiliation_id=aff.id) %}
                             <tr>
-                                <td class="arena-ranking-rank text-end">{{ aff.rank }}</td>
+                                <td class="arena-ranking-rank text-end">{{ render_rank_medal(request, aff.rank) }}</td>
                                 <td>
                                     <a href="{{ affiliation_users_url }}"
                                        class="arena-ranking-affiliation-link">

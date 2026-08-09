@@ -218,7 +218,7 @@
                                 {% set ac_percentage = (ac_count / problem_count * 100) if problem_count else 0 %}
                                 <tr id="student-{{ row.user_id }}">
                                     <td class="arena-problem-set-report-student-cell" data-label="Student">{{ student_report_link(row) }}</td>
-                                    <td class="arena-problem-set-report-progress-cell text-end text-nowrap font-monospace small"
+                                    <td class="arena-problem-set-report-progress-cell text-end text-nowrap small"
                                         data-label="AC rate">
                                         <strong>{{ '%.1f'|format(ac_percentage) }}%</strong>
                                     </td>

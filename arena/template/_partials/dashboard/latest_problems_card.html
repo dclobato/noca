@@ -33,11 +33,11 @@
                 {% for problem in latest_problems %}
                     {% set problem_url = request.url_for('arena_problem_detail', arena_number=problem.arena_number) %}
                     <tr data-href="{{ problem_url }}">
-                        <td class="arena-monospace">
-                            <a href="{{ problem_url }}" class="text-decoration-none">{{ problem.arena_number }}</a>
+                        <td>
+                            <a href="{{ problem_url }}">{{ problem.arena_number }}</a>
                         </td>
                         <td>
-                            <a href="{{ problem_url }}" class="text-decoration-none fw-medium">{{ problem.title }}</a>
+                            <a href="{{ problem_url }}" class="fw-medium">{{ problem.title }}</a>
                         </td>
                         <td class="text-muted arena-dashboard-updated-column">{{ arena_format_relative_datetime(problem.updated_at) }}</td>
                     </tr>

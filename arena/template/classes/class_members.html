@@ -13,7 +13,7 @@
 {% macro member_sort_link(label, field) %}
     {% set next_dir = 'desc' if sort == field and direction == 'asc' else 'asc' %}
     <a href="{{ request.url.include_query_params(sort=field, direction=next_dir, page=1) }}"
-       class="text-decoration-none text-reset d-flex align-items-center gap-1">
+       class="arena-sort-link d-flex align-items-center gap-1">
         {{ label }}
         {% if sort == field and direction == 'asc' %}
             {{ render_icon(icon='arrow_upward', classes='arena-sort-icon arena-sort-icon--active') }}

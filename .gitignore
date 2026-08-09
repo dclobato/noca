@@ -1,6 +1,9 @@
 # Local instance configuration — never commit secrets
 .env
-.env.crypto
+# Trailing glob: the per-deployment key files (.env.crypto-local,
+# .env.crypto-oracle, ...) hold ENCRYPTION_KEYS__* and ENCRYPTION_SALT__*, and a
+# bare `.env.crypto` matches only the exact name.
+.env.crypto*
 
 # Python
 __pycache__/

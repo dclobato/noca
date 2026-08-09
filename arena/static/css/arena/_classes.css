@@ -10,7 +10,7 @@
    Class management
    ============================================================ */
 .arena-classes-manage {
-    max-width: var(--arena-max-width);
+    max-width: calc(var(--arena-max-width) + 8rem);
     margin-inline: auto;
 }
 

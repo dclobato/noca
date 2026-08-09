@@ -85,6 +85,12 @@ Deliberate transformations on restore:
 - **Custom validator:** restored as its active revision, **data only** — all
   candidate fields are cleared and no compile job is enqueued. A restored
   interactive problem is display-only until a validator is re-staged.
+- **`problems.output_limit_in_bytes`:** the column used to be nullable, with NULL
+  meaning "no limit" — which the judge already clamped to the global ceiling
+  anyway. It is now NOT NULL, and row validation rejects NULL for a non-nullable
+  column, so an older backup carrying `null` would otherwise be **unrestorable**.
+  A missing or null value is therefore normalized to the documented default,
+  65536, before validation. Nothing else about such a backup changes.
 
 ## Sensitivity gates
 

@@ -292,15 +292,33 @@ def test_global_and_site_scopes_are_accepted() -> None:
     "changes",
     [
         {"site_id": None, "medal_cutoffs": None},
-        {"site_id": None, "site_name": None},
         {"site_name": None},
-        {"medal_cutoffs": None},
     ],
-    ids=["global-with-name", "global-with-cutoffs", "site-without-name", "site-without-cutoffs"],
+    ids=["global-with-name", "site-without-name"],
 )
 def test_half_populated_scopes_are_rejected(changes: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         make_state(**changes)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"site_id": None, "site_name": None},
+        {"site_id": None, "site_name": None, "medal_cutoffs": None},
+        {"medal_cutoffs": None},
+    ],
+    ids=["global-with-cutoffs", "global-without-cutoffs", "site-without-cutoffs"],
+)
+def test_medal_cutoffs_are_independent_of_scope(changes: dict[str, Any]) -> None:
+    """Cutoffs are no longer tied to whether the ceremony is site-scoped.
+
+    A global ceremony carries the contest's own global cutoffs when they are
+    configured and ``None`` when they are not — the latter being exactly what a
+    pre-existing global state, recorded before global medals existed, looks
+    like, so old payloads keep loading.
+    """
+    make_state(**changes)
 
 
 # ---------------------------------------------------------------------------

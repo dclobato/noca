@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
-from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -29,6 +29,7 @@ from arena.services.arena_problem_set_service import (
     _set_tied_verdicts,
 )
 from arena.services.pagination_service import Pagination, PaginationParams, clamp_page
+from arena.services.problem_search_service import prepare_problem_picker_search
 from shared.db_schema.arena import (
     arena_problem_categories,
     arena_problem_category_map,
@@ -309,11 +310,25 @@ async def search_set_candidate_problems(
         .where(arena_problems.c.enabled.is_(True), arena_problems.c.id.not_in(existing))
     )
     if clean_query:
-        filters = [arena_problems.c.title.ilike(f"%{clean_query}%")]
-        if clean_query.isdigit():
-            filters.append(cast(arena_problems.c.arena_number, String).like(f"{clean_query}%"))
-        stmt = stmt.where(or_(*filters))
-    stmt = stmt.order_by(arena_problems.c.arena_number.asc()).limit(max(1, min(limit, 20)))
+        expressions = await prepare_problem_picker_search(session, clean_query)
+        stmt = stmt.where(expressions.predicate)
+        # Both PostgreSQL and SQLite reject a bare constant such as
+        # ``ORDER BY false``. The exact-number expression is constant for every
+        # nonnumeric query, so wrap it in CASE before applying descending order.
+        exact_number_order = case((expressions.exact_number_match, 1), else_=0)
+        if session.get_bind().dialect.name == "postgresql":
+            stmt = stmt.order_by(
+                exact_number_order.desc(),
+                expressions.full_text_match.desc(),
+                expressions.full_text_rank.desc(),
+                expressions.trigram_rank.desc(),
+                arena_problems.c.arena_number.asc(),
+            )
+        else:
+            stmt = stmt.order_by(exact_number_order.desc(), arena_problems.c.arena_number.asc())
+    else:
+        stmt = stmt.order_by(arena_problems.c.arena_number.asc())
+    stmt = stmt.limit(max(1, min(limit, 20)))
     rows = await session.execute(stmt)
     return [
         ProblemAutocompleteRow(

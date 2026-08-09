@@ -133,6 +133,7 @@ def _build_app(session: AsyncSession) -> FastAPI:
         "arena_help_index",
         "arena_help_rating",
         "arena_help_languages",
+        "arena_live",
         "arena_status",
     ):
         app.add_api_route(f"/stub/{route_name}", _stub, methods=["GET"], name=route_name)

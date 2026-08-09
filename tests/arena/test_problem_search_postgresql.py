@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import date
 
 import pytest
 import pytest_asyncio
@@ -20,13 +21,22 @@ from arena.config import settings
 from arena.database import create_engine
 from arena.models.arena_problems import ArenaProblem
 from arena.services.admin_problem_service import search_problem_suggestions
+from arena.services.arena_problem_set_management_service import search_set_candidate_problems
 from arena.services.problem_browse_service import list_enabled_problems_paginated
 from arena.services.problem_search_service import (
     ProblemSuggestionField,
+    _postgres_problem_picker_search,
     _postgres_search,
     _postgres_suggestion_search,
+    prepare_problem_search,
 )
-from shared.db_schema.arena import arena_problems, arena_users
+from shared.db_schema.arena import (
+    arena_classes,
+    arena_problem_sets,
+    arena_problems,
+    arena_users,
+)
+from shared.enumerations import ArenaRole
 
 
 @pytest_asyncio.fixture
@@ -72,6 +82,81 @@ async def _search_titles(session: AsyncSession, query: str) -> list[str]:
     return [problem.title for problem in page.items]
 
 
+async def _seeded_search_titles(session: AsyncSession, query: str, owner_id: str) -> list[str]:
+    """Return matching titles owned by this test's seeded user only."""
+    expressions = await prepare_problem_search(session, query)
+    return list(
+        await session.scalars(
+            select(ArenaProblem.title).where(
+                ArenaProblem.owner_id == owner_id,
+                expressions.predicate,
+            )
+        )
+    )
+
+
+async def _assert_problem_picker_behavior(session: AsyncSession, owner_id: str) -> None:
+    """Exercise the problem-set autocomplete call site against PostgreSQL."""
+    class_id = "00000000-0000-4000-8000-000000000902"
+    set_id = "00000000-0000-4000-8000-000000000903"
+    today = date.today()
+    await session.execute(
+        insert(arena_classes).values(
+            id=class_id,
+            name="PostgreSQL Picker Class",
+            teacher_id=owner_id,
+            starts_on=today,
+            finishes_on=today,
+        )
+    )
+    await session.execute(
+        insert(arena_problem_sets).values(
+            id=set_id,
+            class_id=class_id,
+            name="PostgreSQL Picker Set",
+        )
+    )
+
+    blank_rows = await search_set_candidate_problems(
+        session,
+        actor_id=owner_id,
+        actor_role=ArenaRole.ARENA_JUDGE,
+        set_id=set_id,
+        query="",
+        limit=1,
+    )
+    wildcard_rows = await search_set_candidate_problems(
+        session,
+        actor_id=owner_id,
+        actor_role=ArenaRole.ARENA_JUDGE,
+        set_id=set_id,
+        query="%",
+    )
+    typo_rows = await search_set_candidate_problems(
+        session,
+        actor_id=owner_id,
+        actor_role=ArenaRole.ARENA_JUDGE,
+        set_id=set_id,
+        query="Airplne",
+        limit=1,
+    )
+    number_rows = await search_set_candidate_problems(
+        session,
+        actor_id=owner_id,
+        actor_role=ArenaRole.ARENA_JUDGE,
+        set_id=set_id,
+        query="2100000013",
+        limit=1,
+    )
+
+    assert blank_rows
+    assert wildcard_rows
+    assert wildcard_rows[0].title == "%"
+    assert all("%" in row.title for row in wildcard_rows)
+    assert [row.title for row in typo_rows] == ["Airplane Routes"]
+    assert [row.arena_number for row in number_rows] == [2_100_000_013]
+
+
 @pytest.mark.real_db
 async def test_postgresql_search_behavior_and_int4_bounds(
     postgres_search_session: AsyncSession,
@@ -112,7 +197,7 @@ async def test_postgresql_search_behavior_and_int4_bounds(
             {
                 "id": "00000000-0000-4000-8000-000000000911",
                 "arena_number": 2_100_000_011,
-                "title": "Running Algorithms",
+                "title": "Running Algorithms Searchfixturemarker",
                 "owner_id": owner_id,
                 "author": "Programadores Unidos",
                 "author_is_owner": False,
@@ -130,7 +215,7 @@ async def test_postgresql_search_behavior_and_int4_bounds(
                 "author_is_owner": True,
                 "source": None,
                 "enabled": True,
-                "problem_statement": "Running values must be accumulated.",
+                "problem_statement": "Running searchfixturemarker values must be accumulated.",
                 "statement_language": "en",
             },
             {
@@ -176,35 +261,48 @@ async def test_postgresql_search_behavior_and_int4_bounds(
                 "owner_id": owner_id,
                 "author": None,
                 "author_is_owner": True,
-                "source": "Needle archive",
+                "source": "Needle archive Searchfixturemarker",
                 "enabled": False,
                 "problem_statement": "This problem stores the suggestion term in its source.",
+                "statement_language": "en",
+            },
+            {
+                "id": "00000000-0000-4000-8000-000000000917",
+                "arena_number": 2_100_000_017,
+                "title": "%",
+                "owner_id": owner_id,
+                "author": None,
+                "author_is_owner": True,
+                "source": None,
+                "enabled": True,
+                "problem_statement": "Literal percent wildcard fixture.",
                 "statement_language": "en",
             },
         ],
     )
     await session.flush()
 
-    assert (await _search_titles(session, "running"))[:2] == [
-        "Running Algorithms",
+    assert (await _search_titles(session, "running searchfixturemarker"))[:2] == [
+        "Running Algorithms Searchfixturemarker",
         "Sequence Analysis",
     ]
-    assert "Running Algorithms" in await _search_titles(session, "programador")
+    assert "Running Algorithms Searchfixturemarker" in await _search_titles(session, "programador")
     assert "Airplane Routes" in await _search_titles(session, "Airplne")
     assert "Hidden Vehicle" in await _search_titles(session, "rplane")
-    assert await _search_titles(session, "1_0") == []
-    assert await _search_titles(session, "3000000000") == []
-    assert await _search_titles(session, "100000000000000000000") == []
+    assert await _seeded_search_titles(session, "1_0", owner_id) == []
+    assert await _seeded_search_titles(session, "3000000000", owner_id) == []
+    assert await _seeded_search_titles(session, "100000000000000000000", owner_id) == []
     # str.isdigit() accepts these but int() rejects them; searching must not raise.
-    assert await _search_titles(session, "²") == []
-    assert await _search_titles(session, "⑦") == []
+    assert await _seeded_search_titles(session, "²", owner_id) == []
+    assert await _seeded_search_titles(session, "⑦", owner_id) == []
     assert await search_problem_suggestions(
         session,
         field="source",
-        query="needle",
+        query="needle searchfixturemarker",
         caller_id=owner_id,
         is_admin=True,
-    ) == ["Needle archive"]
+    ) == ["Needle archive Searchfixturemarker"]
+    await _assert_problem_picker_behavior(session, owner_id)
 
     await session.execute(
         text(
@@ -265,6 +363,19 @@ async def test_postgresql_search_behavior_and_int4_bounds(
         plan_rows = await session.execute(text(f"EXPLAIN (COSTS OFF) {search_sql}"))
         return "\n".join(str(row[0]) for row in plan_rows)
 
+    async def _picker_plan_for(query: str) -> str:
+        """Return the EXPLAIN output for the title-and-number picker predicate."""
+        search_sql = str(
+            select(ArenaProblem.id)
+            .where(_postgres_problem_picker_search(query).predicate)
+            .compile(
+                dialect=session.get_bind().dialect,
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+        plan_rows = await session.execute(text(f"EXPLAIN (COSTS OFF) {search_sql}"))
+        return "\n".join(str(row[0]) for row in plan_rows)
+
     # A quoted term is pure FTS: only the weighted expression index can serve it.
     quoted_plan = await _plan_for('"statementmarker"')
     assert "ix_arena_problems_search_vector_gin" in quoted_plan
@@ -286,3 +397,9 @@ async def test_postgresql_search_behavior_and_int4_bounds(
     assert "ix_arena_problems_search_vector_gin" in author_plan
     assert "ix_arena_problems_author_trgm" in author_plan
     assert "Seq Scan on arena_problems" not in author_plan
+
+    picker_plan = await _picker_plan_for("Planner")
+    assert "ix_arena_problems_search_vector_gin" in picker_plan
+    assert "ix_arena_problems_number_text_trgm" in picker_plan
+    assert "ix_arena_problems_title_trgm" in picker_plan
+    assert "Seq Scan on arena_problems" not in picker_plan

@@ -244,7 +244,7 @@
                                                    min="1"
                                                    step="1"
                                                    value="{{ lang_limit.output_limit_in_bytes if lang_limit and lang_limit.output_limit_in_bytes else '' }}"
-                                                   placeholder="blank = no limit"
+                                                   placeholder="blank = inherit"
                                                    form="edit-form"
                                                    {% if not is_limits_edit_allowed %}disabled{% endif %}>
                                             {% if lang_limit and lang_limit.output_limit_in_bytes %}

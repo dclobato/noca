@@ -60,6 +60,7 @@ _NAV_ROUTE_NAMES = (
     "arena_classes_registered",
     "arena_dashboard",
     "arena_login",
+    "arena_live",
     "arena_logout",
     "arena_notifications_list",
     "arena_problem_list",

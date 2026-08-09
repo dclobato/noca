@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -97,7 +97,8 @@
 }
 
 .arena-list-item-meta {
-    font-family: monospace;
+    font-family: var(--noca-font-mono);
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
     font-size: 0.8125rem;
     color: var(--arena-outline);
 }

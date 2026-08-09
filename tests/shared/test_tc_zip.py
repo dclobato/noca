@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -57,6 +57,32 @@ def test_parse_mixed_out_and_sol_extensions_across_pairs() -> None:
     )
 
     assert parsed.pairs == {1: (b"a\n", b"A\n"), 2: (b"b\n", b"B\n")}
+
+
+def test_parse_rejects_mixed_flat_and_directory_layouts() -> None:
+    archive = _zip(
+        {
+            "001.in": b"a\n",
+            "out/001.out": b"A\n",
+        }
+    )
+
+    with pytest.raises(ValueError, match="mixes flat"):
+        parse_testcases_zip(archive)
+
+
+@pytest.mark.parametrize(
+    "aliases",
+    [
+        {"out/1.out": b"A\n", "out/001.sol": b"B\n"},
+        {"explanation/1.txt": b"first", "explanation/001.txt": b"second"},
+    ],
+)
+def test_parse_rejects_duplicate_logical_members(aliases: dict[str, bytes]) -> None:
+    members = {"in/001.in": b"a\n", "out/002.out": b"unused\n", **aliases}
+
+    with pytest.raises(ValueError, match="both provide"):
+        parse_testcases_zip(_zip(members))
 
 
 def test_parse_without_explanations_yields_empty_explanations() -> None:

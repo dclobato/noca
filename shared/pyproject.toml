@@ -30,6 +30,10 @@ dependencies = [
     "markdown_sanitize @ git+https://github.com/dclobato/markdown_sanitize.git@v2.0.0",
     "pillow==12.2.0",
     "puremagic==2.2.0",
+    # The shared package reader owns PDF statement validation; a lazy import of a
+    # dependency another package declares would make shared behavior depend on
+    # which module happened to be installed.
+    "pypdf==6.15.0",
     "python-multipart==0.0.32",
     "pytz==2026.2",
     "python-dotenv==1.2.2",

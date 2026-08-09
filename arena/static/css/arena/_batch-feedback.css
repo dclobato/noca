@@ -68,8 +68,8 @@
 .arena-batch-feedback-verdict-count {
     display: block;
     color: var(--arena-on-surface);
-    font-family: var(--noca-font-mono);
     font-size: 1rem;
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     font-weight: 600;
     line-height: 1.2;
 }

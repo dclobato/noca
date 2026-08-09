@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from animator.models.query_records import ContestRecord
+from animator.models.reveal_session import MedalCutoffs
 from animator.services.contest_queries import load_sites
 from shared.reveal_schema import GLOBAL_SCOPE
 
@@ -48,11 +49,20 @@ class PublicScope:
         site_id: The site being watched, or ``None`` for the global ceremony.
         site_name: Display name of ``site_id``; ``None`` iff global.
         canonical: The Valkey scope component — the site id, or ``"global"``.
+        medal_cutoffs: The cutoffs in force for this scope — the selected site's,
+            or ``None`` for the global scope, where the caller falls back to the
+            contest's own global cutoffs.
+
+    ``medal_cutoffs`` is carried here rather than looked up again downstream:
+    resolving a site scope already loads every site, so a second ``load_sites``
+    in the snapshot builder would repeat two queries (including the team counts
+    it does not need) for data this resolution had in hand and discarded.
     """
 
     site_id: str | None
     site_name: str | None
     canonical: str
+    medal_cutoffs: MedalCutoffs | None = None
 
 
 async def resolve_public_scope(
@@ -79,4 +89,13 @@ async def resolve_public_scope(
     site = next((row for row in await load_sites(session, contest.id) if row.id == value), None)
     if site is None:
         return None
-    return PublicScope(site_id=site.id, site_name=site.sitename, canonical=site.id)
+    return PublicScope(
+        site_id=site.id,
+        site_name=site.sitename,
+        canonical=site.id,
+        medal_cutoffs=MedalCutoffs(
+            gold=site.gold_cutoff,
+            silver=site.silver_cutoff,
+            bronze=site.bronze_cutoff,
+        ),
+    )

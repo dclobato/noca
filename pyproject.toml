@@ -1,6 +1,6 @@
 [project]
 name = "noca-workspace"
-version = "15.2.0"
+version = "16.0.0"
 description = "We took the core principles of BOCA -- the backbone of Brazilian programming marathons -- and rebuilt it for the modern era. NOCA (Next Online Contest Administrator) introduces a streamlined developer experience using Python and FastAPI, providing a modular, Docker-based infrastructure that makes running a contest easier than ever."
 authors = [
     { name = "Daniel Correa Lobato", email = "daniel@lobato.org" }
@@ -40,6 +40,7 @@ fontawesome = "7.0.1"
 highlightjs = "11.11.1"
 highlightjs_line_numbers = "2.9.0"
 htmx = "2.0.8"
+ibm_plex_mono_weights = "400;500;600;700"
 inter_weights = "400;700;800;900"
 katex = "0.16.45"
 marked = "15.0.12"
@@ -58,6 +59,7 @@ dev = [
     "mypy==2.1.0",
     "pip-licenses==5.5.5",
     "pytest-asyncio==1.4.0",
+    "pytest-xdist==3.8.0",
     "pytest==9.0.3",
     "relative-datetime==0.1.4",
     "ruff==0.15.16",

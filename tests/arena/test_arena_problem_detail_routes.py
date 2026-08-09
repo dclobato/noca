@@ -95,6 +95,7 @@ def _build_problem_detail_app(session: AsyncSession) -> FastAPI:
     async def _dashboard() -> Response:
         return Response("dashboard")
 
+    @app.get("/live", name="arena_live")
     @app.get("/status", name="arena_status")
     async def _status() -> Response:
         return Response("status")
@@ -748,6 +749,8 @@ async def test_problem_detail_renders_license_before_sample_download(session: As
         response = await client.get(f"/problems/{problem.arena_number}")
 
     assert response.status_code == 200
+    assert "Sample Test Cases" in response.text
+    assert ">1\n</pre>" in response.text
     license_position = response.text.index("License:</span> CC BY &amp; ShareAlike")
     download_position = response.text.index("Download sample test cases")
     assert license_position < download_position

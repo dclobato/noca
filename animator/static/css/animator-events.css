@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -35,7 +35,7 @@
     border-right: 1px solid var(--noca-border);
     background: var(--noca-surface-container-high);
     color: var(--noca-on-surface);
-    font-size: 0.72rem;
+    font-size: var(--noca-type-label);
     font-weight: 800;
     letter-spacing: 0.09em;
     line-height: 1;
@@ -93,7 +93,7 @@
     align-items: baseline;
     gap: 0.38rem;
     padding: 0.35rem 0.9rem;
-    font-size: 0.86rem;
+    font-size: var(--noca-type-label);
     line-height: 1.2;
 }
 
@@ -105,8 +105,9 @@
 
 .animator-events-time {
     font-family: var(--noca-font-mono);
-    font-size: 0.78rem;
-    font-variant-numeric: tabular-nums;
+    font-size: var(--noca-type-label);
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular)
+        var(--noca-font-variant-numeric-mono);
     font-weight: 700;
     color: var(--bs-info-text-emphasis);
 }

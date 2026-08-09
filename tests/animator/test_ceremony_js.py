@@ -13,9 +13,9 @@ focus, pending cells, and the Bootstrap modal-trigger contract),
 plus idempotent teardown), and ``control.js`` (bearer-only credential handling
 and the ambiguous-outcome lock that prevents a double reveal).
 
-Each has a Node contract test that exercises the real module against a small DOM
-or fetch shim, so a Python-only suite cannot silently miss a wiring regression.
-These wrappers run those tests under Node and skip cleanly when Node is absent.
+The Node contracts exercise the real modules against small DOM and fetch shims,
+so a Python-only suite cannot silently miss a wiring regression. These wrappers
+run those tests under Node and skip cleanly when Node is absent.
 """
 
 from __future__ import annotations
@@ -57,3 +57,8 @@ def test_ceremony_modal_contract() -> None:
 def test_control_contract() -> None:
     """Bearer-only credential handling and the ambiguous-outcome command lock."""
     _run_node_contract("control.test.cjs")
+
+
+def test_control_dom_contract() -> None:
+    """Idle Start over sends the rebuild flag through the real DOM glue."""
+    _run_node_contract("control-dom.test.cjs")

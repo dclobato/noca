@@ -1,32 +1,67 @@
+{#  NOCA -- Next Online Contest Administrator
+    Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. #}
 {% extends "_base.html" %}
-{% block title_suffix %}Live feed{% endblock %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}&mdash; Live feed{% endblock %}
 {% block content %}
-    <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
-        <h1 class="mb-0">Live submission feed</h1>
-        <span class="badge bg-secondary" id="live-feed-status">Connecting…</span>
-    </div>
-    <div class="table-responsive">
-        <table class="table table-sm align-middle live-feed-table">
-            <thead>
-                <tr>
-                    <th scope="col">Date/time</th>
-                    <th scope="col">User from</th>
-                    <th scope="col">Problem</th>
-                    <th scope="col">Language</th>
-                    <th scope="col">Verdict</th>
-                </tr>
-            </thead>
-            <tbody id="live-feed-body"
-                   data-feed-url="{{ request.url_for("arena_live_feed") }}"
-                   data-events-url="{{ request.url_for("arena_live_events") }}">
-                <tr>
-                    <td colspan="5" class="text-center text-muted">Loading…</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-    <p class="live-feed-summary text-muted small mb-0"
-       id="live-feed-summary">Live last {{ live_feed_limit }} submissions</p>
+    <section class="arena-live-feed" aria-labelledby="live-feed-title">
+        <header class="arena-live-feed-header">
+            <div class="arena-live-feed-heading">
+                <span class="arena-live-feed-mark" aria-hidden="true">{{ render_icon(icon="sensors") }}</span>
+                <div>
+                    <h1 class="arena-live-feed-title" id="live-feed-title">Live submission feed</h1>
+                    <p class="arena-live-feed-intro mb-0">Watch finalized Arena activity as it happens.</p>
+                </div>
+            </div>
+            <div class="arena-live-feed-signals">
+                <span class="arena-live-feed-stream">
+                    {{ render_icon(icon="sensors") }}
+                    <span>Real-time stream</span>
+                </span>
+                <span id="live-feed-status" aria-live="polite">Connecting…</span>
+            </div>
+        </header>
+        <section class="arena-live-feed-panel" aria-label="Latest activity">
+            <div class="arena-live-feed-panel-header">
+                <div>
+                    <h2 class="arena-live-feed-panel-title">Latest activity</h2>
+                    <p class="arena-live-feed-panel-copy mb-0">Rows update when verdicts are finalized.</p>
+                </div>
+                <span class="arena-live-feed-auto">
+                    {{ render_icon(icon="sync") }}
+                    Automatic refresh
+                </span>
+            </div>
+            <div class="table-responsive arena-live-feed-table-wrap">
+                <table class="table table-sm align-middle live-feed-table arena-live-feed-table">
+                    <caption class="visually-hidden">
+                        Latest finalized Arena submissions
+                    </caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Date/time</th>
+                            <th scope="col">Origin</th>
+                            <th scope="col">Problem</th>
+                            <th scope="col">Language</th>
+                            <th scope="col">Verdict</th>
+                        </tr>
+                    </thead>
+                    <tbody id="live-feed-body"
+                           data-feed-url="{{ request.url_for("arena_live_feed") }}"
+                           data-events-url="{{ request.url_for("arena_live_events") }}">
+                        <tr>
+                            <td colspan="5" class="text-center text-muted">Loading…</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="live-feed-summary arena-live-feed-summary text-muted small mb-0"
+               id="live-feed-summary">Live last {{ live_feed_limit }} submissions</p>
+        </section>
+    </section>
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for('static_shared_js', path='live-feed-core.js') }}?v={{ app_version }}"></script>

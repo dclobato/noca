@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -18,9 +18,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from shared.services.testcase_view import TestCaseRowView
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
 from web.models.contest import Contest
-from web.models.problem import Problem, ProblemLanguageLimit, ProblemTestCase
+from web.models.problem import ProblemTestCase
 from web.services.problem_service import (
-    build_export_zip,
     delete_md_statement,
     delete_testcase_files,
     get_statement_path,
@@ -118,18 +117,6 @@ def _read_testcase_full_for(problem_id: str, ordinal: int, testcase_dir: Path) -
         return read_testcase_full(problem_id, ordinal, testcase_dir)
 
     return _read
-
-
-def _build_export_zip_for(
-    problem: Problem,
-    testcase_dir: Path,
-    statement_dir: Path,
-    limits_map: dict[str, ProblemLanguageLimit],
-) -> Callable[[], bytes]:
-    def _build() -> bytes:
-        return build_export_zip(problem, testcase_dir, statement_dir, limits_map)
-
-    return _build
 
 
 # ---------------------------------------------------------------------------

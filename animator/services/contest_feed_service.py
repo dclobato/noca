@@ -44,6 +44,7 @@ from animator.models.responses import (
     SiteMeta,
     TeamStandingResponse,
 )
+from animator.models.reveal_session import MedalCutoffs
 from animator.services.contest_queries import (
     load_enabled_contest,
     load_problems,
@@ -51,6 +52,7 @@ from animator.services.contest_queries import (
     load_submission_rows,
     load_teams,
 )
+from shared.services.balloon_assets import medal_band_for_rank
 from shared.services.scoreboard_projection import (
     ScoreboardSnapshot,
     TeamStanding,
@@ -240,11 +242,33 @@ def snapshot_to_response(
     *,
     teams: list[TeamRecord],
     wa_penalty: int,
+    cutoffs: MedalCutoffs | None = None,
 ) -> ScoreboardSnapshotResponse:
-    """Map a shared snapshot to the typed public response model."""
+    """Map a shared snapshot to the typed public response model.
+
+    Args:
+        snapshot: The shared scoreboard projection.
+        pending_submissions: Freeze-safe unresolved submissions, if any.
+        teams: Team records, used to resolve each row's site name.
+        wa_penalty: Minutes added per penalizing attempt.
+        cutoffs: Medal cutoffs in force for the requested scope, or ``None`` when
+            the scope has none configured.
+
+    Returns:
+        The typed snapshot response, each row carrying its medal band.
+
+    Medal bands come from the shared ``medal_band_for_rank`` -- the same function
+    the ceremony's ``medal_for_rank`` delegates to -- so the live scoreboard and
+    the reveal ceremony cannot disagree about who is on the podium.
+    """
     team_by_id = {team.id: team for team in teams}
     standings = [
         TeamStandingResponse(
+            medal=(
+                None
+                if cutoffs is None
+                else medal_band_for_rank(row.rank, gold=cutoffs.gold, silver=cutoffs.silver, bronze=cutoffs.bronze)
+            ),
             rank=row.rank,
             team_id=row.team_id,
             team_name=row.team_name,
@@ -285,8 +309,39 @@ async def build_snapshot_response(
     contest: ContestRecord,
     now: datetime | None = None,
     site_id: str | None = None,
+    cutoffs: MedalCutoffs | None = None,
 ) -> ScoreboardSnapshotResponse:
-    """Build and serialize a global or site scoreboard snapshot response."""
+    """Build and serialize a global or site scoreboard snapshot response.
+
+    Args:
+        session: Active database session.
+        contest: The resolved animator-enabled contest.
+        now: Reference instant, defaulting to the current time.
+        site_id: Site to narrow the standings to, or ``None`` for global scope.
+        cutoffs: Medal cutoffs in force for the requested scope. **Required**
+            when ``site_id`` is given -- ``site_id`` alone does not let this
+            service reach the selected site's cutoffs without re-querying every
+            site, which the scope resolution already did. Global scope leaves
+            this ``None`` and the contest's own global cutoffs are used.
+
+    Returns:
+        The typed snapshot response for the requested scope.
+
+    Raises:
+        ValueError: If a site scope is requested without its cutoffs.
+    """
+    # A site's cutoffs are NOT NULL, so their absence here is a caller mistake,
+    # not "this site has no medals". Failing loudly beats the alternatives:
+    # falling back to the contest-wide bands would show a site the wrong podium,
+    # and defaulting to no medals would silently blank one.
+    if cutoffs is None and site_id is not None:
+        raise ValueError("a site-scoped snapshot requires the site's medal cutoffs")
+    if cutoffs is None:
+        cutoffs = MedalCutoffs.from_optional(
+            contest.global_gold_cutoff,
+            contest.global_silver_cutoff,
+            contest.global_bronze_cutoff,
+        )
     projection = await _project(session, contest, now=now, site_id=site_id)
     pending_submissions = build_pending_submissions(
         projection.standings,
@@ -301,6 +356,7 @@ async def build_snapshot_response(
         pending_submissions,
         teams=projection.teams,
         wa_penalty=contest.wa_penalty,
+        cutoffs=cutoffs,
     )
 
 

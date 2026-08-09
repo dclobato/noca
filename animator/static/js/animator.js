@@ -230,6 +230,7 @@
       scopeName: app.getAttribute("data-scope-name"),
       balloonBase: app.getAttribute("data-balloon-base"),
       starBase: app.getAttribute("data-star-base"),
+      medalBase: app.getAttribute("data-medal-base"),
       pollMs: parsePollMs(app),
       title: document.getElementById("animator-contest-title"),
       site: document.getElementById("animator-contest-site"),

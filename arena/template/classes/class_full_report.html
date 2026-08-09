@@ -128,7 +128,7 @@
                                                 <span class="visually-hidden">No rates to distribute</span>
                                             {% endif %}
                                         </td>
-                                        <td class="text-end font-monospace small" data-label="Problems">{{ column.problem_count }}</td>
+                                        <td class="text-end small" data-label="Problems">{{ column.problem_count }}</td>
                                         <td class="text-arena-muted small" data-label="Deadline">
                                             {{ arena_format_datetime(column.deadline, current_user) }}
                                         </td>
@@ -184,14 +184,14 @@
                                         {% for cell in row.cells %}
                                             {% set column = report.sets[loop.index0] %}
                                             {% set rate_state = ' arena-class-full-report-rate-cell--complete' if cell.ac_rate == 100 else ' arena-class-full-report-rate-cell--zero' if cell.ac_rate == 0 else '' %}
-                                            <td class="text-end text-nowrap font-monospace small arena-class-full-report-rate-cell{{ rate_state }}"
+                                            <td class="text-end text-nowrap small arena-class-full-report-rate-cell{{ rate_state }}"
                                                 data-label="[{{ column.index }}] {{ column.name }}"
                                                 {% if cell.ac_rate is not none %}title="{{ cell.ac_count }} of {{ cell.problem_count }} problem{{ 's' if cell.problem_count != 1 else '' }} accepted"{% endif %}>
                                                 {{ rate(cell.ac_rate, cell.ac_count, cell.problem_count) }}
                                             </td>
                                         {% endfor %}
                                         {% set total_rate_state = ' arena-class-full-report-rate-cell--complete' if row.total_rate == 100 else ' arena-class-full-report-rate-cell--zero' if row.total_rate == 0 else '' %}
-                                        <td class="text-end text-nowrap font-monospace small fw-semibold arena-class-full-report-rate-cell arena-class-full-report-total-cell{{ total_rate_state }}"
+                                        <td class="text-end text-nowrap small fw-semibold arena-class-full-report-rate-cell arena-class-full-report-total-cell{{ total_rate_state }}"
                                             data-label="Total"
                                             {% if row.total_rate is not none %}title="{{ row.total_ac_count }} of {{ row.total_problem_count }} problem{{ 's' if row.total_problem_count != 1 else '' }} accepted"{% endif %}>
                                             {{ rate(row.total_rate, row.total_ac_count, row.total_problem_count) }}
@@ -209,12 +209,12 @@
                                         <th scope="row" class="arena-class-full-report-student-cell">Class average</th>
                                         {% for average in report.set_average_rates %}
                                             {% set column = report.sets[loop.index0] %}
-                                            <td class="text-end text-nowrap font-monospace small arena-class-full-report-rate-cell"
+                                            <td class="text-end text-nowrap small arena-class-full-report-rate-cell"
                                                 data-label="[{{ column.index }}] {{ column.name }} average">
                                                 {{ rate(average) }}
                                             </td>
                                         {% endfor %}
-                                        <td class="text-end text-nowrap font-monospace small fw-semibold arena-class-full-report-rate-cell arena-class-full-report-total-cell"
+                                        <td class="text-end text-nowrap small fw-semibold arena-class-full-report-rate-cell arena-class-full-report-total-cell"
                                             data-label="Total average">{{ rate(report.class_average_rate) }}</td>
                                     </tr>
                                 </tfoot>

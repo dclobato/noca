@@ -116,7 +116,8 @@
 }
 .arena-class-full-report-marker {
     color: var(--arena-on-surface-variant);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--noca-font-mono);
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
     font-weight: 600;
 }
 

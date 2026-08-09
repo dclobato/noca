@@ -1,0 +1,41 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* Rank cell with an optional medal band behind the position number.
+   Shared by the dashboard leaderboard card and the /ranking pages. */
+
+.arena-rank {
+    position: relative;
+    width: 1.75rem;
+    height: 1.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--arena-on-surface-variant);
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+    font-size: 0.875rem;
+    font-weight: 700;
+}
+
+/* Dark digits stay legible over the light medal artwork in both themes. */
+.arena-rank--medal {
+    color: #1e293b;
+}
+
+.arena-rank-medal {
+    position: absolute;
+    inset: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    object-fit: contain;
+}
+
+.arena-rank-number {
+    position: relative;
+    z-index: 1;
+}

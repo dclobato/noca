@@ -152,6 +152,8 @@ depois (margem padrão `mt-2`):
   renderizado quando há só uma página.
 - Os links usam `request.url.include_query_params(**{page_param: …})`, preservando os demais
   filtros da URL atual.
+- A página selecionada usa Arena Green (`--arena-primary`) no fundo e na borda,
+  com `--arena-on-primary` no texto. Não use o azul padrão do Bootstrap.
 - Renderizar sempre a mesma paginação acima e abaixo da tabela (somente `nav_margin` muda).
 
 ### Casos especiais (perfil)
@@ -1422,13 +1424,48 @@ A identidade visual dos módulos web (Contest) e arena (Arena) é unificada por 
 única fonte de verdade compartilhada, para que ajustes futuros não divirjam entre
 os módulos.
 
+### Links da Arena
+
+Os links textuais da Arena usam um contrato único em
+`arena/static/css/arena/_links.css`. Novos links comuns devem usar um elemento
+`a` sem classes utilitárias locais de cor ou decoração.
+
+- Links textuais usam Arena Green (`--arena-primary`, `#2f9e41`) nos estados
+  normal e visitado. Em `hover` e `focus-visible`, usam Dark Arena Green
+  (`--arena-primary-container`, `#09872d`) e exibem sublinhado de `1px`.
+- Links na `.arena-topbar` e na `.arena-footer` usam a cor de texto secundária
+  (`--arena-on-surface-variant`) nos estados normal e visitado. Em `hover` e
+  `focus-visible`, usam Dark Arena Green, nunca exibem sublinhado, e mantêm um
+  indicador de foco visível.
+- Links da barra lateral mantêm o estilo próprio de `.arena-sidebar .nav-link`.
+- Botões, navegação por abas, paginação, controles somente com ícone e links que
+  ocupam cartões ou painéis inteiros mantêm seus estilos de componente. Use
+  `.arena-icon-link` para identificar um controle de link somente com ícone.
+- Cabeçalhos de ordenação não exibem sublinhado. Links que repetem o destino de
+  uma linha inteira clicável podem usar `.arena-link-no-underline` para evitar
+  ruído visual sem alterar as cores do contrato.
+- Não use `text-decoration-none`, `text-reset`, `text-muted` ou utilitários de cor
+  em links textuais comuns. Esses utilitários podem permanecer apenas nos
+  componentes excluídos do contrato compartilhado.
+
 ### Tokens de design (`shared/static/css/tokens.css`)
 
 - Importado primeiro por `shared/static/css/common.css`, que cada módulo carrega
   logo após o Bootstrap. Define no `:root` a paleta neutra `--noca-*` (superfícies
   em tons de slate, texto, bordas), o acento da marca (verde do logo,
   `--noca-brand: #2f9e41`), semânticos (success/danger/warning/info) e a
-  tipografia (`Inter` no corpo, `Public Sans` nos títulos, base `1rem`).
+  tipografia (`Inter` no corpo, `Public Sans` nos títulos, `IBM Plex Mono` em
+  código e dados literais, base `1rem`).
+- Os tokens `--noca-font-variant-*` separam três necessidades: algarismos
+  tabulares em todas as tabelas e, fora delas, em placares, cronômetros, ratings
+  e progresso; zero cortado em usos monoespaçados; e ligaturas desativadas em
+  código, credenciais, amostras e saída de máquina. Tabelas herdam o recurso de
+  `common.css`; use `.noca-tabular-nums` em novos valores dinâmicos fora delas e
+  `.noca-literal-text` em texto literal que ainda não tenha elemento semântico
+  como `code`, `pre`, `kbd` ou `samp`.
+- Todo `code` inline mantém `1em` (o mesmo tamanho do texto ao redor), peso 600
+  e a cor de código adaptável ao tema. A regra compartilhada exclui `pre code`,
+  portanto blocos de código preservam sua hierarquia própria.
 - Propaga a identidade para o Bootstrap sobrescrevendo tokens `--bs-*`
   (`--bs-body-font-family`, `--bs-link-color`, etc.), então componentes Bootstrap e
   as classes de `common.css` herdam fonte/cores sem regra por elemento.

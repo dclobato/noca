@@ -45,6 +45,9 @@ class El {
   getAttribute(name) {
     return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
   }
+  removeAttribute(name) {
+    delete this.attributes[name];
+  }
   appendChild(node) {
     // Match DOM move semantics: re-appending an existing child relocates it to
     // the end rather than duplicating it (relied on by keyed reconciliation).
@@ -445,6 +448,94 @@ function findByTag(node, tag) {
   render.renderStandings(doc, tbody, problems, [row(1, "t1")]);
   assert.strictEqual(tbody.children.length, 1);
   assert.strictEqual(tbody.children[0].getAttribute("data-team-id"), "t1", "departed teams removed");
+})();
+
+// ── Medals on the live board ────────────────────────────────────────────────
+// The same primitives drive the reveal ceremony, so what is asserted here is the
+// board *using* them: the watermark in the team cell, `data-medal` on the row,
+// the band-end rule, and — the case a set-only implementation gets wrong —
+// dropping all three when a team falls off the podium.
+(function testMedals() {
+  const tbody = new El("tbody");
+  const problems = [];
+  const row = (rank, id, medal) => ({
+    rank: rank,
+    team_id: id,
+    team_name: id,
+    team_fullname: id,
+    problems_solved: 0,
+    total_time: 0,
+    problems: {},
+    medal: medal,
+  });
+  const options = { medalBase: "/assets/medal" };
+
+  render.renderStandings(
+    doc,
+    tbody,
+    problems,
+    [row(1, "t1", "gold"), row(2, "t2", "silver"), row(3, "t3", "silver"), row(4, "t4", null)],
+    options,
+  );
+
+  assert.deepStrictEqual(
+    tbody.children.map((r) => r.getAttribute("data-medal")),
+    ["gold", "silver", "silver", null],
+  );
+  // Only the last row of each band closes it.
+  assert.deepStrictEqual(
+    tbody.children.map((r) => r.hasClass("animator-row--band-end")),
+    [true, false, true, false],
+  );
+
+  const watermark = tbody.children[0].children[1].children.at(-1);
+  assert.strictEqual(watermark.tagName, "img");
+  assert.strictEqual(watermark.getAttribute("class"), "animator-medal-watermark");
+  assert.strictEqual(watermark.getAttribute("src"), "/assets/medal/gold");
+  assert.strictEqual(watermark.getAttribute("alt"), "gold medal");
+  assert.strictEqual(
+    render.createMedalImage(doc, "/assets/medal", "platinum"),
+    null,
+    "an unknown band cannot create an asset URL",
+  );
+  assert.ok(
+    tbody.children[3].children[1].children.every((child) => child.tagName !== "img"),
+    "an unmedalled team has no watermark",
+  );
+
+  // t1 falls off the podium: the attribute, the rule, and the artwork all go.
+  const t1 = tbody.children[0];
+  render.renderStandings(
+    doc,
+    tbody,
+    problems,
+    [row(1, "t2", "gold"), row(2, "t3", null), row(3, "t1", null), row(4, "t4", null)],
+    options,
+  );
+  const t1Again = tbody.children[2];
+  assert.strictEqual(t1Again, t1, "surviving row keeps element identity");
+  assert.strictEqual(t1Again.getAttribute("data-medal"), null, "a stale band is removed, not kept");
+  assert.strictEqual(t1Again.hasClass("animator-row--band-end"), false);
+  assert.ok(
+    t1Again.children[1].children.every((child) => child.tagName !== "img"),
+    "the watermark is gone once the medal is",
+  );
+
+  // Without a medal base the <img> is omitted rather than pointing nowhere.
+  const bare = new El("tbody");
+  render.renderStandings(doc, bare, problems, [row(1, "t1", "gold")], {});
+  assert.ok(
+    bare.children[0].children[1].children.every((child) => child.tagName !== "img"),
+    "a missing medal base cannot render a source-less image",
+  );
+
+  const invalid = new El("tbody");
+  render.renderStandings(doc, invalid, problems, [row(1, "t1", "platinum")], options);
+  assert.strictEqual(invalid.children[0].getAttribute("data-medal"), null);
+  assert.ok(
+    invalid.children[0].children[1].children.every((child) => child.tagName !== "img"),
+    "an unknown band cannot render a watermark",
+  );
 })();
 
 console.log("animator-render DOM contract: all assertions passed");

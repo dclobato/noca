@@ -57,15 +57,8 @@
 }
 
 .arena-auth-link {
-    color: var(--arena-primary);
-    text-decoration: none;
     font-size: 0.875rem;
     font-weight: 500;
-}
-
-.arena-auth-link:hover {
-    text-decoration: underline;
-    color: var(--arena-primary);
 }
 
 .arena-auth-section-label {

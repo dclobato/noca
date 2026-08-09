@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -28,10 +28,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 MAX_SAMPLE_INTERACTIONS = 5
+MAX_PACKAGED_INTERACTION_ORDINAL = 1000
+#: Per-member ceiling for a packaged transcript or explanation. It must match the
+#: package subsystem's own constant: a member the preflight accepts but this
+#: parser silently ignores is exactly the quiet data loss the format refuses.
+MAX_INTERACTION_MEMBER_BYTES = 512 * 1024
 _VALIDATOR_PREFIX = "> "
 _USER_PREFIX = "< "
-_INTERACTION_FILE_RE = re.compile(r"^interaction/0*([1-9]\d{0,2})\.interaction$", re.IGNORECASE)
-_EXPLAIN_FILE_RE = re.compile(r"^interaction/0*([1-9]\d{0,2})\.explain$", re.IGNORECASE)
+INTERACTION_FILE_RE = re.compile(r"^interaction/0*([1-9]\d{0,3})\.interaction$", re.IGNORECASE)
+INTERACTION_EXPLAIN_RE = re.compile(r"^interaction/0*([1-9]\d{0,3})\.explain$", re.IGNORECASE)
 
 
 class InteractionParseError(ValueError):
@@ -227,13 +232,27 @@ def parse_packaged_interactions(
     transcripts: dict[int, str] = {}
     explanations: dict[int, str] = {}
     for name in archive_names:
-        match = _INTERACTION_FILE_RE.match(name)
+        match = INTERACTION_FILE_RE.match(name)
         if match:
-            transcripts[int(match.group(1))] = name
+            ordinal = int(match.group(1))
+            _validate_packaged_ordinal(name, ordinal)
+            previous = transcripts.get(ordinal)
+            if previous is not None:
+                raise InteractionParseError(
+                    f"Members {previous!r} and {name!r} both provide sample interaction ordinal {ordinal}."
+                )
+            transcripts[ordinal] = name
             continue
-        explain_match = _EXPLAIN_FILE_RE.match(name)
+        explain_match = INTERACTION_EXPLAIN_RE.match(name)
         if explain_match:
-            explanations[int(explain_match.group(1))] = name
+            ordinal = int(explain_match.group(1))
+            _validate_packaged_ordinal(name, ordinal)
+            previous = explanations.get(ordinal)
+            if previous is not None:
+                raise InteractionParseError(
+                    f"Members {previous!r} and {name!r} both provide sample interaction explanation ordinal {ordinal}."
+                )
+            explanations[ordinal] = name
 
     if len(transcripts) > MAX_SAMPLE_INTERACTIONS:
         raise InteractionParseError(
@@ -243,7 +262,7 @@ def parse_packaged_interactions(
 
     parsed: list[PackagedInteraction] = []
     for ordinal in sorted(transcripts):
-        raw = read_file(transcripts[ordinal])
+        raw = _read_bounded(transcripts[ordinal], read_file)
         try:
             decoded = json.loads(raw.decode("utf-8"))
         except UnicodeDecodeError as exc:
@@ -290,12 +309,33 @@ def interactive_testcase_violation(*, total_cases: int, sample_cases: int) -> st
     return None
 
 
+def _read_bounded(name: str, read_file: Callable[[str], bytes]) -> bytes:
+    """Read one interaction member, refusing an oversized one.
+
+    Raises:
+        InteractionParseError: If the member exceeds the per-member ceiling.
+    """
+    data = read_file(name)
+    if len(data) > MAX_INTERACTION_MEMBER_BYTES:
+        raise InteractionParseError(f"{name} is {len(data)} bytes; the limit is {MAX_INTERACTION_MEMBER_BYTES}.")
+    return data
+
+
+def _validate_packaged_ordinal(name: str, ordinal: int) -> None:
+    """Reject a recognized interaction member outside the shared range."""
+    if ordinal > MAX_PACKAGED_INTERACTION_ORDINAL:
+        raise InteractionParseError(
+            f"Archive member {name!r} uses ordinal {ordinal}, outside the supported range "
+            f"1..{MAX_PACKAGED_INTERACTION_ORDINAL}."
+        )
+
+
 def _read_explanation(name: str | None, read_file: Callable[[str], bytes]) -> str | None:
     """Decode an optional explanation member, or return ``None``."""
     if name is None:
         return None
     try:
-        text = read_file(name).decode("utf-8")
+        text = _read_bounded(name, read_file).decode("utf-8")
     except UnicodeDecodeError as exc:
         raise InteractionParseError(f"{name} must be valid UTF-8.") from exc
     return text.strip() or None

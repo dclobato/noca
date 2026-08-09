@@ -216,3 +216,21 @@
     color: var(--arena-on-surface-variant);
     font-style: italic;
 }
+
+/* ── Category color picker ───────────────────────────────────────────────── */
+
+/* `.input-group > .form-control` (0,2,0) outranks `.form-control-color` (0,1,0),
+   so inside a group the swatch loses its 3rem width and stretches like any text
+   field.  Same specificity, later cascade: pin it back so the swatch stays a
+   swatch and the hex field takes the remaining room. */
+.input-group > .form-control-color {
+    flex: 0 0 3rem;
+    width: 3rem;
+}
+
+/* Bootstrap gives input-group text fields `width: 1%`, which would collapse the
+   hex field between the swatch and the dice button. */
+.arena-color-hex-input {
+    flex: 1 1 8ch;
+    min-width: 8ch;
+}

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -49,7 +49,7 @@ class Problem(Base):
     time_limit_ms: Mapped[int]
     memory_limit_kb: Mapped[int]
     pids_limit: Mapped[int]
-    output_limit_in_bytes: Mapped[int | None]
+    output_limit_in_bytes: Mapped[int]
     author: Mapped[str | None]
     notes: Mapped[str | None]
     color: Mapped[str]

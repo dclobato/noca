@@ -1,48 +1,71 @@
 # Problem Package Format
 
-NOCA problems move between systems as a **plain ZIP archive** (deflate compression). The same
-package format is used by both the **Contest (web)** and **Arena** modules, and both modules
-consume the same shared parser/validator pipeline so a package built on one side imports cleanly
-on the other. Unknown keys are ignored, so a Contest-only package still imports into Arena
-(and vice versa).
+NOCA problems move between systems as a **plain ZIP archive** (deflate or stored). The same
+format is used by the **Contest (web)** and **Arena** modules, and both consume the *same*
+subsystem — `shared/services/problem_package/` — so a package built on one side reads identically
+on the other. Every format decision (integer coercion, null semantics, string lengths, UTF-8,
+image resolution, archive safety, export field sets) is made there exactly once; a domain
+importer only decides what its own schema can store.
 
-This document is the canonical reference for the package format. The UI on the import pages is
-rendered from `shared/template/_partials/problem_package_format.html`, and the downloadable
-sample ZIP is built by `shared/services/sample_problem_package.py`.
+This document is the canonical reference for **format version 1**. The UI on the import pages is
+rendered from `shared/template/_partials/problem_package_format.html`, the downloadable sample ZIP
+is built by `shared/services/sample_problem_package.py`, and
+`scripts/validate_problem_package.py` checks a package offline with the same reader.
 
 Related references:
 - [CUSTOM_VALIDATOR.md](CUSTOM_VALIDATOR.md) — interactive-problem lifecycle and verdict protocol
-- [SHARED_SERVICES.md](SHARED_SERVICES.md) — `sample_problem_package`, `problem_image`, `tc_zip`
+- [SHARED_SERVICES.md](SHARED_SERVICES.md) — the `problem_package` subsystem, staging, and the import journal
+- [../shared/services/problem_package/](../shared/services/problem_package/) — reader, writer, staging, journal
 - [../shared/services/sample_problem_package.py](../shared/services/sample_problem_package.py) — the reference "A + B" package
-- [../shared/tc_zip.py](../shared/tc_zip.py) — test-case ZIP parser (single source of truth)
-- [../shared/services/problem_image.py](../shared/services/problem_image.py) — packaged image loader/validator
+- [../shared/services/problem_image.py](../shared/services/problem_image.py) — image caps and MIME maps
 - [../shared/services/custom_validator.py](../shared/services/custom_validator.py) — packaged validator lifecycle
 
-## Table of Contents
-- [1. Directory layout](#1-directory-layout)
-- [2. `problem.json` fields](#2-problemjson-fields)
-- [3. `language_limits` object (Contest only)](#3-language_limits-object-contest-only)
-- [4. Test cases](#4-test-cases)
-- [5. `explanation/` folder](#5-explanation-folder)
-- [6. Statement (`statement.md` / `statement.pdf`)](#6-statement-statementmd--statementpdf)
-- [7. Illustration image (`image.<ext>`)](#7-illustration-image-imageext)
-- [8. Interactive problems (`validator/`)](#8-interactive-problems-validator)
-- [9. `interaction/` folder (interactive problems)](#9-interaction-folder-interactive-problems)
-- [10. Validation rules](#10-validation-rules)
-- [11. Constants and limits at a glance](#11-constants-and-limits-at-a-glance)
-- [12. End-to-end examples](#12-end-to-end-examples)
+## Package profiles
 
-## 1. Directory layout
+A package is written in one of two profiles, and they are **not** interchangeable.
 
-The package is rooted at the archive root — there is **no enclosing top-level directory**. All
-files live at the root or in one of the three reserved subfolders (`in/`, `out/`, `explanation/`),
-or — for interactive problems — the optional `validator/` and `interaction/` subfolders.
+| Profile | Contains | Importable |
+| --- | --- | --- |
+| `full` | `problem.json` with every version-1 key, statement, image, **all** test cases with explanations, sample interactions, validator source | **Yes** |
+| `public` | statement, image, **public** test cases with their explanations, sample interactions | **No** |
+
+The `public` profile is a **contestant-facing statement bundle**. It deliberately carries no
+`problem.json`, no secret test case, no limits, no notes, and no validator source, so it cannot be
+re-imported — feeding one to an importer fails with `problem.json not found in ZIP.` That is the
+intended behavior, not a defect.
+
+Public bundles are served by `GET /c/{slug}/problems/{label}/export` (Contest) and
+`GET /problems/{arena_number}/export` (Arena); both are participant routes. Full packages come
+from the admin export routes.
+
+## Format version
+
+```json
+{ "format_version": 1 }
+```
+
+Every package written by this build carries `format_version: 1`. On import:
+
+- an **absent** key means version 1, the format that predates the key;
+- **any other value** fails *before* any other metadata is interpreted, with a message naming the
+  supported version.
+
+Checking the version first is deliberate: interpreting half of a package's metadata under
+assumptions the package never agreed to is worse than refusing it.
+
+## Directory layout
+
+The package is rooted at the archive root — there is **no enclosing top-level directory**. Files
+live at the root or in one of the reserved subfolders `in/`, `out/`, `explanation/`,
+`validator/`, `interaction/`.
+
 ### Layout produced by Arena exports
+
 ```
 /
 ├── problem.json         ← required
 ├── statement.md         ← required
-├── image.<ext>          (optional — png, jpg, jpeg or webp)
+├── image.<ext>          (optional — gif, png, jpg, jpeg or webp)
 ├── validator/           (optional — interactive problems)
 │   └── validator.py     ← e.g. validator.py, validator.cpp
 ├── interaction/         (optional — interactive problems only)
@@ -54,19 +77,21 @@ or — for interactive problems — the optional `validator/` and `interaction/`
 │   ├── 002.in
 │   └── ...
 ├── out/
-│   ├── 001.out          (or 001.sol)
-│   ├── 002.out          (or 001.sol)
+│   ├── 001.out
+│   ├── 002.out
 │   └── ...
 └── explanation/         (optional)
-├── 001.txt
-└── ...
+    ├── 001.txt
+    └── ...
 ```
+
 ### Layout produced by Contest (web) exports
+
 ```
 /
 ├── problem.json                    ← required
 ├── statement.md or statement.pdf   ← one required
-├── image.<ext>                     (optional — png, jpg, jpeg or webp)
+├── image.<ext>                     (optional — gif, png, jpg, jpeg or webp)
 ├── validator/                      (optional — interactive problems)
 │   └── validator.py                ← e.g. validator.py, validator.cpp
 ├── interaction/                    (optional — interactive problems only)
@@ -78,324 +103,389 @@ or — for interactive problems — the optional `validator/` and `interaction/`
 │   ├── 002.in
 │   └── ...
 ├── out/
-│   ├── 001.out                     (or 001.sol)
-│   ├── 002.out                     (or 001.sol)
+│   ├── 001.out
+│   ├── 002.out
 │   └── ...
 └── explanation/                    (optional)
-├── 001.txt
-└── ...
+    ├── 001.txt
+    └── ...
 ```
+
 ### Flat test-case layout
-A flat layout is also accepted on import — `001.in` / `001.out` (or `001.sol`) directly at the
-package root, with no `in/` / `out/` directory prefix. This is useful when hand-assembling a
-package, but exports always use the directory layout.
-## 2. `problem.json` fields
-`problem.json` is a single JSON object at the package root. Both importers read it as a plain
-mapping; **any key they do not recognize is silently ignored**. This is what makes the format
-forwards-compatible: a package built on one side that carries the other side's keys still
-imports cleanly.
-The example below shows every possible field at once; each field is then described in detail.
+
+A flat layout is accepted on import — `001.in` / `001.out` (or `001.sol`) directly at the package
+root. Exports always use the directory layout.
+
+**A package must not mix the two.** An archive holding both `001.in` and `in/002.in` is refused:
+the two layouts share one ordinal space, and quietly picking one loses whichever cases were
+written in the other.
+
+## Archive safety
+
+Nothing is written to disk until the whole archive has been accepted. The reader refuses:
+
+- absolute paths, `..` traversal, backslash separators, duplicate separators (`//`);
+- symbolic-link entries;
+- **encrypted** entries;
+- compression methods other than *stored* and *deflate*;
+- members that collide exactly, case-insensitively, or after Unicode NFC normalization;
+- two files claiming the same logical test-case stream (`out/001.out` and `out/001.sol`, or
+  `001.in` and `in/001.in`);
+- mixed flat and directory layouts.
+
+`__MACOSX/` entries and `.DS_Store` files are dropped with a warning. Unrecognized but *safe*
+members are ignored, so a newer producer's extra files do not make a package unreadable.
+
+### Ceilings
+
+| Limit | Value |
+| --- | --- |
+| Compressed upload | 256 MiB |
+| Archive members | 10 000 |
+| Single member (uncompressed) | 64 MiB |
+| Total uncompressed | 512 MiB |
+| `statement.pdf` | 32 MiB |
+| `statement.md` | 512 KiB |
+| Each explanation | 512 KiB |
+| Each interaction transcript / explanation | 512 KiB |
+| Illustration image | 2 MiB |
+| Validator source | 256 KiB |
+| Test cases | 1000 |
+| Test-case ordinal | 1..1000 |
+
+The compressed ceiling is enforced **while the upload streams**, so an oversized package is
+refused without ever having been buffered whole.
+
+There is deliberately **no compression-ratio ceiling**. The per-member and aggregate uncompressed
+caps already bound extraction, and legitimate test-case data is often repetitive enough to exceed
+any ratio a decompression bomb would.
+
+## `problem.json` fields
+
+`problem.json` is a single JSON object at the package root. A `full` export writes **every**
+version-1 key, including keys the exporting domain cannot store — as `null`, `false`, or `{}`
+rather than omitted, so a consumer never has to guess whether absence means "unset" or
+"unsupported by the producer".
+
 ```json
 {
-"title": "A + B",
-"author": "John Doe",
-"time_limit_ms": 1000,
-"memory_limit_kb": 262144,
-"pids_limit": 64,
-"output_limit_in_bytes": 65536,
-"categories": ["sample", "math"],
-"notes": "Internal management note.",
-"image": "image.png",
-"image_caption": "A red square.",
-"custom_validator": {
-"language_id": "cpp20",
-"source_file": "validator/validator.cpp"
-},
-"source": "ICPC 2025",
-"hide_author_show_source": false,
-"license": "CC BY-SA 4.0",
-"statement_language": "en",
-"color": "#4287f5",
-"language_limits": {
-"python3": {
-"time_limit_ms": 3000,
-"memory_limit_kb": 262144,
-"pids_limit": 64,
-"output_limit_in_bytes": 1048576,
-"repetitions": 3
-}
-}
+  "format_version": 1,
+  "title": "A + B",
+  "author": "John Doe",
+  "notes": "Internal management note.",
+  "source": "ICPC 2025",
+  "license": "CC BY-SA 4.0",
+  "color": "#4287f5",
+  "hide_author_show_source": false,
+  "statement_language": "en",
+  "time_limit_ms": 1000,
+  "memory_limit_kb": 262144,
+  "pids_limit": 64,
+  "output_limit_in_bytes": 65536,
+  "categories": ["sample", "math"],
+  "sample_testcases": [1, 3],
+  "image": "image.png",
+  "image_caption": "A red square.",
+  "language_limits": {
+    "python3": {
+      "time_limit_ms": 3000,
+      "memory_limit_kb": 262144,
+      "pids_limit": 64,
+      "output_limit_in_bytes": 1048576,
+      "repetitions": 3
+    }
+  },
+  "custom_validator": {
+    "language_id": "cpp20",
+    "source_file": "validator/validator.cpp"
+  },
+  "sha256": {
+    "statement.md": "…64 hex chars…",
+    "in/001.in": "…"
+  }
 }
 ```
-### Common fields (both domains)
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `title` | string | **yes** | Problem title. Non-empty after trim. Arena caps at 256 characters; Contest at 200. |
-| `author` | string | no | Free-text authorship. Arena caps at 80; Contest at 256. On Arena, when omitted the importing user is recorded as both owner and author (`author_is_owner=True`). |
-| `time_limit_ms` | integer ≥ 1 | **yes** | Per-test-case time limit in milliseconds. Arena enforces ≥ 100 at the service layer. |
-| `memory_limit_kb` | integer ≥ 1 | **yes** | Memory limit enforced via cgroup, in KiB. Arena enforces ≥ 1024. Default 262144 (256 MiB). |
-| `pids_limit` | integer ≥ 1 | **yes** | Max processes/threads enforced via cgroup `pids` controller. Default 64. |
-| `output_limit_in_bytes` | integer or null | no | Max stdout bytes; `null` = no limit. Arena defaults to 65536 when missing. Empty string is treated as missing. |
-| `categories` | array of strings | no | Category names. Arena matches by name/slug and **drops unknowns**; Contest matches by name and **creates unknowns on the fly**. |
-| `notes` | string or null | no | Internal management note (not shown to regular users). Arena column is 256 chars; Contest is 512 chars. |
-| `image` | filename string or null | no | Path/name of the image file in the package. When set, the file must exist in the archive, otherwise import fails. When omitted, a root-level image file is auto-detected by extension. |
-| `image_caption` | string or null | no | Caption shown below the image. |
-| `custom_validator` | object | no | Declares an interactive validator. See [section 8](#8-interactive-problems-validator). |
-### Arena-only fields (Contest ignores these)
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `source` | string or null | no | Origin of the problem (e.g. contest name). Max 256 chars. |
-| `hide_author_show_source` | boolean | no | If `true`, the public problem page shows `source` instead of author name. Default `false`. |
-| `license` | string (≤ 256 chars) or null | no | License shown on the public problem page. |
-| `statement_language` | `"pt"` \| `"en"` \| `"es"` or null | no | Natural language of `statement.md` (ISO 639-1). Exports omit the key when the problem has none. On import, an absent key triggers automatic detection from the statement; a value outside the three codes fails the import. |
-### Contest-only fields (Arena ignores these)
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `color` | hex string e.g. `#ff0000` | no | Balloon color assigned to the problem. When absent on import, a random color is picked from `BALLOON_COLORS` (preferring colors not yet used by sibling problems). |
-| `language_limits` | object | no | Per-language limit overrides keyed by language id. See [section 3](#3-language_limits-object-contest-only). |
-## 3. `language_limits` object (Contest only)
-`language_limits` is an object keyed by **language id** (the same id used by the judge, e.g.
-`"python3"`, `"cpp20"`, `"rust"`). Each value overrides the problem-level limits for that
-language. All keys are optional except where they would have no effect — entries with all three
-of `time_limit_ms`, `memory_limit_kb`, `pids_limit` blank are dropped on import.
+
+### Fields
+
+| Field | Type | Required | Default when absent | Description |
+| --- | --- | --- | --- | --- |
+| `format_version` | integer | no | `1` | Must be `1` when present. |
+| `title` | string | **yes** | — | Non-empty after trim. Max **256** characters. |
+| `author` | string \| null | no | `null` | Free-text authorship, max **256**. On Arena, absent means the importing user is recorded as both owner and author. |
+| `notes` | string \| null | no | `null` | Internal management note, max **512**. |
+| `source` | string \| null | no | `null` | Origin of the problem, max **256**. Stored by Arena only; always parsed and always exported. |
+| `license` | string \| null | no | `null` | License shown on the public problem page, max **256**. Arena only. |
+| `color` | `#rrggbb` \| null | no | `null` | Balloon color. Stored by Contest only; always parsed and always exported. When absent, a Contest import picks an unused `BALLOON_COLORS` entry. |
+| `hide_author_show_source` | boolean | no | `false` | Show `source` instead of the author name. Arena only. |
+| `statement_language` | `"pt"`\|`"en"`\|`"es"` \| null | no | `null` | Natural language of the statement. Arena only; an absent value triggers detection, which the importer is asked to confirm. |
+| `time_limit_ms` | integer ≥ 1 | no | `1000` | Per-test-case time limit. |
+| `memory_limit_kb` | integer ≥ 1 | no | `262144` | cgroup memory limit in KiB. |
+| `pids_limit` | integer ≥ 1 | no | `64` | cgroup `pids` limit. |
+| `output_limit_in_bytes` | integer ≥ 1 | no | `65536` | Max stdout bytes. **Never null**: both problem tables make the column NOT NULL. |
+| `categories` | array of strings | no | `[]` | Sequence preserved in the package. |
+| `sample_testcases` | array of integers | no | `[]` | Which **source** ordinals are public. See below. |
+| `image` | filename string \| null | no | auto-detect | When set, the named member must exist. |
+| `image_caption` | string \| null | no | `null` | Max **512** characters. |
+| `language_limits` | object | no | `{}` | Per-language overrides. Stored by Contest only. |
+| `custom_validator` | object \| null | no | `null` | Declares an interactive validator. |
+| `sha256` | object | no | `{}` | Integrity manifest. **Mandatory on new full exports**, optional on import. |
+
+Field widths are unified across both domains, so a value that survives on one side survives on
+the other. Strings are **type-checked**: a JSON number for `notes` is an error, not `"42"`.
+
+### Null versus absent
+
+A **nullable** field (`author`, `notes`, `source`, `license`, `color`, `statement_language`,
+`image`, `image_caption`, `custom_validator`) accepts an explicit `null`, which means the same as
+omitting it.
+
+A field that has an empty value of its own — `categories`, `sample_testcases`, `language_limits`,
+`sha256`, `hide_author_show_source`, `format_version`, and the four limits — does **not**. `null`
+there is a statement the format cannot express, so it is reported rather than quietly read as
+absence: write `[]`, `{}`, `false`, or omit the key.
+
+### Number handling
+
+`time_limit_ms`, `memory_limit_kb`, `pids_limit`, and `output_limit_in_bytes` must be integers
+`>= 1`. JSON integers and trimmed decimal strings (`"1500"`) are accepted. Rejected, with the
+offending value quoted in the message: floats, booleans, zero, negatives, and an explicit `null`
+— a package that states a limit as null is stating something the format cannot express.
+
+### `sample_testcases`
+
 ```json
-"language_limits": {
-"python3": {
-"time_limit_ms": 3000,
-"memory_limit_kb": 262144,
-"pids_limit": 64,
-"output_limit_in_bytes": 1048576,
-"repetitions": 3
-},
-"rust": {
-"time_limit_ms": 1000,
-"memory_limit_kb": 131072,
-"pids_limit": 32,
-"output_limit_in_bytes": 1048576,
-"repetitions": 1
-}
-}
+"sample_testcases": [1, 3]
 ```
+
+Unique, **strictly ascending** ordinals in the package's *own* (source) ordinal space, validated
+against the set of cases the package actually carries **before** the contiguous remap, then
+applied as the imported cases' `is_sample` flag.
+
+This is what makes the `explanation/` folder meaningful: explanations render next to sample cases,
+so a package with no public cases shows a contestant no worked examples at all.
+
+**It must be empty for an interactive problem.** Such a problem presents sample interactions
+instead of sample test cases, and the zero-public-cases invariant is enforced by the reader rather
+than left to each domain to remember.
+
+### `sha256`
+
+```json
+"sha256": { "statement.md": "…", "in/001.in": "…", "out/001.out": "…" }
+```
+
+Lowercase 64-character hex digests over the **exact raw bytes stored in each ZIP member**,
+computed *before* test-case newline normalization, so a package can be verified without
+interpreting what its members mean.
+
+The map covers every recognized payload member **except `problem.json` itself**, which would
+otherwise have to hash the file containing its own digest.
+
+- A **present** map must cover exactly the recognized payload set and match the streamed contents.
+  Missing entries, extra entries, and mismatches are all hard errors.
+- An **absent** map imports with an `integrity_manifest_missing` warning, because older packages
+  predate the manifest.
+
+### `language_limits`
+
+Keyed by judge language id (`"python3"`, `"cpp20"`, `"rust"`). Stored by Contest only; Arena has
+no per-language overrides and writes `{}`.
+
 | Sub-field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `time_limit_ms` | integer ≥ 1 | When entry is non-empty, required. | Time limit override. |
-| `memory_limit_kb` | integer ≥ 1 | When entry is non-empty, required. | Memory limit override. |
-| `pids_limit` | integer ≥ 1 | When entry is non-empty, required. | PIDs limit override. |
-| `output_limit_in_bytes` | integer or null | Optional. | Output size override. |
-| `repetitions` | integer | Optional. Default: 1 (fallback) or the language's `profiling_repetitions_default`. | Number of profiling repetitions for this problem/language pair. |
-On import, per-language `language_limits` entries whose `language_id` is not enabled in the
-target contest are **silently dropped**. The dropped ids are returned in the import result as
-`skipped_language_ids`.
-A legacy top-level `repetitions` field is accepted and ignored.
-## 4. Test cases
-Test cases are stored as paired files under `in/` and `out/`. The shared parser
-(`shared/tc_zip.py`) is the single source of truth.
+| `time_limit_ms` | integer ≥ 1 | **yes** | Time limit override. |
+| `memory_limit_kb` | integer ≥ 1 | **yes** | Memory limit override. |
+| `pids_limit` | integer ≥ 1 | **yes** | PIDs limit override. |
+| `output_limit_in_bytes` | integer ≥ 1 \| null | no | **May be omitted or null, meaning inherit the problem's limit.** |
+| `repetitions` | integer ≥ 1 | no | Profiling repetitions. Absent takes the target language registry's default, which only the importing side knows. |
+
+`output_limit_in_bytes` stays nullable here — and only here. `problem_language_limits` keeps a
+nullable column whose NULL means "inherit", which is exactly what the judge's
+`coalesce(per-language, problem)` computes.
+
+On import, entries naming a language the target contest does not allow are dropped, and the
+importer is told which ones in a `disallowed_language_limits` warning.
+
+## Test cases
+
 ### File naming
-The following regexes are matched case-insensitively against archive member names:
-- Directory layout: `^(in|out)/0*([1-9]\d{0,2})(\.in|\.out|\.sol)?$`
-- Flat layout: `^0*([1-9]\d{0,2})\.(in|out|sol)$`
+
+Matched case-insensitively:
+
+- Directory layout: `^(in|out)/0*([1-9]\d{0,3})(\.in|\.out|\.sol)?$`
+- Flat layout: `^0*([1-9]\d{0,3})\.(in|out|sol)$`
+
 Rules:
-- Leading zeros in filenames are stripped, so `001.in` and `1.in` refer to the same ordinal.
-- `.out` and `.sol` are interchangeable for outputs; mixing them across pairs is allowed.
-- Maximum ordinal is 999 (3 digits).
-- Maximum **1000 test cases** per problem (`MAX_TESTCASES = 1000`).
+
+- Leading zeros are stripped, so `001.in` and `1.in` name the same ordinal.
+- `.out` and `.sol` are interchangeable — but **not both for the same ordinal**.
+- The patterns accept four digits and the reader **separately rejects any ordinal outside
+  1..1000**, so a package holding ordinals `1` and `5000` fails loudly instead of quietly
+  importing two cases.
+- Maximum 1000 test cases.
+
 ### Pairing and ordering
-- Inputs and outputs are paired by ordinal.
-- All `in/` ordinals must have a matching `out/` ordinal, and vice-versa — **unless** the
-problem carries a `custom_validator` (input-only interactive problems).
-- Ordinals are **remapped contiguously starting at 1** in the result, regardless of gaps in
-source filenames.
-Example pairing:
+
+- Inputs and outputs pair by ordinal; unpaired ordinals on either side are an error naming them.
+- The pairing rule does **not** apply to an interactive problem: its cases are input-only, and
+  output files are ignored with a warning.
+- Ordinals are **remapped contiguously from 1**, regardless of gaps in source filenames.
+
 ```
 in/001.in   out/001.out
 in/002.in   out/002.out
-in/007.in   out/007.sol       ← .sol is accepted
+in/007.in   out/007.sol       ← .sol accepted
 in/010.in   out/010.out
-↑ ordinals remap to 1, 2, 3, 4 on import
+                              ↑ remap to 1, 2, 3, 4 on import
 ```
+
 ### Content rules
-- All test-case content must be valid **UTF-8**. Binary test cases are rejected (Arena enforces
-this strictly; Web does so via `parse_testcases_zip`).
-- CRLF and lone CR are normalized to LF on import (`\r\n` → `\n`, `\r` → `\n`).
+
+- Every kept input and output must be valid **UTF-8**. Binary test cases are rejected in **both**
+  domains — the previous Contest path accepted them only because nothing on that side checked.
+- CRLF and lone CR are normalized to LF **after** hashing, so the integrity manifest describes
+  what the package shipped rather than a derived form.
 - Empty content and empty lines are preserved.
-- There is no per-file size cap on import (the 10 KiB cap is a textarea editing limit only —
-large test cases can still be uploaded as files).
+- No per-file size cap beyond the archive ceilings. The 10 KiB `MAX_INLINE_TESTCASE_BYTES` is a
+  textarea-editing gate only.
+
 ### On-disk layout after import
-In both domains, test cases are written to:
+
 ```
 <NOCA_PROBLEM_TESTCASE_DIR>/<contest|arena>/<problem_id>/NNN.in
 <NOCA_PROBLEM_TESTCASE_DIR>/<contest|arena>/<problem_id>/NNN.out
 ```
-where `NNN` is `ordinal:03d` (zero-padded, 1-based).
+
+`NNN` is `ordinal:03d`. Files are staged next to their final location and promoted with a
+same-filesystem rename before the transaction commits; see
+[SHARED_SERVICES.md](SHARED_SERVICES.md) for the journal that makes a crash between those two
+steps recoverable.
+
 ### Public vs. secret
-There is no separate metadata file for the public/secret flag. After import:
-- All packaged test cases are imported as **secret** (`is_sample=False`) on both domains,
-including the cases of a package that declares a `custom_validator`.
-- An interactive problem is required to have **zero** public test cases: a bare input reveals a
-secret without showing what to do with it, so its worked examples are the
-[sample interactions](#9-interaction-folder-interactive-problems) instead. Making a case public
-after import is refused while a validator is configured.
-## 5. `explanation/` folder
-Author notes that explain why a test case has its expected output. They are shown to contestants
-**below the sample** in the problem-statement view.
+
+`sample_testcases` decides. Cases it does not name are secret. An interactive problem has **zero**
+public cases and at least one secret one.
+
+## `explanation/` folder
+
+Author notes explaining why a test case has its expected output. They render **below the sample**
+on the problem page, so an explanation for a secret case is stored but never shown.
+
 ```
 explanation/
-├── 001.txt    ← optional UTF-8 text for test case #1
-├── 002.txt    ← optional
+├── 001.txt    ← optional UTF-8 text for source ordinal 1
 └── ...
 ```
-### File naming
-- Regex: `^explanation/0*([1-9]\d{0,2})\.txt$` (case-insensitive).
-- Matched by ordinal with the test cases; remapped to the new ordinal space.
-- An explanation for an ordinal with no matching test case is silently **ignored** (no
-validation or decode error).
-### Content rules
-- UTF-8 only; invalid UTF-8 raises `ValueError("Explanation for ordinal N is not valid UTF-8.")`.
-- No size limit (the previous 1024-char cap was removed).
-- Whitespace-only explanations are dropped to `null`.
-Example (`explanation/001.txt`):
-```
-The two numbers on the input line are added together.
-```
-## 6. Statement (`statement.md` / `statement.pdf`)
-The problem statement must be packaged as one of:
-- `statement.md` — Markdown (UTF-8). Required on Arena. Optional on Contest when a `statement.pdf` is present.
-- `statement.pdf` — PDF. Contest only. When present, takes precedence over `statement.md`.
+
+- Regex: `^explanation/0*([1-9]\d{0,3})\.txt$` (case-insensitive).
+- Matched by source ordinal, then remapped with its case.
+- UTF-8 only, max 512 KiB.
+- Whitespace-only explanations become `null`.
+- An explanation with no matching test case is dropped with an `orphan_explanation` warning.
+
+## Statement
+
+One of:
+
+- `statement.md` — Markdown (UTF-8). Required on Arena. Preferred over PDF when both are present.
+- `statement.pdf` — PDF. Contest only.
+
 ### Markdown validation
-`statement.md` is validated through `validate_md_content` (in `shared/problem_statement_markdown.py`):
-- Must be valid UTF-8.
-- Must not exceed **512 KiB**.
-- Must not contain:
-- `link` — any Markdown link, autolink, reference link, or bare URL (`https://...`, etc.).
-- `image` — any `![alt](src)` Markdown image.
-- `html` — HTML blocks and inline HTML.
-- Allowed authoring features include **LaTeX** (`$...$`) and **mermaid** fenced code blocks.
-Validation errors raise a single `ValueError` listing all detected disallowed features.
-### Example statement (`statement.md`)
-```markdown
-# A + B
-Read two integers and print their sum.
-## Input
-A single line with two integers, `a` and `b`, separated by a space.
-## Output
-A single line with the value of `a + b`.
-## Example
-Input:
-```
-1 2
-```
-Output:
-```
-3
-```
-## Note
-The sum of two integers fits in a 64-bit signed type. Hint: think about the
-formula $a + b$ and the time complexity $O(1)$.
-```
-## 7. Illustration image (`image.<ext>`)
-An optional illustration shown below the statement.
-### Supported formats
+
+Through `validate_md_content` (`shared/problem_statement_markdown.py`): valid UTF-8, at most
+512 KiB, and none of `link` (any Markdown link, autolink, reference link, or bare URL), `image`
+(`![alt](src)`), or `html` (blocks and inline). LaTeX (`$...$`) and mermaid fenced blocks are
+allowed.
+
+### PDF validation
+
+1. the `%PDF-` signature;
+2. the 32 MiB cap;
+3. `pypdf.PdfReader(path, strict=False)` — the document must **not be encrypted** and must have
+   **at least one readable page**.
+
+Non-strict parsing is deliberate: a PDF produced by LaTeX or Word may violate minor points of the
+specification while rendering correctly in every viewer, and refusing those would reject
+legitimate statements. What is refused is a file that is not a PDF, is encrypted, or has no
+readable page.
+
+## Illustration image
+
 | Extension | MIME type |
 | --- | --- |
 | `gif` | `image/gif` |
 | `png` | `image/png` |
 | `jpg` / `jpeg` | `image/jpeg` |
 | `webp` | `image/webp` |
-The MIME map is the single source of truth: `shared/services/problem_image.py` defines
-`MIME_TO_EXT` and `EXT_TO_MIME`.
-### Rules
-- Maximum size: **2 MiB** (`MAX_PROBLEM_IMAGE_BYTES = 2 * 1024 * 1024`).
-- Maximum dimensions: **2048 × 2048 pixels** (`MAX_PROBLEM_IMAGE_WIDTH` and
-  `MAX_PROBLEM_IMAGE_HEIGHT`). These fixed dimensions keep packages portable
+
+- Maximum **2 MiB**, maximum **2048 × 2048 pixels**. The fixed dimensions keep packages portable
   between deployments with different general image settings.
-- The file is validated and re-encoded through `ImageProcessingService.process_base64`.
-- Animated GIF frames and timing are preserved during re-encoding.
-- When `problem.json.image` names a specific file, that file **must exist** in the archive —
-otherwise import fails with `"problem.json references image '...' which is not present in the ZIP."`.
-- When `problem.json.image` is absent, the loader auto-detects the first root-level file whose
-extension matches `EXT_TO_MIME`.
-- `image_caption` (string or null) is shown below the image. Whitespace-only captions are dropped.
-- The image is part of the statement a contestant reads and is therefore **included in public
-exports** too (not just full exports).
-## 8. Interactive problems (`validator/`)
-A custom validator turns a problem into an **interactive** problem: the contestant's program
-talks to a validator program that decides the verdict. See [CUSTOM_VALIDATOR.md](CUSTOM_VALIDATOR.md)
-for the full lifecycle and protocol.
-### Package layout
+- Validated and re-encoded through `ImageProcessingService`. Animated GIF frames and timing are
+  preserved.
+- When `problem.json.image` names a file, that file **must exist** in the archive. When the key is
+  absent, the first root-level member with a recognized extension is used.
+- `image_caption` is shown below the image; whitespace-only captions become `null`.
+- The image is part of the statement a contestant reads, so it ships in **both** profiles.
+
+## Interactive problems (`validator/`)
+
+A custom validator makes a problem **interactive**: the contestant's program talks to a validator
+that decides the verdict. See [CUSTOM_VALIDATOR.md](CUSTOM_VALIDATOR.md) for the lifecycle and
+protocol.
+
 ```
 validator/
-└── validator.py     ← UTF-8 validator source (required when custom_validator is declared)
+└── validator.py     ← UTF-8 validator source
 in/
-├── 001.in           ← test cases: inputs only, no out/ directory
+├── 001.in           ← inputs only; no out/ directory
 └── 002.in
 ```
-Exports name the validator source `validator/validator<ext>`, where `<ext>` is the source
-extension for the validator's language (e.g. `validator.py`, `validator.cpp`). The exact name is
-declared in `problem.json` (see below); the older locked name `validator/source.txt` is still
-accepted on import.
-An interactive problem's test cases carry **input only**. Each case's input is fed to the
-validator's standard input before it starts talking to the contestant, so it parametrizes one
-round of the conversation rather than declaring an expected answer. The package therefore ships
-`in/NNN.in` files and **no** `out/NNN.out`; any output files present are ignored on import.
 
-Every test case of an interactive problem is **secret**. There is nothing meaningful to publish:
-a bare input reveals a secret without showing what the contestant is supposed to do with it. The
-public examples come from the [`interaction/` folder](#9-interaction-folder-interactive-problems)
-instead. Imports therefore mark every case secret, and the application refuses to make a case
-public while a validator is configured. At least one secret test case is required before the
-problem can be enabled or accept submissions.
-
-### Declaring a validator in `problem.json`
 ```json
-{
-"custom_validator": {
-"language_id": "cpp20",
-"source_file": "validator/validator.cpp"
-}
-}
+"custom_validator": { "language_id": "cpp20", "source_file": "validator/validator.cpp" }
 ```
+
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `custom_validator.language_id` | string | **yes** | Must be an active judge language id (e.g. `cpp20`, `python3`). |
-| `custom_validator.source_file` | string | **yes** | A single file directly inside `validator/` (e.g. `"validator/validator.cpp"`); no nested paths or `..` traversal. Exports write `validator/validator<ext>`. |
-### Source rules
-- UTF-8, non-empty, non-blank.
-- Maximum **256 KiB** (`MAX_CUSTOM_VALIDATOR_SOURCE_BYTES = 256 * 1024`).
-- Validation raises `ValidatorUploadError` on:
-- Empty or blank source.
-- Oversized source.
-- Invalid UTF-8.
-- Missing `language_id`.
-- Unsafe `source_file` path (not a single file directly inside `validator/`).
-- The declared `source_file` member missing from the archive.
-### Behaviour on import
-- The validator is staged as a `PENDING` candidate via `stage_candidate` (in
-`shared/services/custom_validator.py`), and a compile job is enqueued on the
-profiling-priority queue after the transaction commits.
-- The problem **cannot accept submissions** until the candidate compiles successfully and is
-promoted to the active revision.
-- Full exports of an interactive problem include the validator source; **public exports never
-include it**.
-## 9. `interaction/` folder (interactive problems)
-An interactive problem shows contestants **sample interactions** — worked examples of the
-conversation their program will have with the validator — instead of sample test cases. Each one
-is a transcript, optionally paired with an explanation.
+| `language_id` | string | **yes** | Must be an active judge language on the *target* install. Checked at import, before anything commits — not by the reader, which cannot know. |
+| `source_file` | string | **yes** | Must be of the exact form `validator/<name>`, a single path segment. Nested paths and traversal are refused, and so is naming a member outside `validator/` — otherwise `statement.md` could be declared as the validator source. |
+
+Rules:
+
+- Source must be valid UTF-8, non-empty, non-blank, at most 256 KiB.
+- The declared member must exist in the archive.
+- The **language id is authoritative**. A `source_file` extension that disagrees with it produces
+  a `validator_extension_mismatch` warning, not an error.
+- `validator/` members with **no** `custom_validator` metadata are a **hard error**: shipping a
+  validator that silently does not get configured is exactly the quiet data loss the format
+  refuses.
+- Each case's input is fed to the validator's stdin before the conversation starts, so it
+  parametrizes one round rather than declaring an expected answer. Output files present in the
+  archive are ignored with a warning.
+- Every case is secret; `sample_testcases` must be empty.
+- The validator is staged as a `PENDING` candidate and a compile job is enqueued **after** the
+  transaction commits. The problem accepts no submissions until it is promoted.
+- `full` exports carry the validator source; `public` bundles never do.
+
+## `interaction/` folder
+
+An interactive problem's public examples are **sample interactions** — worked transcripts of the
+conversation the contestant's program will have.
 
 ```
 interaction/
-├── 001.interaction   ← required: the transcript, as a raw JSON string
-├── 001.explain       ← optional: plain-text explanation of this conversation
-├── 002.interaction
+├── 001.interaction   ← required: the transcript, as JSON
+├── 001.explain       ← optional: plain-text explanation
 └── ...
 ```
 
-`NNN` is a zero-padded, 1-based integer that reflects the exact order the author arranged the
-interactions in. Gaps are closed on import (the same contiguous remap test cases get), so a
-hand-assembled `007` / `042` pair imports as `1` / `2`.
+`NNN` reflects the author's ordering; gaps are closed on import.
 
-### `NNN.interaction` — the transcript
-The file holds one JSON object, in the same shape the judge records for a real interactive
-attempt (`submission_interactive_attempts.transcript`), so one renderer serves both:
+### `NNN.interaction`
+
+One JSON object, in the same shape the judge records for a real interactive attempt
+(`submission_interactive_attempts.transcript`), so one renderer serves both:
 
 ```json
 {
@@ -411,13 +501,12 @@ attempt (`submission_interactive_attempts.transcript`), so one renderer serves b
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `lines` | array | **yes** | Non-empty, ordered conversation. |
-| `lines[].dir` | string | **yes** | `"validator"` (validator → contestant) or `"user"` (contestant → validator). |
+| `lines[].dir` | string | **yes** | `"validator"` or `"user"`. |
 | `lines[].line` | string | **yes** | The protocol line, without its trailing newline. |
 | `truncated` | bool | no | Defaults to `false`. |
 
-In the Arena and Contest admin UIs the same transcript is authored as plain text, one message per
-line, using the exact two-character prefixes `> ` (validator speaking) and `< ` (contestant
-speaking):
+In the admin UIs the same transcript is authored as plain text with the exact two-character
+prefixes `> ` (validator speaking) and `< ` (contestant speaking):
 
 ```
 > 3
@@ -425,192 +514,169 @@ speaking):
 > !8
 ```
 
-The parser is strict: every line must carry one of those prefixes **including the space**. Bare
-`>` / `<`, leading whitespace, and blank lines are rejected. An empty protocol line is written as
-`> ` with nothing after it.
-
-### `NNN.explain` — the explanation
-Optional, plain UTF-8 text, rendered as Markdown below the conversation on the problem page. An
-`.explain` file with no matching `.interaction` file is ignored.
+The parser is strict: every line must carry one of those prefixes **including the space**. An
+empty protocol line is written as `> ` with nothing after it.
 
 ### Rules
-- **At most 5** sample interactions per problem (`MAX_SAMPLE_INTERACTIONS`).
-- **Only meaningful with a validator.** If the package declares no `custom_validator`, the whole
-  `interaction/` folder is **silently dropped** on import.
-- A package that **does** declare a validator but ships no interactions imports successfully; the
-  importer warns that the problem has no examples to show contestants.
-- Exports include only the interactions that are currently visible. Interactions hidden by a
-  "keep" choice when a validator was removed stay out of the package, and the survivors are
-  renumbered so the export has no gaps.
-- Because sample interactions are the public examples of an interactive problem, they ship in
-  **public exports** too — unlike the validator source, which never does.
 
-## 10. Validation rules
-The following rules are enforced at import time, by the relevant shared helper. Each importer
-raises `ValueError` (or `ValidatorUploadError` for validator-specific problems) on failure.
-### General
-- The archive must be a valid ZIP file.
-- `problem.json` must be present, valid UTF-8, parse as JSON, and contain a JSON object at the top
-level.
-- The top-level values for `title`, `time_limit_ms`, `memory_limit_kb`, `pids_limit` must be
-present and valid:
-- `title` — non-empty after trim.
-- `time_limit_ms`, `memory_limit_kb`, `pids_limit` — integer ≥ 1. Strings such as `"1500"`
-are accepted (cast through `int(str(value))`).
-- `output_limit_in_bytes`, when present and non-null, must be an integer ≥ 1; missing or
-empty string is treated as null.
-- `statement_language` (Arena), when present and non-null, must be exactly `pt`, `en`, or `es`
-(surrounding whitespace is trimmed); anything else fails the import with
-`problem.json: 'statement_language' is invalid.`. When the key is absent, Arena detects the
-language from `statement.md` and the import page asks the importer to confirm the result —
-including the case where the statement was too short to attempt detection, which leaves the
-language unset.
-### Statement
-- Arena: `statement.md` is required.
-- Contest: either `statement.pdf` or `statement.md` is required.
-- Markdown must pass `validate_md_content` (size cap, allowed features only — see
-[section 6](#6-statement-statementmd--statementpdf)).
-### Test cases
-- At least one test case is required. Every problem needs one, interactive or not.
-- Every case of an interactive problem is imported as **secret**; an interactive problem has no
-  public test cases (see [section 9](#9-interaction-folder-interactive-problems)).
-- Maximum 1000 test cases.
-- UTF-8 only.
-- Inputs without matching outputs (and vice-versa) raise `ValueError` with the offending ordinals.
-  This pairing rule does **not** apply to a validator package: its cases are input-only, and any
-  output files in the archive are ignored.
-- Invalid UTF-8 raises `ValueError` listing the offending ordinal and stream
-(`input` or `output`).
-- CRLF and lone CR are normalized to LF on import.
-### Explanations
-- UTF-8 only.
-- Orphan explanations (no matching input file) are silently dropped.
-### Image
-- `problem.json.image`, when set, must reference a file present in the archive.
-- The image must pass `ImageProcessingService.process_base64`.
-- Maximum 2 MiB.
-### Custom validator
-- `custom_validator` must be a JSON object.
-- `language_id` must be a non-empty string.
-- `source_file` must be a single file directly inside `validator/` (e.g. `"validator/validator.py"`); no nested paths or `..` traversal.
-- That member must exist in the archive.
-- Source must be valid UTF-8, non-empty, non-blank, ≤ 256 KiB.
-### Sample interactions
-- Dropped entirely when the package declares no `custom_validator`.
-- Maximum 5 per problem.
-- Each `interaction/NNN.interaction` must be valid UTF-8 and parse as a JSON object holding a
-  non-empty `lines` array, where each entry has `dir` in (`"user"`, `"validator"`) and a string
-  `line`. `truncated`, when present, must be a boolean.
-- Orphan `.explain` files (no matching `.interaction`) are silently dropped.
-- Ordinals are remapped contiguously from 1.
-### Per-language limits (Contest only)
-- `language_limits` must be a JSON object.
-- Each entry must include at least one of `time_limit_ms`, `memory_limit_kb`, `pids_limit`
-(all blank ⇒ skipped).
-- Languages not enabled in the target contest are dropped and reported in
-`skipped_language_ids`.
-### Categories
-- Arena: matched by name (case-insensitive) or slug; unknown categories are dropped.
-- Contest: matched by name; unknown categories are created on the fly.
-## 11. Constants and limits at a glance
+- **At most 5** per problem.
+- Only meaningful with a validator: a package declaring none has its `interaction/` members
+  dropped with an `interactions_dropped` warning.
+- A validator package with no interactions imports successfully; the importer is warned the
+  problem shows no examples.
+- Exports carry only currently-visible interactions, renumbered without gaps.
+- They ship in **both** profiles — unlike the validator source.
+
+## Warnings vs. errors
+
+The split is deliberate: anything that would lose data **silently** is an error; anything the
+reader resolves on its own but the operator should know about is a structured warning, surfaced
+as a flash on the import page.
+
+Warnings: `macos_metadata`, `orphan_explanation`, `ignored_interactive_output`,
+`interactions_dropped`, `unknown_categories`, `disallowed_language_limits`,
+`integrity_manifest_missing`, `validator_extension_mismatch`.
+
+Errors: `validator/` members with no `custom_validator` metadata; non-empty `sample_testcases` on
+an interactive problem; a referenced file that is missing; any invalid recognized field; every
+archive-safety violation above.
+
+## Cross-domain preservation
+
+The format is the **union** of both domains. Every key is always parsed and always exported; a
+domain that cannot store one simply does not keep it. This replaces the older and too-broad claim
+that "unknown keys are ignored" — unknown *members* are ignored, but a recognized key with an
+invalid value is an error.
+
+| Field | Contest stores | Arena stores | Lost in Contest → Arena | Lost in Arena → Contest |
+| --- | --- | --- | --- | --- |
+| `title`, `author`, `notes` | yes | yes | — | — |
+| `time_limit_ms`, `memory_limit_kb`, `pids_limit`, `output_limit_in_bytes` | yes | yes | — | — |
+| `categories` | yes (creates unknown) | yes (drops unknown) | unknown categories | — |
+| `sample_testcases` | yes | yes | — | — |
+| `image`, `image_caption` | yes | yes | — | — |
+| statement, explanations, interactions, validator | yes | yes | — | — |
+| `color` | **yes** | no | **`color`** | — (Contest picks one) |
+| `language_limits` | **yes** | no | **`language_limits`** | — |
+| `source`, `hide_author_show_source` | no | **yes** | — | **both** |
+| `license` | no | **yes** | — | **`license`** |
+| `statement_language` | no | **yes** | — | **`statement_language`** |
+| PDF statement | **yes** | no | **the whole import fails** — Arena requires Markdown | — |
+
+Anything not in the "lost" columns survives a round trip in either direction.
+
+## Target-specific checks
+
+Everything above is decided identically everywhere. These are **not**, because they depend on the
+install a package is being imported into. A package the linter accepts can still be refused by one
+of them, and that is correct behavior rather than drift:
+
+| Check | Contest | Arena |
+| --- | --- | --- |
+| Validator `language_id` must be an active judge language | yes | yes |
+| Categories | created on the fly | must already exist; unknown ones dropped with a warning |
+| `language_limits` languages must be allowed by the contest | yes | n/a (no per-language limits) |
+| Statement kind | Markdown or PDF | Markdown only |
+
+## Offline validation
+
+```bash
+uv run python scripts/validate_problem_package.py PATH
+```
+
+Runs the same reader both importers use: exit 0 with any warnings printed, exit 1 with one
+actionable error. It cannot check anything that depends on the target install — whether the
+categories exist, whether the validator's language is enabled, whether the contest allows the
+languages named in `language_limits`. Those are decided at import.
+
+## Constants at a glance
+
 | Constant | Value | Defined in |
 | --- | --- | --- |
-| `MAX_TESTCASES` | 1000 | `shared/tc_zip.py` |
-| `MAX_INLINE_TESTCASE_BYTES` | 10 KiB | `shared/tc_zip.py` (textarea editing gate only) |
+| `FORMAT_VERSION` | 1 | `shared/services/problem_package/constants.py` |
+| `MAX_UPLOAD_BYTES` | 256 MiB | `shared/services/problem_package/constants.py` |
+| `MAX_ARCHIVE_MEMBERS` | 10 000 | `shared/services/problem_package/constants.py` |
+| `MAX_MEMBER_UNCOMPRESSED_BYTES` | 64 MiB | `shared/services/problem_package/constants.py` |
+| `MAX_TOTAL_UNCOMPRESSED_BYTES` | 512 MiB | `shared/services/problem_package/constants.py` |
+| `MAX_PDF_BYTES` | 32 MiB | `shared/services/problem_package/constants.py` |
+| `MAX_TITLE_CHARS` / `MAX_AUTHOR_CHARS` | 256 | `shared/services/problem_package/constants.py` |
+| `MAX_NOTES_CHARS` / `MAX_IMAGE_CAPTION_CHARS` | 512 | `shared/services/problem_package/constants.py` |
+| `MAX_SOURCE_CHARS` / `MAX_LICENSE_CHARS` | 256 | `shared/services/problem_package/constants.py` |
+| `DEFAULT_OUTPUT_LIMIT_BYTES` | 65 536 | `shared/services/problem_package/constants.py` |
+| `MAX_TEST_CASES` / `MAX_TEST_CASE_ORDINAL` | 1000 | `shared/services/problem_package/constants.py` |
+| `MAX_INLINE_TESTCASE_BYTES` | 10 KiB | `shared/tc_zip.py` (textarea gate only) |
 | `MAX_PROBLEM_IMAGE_BYTES` | 2 MiB | `shared/services/problem_image.py` |
-| `MAX_PROBLEM_IMAGE_WIDTH` | 2048 pixels | `shared/services/problem_image.py` |
-| `MAX_PROBLEM_IMAGE_HEIGHT` | 2048 pixels | `shared/services/problem_image.py` |
+| `MAX_PROBLEM_IMAGE_WIDTH` / `_HEIGHT` | 2048 px | `shared/services/problem_image.py` |
 | `MAX_CUSTOM_VALIDATOR_SOURCE_BYTES` | 256 KiB | `shared/services/custom_validator.py` |
-| `MAX_CUSTOM_VALIDATOR_COMPILE_LOG_CHARS` | 16 384 | `shared/services/custom_validator.py` |
 | `MAX_SAMPLE_INTERACTIONS` | 5 | `shared/services/sample_interactions.py` |
 | Statement Markdown cap | 512 KiB | `shared/problem_statement_markdown.py` |
-| Arena `output_limit_in_bytes` default | 65 536 | `arena/services/admin_problem_io_service.py` |
-## 12. End-to-end examples
-### 11.1 Minimal Arena package (the "A + B" sample)
+
+## End-to-end examples
+
+### The "A + B" sample package
+
 ```
 noca-sample-problem-a-plus-b.zip
 ├── problem.json
 ├── statement.md
-├── in/001.in
-├── out/001.out
-├── in/002.in
-├── out/002.out
-├── in/003.in
-├── out/003.out
-└── explanation/001.txt
+├── in/001.in    out/001.out    explanation/001.txt   ← public
+├── in/002.in    out/002.out
+└── in/003.in    out/003.out
 ```
-`problem.json`:
+
+`problem.json` (abridged — a real export also carries the `sha256` map):
+
 ```json
 {
-"title": "A + B",
-"author": "John Doe",
-"notes": "Sample problem",
-"license": "cc sa-by",
-"statement_language": "en",
-"categories": ["sample", "math"],
-"time_limit_ms": 1000,
-"memory_limit_kb": 262144,
-"pids_limit": 64,
-"output_limit_in_bytes": 1048576,
-"color": "#4287f5",
-"language_limits": {
-"python3": {
-"time_limit_ms": 3000,
-"memory_limit_kb": 262144,
-"pids_limit": 64,
-"output_limit_in_bytes": 1048576,
-"repetitions": 3
-},
-"rust": {
-"time_limit_ms": 1000,
-"memory_limit_kb": 131072,
-"pids_limit": 32,
-"output_limit_in_bytes": 1048576,
-"repetitions": 1
-}
-}
+  "format_version": 1,
+  "title": "A + B",
+  "author": "John Doe",
+  "notes": "Sample problem",
+  "source": "NOCA documentation",
+  "license": "cc sa-by",
+  "color": "#4287f5",
+  "hide_author_show_source": false,
+  "statement_language": "en",
+  "time_limit_ms": 1000,
+  "memory_limit_kb": 262144,
+  "pids_limit": 64,
+  "output_limit_in_bytes": 1048576,
+  "categories": ["sample", "math"],
+  "sample_testcases": [1],
+  "image": null,
+  "image_caption": null,
+  "language_limits": {
+    "python3": {"time_limit_ms": 3000, "memory_limit_kb": 262144, "pids_limit": 64,
+                "output_limit_in_bytes": 1048576, "repetitions": 3},
+    "rust":    {"time_limit_ms": 1000, "memory_limit_kb": 131072, "pids_limit": 32,
+                "output_limit_in_bytes": 1048576, "repetitions": 1}
+  },
+  "custom_validator": null
 }
 ```
+
 `statement.md`:
-```markdown
+
+````markdown
 # A + B
+
 Read two integers and print their sum.
+
 ## Input
+
 A single line with two integers, `a` and `b`, separated by a space.
+
 ## Output
+
 A single line with the value of `a + b`.
-```
-`in/001.in`:
-```
-1 2
-```
-`out/001.out`:
-```
-3
-```
-`in/002.in`:
-```
-2 5
-```
-`out/002.out`:
-```
-7
-```
-`in/003.in`:
-```
-10 20
-```
-`out/003.out`:
-```
-30
-```
-`explanation/001.txt`:
-```
-The two numbers on the input line are added together.
-```
-This is the exact package built by `build_sample_problem_package()` in
-`shared/services/sample_problem_package.py` and served by the import pages.
-### 11.2 Contest package with PDF statement and an image
+````
+
+`in/001.in` is `1 2`, `out/001.out` is `3`, and `explanation/001.txt` reads *"The two numbers on
+the input line are added together."* This is exactly what `build_sample_problem_package()` writes
+and the import pages serve.
+
+### Contest package with a PDF statement and an image
+
 ```
 my-contest-problem.zip
 ├── problem.json
@@ -619,62 +685,64 @@ my-contest-problem.zip
 ├── in/001.in
 └── out/001.out
 ```
-`problem.json`:
+
 ```json
 {
-"title": "Geometry Maze",
-"author": "Jane Doe",
-"notes": "Created for the 2025 regionals.",
-"time_limit_ms": 2000,
-"memory_limit_kb": 262144,
-"pids_limit": 64,
-"output_limit_in_bytes": 1048576,
-"categories": ["geometry", "graph"],
-"image": "image.png",
-"image_caption": "Figure 1. The maze layout.",
-"language_limits": {
-"cpp20": {
-"time_limit_ms": 2000,
-"memory_limit_kb": 262144,
-"pids_limit": 64,
-"output_limit_in_bytes": 1048576,
-"repetitions": 1
-}
-}
+  "format_version": 1,
+  "title": "Geometry Maze",
+  "author": "Jane Doe",
+  "notes": "Created for the 2025 regionals.",
+  "color": "#00FFFF",
+  "time_limit_ms": 2000,
+  "memory_limit_kb": 262144,
+  "pids_limit": 64,
+  "output_limit_in_bytes": 1048576,
+  "categories": ["geometry", "graph"],
+  "sample_testcases": [1],
+  "image": "image.png",
+  "image_caption": "Figure 1. The maze layout.",
+  "language_limits": {
+    "cpp20": {"time_limit_ms": 2000, "memory_limit_kb": 262144, "pids_limit": 64,
+              "output_limit_in_bytes": 1048576, "repetitions": 1}
+  }
 }
 ```
-`image.png` is a 2 MiB max PNG illustrating the maze.
-### 11.3 Interactive Arena problem (custom validator)
+
+This package **cannot** be imported into Arena, which requires a Markdown statement.
+
+### Interactive problem
+
 ```
 number-guessing.zip
 ├── problem.json
 ├── statement.md
 ├── validator/validator.py
+├── interaction/001.interaction
+├── interaction/001.explain
 ├── in/001.in       ← the round the validator plays; no out/ directory
 └── in/002.in
 ```
-`problem.json`:
+
 ```json
 {
-"title": "Number Guessing",
-"author": "Jane Doe",
-"source": "ICPC 2025",
-"hide_author_show_source": false,
-"license": "CC BY-SA 4.0",
-"statement_language": "en",
-"time_limit_ms": 2000,
-"memory_limit_kb": 262144,
-"pids_limit": 64,
-"output_limit_in_bytes": null,
-"categories": ["interactive", "search"],
-"notes": "Adapted from ICPC regionals.",
-"custom_validator": {
-"language_id": "python3",
-"source_file": "validator/validator.py"
-}
+  "format_version": 1,
+  "title": "Number Guessing",
+  "author": "Jane Doe",
+  "source": "ICPC 2025",
+  "license": "CC BY-SA 4.0",
+  "statement_language": "en",
+  "time_limit_ms": 2000,
+  "memory_limit_kb": 262144,
+  "pids_limit": 64,
+  "output_limit_in_bytes": 65536,
+  "categories": ["interactive", "search"],
+  "sample_testcases": [],
+  "custom_validator": {"language_id": "python3", "source_file": "validator/validator.py"}
 }
 ```
+
 `validator/validator.py` — it reads the test case first, then plays that round:
+
 ```python
 import sys
 
@@ -696,18 +764,13 @@ for _ in range(budget):
     sys.exit(4)                      # malformed message -> PE
 sys.exit(2)                          # out of queries -> TLE
 ```
-`in/001.in` — an easy round (secret 42, 50 queries):
-```
-42 50
-```
-`in/002.in` — a harder round the contestant must also pass:
-```
-999999 20
-```
-The judge runs the validator once per case, in order, feeding it that case's line before the
-contestant says anything. The submission is Accepted only if both rounds end with exit `0`.
-### 11.4 Flat-layout package
-A flat layout is also accepted on import (though exports always use the directory layout):
+
+`in/001.in` is `42 50` (secret 42, 50 queries); `in/002.in` is `999999 20`. The judge runs the
+validator once per case, in order, feeding it that case's line before the contestant says
+anything. The submission is Accepted only if every round ends with exit `0`.
+
+### Flat-layout package
+
 ```
 flat-problem.zip
 ├── problem.json
@@ -717,4 +780,6 @@ flat-problem.zip
 ├── 002.in
 └── 002.sol       ← .sol accepted as .out
 ```
-This parses identically to the directory-layout version with `in/001.in`, `out/001.out`, etc.
+
+This parses identically to the directory-layout version. Adding an `in/003.in` to it would be
+refused as a mixed layout.

@@ -361,4 +361,101 @@ function makeTimers() {
   assert.ok(!cell.classList.contains("animator-cell--flash-pending"), "flash clears after its lifetime");
 })();
 
+// ── FLIP batches every layout read before the first style write ──────────────
+// The regression this guards: reading getBoundingClientRect() and writing
+// style.transform in the same loop invalidates layout on each iteration, so the
+// next row's read forces a synchronous recalc — one forced layout per moved row,
+// on the hot path of every rank change. The order below is the whole contract.
+(function testReadsAreBatchedBeforeWrites() {
+  const trace = [];
+  const tbody = new El("tbody");
+  const rows = [makeRow("t1", 10, []), makeRow("t2", 20, []), makeRow("t3", 30, [])];
+  rows.forEach((row) => {
+    const realRect = row.getBoundingClientRect.bind(row);
+    row.getBoundingClientRect = () => {
+      trace.push("read");
+      return realRect();
+    };
+    // A style object that records writes in the order they happen.
+    const values = {};
+    row.style = new Proxy(values, {
+      set(target, prop, value) {
+        trace.push("write");
+        target[prop] = value;
+        return true;
+      },
+    });
+  });
+  tbody.children = rows;
+
+  const applier = animate.createApplier(tbody, {
+    setTimeout() {},
+    clearTimeout() {},
+    raf() {},
+    // The CSS fallback deliberately performs one reflow after every invert
+    // write has landed. Track that commit separately from the positional reads
+    // whose batching this test owns; testFlipForcesReflow pins the commit itself.
+    forceReflow() {
+      trace.push("commit");
+    },
+  });
+  const first = applier.measureRows();
+  trace.length = 0; // measureRows is its own read pass; only playFlip is under test
+  rows.forEach((row, i) => {
+    row._top = 100 + i * 10;
+  });
+  applier.apply({ rowClasses: {}, cellClasses: {} }, first);
+
+  assert.ok(trace.includes("read") && trace.includes("write"), "the move both read and wrote");
+  assert.strictEqual(
+    trace.lastIndexOf("read") < trace.indexOf("write"),
+    true,
+    "every layout read must precede the first style write",
+  );
+  assert.ok(trace.indexOf("commit") > trace.lastIndexOf("write"), "the batch is committed after its writes");
+})();
+
+// ── will-change is scoped to the move, not left on every row at rest ──────────
+(function testCompositorHintIsScopedToTheMove() {
+  const tbody = new El("tbody");
+  const row = makeRow("t1", 10, []);
+  tbody.children = [row];
+  const timers = makeTimers();
+  let rafCb = null;
+  const applier = animate.createApplier(tbody, {
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
+    raf(cb) {
+      rafCb = cb;
+    },
+  });
+
+  // At rest the row carries no promotion at all.
+  assert.strictEqual(row.style.willChange, undefined, "no compositor hint before any motion");
+
+  const first = applier.measureRows();
+  row._top = 60;
+  applier.apply({ rowClasses: {}, cellClasses: {} }, first);
+  assert.strictEqual(row.style.willChange, "transform", "the moving row is promoted for its move");
+
+  rafCb();
+  timers.flush();
+  assert.strictEqual(row.style.willChange, "", "the hint is released once the motion is over");
+})();
+
+// ── A row that did not move is never promoted ────────────────────────────────
+(function testStationaryRowIsNotPromoted() {
+  const tbody = new El("tbody");
+  const moving = makeRow("t1", 10, []);
+  const still = makeRow("t2", 40, []);
+  tbody.children = [moving, still];
+  const applier = animate.createApplier(tbody, { setTimeout() {}, clearTimeout() {}, raf() {} });
+  const first = applier.measureRows();
+  moving._top = 60; // only t1 moved
+  applier.apply({ rowClasses: {}, cellClasses: {} }, first);
+
+  assert.strictEqual(moving.style.willChange, "transform");
+  assert.strictEqual(still.style.willChange, undefined, "a stationary row gets no layer");
+})();
+
 console.log("animator-animate contract: all assertions passed");

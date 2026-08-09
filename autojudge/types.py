@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -86,7 +86,11 @@ class ProblemLimits:
     time_limit_ms: int
     memory_limit_kb: int
     pids_limit: int
-    output_limit_in_bytes: int | None = None
+    # Always an integer: both problem tables make the column NOT NULL, so the
+    # coalesce(per-language, problem) that produces this value cannot be null.
+    # NOCA_JUDGE_OUTPUT_LIMIT_BYTES is a hard global ceiling applied as
+    # min(problem_limit, global_limit), never a fallback for a missing value.
+    output_limit_in_bytes: int
     repetitions: int = 1
 
 

@@ -114,6 +114,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     async def _classes_manage() -> Response:
         return Response("classes manage")
 
+    @app.get("/live", name="arena_live")
     @app.get("/status", name="arena_status")
     async def _status() -> Response:
         return Response("status")

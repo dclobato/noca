@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.problem_package import DEFAULT_OUTPUT_LIMIT_BYTES
 from web.models.users import UberAdmin
 
 from .integrity import validate_backup_integrity
@@ -57,6 +58,21 @@ def _referenced_language_ids(
     return referenced
 
 
+def _normalize_legacy_problem(entry: dict[str, Any]) -> dict[str, Any]:
+    """Convert a pre-NOT-NULL backup's problem entry so it can still be restored.
+
+    ``problems.output_limit_in_bytes`` used to be nullable, with NULL meaning
+    "no limit" -- which the judge already clamped to the global ceiling anyway.
+    Row validation rejects NULL for a non-nullable column, so an older backup
+    would be unrestorable; the missing or null value is normalized to the
+    documented default before validation sees it.
+    """
+    problem = entry.get("problem")
+    if not isinstance(problem, dict) or problem.get("output_limit_in_bytes") is not None:
+        return entry
+    return {**entry, "problem": {**problem, "output_limit_in_bytes": DEFAULT_OUTPUT_LIMIT_BYTES}}
+
+
 async def import_contest_backup(
     session: AsyncSession,
     zip_path: Path,
@@ -95,7 +111,7 @@ async def import_contest_backup(
     manifest = validate_manifest(parse_member_json(zip_path, archive_index, MANIFEST_MEMBER), archive_index)
     cleaned_slug = await validate_slug(session, new_slug)
 
-    problems = parse_row_list(zip_path, archive_index, PROBLEMS_MEMBER)
+    problems = [_normalize_legacy_problem(entry) for entry in parse_row_list(zip_path, archive_index, PROBLEMS_MEMBER)]
     users = parse_row_list(zip_path, archive_index, USERS_MEMBER)
     submissions = parse_row_list(zip_path, archive_index, SUBMISSIONS_MEMBER)
     judgments = parse_row_list(zip_path, archive_index, JUDGMENTS_MEMBER)

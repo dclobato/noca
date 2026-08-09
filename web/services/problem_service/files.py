@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,25 +8,31 @@
 
 from __future__ import annotations
 
-import io
-import json
 import shutil
-import zipfile
 from base64 import b64decode
 from pathlib import Path
-from typing import Any
 
 from shared.problem_statement_markdown import validate_md_content as validate_md_content  # noqa: F401
-from shared.services.custom_validator import packaged_validator_member
+from shared.services.custom_validator import PackagedValidator, current_validator_source
 from shared.services.problem_image import export_image_filename
-from shared.services.sample_interactions import build_interaction_files
+from shared.services.problem_package import (
+    FORMAT_VERSION,
+    PackageError,
+    PackageImage,
+    PackageLanguageLimit,
+    PackageMetadata,
+    PackageStatement,
+    PackageTestCase,
+    ProblemPackage,
+    build_package,
+)
+from shared.services.problem_package.writer import PackageProfile
+from shared.services.sample_interactions import PackagedInteraction
 from shared.services.testcase_files import get_problem_testcase_dir as _shared_get_problem_testcase_dir
 from shared.services.testcase_files import save_testcase_files as _shared_save_testcase_files
 from shared.tc_zip import normalize_testcase_bytes as normalize_testcase_bytes  # noqa: F401
 from shared.tc_zip import parse_testcases_zip as parse_testcases_zip  # noqa: F401
 from web.models.problem import Problem, ProblemLanguageLimit
-
-from .models import LanguageLimitExport
 
 
 def get_statement_path(problem_id: str, statement_dir: Path) -> Path:
@@ -183,141 +189,130 @@ def reorder_testcase_files(problem_id: str, ordinal_map: dict[int, int], testcas
         tmp.rename(dst)
 
 
-def build_problem_export_zip(
-    problem: Problem,
-    testcase_dir: Path,
-    statement_dir: Path,
-    *,
-    include_private_testcases: bool,
-    include_problem_json: bool,
-    language_limits: dict[str, ProblemLanguageLimit] | None = None,
-) -> bytes:
-    """Build an in-memory problem export ZIP archive."""
-    active_statement = get_active_statement_path(problem.id, statement_dir)
-    if active_statement is None:
-        raise ValueError(f"No statement file found for problem {problem.id}")
-    statement_zip_name = "statement.md" if active_statement.suffix == ".md" else "statement.pdf"
-
-    buffer = io.BytesIO()
-    image_filename: str | None = None
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(statement_zip_name, active_statement.read_bytes())
-
-        # The image ships in the public ZIP too: it is part of the statement a
-        # contestant reads, not privileged data.
-        if problem.problem_image_base64:
-            image_filename = export_image_filename(problem.problem_image_mime)
-            archive.writestr(image_filename, b64decode(problem.problem_image_base64))
-
-        has_custom_validator = _problem_has_custom_validator(problem)
-        test_cases = (
-            problem.test_cases if include_private_testcases else [tc for tc in problem.test_cases if tc.is_sample]
-        )
-        for test_case in sorted(test_cases, key=lambda item: item.ordinal):
-            in_path = get_testcase_path(problem.id, test_case.ordinal, "in", testcase_dir)
-            out_path = get_testcase_path(problem.id, test_case.ordinal, "out", testcase_dir)
-            archive.writestr(f"in/{test_case.ordinal:03d}.in", in_path.read_bytes() if in_path.exists() else b"")
-            # An interactive problem's cases have no expected output at all, so the
-            # package ships inputs only rather than a misleading empty .out.
-            if not has_custom_validator and out_path.exists():
-                archive.writestr(f"out/{test_case.ordinal:03d}.out", out_path.read_bytes())
-            if test_case.explanation:
-                archive.writestr(
-                    f"explanation/{test_case.ordinal:03d}.txt",
-                    test_case.explanation.encode("utf-8"),
-                )
-
-        # An interactive problem's public examples are its sample interactions, so
-        # they ship in the public ZIP too. Hidden ones (kept through a validator
-        # removal) stay out, and the survivors are renumbered to close the gaps.
-        if has_custom_validator:
-            visible = [
-                (interaction.transcript, interaction.explanation)
-                for interaction in sorted(problem.sample_interactions, key=lambda item: item.ordinal)
-                if interaction.hidden_at is None
-            ]
-            for name, content in build_interaction_files(visible):
-                archive.writestr(name, content)
-
-        if include_problem_json:
-            if language_limits is None:
-                raise ValueError("language_limits is required when include_problem_json is true.")
-
-            limits_dict: dict[str, LanguageLimitExport] = {}
-            for language_id, limit in language_limits.items():
-                limits_dict[language_id] = {
-                    "time_limit_ms": limit.time_limit_ms,
-                    "memory_limit_kb": limit.memory_limit_kb,
-                    "pids_limit": limit.pids_limit,
-                    "output_limit_in_bytes": limit.output_limit_in_bytes,
-                    "repetitions": limit.repetitions,
-                }
-
-            problem_json: dict[str, Any] = {
-                "title": problem.title,
-                "author": problem.author,
-                "notes": problem.notes,
-                "color": problem.color or "#000000",
-                "time_limit_ms": problem.time_limit_ms,
-                "memory_limit_kb": problem.memory_limit_kb,
-                "pids_limit": problem.pids_limit,
-                "output_limit_in_bytes": problem.output_limit_in_bytes,
-                "categories": [category.name for category in problem.categories],
-                "image": image_filename,
-                "image_caption": problem.problem_image_caption,
-                "language_limits": limits_dict,
-            }
-            validator = problem.custom_validator
-            validator_source = None
-            validator_language_id = None
-            if validator is not None:
-                # Prefer the validated active revision; fall back to a staged
-                # candidate only when no active revision exists yet.
-                if validator.active_source is not None:
-                    validator_source = validator.active_source
-                    validator_language_id = validator.active_language_id
-                else:
-                    validator_source = validator.candidate_source
-                    validator_language_id = validator.candidate_language_id
-            if validator_source is not None and validator_language_id is not None:
-                validator_member = packaged_validator_member(validator_language_id)
-                problem_json["custom_validator"] = {
-                    "language_id": validator_language_id,
-                    "source_file": validator_member,
-                }
-                archive.writestr(validator_member, validator_source.encode("utf-8"))
-            archive.writestr("problem.json", json.dumps(problem_json, indent=2))
-
-    return buffer.getvalue()
-
-
-def build_export_zip(
+def problem_to_package(
     problem: Problem,
     testcase_dir: Path,
     statement_dir: Path,
     language_limits: dict[str, ProblemLanguageLimit],
-) -> bytes:
-    """Build an in-memory ZIP using Layout A with all testcases and problem.json."""
-    return build_problem_export_zip(
-        problem,
-        testcase_dir,
-        statement_dir,
-        include_private_testcases=True,
-        include_problem_json=True,
-        language_limits=language_limits,
+) -> ProblemPackage:
+    """Project a contest problem onto the shared package contract.
+
+    The ``problem.categories``, ``problem.test_cases``, and
+    ``problem.sample_interactions`` relationships must be eagerly loaded.
+
+    Raises:
+        PackageError: If the problem has no statement file, so an export fails
+            with an actionable message rather than shipping an empty member.
+    """
+    active_statement = get_active_statement_path(problem.id, statement_dir)
+    if active_statement is None:
+        raise PackageError(f"Cannot export: no statement file is stored for problem {problem.id}.")
+
+    validator_source = current_validator_source(problem.custom_validator)
+    interactive = validator_source is not None
+
+    cases = tuple(
+        PackageTestCase(
+            ordinal=test_case.ordinal,
+            is_sample=test_case.is_sample,
+            input_path=get_testcase_path(problem.id, test_case.ordinal, "in", testcase_dir),
+            output_path=(
+                None if interactive else get_testcase_path(problem.id, test_case.ordinal, "out", testcase_dir)
+            ),
+            explanation=test_case.explanation,
+        )
+        for test_case in sorted(problem.test_cases, key=lambda item: item.ordinal)
+    )
+
+    # The image ships in both profiles: it is part of the statement a contestant
+    # reads, not privileged data.
+    image = None
+    if problem.problem_image_base64:
+        image = PackageImage(
+            member=export_image_filename(problem.problem_image_mime),
+            path=None,
+            mime=problem.problem_image_mime or "image/png",
+            data=b64decode(problem.problem_image_base64),
+        )
+
+    metadata = PackageMetadata(
+        format_version=FORMAT_VERSION,
+        title=problem.title,
+        author=problem.author,
+        notes=problem.notes,
+        # Contest has no source, license, or statement language; the keys are
+        # still written, as null.
+        source=None,
+        license=None,
+        color=problem.color,
+        hide_author_show_source=False,
+        statement_language=None,
+        time_limit_ms=problem.time_limit_ms,
+        memory_limit_kb=problem.memory_limit_kb,
+        pids_limit=problem.pids_limit,
+        output_limit_in_bytes=problem.output_limit_in_bytes,
+        categories=tuple(category.name for category in problem.categories),
+        sample_testcases=tuple(case.ordinal for case in cases if case.is_sample),
+        image=image.member if image is not None else None,
+        image_caption=problem.problem_image_caption,
+        language_limits={
+            language_id: PackageLanguageLimit(
+                time_limit_ms=limit.time_limit_ms,
+                memory_limit_kb=limit.memory_limit_kb,
+                pids_limit=limit.pids_limit,
+                output_limit_in_bytes=limit.output_limit_in_bytes,
+                repetitions=limit.repetitions,
+            )
+            for language_id, limit in language_limits.items()
+        },
+        custom_validator=None,
+        sha256={},
+    )
+
+    interactions = tuple(
+        PackagedInteraction(interaction.transcript, interaction.explanation)
+        for interaction in sorted(problem.sample_interactions, key=lambda item: item.ordinal)
+        if interaction.hidden_at is None
+    )
+    return ProblemPackage(
+        metadata=metadata,
+        statement=PackageStatement(
+            kind="md" if active_statement.suffix == ".md" else "pdf",
+            path=active_statement,
+            text=None,
+        ),
+        test_cases=cases,
+        image=image,
+        validator=(
+            PackagedValidator(validator_source.language_id, validator_source.source)
+            if validator_source is not None
+            else None
+        ),
+        interactions=interactions if interactive else (),
+        warnings=(),
     )
 
 
-def build_public_export_zip(
+def build_problem_export(
     problem: Problem,
     testcase_dir: Path,
     statement_dir: Path,
-) -> bytes:
-    """Build an in-memory ZIP with statement plus sample test cases only."""
-    return build_problem_export_zip(
-        problem,
-        testcase_dir,
-        statement_dir,
-        include_private_testcases=False,
-        include_problem_json=False,
-    )
+    destination: Path,
+    *,
+    profile: PackageProfile,
+    language_limits: dict[str, ProblemLanguageLimit] | None = None,
+) -> Path:
+    """Write a contest problem package to ``destination`` and return that path.
+
+    Args:
+        profile: ``"full"`` for an importable admin package, ``"public"`` for the
+            contestant-facing statement bundle, which carries no ``problem.json``.
+        language_limits: Required for the ``full`` profile, which exports them.
+
+    Raises:
+        PackageError: If a required stored file is missing.
+    """
+    if profile == "full" and language_limits is None:
+        raise ValueError("language_limits is required for the full export profile.")
+    package = problem_to_package(problem, testcase_dir, statement_dir, language_limits or {})
+    return build_package(package, destination, profile=profile)

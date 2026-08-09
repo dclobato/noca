@@ -6,7 +6,7 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon, render_avatar with context %}
+{% from "_macros.html" import render_icon, render_avatar, render_rank_medal with context %}
 {% block title_suffix %}&mdash; User Ranking{% endblock %}
 {% block nav_ranking %}active{% endblock %}
 {% block nav_ranking_users %}active{% endblock %}
@@ -73,7 +73,7 @@
                             {% set user_profile_url = request.url_for('arena_user_profile_public', user_id=user.id) if user.public_profile else None %}
                             {% set avatar_url = request.url_for('arena_user_avatar_by_id', user_id=user.id) %}
                             <tr {% if user_profile_url %}data-href="{{ user_profile_url }}"{% endif %}>
-                                <td class="arena-ranking-rank text-end">{{ user.rank }}</td>
+                                <td class="arena-ranking-rank text-end">{{ render_rank_medal(request, user.rank) }}</td>
                                 <td>
                                     <div class="arena-ranking-identity">
                                         {{ render_avatar(user.id, avatar_url, alt=user.name) }}

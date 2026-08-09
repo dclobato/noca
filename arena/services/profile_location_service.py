@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -12,11 +12,15 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 import pycountry
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.models.arena_affiliations import ArenaAffiliation
 from arena.models.arena_users import ArenaUser
+from arena.services.identity_search_service import (
+    affiliation_relevance_ordering,
+    prepare_affiliation_search,
+)
 from shared.services.network_utils import NetworkService, NetworkServiceError
 
 
@@ -124,14 +128,14 @@ async def search_affiliations(
     query: str,
     limit: int = 10,
 ) -> list[ArenaAffiliation]:
-    """Search affiliations by case-insensitive partial name match."""
+    """Search affiliations with indexed candidates and relevance ordering."""
     normalized = query.strip()
     if not normalized:
         return []
     stmt = (
         select(ArenaAffiliation)
-        .where(ArenaAffiliation.name.ilike(f"%{normalized}%"))
-        .order_by(func.lower(ArenaAffiliation.name), ArenaAffiliation.name)
+        .where(ArenaAffiliation.id.in_(await prepare_affiliation_search(session, normalized)))
+        .order_by(*affiliation_relevance_ordering(session, normalized))
         .limit(max(1, min(limit, 25)))
     )
     return list((await session.scalars(stmt)).all())

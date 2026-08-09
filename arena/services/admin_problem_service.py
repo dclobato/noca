@@ -47,15 +47,27 @@ from shared.db_schema.arena import arena_users as _users_table
 from shared.enumerations import ArenaRole, CustomValidatorActiveState, JudgmentStatus, StatementLanguage
 from shared.problem_statement_markdown import validate_md_content
 from shared.queue_schema import ArenaSubmissionJob
+from shared.services.problem_package import (
+    DEFAULT_MEMORY_LIMIT_KB,
+    DEFAULT_OUTPUT_LIMIT_BYTES,
+    DEFAULT_PIDS_LIMIT,
+    DEFAULT_TIME_LIMIT_MS,
+    MAX_AUTHOR_CHARS,
+    MAX_LICENSE_CHARS,
+    MAX_SOURCE_CHARS,
+    MAX_TITLE_CHARS,
+)
 
-_DEFAULT_TIME_LIMIT_MS = 1000
-_DEFAULT_MEMORY_LIMIT_KB = 262144
-_DEFAULT_PIDS_LIMIT = 64
-_DEFAULT_OUTPUT_LIMIT_BYTES = 65536
-_MAX_TITLE_LEN = 256
-_MAX_SOURCE_LEN = 256
-_MAX_AUTHOR_LEN = 80
-_MAX_LICENSE_LEN = 256
+# Defaults and field widths are the package format's, so a value that survives a
+# form also survives an export/import round trip through either domain.
+_DEFAULT_TIME_LIMIT_MS = DEFAULT_TIME_LIMIT_MS
+_DEFAULT_MEMORY_LIMIT_KB = DEFAULT_MEMORY_LIMIT_KB
+_DEFAULT_PIDS_LIMIT = DEFAULT_PIDS_LIMIT
+_DEFAULT_OUTPUT_LIMIT_BYTES = DEFAULT_OUTPUT_LIMIT_BYTES
+_MAX_TITLE_LEN = MAX_TITLE_CHARS
+_MAX_SOURCE_LEN = MAX_SOURCE_CHARS
+_MAX_AUTHOR_LEN = MAX_AUTHOR_CHARS
+_MAX_LICENSE_LEN = MAX_LICENSE_CHARS
 _MAX_PROBLEM_SUGGESTIONS = 15
 
 # Single source of truth for the admin problem-list sort contract, mirroring
@@ -126,10 +138,10 @@ def _validate_problem_data(
         raise ValueError(f"Author must be at most {_MAX_AUTHOR_LEN} characters.")
     if license and len(license.strip()) > _MAX_LICENSE_LEN:
         raise ValueError(f"License must be at most {_MAX_LICENSE_LEN} characters.")
-    if time_limit_ms < 100:
-        raise ValueError("Time limit must be at least 100 ms.")
-    if memory_limit_kb < 1024:
-        raise ValueError("Memory limit must be at least 1024 KB.")
+    if time_limit_ms < 1:
+        raise ValueError("Time limit must be at least 1 ms.")
+    if memory_limit_kb < 1:
+        raise ValueError("Memory limit must be at least 1 KB.")
     if pids_limit < 1:
         raise ValueError("PIDs limit must be at least 1.")
     if output_limit_in_bytes < 1:

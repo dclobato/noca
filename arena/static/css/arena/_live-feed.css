@@ -1,0 +1,270 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ============================================================
+   Live submission feed
+   ============================================================ */
+.arena-live-feed {
+    width: 100%;
+    max-width: 72rem;
+    margin-inline: auto;
+}
+
+.arena-live-feed-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    border-radius: var(--arena-radius-lg);
+    background-color: var(--arena-primary-container);
+}
+
+.arena-live-feed-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.875rem;
+    min-width: 0;
+}
+
+.arena-live-feed-mark {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    border: 0;
+    border-radius: var(--arena-radius-lg);
+    background-color: var(--arena-on-primary);
+    color: var(--arena-primary-container);
+}
+
+.arena-live-feed-mark .material-symbols-outlined {
+    font-size: 1.25rem;
+}
+
+.arena-live-feed-title {
+    margin: 0;
+    color: var(--arena-on-primary);
+    font-family: 'Public Sans', sans-serif;
+    font-size: clamp(2rem, 4vw, 2.5rem);
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+}
+
+.arena-live-feed-intro {
+    max-width: 42rem;
+    margin-top: 0.375rem;
+    color: var(--arena-on-primary);
+    font-size: 1rem;
+}
+
+.arena-live-feed-signals {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.arena-live-feed-stream {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border: 1px solid var(--arena-on-primary);
+    border-radius: 50rem;
+    color: var(--arena-on-primary);
+    padding: 0.375rem 0.625rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.arena-live-feed-stream .material-symbols-outlined {
+    font-size: 1rem;
+}
+
+#live-feed-status {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: 50rem;
+    background-color: var(--arena-surface-container-low) !important;
+    color: var(--arena-on-surface-variant) !important;
+    padding: 0.375rem 0.625rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+#live-feed-status::before {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background-color: var(--arena-outline);
+    content: "";
+}
+
+#live-feed-status.bg-success {
+    border-color: var(--arena-primary);
+    color: var(--arena-primary) !important;
+}
+
+#live-feed-status.bg-success::before {
+    background-color: var(--arena-primary);
+    animation: arena-live-feed-pulse 1.8s ease-out infinite;
+}
+
+#live-feed-status.bg-warning {
+    border-color: var(--noca-warning);
+    color: var(--noca-warning) !important;
+}
+
+#live-feed-status.bg-warning::before {
+    background-color: var(--noca-warning);
+}
+
+.arena-live-feed-panel {
+    margin-top: 1.5rem;
+    overflow: hidden;
+    border: 1px solid var(--arena-outline-variant);
+    border-radius: var(--arena-radius-lg);
+    background-color: var(--arena-surface-container-lowest);
+    box-shadow: var(--arena-card-shadow);
+}
+
+.arena-live-feed-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--arena-outline-variant);
+    background-color: var(--arena-surface-container-low);
+}
+
+.arena-live-feed-panel-title {
+    margin: 0;
+    color: var(--arena-on-surface);
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.arena-live-feed-panel-copy {
+    margin-top: 0.25rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+}
+
+.arena-live-feed-auto {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.375rem;
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.arena-live-feed-auto .material-symbols-outlined {
+    color: var(--arena-primary);
+    font-size: 1rem;
+}
+
+.arena-live-feed-table-wrap {
+    padding: 0 1.25rem;
+}
+
+.arena-live-feed-table {
+    min-width: 47rem;
+    margin-bottom: 0;
+}
+
+.arena-live-feed-table thead th {
+    padding-top: 0.875rem;
+    padding-bottom: 0.625rem;
+    border-bottom-color: var(--arena-outline-variant);
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.arena-live-feed-table tbody td {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom-color: var(--arena-surface-container);
+}
+
+.arena-live-feed-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.arena-live-feed-table tbody td:first-child {
+    width: 12rem;
+}
+
+.arena-live-feed-table tbody a {
+    font-weight: 600;
+}
+
+.arena-live-feed-summary {
+    margin-inline: 1.25rem;
+    padding-block: 0.875rem 1rem;
+    border-top-color: var(--arena-outline-variant);
+}
+
+@keyframes arena-live-feed-pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgb(var(--noca-brand-rgb) / 0.35);
+    }
+
+    55% {
+        box-shadow: 0 0 0 0.25rem rgb(var(--noca-brand-rgb) / 0);
+    }
+}
+
+@media (max-width: 767.98px) {
+    .arena-live-feed-header {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .arena-live-feed-signals {
+        justify-content: flex-start;
+    }
+
+    .arena-live-feed-panel-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .arena-live-feed-table-wrap {
+        padding-inline: 0.75rem;
+    }
+
+    .arena-live-feed-summary {
+        margin-inline: 0.75rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #live-feed-status.bg-success::before {
+        animation: none;
+    }
+}

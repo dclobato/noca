@@ -70,7 +70,7 @@
                                 Time {{ group.before_limits.time_limit_ms }} ms ·
                                 Memory {{ group.before_limits.memory_limit_kb }} KB ·
                                 PIDs {{ group.before_limits.pids_limit }} ·
-                                Output {{ group.before_limits.output_limit_in_bytes if group.before_limits.output_limit_in_bytes is not none else 'none' }} ·
+                                Output {{ group.before_limits.output_limit_in_bytes if group.before_limits.output_limit_in_bytes is not none else 'legacy unset' }} ·
                                 Reps {{ group.before_limits.repetitions }}
                             </div>
                         </div>
@@ -80,7 +80,7 @@
                                 Time {{ group.after_limits.time_limit_ms }} ms ·
                                 Memory {{ group.after_limits.memory_limit_kb }} KB ·
                                 PIDs {{ group.after_limits.pids_limit }} ·
-                                Output {{ group.after_limits.output_limit_in_bytes if group.after_limits.output_limit_in_bytes is not none else 'none' }} ·
+                                Output {{ group.after_limits.output_limit_in_bytes if group.after_limits.output_limit_in_bytes is not none else 'legacy unset' }} ·
                                 Reps {{ group.after_limits.repetitions }}
                             </div>
                         </div>

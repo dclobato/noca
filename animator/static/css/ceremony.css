@@ -42,7 +42,7 @@
 .ceremony-site {
     font-family: var(--noca-font-heading);
     font-weight: 700;
-    font-size: clamp(1rem, 1.6vw, 1.5rem);
+    font-size: var(--noca-type-title);
 }
 
 .ceremony-phase {
@@ -53,7 +53,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    font-size: 0.8rem;
+    font-size: var(--noca-type-label);
     background-color: var(--bs-secondary-bg);
 }
 
@@ -68,13 +68,13 @@
 }
 
 .ceremony-progress {
-    font-variant-numeric: tabular-nums;
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     font-weight: 600;
 }
 
 .ceremony-empty {
     padding: 2rem 0;
-    font-size: clamp(1rem, 2vw, 1.5rem);
+    font-size: var(--noca-type-title);
     color: var(--bs-secondary-color);
 }
 
@@ -90,8 +90,10 @@
     overflow: auto;
 }
 
-/* Table geometry, typography, header, and the four leading columns come from
-   `.animator-scoreboard` and `.animator-col-*` in animator.css. Only
+/* Table geometry, typography, header, the four leading columns, and every medal
+   rule come from `.animator-scoreboard`, `.animator-col-*`,
+   `.animator-medal-watermark`, and `.animator-row--band-end` in
+   animator-scoreboard.css, which _base.html loads on every animator page. Only
    ceremony-specific states belong in this file. */
 
 .ceremony-team-name {
@@ -110,17 +112,24 @@
     text-decoration: underline;
 }
 
-/* ── Rank, focus, and medal watermarks ─────────────────────────────────── */
+/* ── Rank and focus ────────────────────────────────────────────────────────
+   Medal styling is deliberately *not* here: the watermark, the band-end rule,
+   and the team-cell stacking context are shared with the live scoreboard and
+   live in animator-scoreboard.css under generic `.animator-*` selectors, driven
+   by the same renderer primitives both surfaces call. */
 .ceremony-row {
     border-bottom: 1px solid var(--bs-border-color);
 }
 
 /* The reveal renderer replaces the tbody after every authoritative state.
    ceremony.js reads the shared row-motion tokens above and applies FLIP
-   transforms that keep each team at its previous screen position first. */
-.ceremony-board tbody tr {
-    will-change: transform;
-}
+   transforms that keep each team at its previous screen position first.
+
+   The compositor hint that motion needs is applied by animator-animate.js, on
+   the rows that are actually moving, for the length of the move. It is
+   deliberately not a stylesheet rule: promoting every row of the board would
+   keep each one on its own layer permanently, and a ceremony sits idle on a
+   projector far longer than it animates. */
 
 .ceremony-row--focused {
     outline: 3px solid var(--bs-primary);
@@ -128,41 +137,11 @@
     background-color: var(--bs-primary-bg-subtle);
 }
 
-.ceremony-cell-team {
-    position: relative;
-    overflow: hidden;
-}
-
-/* The last row of each band gets a heavier rule, so the medal boundary is
-   legible from the back of a room without tinting the entire row. */
-.ceremony-row--band-end {
-    border-bottom: 3px solid var(--bs-emphasis-color);
-}
-
-.ceremony-cell-team .animator-team-primary,
-.ceremony-cell-team .animator-team-secondary {
-    position: relative;
-    z-index: 1;
-}
-
-.ceremony-medal-watermark {
-    position: absolute;
-    z-index: 0;
-    top: 50%;
-    inset-inline-end: -2.8rem;
-    width: 7rem;
-    height: 7rem;
-    opacity: 0.25;
-    object-fit: contain;
-    pointer-events: none;
-    transform: translateY(-50%);
-    user-select: none;
-}
 
 /* ── Problem cells ─────────────────────────────────────────────────────── */
 .ceremony-cell {
-    font-variant-numeric: tabular-nums;
-    border-radius: 0.3rem;
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+    border-radius: 0.375rem;
 }
 
 /* A cell still holding an unrevealed frozen submission: the whole point of the
@@ -230,7 +209,7 @@
 
 .ceremony-photo-fallback {
     margin: 2rem 0;
-    font-size: 1.1rem;
+    font-size: var(--noca-type-body);
     color: var(--bs-secondary-color);
 }
 
@@ -242,7 +221,7 @@
 
 .ceremony-audio-status {
     margin: 0.5rem 0 0;
-    font-size: 0.9rem;
+    font-size: var(--noca-type-label);
     color: var(--bs-secondary-color);
 }
 
@@ -255,7 +234,7 @@
 .control-error {
     margin-bottom: 1rem;
     padding: 0.6rem 0.9rem;
-    border-radius: 0.4rem;
+    border-radius: 0.375rem;
     background-color: var(--bs-danger-bg-subtle);
     color: var(--bs-danger-text-emphasis);
 }
@@ -288,6 +267,11 @@
     min-width: 14rem;
 }
 
+.control-row > .btn,
+.control-row > .form-select {
+    min-height: 44px;
+}
+
 .control-state {
     display: flex;
     flex-wrap: wrap;
@@ -296,7 +280,7 @@
 }
 
 .control-state-item dt {
-    font-size: 0.8rem;
+    font-size: var(--noca-type-label);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--bs-secondary-color);
@@ -305,12 +289,12 @@
 .control-state-item dd {
     margin: 0;
     font-weight: 600;
-    font-variant-numeric: tabular-nums;
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
 }
 
 .control-hint {
     margin: 0.5rem 0 0;
-    font-size: 0.85rem;
+    font-size: var(--noca-type-label);
     color: var(--bs-secondary-color);
 }
 

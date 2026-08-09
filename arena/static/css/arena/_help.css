@@ -156,8 +156,10 @@
 }
 
 .arena-help-cmd {
-    font-family: monospace;
+    font-family: var(--noca-font-mono);
     font-size: 0.8125rem;
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
     color: var(--arena-primary);
     margin: 0;
     white-space: pre-wrap;

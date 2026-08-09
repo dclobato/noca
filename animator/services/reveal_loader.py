@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -161,15 +161,28 @@ def initialize_reveal_session(dataset: RevealDataset) -> RevealSessionState:
 
     Returns:
         A state with an empty step trail, ``phase="idle"``, no focused team, and
-        the site's medal cutoffs (``None`` for a global ceremony).
+        the medal cutoffs in force: the site's for a site ceremony, the contest's
+        global ones for a global ceremony (``None`` when unconfigured).
+
+    The cutoffs are *snapshotted* here rather than read live on every command, so
+    a settings change made mid-ceremony cannot reshuffle medals under the
+    operator. Adopting a change is an explicit ``start-reveal`` with
+    ``restart=true``.
     """
     site = dataset.site
-    cutoffs: MedalCutoffs | None = None
+    contest = dataset.contest
+    cutoffs: MedalCutoffs | None
     if site is not None:
         cutoffs = MedalCutoffs(
             gold=site.gold_cutoff,
             silver=site.silver_cutoff,
             bronze=site.bronze_cutoff,
+        )
+    else:
+        cutoffs = MedalCutoffs.from_optional(
+            contest.global_gold_cutoff,
+            contest.global_silver_cutoff,
+            contest.global_bronze_cutoff,
         )
     return RevealSessionState(
         contest_id=dataset.contest.id,

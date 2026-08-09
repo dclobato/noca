@@ -336,7 +336,12 @@ async def test_control_page_respects_the_kill_switch(
 
 def test_ceremony_css_covers_the_projector_contracts() -> None:
     css = (_STATIC_DIR / "css" / "ceremony.css").read_text(encoding="utf-8")
-    shared_css = (_STATIC_DIR / "css" / "animator.css").read_text(encoding="utf-8")
+    # The scoreboard rules the projector reuses — including every medal rule —
+    # live in animator-scoreboard.css, loaded from _base.html on every animator
+    # page. Sharing the stylesheet is what keeps the projector and the live
+    # board from drifting apart visually, so these assertions deliberately
+    # follow the rules to that file rather than expecting a ceremony copy.
+    shared_css = (_STATIC_DIR / "css" / "animator-scoreboard.css").read_text(encoding="utf-8")
 
     assert "prefers-reduced-motion" in css
     # The board scrolls in its own container so the page never scrolls sideways.
@@ -346,9 +351,15 @@ def test_ceremony_css_covers_the_projector_contracts() -> None:
     root = root[: root.index("}")]
     assert "--animator-row-motion-duration: 3s" in root
     assert "--animator-row-motion-easing: cubic-bezier(0.22, 1, 0.36, 1)" in root
-    row_transition = css[css.index(".ceremony-board tbody tr {") :]
-    row_transition = row_transition[: row_transition.index("}")]
-    assert "will-change: transform" in row_transition
+    # The compositor hint is applied by animator-animate.js to the rows actually
+    # moving, for the length of the move. A stylesheet rule cannot express that,
+    # and a blanket one would promote every row of the board to its own layer
+    # permanently -- a standing cost on a projector that idles far longer than it
+    # animates. So the contract is that no such rule exists here.
+    assert "will-change" not in css
+    applier = (_STATIC_DIR / "js" / "animator-animate.js").read_text(encoding="utf-8")
+    assert 'style.willChange = "transform"' in applier
+    assert 'style.willChange = ""' in applier
     header = shared_css[shared_css.index(".animator-scoreboard thead th {") :]
     header = header[: header.index("}")]
     assert "position: sticky" in header
@@ -356,20 +367,27 @@ def test_ceremony_css_covers_the_projector_contracts() -> None:
     assert ".ceremony-board thead th {" not in css
     assert ".ceremony-board th," not in css
     for selector in [
-        ".ceremony-medal-watermark",
-        ".ceremony-row--band-end",
         ".ceremony-row--focused",
         ".ceremony-cell--pending",
         ".ceremony-cell--next",
         ".ceremony-team-photo",
     ]:
         assert selector in css, selector
+    # The medal rules are shared, not ceremony-local: a copy here would be free
+    # to drift from the live board's. What must not appear in ceremony.css is a
+    # *rule declaration* -- naming the selectors in a comment that points readers
+    # to their real home is the opposite of a duplicate.
+    for selector in [".animator-medal-watermark", ".animator-row--band-end"]:
+        assert f"{selector} {{" in shared_css, selector
+        assert f"{selector} {{" not in css, selector
+        assert f"{selector}," not in css, selector
 
     # Medal color belongs only to the oversized team-cell watermark. Whole-row
     # tints would compete with the focused and pending ceremony states.
     for band in ["gold", "silver", "bronze"]:
         assert f'.ceremony-row[data-medal="{band}"]' not in css
-    watermark = css[css.index(".ceremony-medal-watermark {") :]
+        assert f'[data-medal="{band}"]' not in shared_css
+    watermark = shared_css[shared_css.index(".animator-medal-watermark {") :]
     watermark = watermark[: watermark.index("}")]
     for declaration in [
         "position: absolute",

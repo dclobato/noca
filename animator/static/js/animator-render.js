@@ -34,6 +34,7 @@
       : (typeof window !== "undefined" ? window : {}).AnimatorKeyedRows;
 
   var HEX_COLOR = /^[0-9a-fA-F]{3,8}$/;
+  var MEDAL_BANDS = ["gold", "silver", "bronze"];
 
   function pad2(value) {
     return value < 10 ? "0" + value : String(value);
@@ -172,6 +173,42 @@
     image.setAttribute("width", "23");
     image.setAttribute("height", "35");
     return image;
+  }
+
+  // The oversized medal watermark served by the animator's own /assets/medal/{band}
+  // route. Shared with the reveal ceremony rather than duplicated there, so the
+  // live board and the projector draw the same artwork from the same markup.
+  function createMedalImage(doc, medalBase, medal) {
+    if (!medalBase || MEDAL_BANDS.indexOf(medal) === -1) {
+      return null;
+    }
+    var img = doc.createElement("img");
+    img.setAttribute("class", "animator-medal-watermark");
+    img.setAttribute("src", medalBase + "/" + encodeURIComponent(medal));
+    img.setAttribute("alt", medal + " medal");
+    return img;
+  }
+
+  // Keep a row's `data-medal` in step with the server's band. Set *and* remove,
+  // never set-only: a team that drops off the podium between refreshes must lose
+  // the attribute rather than keep a stale band.
+  function syncMedalAttribute(tr, medal) {
+    if (medal && MEDAL_BANDS.indexOf(medal) !== -1) {
+      tr.setAttribute("data-medal", medal);
+    } else {
+      tr.removeAttribute("data-medal");
+    }
+  }
+
+  // Whether this row is the last of its medal band (used for the heavier rule).
+  function isBandEnd(rows, index) {
+    var row = rows[index];
+    var medal = row && row.medal;
+    if (!medal || MEDAL_BANDS.indexOf(medal) === -1) {
+      return false;
+    }
+    var next = rows[index + 1];
+    return !next || next.medal !== medal;
   }
 
   // Rebuild the per-problem header columns after the four fixed leading <th>.
@@ -322,7 +359,7 @@
 
   // Fill the team header cell. Rebuilt each update (it is never a flash target),
   // so a rename would still be reflected.
-  function fillTeamCell(doc, th, standing) {
+  function fillTeamCell(doc, th, standing, medalBase) {
     th.replaceChildren();
     // First line: full name (prominent). Second line: site (muted). The login is
     // only a fallback when no full name exists.
@@ -336,9 +373,13 @@
       secondary.textContent = standing.site_name;
       th.appendChild(secondary);
     }
+    var medalImage = createMedalImage(doc, medalBase, standing.medal);
+    if (medalImage) {
+      th.appendChild(medalImage);
+    }
   }
 
-  function buildRow(doc, problems, standing) {
+  function buildRow(doc, problems, standing, options) {
     var tr = doc.createElement("tr");
     tr.setAttribute("data-team-id", String(standing.team_id));
 
@@ -362,16 +403,25 @@
     problems.forEach(function (problem) {
       tr.appendChild(createProblemCell(doc, problem));
     });
-    updateRow(doc, tr, problems, standing);
+    updateRow(doc, tr, problems, standing, options);
     return tr;
   }
 
   // Update an existing row in place: text and data-driven cell classes change,
   // but the row/cell elements — and any transient flash classes on them — are
   // kept, so a highlight survives subsequent refreshes.
-  function updateRow(doc, tr, problems, standing) {
+  function updateRow(doc, tr, problems, standing, options) {
+    var opts = options || {};
     tr.children[0].textContent = String(standing.rank);
-    fillTeamCell(doc, tr.children[1], standing);
+    fillTeamCell(doc, tr.children[1], standing, opts.medalBase);
+    // classList rather than setAttribute("class"): the live board parks transient
+    // flash classes on this same row, and rewriting the attribute would wipe them.
+    syncMedalAttribute(tr, standing.medal);
+    if (opts.bandEnd) {
+      tr.classList.add("animator-row--band-end");
+    } else {
+      tr.classList.remove("animator-row--band-end");
+    }
     tr.children[2].textContent = String(standing.problems_solved);
     tr.children[3].textContent = String(standing.total_time);
     var cells = standing.problems || {};
@@ -396,20 +446,26 @@
   // built; departed teams are removed. Because elements persist across refreshes,
   // transient highlight classes live their full lifetime instead of being wiped
   // by a full rebuild. Returns true when at least one row is present.
-  function renderStandings(doc, tbodyEl, problems, standings) {
+  function renderStandings(doc, tbodyEl, problems, standings, options) {
     if (!tbodyEl) {
       return Array.isArray(standings) && standings.length > 0;
     }
+    var opts = options || {};
     var rows = Array.isArray(standings) ? standings : [];
+
+    function rowOptions(index) {
+      return { medalBase: opts.medalBase || null, bandEnd: isBandEnd(rows, index) };
+    }
+
     keyedRows.reconcile(tbodyEl, rows, {
       key: function (standing) {
         return standing.team_id;
       },
-      build: function (standing) {
-        return buildRow(doc, problems, standing);
+      build: function (standing, index) {
+        return buildRow(doc, problems, standing, rowOptions(index));
       },
-      update: function (tr, standing) {
-        updateRow(doc, tr, problems, standing);
+      update: function (tr, standing, index) {
+        updateRow(doc, tr, problems, standing, rowOptions(index));
       },
     });
     return rows.length > 0;
@@ -423,6 +479,9 @@
     createBalloonImage: createBalloonImage,
     createSolvedImage: createSolvedImage,
     createStarImage: createStarImage,
+    createMedalImage: createMedalImage,
+    syncMedalAttribute: syncMedalAttribute,
+    isBandEnd: isBandEnd,
     renderHeader: renderHeader,
     createProblemCell: createProblemCell,
     fillProblemCell: fillProblemCell,

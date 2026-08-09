@@ -401,10 +401,13 @@ function testControlsForState() {
     jumpVisible: false,
   });
 
-  // Reset to idle preserves the snapshot and makes Start available again.
+  // A *stored* idle ceremony (reset to idle, or freshly created) preserves the
+  // snapshot and makes Start available again. Start over stays offered too: it
+  // is the only command that rebuilds from current settings, so without it a
+  // changed medal cutoff could never be adopted from an idle session.
   assert.deepStrictEqual(controls({ phase: "idle" }), {
     startVisible: true,
-    startOverVisible: false,
+    startOverVisible: true,
     resetVisible: false,
     stepVisible: false,
     backVisible: false,

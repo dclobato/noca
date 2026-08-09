@@ -57,14 +57,8 @@
     gap: 0.25rem;
     flex: 0 0 auto;
     padding: var(--arena-space-sm) 0;
-    color: var(--arena-on-surface-variant);
     font-size: 0.875rem;
     font-weight: 600;
-    text-decoration: none;
-}
-
-.arena-ranking-back-link:hover {
-    color: var(--arena-primary);
 }
 
 .arena-ranking-back-link:focus-visible {
@@ -165,7 +159,7 @@
 .arena-ranking-rank,
 .arena-ranking-rating {
     color: var(--arena-on-surface);
-    font-family: monospace;
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     font-weight: 700;
     white-space: nowrap;
 }
@@ -204,17 +198,31 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    color: var(--arena-on-surface);
+    color: var(--arena-primary);
     text-decoration: none;
+}
+
+.arena-ranking-affiliation-link:visited {
+    color: var(--arena-primary);
 }
 
 .arena-ranking-affiliation-link img {
     flex: 0 0 auto;
 }
 
-.arena-ranking-affiliation-link:hover .arena-ranking-name {
-    color: var(--arena-primary);
+.arena-ranking-affiliation-link .arena-ranking-name {
+    color: inherit;
+}
+
+.arena-ranking-affiliation-link:hover,
+.arena-ranking-affiliation-link:focus-visible {
+    color: var(--arena-primary-container);
+}
+
+.arena-ranking-affiliation-link:hover .arena-ranking-name,
+.arena-ranking-affiliation-link:focus-visible .arena-ranking-name {
     text-decoration: underline;
+    text-decoration-thickness: 1px;
     text-underline-offset: 0.2em;
 }
 

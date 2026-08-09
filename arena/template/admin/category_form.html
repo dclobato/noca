@@ -130,6 +130,8 @@
     {% endif %}
 {% endblock %}
 {% block extra_script %}
+    <script src="{{ request.url_for('static_shared_js', path='slugify.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='category-slug.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('arena_static_js', path='admin-category-form.js') }}?v={{ app_version }}"></script>
     {% if mode == 'edit' %}
         <script src="{{ request.url_for('arena_static_js', path='admin-category-list.js') }}?v={{ app_version }}"></script>

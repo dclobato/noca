@@ -127,7 +127,7 @@
                         <tbody>
                             {% for row in problem_rows %}
                                 <tr id="problem-{{ row.problem_id }}">
-                                    <td class="arena-monospace arena-problem-number" data-label="#">
+                                    <td class="arena-problem-number" data-label="#">
                                         <a href="{{ request.url_for('arena_problem_detail', arena_number=row.arena_number) }}">{{ row.arena_number }}</a>
                                     </td>
                                     <td class="arena-problem-feedback" data-label="Feedback">

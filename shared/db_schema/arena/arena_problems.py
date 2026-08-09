@@ -134,7 +134,7 @@ arena_problems = Table(
     ),
     Column(
         "author",
-        String(80),
+        String(256),
         nullable=True,
         comment="Free-text author name when the owner is not the problem author.",
     ),
@@ -181,7 +181,7 @@ arena_problems = Table(
     ),
     Column(
         "notes",
-        String(256),
+        String(512),
         nullable=True,
         default=None,
         comment="Internal management note, not shown to regular users.",
@@ -206,9 +206,13 @@ arena_problems = Table(
     CheckConstraint("arena_number >= 1", name="ck_arena_problems_arena_number_positive"),
     CheckConstraint(
         "(author_is_owner AND author IS NULL) OR "
-        "(NOT author_is_owner AND author IS NOT NULL AND length(trim(author)) BETWEEN 1 AND 80)",
+        "(NOT author_is_owner AND author IS NOT NULL AND length(trim(author)) BETWEEN 1 AND 256)",
         name="ck_arena_problems_author_choice",
     ),
+    CheckConstraint("time_limit_ms >= 1", name="ck_arena_problems_time_limit_positive"),
+    CheckConstraint("memory_limit_kb >= 1", name="ck_arena_problems_memory_limit_positive"),
+    CheckConstraint("pids_limit >= 1", name="ck_arena_problems_pids_limit_positive"),
+    CheckConstraint("output_limit_in_bytes >= 1", name="ck_arena_problems_output_limit_positive"),
 )
 
 arena_problem_custom_validators = Table(

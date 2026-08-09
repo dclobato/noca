@@ -27,12 +27,13 @@ from starlette.middleware.sessions import SessionMiddleware
 from shared.enumerations import RoleEnum
 from shared.services import animator_access_service
 from shared.services.admin_audit import ADMIN_ACTION_EVENT_TYPE
-from shared.services.animator_access_service import digest_token
+from shared.services.animator_access_service import AnimatorAccessError, digest_token
 from shared.services.email_service import EmailConfig, EmailService
 from shared.services.security_events import list_recent_security_events
 from web.models.contest import Contest
 from web.models.site import Site
 from web.models.users import UberAdmin, User
+from web.routes import contest_admin_animator as contest_admin_animator_routes
 from web.routes.assets import router as assets_router
 from web.routes.contest_admin_animator import router as animator_router
 from web.services.authentication_service import AuthAction, AuthenticationService
@@ -251,6 +252,34 @@ async def test_admin_page_has_one_operators_target_and_toggle(
 
 
 @pytest.mark.asyncio
+async def test_admin_page_keeps_global_medals_editable_without_sites(
+    session: AsyncSession, running_contest: Contest, admin_user: User
+) -> None:
+    """Render the separate global block even when no per-site rows exist."""
+    app, auth_service = _build_app(session)
+    await session.commit()
+    token = _actor_token(
+        auth_service,
+        username=admin_user.username,
+        role=RoleEnum.ADMIN,
+        contest_id=running_contest.id,
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("noca_access_token", token)
+        page = await client.get(f"/c/{running_contest.login_slug}/admin/animator/")
+
+    assert page.status_code == 200
+    global_heading = page.text.index("Global medal cutoffs")
+    site_heading = page.text.index("Per-site medal cutoffs")
+    assert global_heading < site_heading
+    for band in ("gold", "silver", "bronze"):
+        assert f'name="global_{band}_cutoff"' in page.text
+    assert "This contest has no sites yet." in page.text
+    assert "Save medals settings" in page.text
+
+
+@pytest.mark.asyncio
 async def test_bulk_medal_update_persists_all_sites(
     session: AsyncSession, running_contest: Contest, admin_user: User
 ) -> None:
@@ -308,6 +337,223 @@ async def test_bulk_medal_update_is_all_or_nothing(
     await session.refresh(second)
     assert (first.gold_cutoff, first.silver_cutoff, first.bronze_cutoff) == (1, 2, 3)
     assert (second.gold_cutoff, second.silver_cutoff, second.bronze_cutoff) == (1, 2, 3)
+
+
+@pytest.mark.asyncio
+async def test_global_medal_update_persists_and_clears(
+    session: AsyncSession, running_contest: Contest, admin_user: User
+) -> None:
+    """Set the contest-wide cutoffs, then clear them with blank fields.
+
+    The clearing half is the interesting one: Pydantic does not coerce ``""`` to
+    ``None`` for ``int | None``, so without the ``mode="before"`` normalization
+    the "disable global medals" path would fail validation instead.
+    """
+    site = await _make_site(session, running_contest, "Site A")
+    app, auth_service = _build_app(session)
+    await session.commit()
+    token = _actor_token(auth_service, username=admin_user.username, role=RoleEnum.ADMIN, contest_id=running_contest.id)
+    site_fields = {
+        f"gold_cutoff_{site.id}": "1",
+        f"silver_cutoff_{site.id}": "2",
+        f"bronze_cutoff_{site.id}": "3",
+    }
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("noca_access_token", token)
+        configured = await client.post(
+            f"/c/{running_contest.login_slug}/admin/animator/medals",
+            data={
+                **site_fields,
+                "global_gold_cutoff": "4",
+                "global_silver_cutoff": "8",
+                "global_bronze_cutoff": "12",
+            },
+            follow_redirects=False,
+        )
+        assert configured.status_code == 303
+        await session.refresh(running_contest)
+        assert (
+            running_contest.global_gold_cutoff,
+            running_contest.global_silver_cutoff,
+            running_contest.global_bronze_cutoff,
+        ) == (4, 8, 12)
+
+        cleared = await client.post(
+            f"/c/{running_contest.login_slug}/admin/animator/medals",
+            data={
+                **site_fields,
+                "global_gold_cutoff": "",
+                "global_silver_cutoff": "  ",
+                "global_bronze_cutoff": "",
+            },
+            follow_redirects=False,
+        )
+
+    assert cleared.status_code == 303
+    await session.refresh(running_contest)
+    assert running_contest.global_gold_cutoff is None
+    assert running_contest.global_silver_cutoff is None
+    assert running_contest.global_bronze_cutoff is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gold", "silver", "bronze"),
+    [("4", "8", ""), ("9", "2", "3")],
+    ids=["partial-triple", "unordered"],
+)
+async def test_global_medal_update_rejects_invalid_input_without_writing(
+    session: AsyncSession,
+    running_contest: Contest,
+    admin_user: User,
+    gold: str,
+    silver: str,
+    bronze: str,
+) -> None:
+    """An invalid global row flashes and leaves both scopes untouched."""
+    site = await _make_site(session, running_contest, "Site A")
+    app, auth_service = _build_app(session)
+    await session.commit()
+    token = _actor_token(auth_service, username=admin_user.username, role=RoleEnum.ADMIN, contest_id=running_contest.id)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("noca_access_token", token)
+        submitted = await client.post(
+            f"/c/{running_contest.login_slug}/admin/animator/medals",
+            data={
+                f"gold_cutoff_{site.id}": "2",
+                f"silver_cutoff_{site.id}": "5",
+                f"bronze_cutoff_{site.id}": "8",
+                "global_gold_cutoff": gold,
+                "global_silver_cutoff": silver,
+                "global_bronze_cutoff": bronze,
+            },
+            follow_redirects=False,
+        )
+        feedback_page = await client.get(submitted.headers["location"])
+
+    assert submitted.status_code == 303
+    assert "Global medals:" in feedback_page.text
+    await session.refresh(running_contest)
+    await session.refresh(site)
+    assert running_contest.global_gold_cutoff is None
+    # The site row was valid, but nothing is written when any row is rejected.
+    assert (site.gold_cutoff, site.silver_cutoff, site.bronze_cutoff) == (1, 2, 3)
+
+
+@pytest.mark.asyncio
+async def test_invalid_site_row_prevents_all_medal_writes(
+    session: AsyncSession, running_contest: Contest, admin_user: User
+) -> None:
+    """A site rejected during validation prevents writes in both scopes.
+
+    Every row is validated before the first update, so the invalid second site
+    prevents both the valid first site and the valid global row from being
+    written.
+    """
+    first = await _make_site(session, running_contest, "Site A")
+    second = await _make_site(session, running_contest, "Site B")
+    app, auth_service = _build_app(session)
+    await session.commit()
+    token = _actor_token(auth_service, username=admin_user.username, role=RoleEnum.ADMIN, contest_id=running_contest.id)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("noca_access_token", token)
+        response = await client.post(
+            f"/c/{running_contest.login_slug}/admin/animator/medals",
+            data={
+                f"gold_cutoff_{first.id}": "2",
+                f"silver_cutoff_{first.id}": "5",
+                f"bronze_cutoff_{first.id}": "8",
+                f"gold_cutoff_{second.id}": "9",
+                f"silver_cutoff_{second.id}": "2",
+                f"bronze_cutoff_{second.id}": "3",
+                "global_gold_cutoff": "4",
+                "global_silver_cutoff": "8",
+                "global_bronze_cutoff": "12",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    await session.refresh(running_contest)
+    await session.refresh(first)
+    assert running_contest.global_gold_cutoff is None
+    assert (first.gold_cutoff, first.silver_cutoff, first.bronze_cutoff) == (1, 2, 3)
+
+
+@pytest.mark.asyncio
+async def test_site_write_failure_rolls_back_global_cutoffs(
+    session: AsyncSession,
+    running_contest: Contest,
+    admin_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A site service failure rolls back the earlier global update."""
+    site = await _make_site(session, running_contest, "Site A")
+    app, auth_service = _build_app(session)
+    await session.commit()
+    token = _actor_token(auth_service, username=admin_user.username, role=RoleEnum.ADMIN, contest_id=running_contest.id)
+
+    async def fail_site_write(*args: object, **kwargs: object) -> Site:
+        """Inject a write-phase domain failure after global medals are updated."""
+        raise AnimatorAccessError("Injected site medal write failure.")
+
+    monkeypatch.setattr(contest_admin_animator_routes, "update_site_medals", fail_site_write)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("noca_access_token", token)
+        response = await client.post(
+            f"/c/{running_contest.login_slug}/admin/animator/medals",
+            data={
+                f"gold_cutoff_{site.id}": "2",
+                f"silver_cutoff_{site.id}": "5",
+                f"bronze_cutoff_{site.id}": "8",
+                "global_gold_cutoff": "4",
+                "global_silver_cutoff": "8",
+                "global_bronze_cutoff": "12",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    await session.refresh(running_contest)
+    await session.refresh(site)
+    assert running_contest.global_gold_cutoff is None
+    assert running_contest.global_silver_cutoff is None
+    assert running_contest.global_bronze_cutoff is None
+    assert (site.gold_cutoff, site.silver_cutoff, site.bronze_cutoff) == (1, 2, 3)
+
+
+@pytest.mark.asyncio
+async def test_medals_form_without_global_fields_leaves_them_alone(
+    session: AsyncSession, running_contest: Contest, admin_user: User
+) -> None:
+    """A form carrying no global fields is not read as "clear them"."""
+    site = await _make_site(session, running_contest, "Site A")
+    running_contest.global_gold_cutoff = 4
+    running_contest.global_silver_cutoff = 8
+    running_contest.global_bronze_cutoff = 12
+    app, auth_service = _build_app(session)
+    await session.commit()
+    token = _actor_token(auth_service, username=admin_user.username, role=RoleEnum.ADMIN, contest_id=running_contest.id)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("noca_access_token", token)
+        response = await client.post(
+            f"/c/{running_contest.login_slug}/admin/animator/medals",
+            data={
+                f"gold_cutoff_{site.id}": "2",
+                f"silver_cutoff_{site.id}": "5",
+                f"bronze_cutoff_{site.id}": "8",
+            },
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    await session.refresh(running_contest)
+    assert (
+        running_contest.global_gold_cutoff,
+        running_contest.global_silver_cutoff,
+        running_contest.global_bronze_cutoff,
+    ) == (4, 8, 12)
 
 
 @pytest.mark.asyncio

@@ -35,8 +35,9 @@
     margin: 0 0 0.45rem;
     color: var(--noca-brand);
     font-family: var(--noca-font-mono);
-    font-size: 1.2rem;
-    font-weight: 800;
+    font-size: var(--noca-type-title);
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
 }
@@ -45,7 +46,7 @@
     max-width: 18ch;
     margin: 0;
     font-family: var(--noca-font-heading);
-    font-size: clamp(2.4rem, 7vw, 5.8rem);
+    font-size: var(--noca-type-poster);
     font-weight: 900;
     letter-spacing: -0.045em;
     line-height: 0.98;
@@ -54,7 +55,7 @@
 .animator-index-intro,
 .animator-index-description {
     color: var(--noca-on-surface-variant);
-    font-size: clamp(1rem, 2vw, 1.2rem);
+    font-size: var(--noca-type-body);
 }
 
 .animator-index-intro {
@@ -68,7 +69,7 @@
     min-height: 9.5rem;
     padding: 1.35rem 1.5rem;
     border: 1px solid rgb(var(--bs-primary-rgb) / 28%);
-    border-radius: 1.25rem;
+    border-radius: var(--noca-radius-presentation);
     background:
         linear-gradient(145deg, rgb(var(--bs-primary-rgb) / 12%), transparent 65%),
         var(--noca-surface-container-low);
@@ -91,8 +92,9 @@
     margin: 0 0 1.75rem;
     color: var(--noca-brand);
     font-family: var(--noca-font-mono);
-    font-size: 0.72rem;
-    font-weight: 800;
+    font-size: var(--noca-type-label);
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+    font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
 }
@@ -101,8 +103,8 @@
     max-width: 18ch;
     color: var(--noca-on-surface);
     font-family: var(--noca-font-heading);
-    font-size: clamp(1.25rem, 2.4vw, 1.65rem);
-    font-variant-numeric: tabular-nums;
+    font-size: var(--noca-type-title);
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     font-weight: 850;
     letter-spacing: -0.025em;
     line-height: 1.12;
@@ -114,15 +116,15 @@
     gap: clamp(1.5rem, 5vw, 4rem);
     padding: clamp(1.5rem, 4vw, 3rem);
     border: 1px solid rgb(255 255 255 / 14%);
-    border-radius: 1.5rem;
-    background: linear-gradient(135deg, #174f80 0%, #101c36 100%);
+    border-radius: var(--noca-radius-presentation-lg);
+    background: linear-gradient(135deg, var(--noca-presentation-hero-from) 0%, var(--noca-presentation-hero-to) 100%);
     box-shadow: 0 1.5rem 4rem rgb(0 0 0 / 18%);
     color: white;
 }
 
 .animator-index-global .animator-index-kicker,
 .animator-index-global .animator-index-description {
-    color: #e5eef8;
+    color: var(--noca-on-presentation-hero);
 }
 
 .animator-index-global .animator-index-section-title {
@@ -132,7 +134,7 @@
 .animator-index-section-title {
     margin: 0;
     font-family: var(--noca-font-heading);
-    font-size: clamp(1.7rem, 3vw, 2.5rem);
+    font-size: var(--noca-type-headline);
     font-weight: 850;
 }
 
@@ -172,7 +174,7 @@
 
 .animator-index-action-detail {
     color: var(--bs-secondary-color);
-    font-size: 0.85rem;
+    font-size: var(--noca-type-label);
 }
 
 .animator-index-sites {
@@ -192,7 +194,7 @@
 .animator-index-card {
     overflow: hidden;
     border: 1px solid var(--noca-outline-variant);
-    border-radius: 1rem;
+    border-radius: var(--noca-radius-presentation);
     background: var(--noca-surface-container-low);
 }
 
@@ -207,14 +209,14 @@
 .animator-index-card-heading h3 {
     margin: 0;
     font-family: var(--noca-font-heading);
-    font-size: 1.25rem;
+    font-size: var(--noca-type-title);
     font-weight: 800;
 }
 
 .animator-index-card-heading span {
     flex: 0 0 auto;
     color: var(--noca-on-surface-variant);
-    font-size: 0.82rem;
+    font-size: var(--noca-type-label);
 }
 
 .animator-index-card-links {
@@ -245,7 +247,7 @@
 .animator-index-empty {
     padding: 2rem;
     border: 1px dashed var(--noca-outline);
-    border-radius: 1rem;
+    border-radius: var(--noca-radius-presentation);
     color: var(--noca-on-surface-variant);
     text-align: center;
 }

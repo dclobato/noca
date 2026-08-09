@@ -78,6 +78,15 @@ a version-1 one is: reading it would silently present a ceremony as having no
 receipts, so the first retry after the upgrade would apply twice. An in-flight
 ceremony is recovered exactly the way every other unreadable payload is —
 ``start-reveal`` with ``restart=true``.
+
+Deliberately **not** bumped when a global ceremony gained medal cutoffs: the
+change is forward-compatible, since new code reads every old payload unchanged
+(an old global state simply carries ``medal_cutoffs=None`` and shows no medals).
+Bumping would instead invalidate every stored ceremony, site ones included, for
+no gain. Rolling *back* with a configured global ceremony in flight is not safe
+either way — old code's scope invariant rejects a global state carrying cutoffs
+exactly as it would reject a version-4 payload — and is recovered by the same
+``start-reveal`` with ``restart=true``.
 """
 
 Medal = Literal["gold", "silver", "bronze"]
@@ -154,6 +163,37 @@ class MedalCutoffs(BaseModel):
             raise ValueError("medal cutoffs must satisfy gold <= silver <= bronze")
         return self
 
+    @classmethod
+    def from_optional(cls, gold: int | None, silver: int | None, bronze: int | None) -> MedalCutoffs | None:
+        """Build cutoffs from a nullable triple, or ``None`` when unconfigured.
+
+        The single mapper from stored medal columns to the in-memory model, used
+        by both the ceremony loader and the live-scoreboard snapshot builder so
+        the two surfaces cannot disagree about when medals exist.
+
+        Only an entirely empty triple means "unconfigured". A *partial* triple is
+        rejected rather than quietly read as unconfigured: the database CHECK
+        constraints forbid storing one, so seeing it here means the row was
+        written out of band, and silently returning ``None`` would hide medals on
+        both surfaces with nothing to indicate why.
+
+        Args:
+            gold: Maximum ranking position awarded a gold medal, or None.
+            silver: Maximum ranking position awarded a silver medal, or None.
+            bronze: Maximum ranking position awarded a bronze medal, or None.
+
+        Returns:
+            The validated cutoffs, or ``None`` when all three values are None.
+
+        Raises:
+            ValueError: If only some of the three values are set.
+        """
+        if gold is None and silver is None and bronze is None:
+            return None
+        if gold is None or silver is None or bronze is None:
+            raise ValueError("medal cutoffs must be all set or all unset, not a partial triple")
+        return cls(gold=gold, silver=silver, bronze=bronze)
+
 
 class ProblemRevealView(BaseModel):
     """Derived per-cell reveal view. Never persisted as session state."""
@@ -227,7 +267,11 @@ class RevealSessionState(BaseModel):
         site_id: Site being revealed, or ``None`` for a global ceremony.
         site_name: Display name of ``site_id``; ``None`` iff global.
         phase: Ceremony phase.
-        medal_cutoffs: Cutoffs for this site; ``None`` iff global.
+        medal_cutoffs: Cutoffs in force for this ceremony -- the site's for a
+            site ceremony, the contest's global ones for a global ceremony, and
+            ``None`` when the global cutoffs are unconfigured. Snapshotted when
+            the session is created, so a later settings change is adopted only
+            by ``start-reveal`` with ``restart=true``.
         frozen_submission_ids: The immutable universe of post-freeze submission
             ids in scope, ordered by ``(timestamp_seconds, created_at, id)``.
         step_log: The ordered trail of everything the operator has done — each
@@ -289,11 +333,12 @@ class RevealSessionState(BaseModel):
         if len(keys) > MAX_COMMAND_RECEIPTS:
             raise ValueError(f"command_receipts must hold at most {MAX_COMMAND_RECEIPTS} entries")
 
-        scoped = (self.site_name is not None, self.medal_cutoffs is not None)
-        if self.site_id is None and any(scoped):
-            raise ValueError("a global session must not carry site_name or medal_cutoffs")
-        if self.site_id is not None and not all(scoped):
-            raise ValueError("a site-scoped session requires site_name and medal_cutoffs")
+        # ``medal_cutoffs`` is deliberately outside this invariant: a global
+        # ceremony now carries the contest's own cutoffs when they are
+        # configured, and carries ``None`` when they are not -- exactly as a
+        # pre-existing global session, recorded before this was possible, does.
+        if (self.site_id is None) != (self.site_name is None):
+            raise ValueError("site_name must be set if and only if site_id is set")
         return self
 
     def with_updates(self, **changes: Any) -> RevealSessionState:
