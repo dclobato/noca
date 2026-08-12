@@ -31,6 +31,39 @@ services:
       - noca-network
     restart: unless-stopped
 
+  landingpage:
+    image: noca/landingpage
+    build:
+      context: .
+      dockerfile: containers/landingpage/Dockerfile
+    environment:
+      NOCA_LANDINGPAGE_PORT: ${NOCA_LANDINGPAGE_PORT:-8080}
+      NOCA_LANDINGPAGE_WEB_URL: >-
+        ${NOCA_LANDINGPAGE_WEB_URL:?NOCA_LANDINGPAGE_WEB_URL is required}
+      NOCA_LANDINGPAGE_ARENA_URL: >-
+        ${NOCA_LANDINGPAGE_ARENA_URL:?NOCA_LANDINGPAGE_ARENA_URL is required}
+      NOCA_LANDINGPAGE_ANIMATOR_URL: >-
+        ${NOCA_LANDINGPAGE_ANIMATOR_URL:?NOCA_LANDINGPAGE_ANIMATOR_URL is required}
+      NOCA_LANDINGPAGE_HEALTHMON_URL: >-
+        ${NOCA_LANDINGPAGE_HEALTHMON_URL:?NOCA_LANDINGPAGE_HEALTHMON_URL is required}
+      NOCA_LANDINGPAGE_VERSION: >-
+        ${NOCA_LANDINGPAGE_VERSION:?NOCA_LANDINGPAGE_VERSION is required}
+    ports:
+      - "84:${NOCA_LANDINGPAGE_PORT:-8080}"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://localhost:${NOCA_LANDINGPAGE_PORT:-8080}/health",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - noca-network
+    restart: unless-stopped
+
   web:
     image: noca/webapp
     build:

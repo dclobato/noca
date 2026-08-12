@@ -41,6 +41,7 @@ noca/
 |   |-- models/             # Animator ORM models
 |   |-- template/           # Jinja templates
 |   `-- static/             # Animator CSS, JavaScript, and images
+|-- landingpage/            # Standalone Caddy-served environment entry point
 |-- shared/                 # Shared schemas, services, assets, and contracts
 |   |-- db_schema/          # SQLAlchemy Core table definitions
 |   |-- services/           # Cross-module services
@@ -59,40 +60,42 @@ noca/
 
 ## Modules
 
-The runtime is composed of three user-facing applications, three workers, and
+The runtime is composed of five user-facing applications, three workers, and
 one shared library. Arrows in the following figure show logical dependencies and
 workflows, not direct imports between runtime applications. The Health Monitor
-and Animator are omitted from the figure to keep the submission flow legible.
+Animator, and Landing Page are omitted from the figure to keep the submission
+flow legible.
 The Health Monitor observes runtime presence without joining a business
 workflow. Animator reads Contest data from PostgreSQL, consumes live Valkey
-events, and imports only shared contracts and services.
+events, and imports only shared contracts and services. The Landing Page has no
+data-plane dependency; it links browsers to the configured public applications.
 
 ```text
 
- ┌───────────────────────────────────────────────────────┐
- │      Shared (shared ws) contracts and services        │
- └────┬────────┬───────┬────────────────┬───────────────┬┘
- ┌────▼─────┐  │  ┌────▼─────┐     ┌────▼─────┐         │
- │ Contest  │  │  │  Arena   │     │  Rating  │         │
- └────┬─────┘  │  └────┬───▲─┘     └────┬─────┘         │
-      │        │       │   └────────────┘               │
-      │        │   ratings, statistics and badges  ┌────▼─────┐
-      │        │       │                           │    AI    │
-      │        │       ├── optional review jobs ───► Assistant│
-      │        │       │                           └────┬─────┘
-      │        │       │                                │
-      │        │       │       Responses & Batch APIs   │
-      │        │       │                          ┌─────▼────┐
-      │        │       │ submission jobs          │  OpenAI  │
-      │        │       │                          │   API    │
-      │        │ ┌─────▼─────┐                    └──────────┘
-      │        └─► AutoJudge │
-      │          └─────▲─────┘
-      └────────────────┘
-   submission and profiling jobs
+ ┌──────────────────────────────────────────────────────────────────────┐
+ │              Shared (shared ws) contracts and services               │
+ └────┬──────────────┬────────┬───────┬────────────────┬───────────────┬┘
+ ┌────▼─────┐   ┌────▼─────┐  │  ┌────▼─────┐     ┌────▼─────┐         │
+ │ Animator │   │ Contest  │  │  │  Arena   │     │  Rating  │         │
+ └─────▲────┘   └─┬──┬─────┘  │  └────┬───▲─┘     └────┬─────┘         │
+       └──────────┘  │        │       │   └────────────┘               │
+   contest data      │        │   ratings, statistics and badges  ┌────▼─────┐
+                     │        │       │                           │    AI    │
+                     │        │       ├── optional review jobs ───► Assistant│
+                     │        │       │                           └────┬─────┘
+                     │        │       │                                │
+                     │        │       │       Responses & Batch APIs   │
+                     │        │       │                          ┌─────▼────┐
+                     │        │       │ submission jobs          │  OpenAI  │
+                     │        │       │                          │   API    │
+                     │        │ ┌─────▼─────┐                    └──────────┘
+                     │        └─► AutoJudge │
+                     │          └─────▲─────┘
+                     └────────────────┘
+               submission and profiling jobs
 ```
 
-The workspace packages and their entry points are:
+The modules and their entry points are:
 
 | Workspace | Package | Entrypoint | Responsibility |
 | --- | --- | --- | --- |
@@ -103,7 +106,11 @@ The workspace packages and their entry points are:
 | `aiassistant/` | `noca-aiassistant` | `uv run noca-aiassistant` | Arena AI review worker |
 | `healthmonitor/` | `noca-healthmonitor` | `uv run noca-healthmonitor` | Public health-monitoring server |
 | `animator/` | `noca-animator` | `uv run noca-animator` | Live scoreboard and reveal presentation runtime |
+| `landingpage/` | Container only | `./containers/build.sh landingpage` | Standalone environment landing page |
 | `shared/` | `noca-shared` | Library only | Shared contracts and services |
+
+`landingpage` deliberately stays outside the `uv` workspace. Its runtime is the
+official Caddy image plus static files, so it has no Python or Node.js dependency.
 
 ## Module relationships
 
@@ -241,8 +248,10 @@ Its main features include:
 See the [Arena overview](arena/docs/ARENA.md),
 [Arena routes](arena/docs/ROUTES.md), and
 [Arena services](arena/docs/SERVICES.md) for implementation details. See
-[custom interactive validators](docs/CUSTOM_VALIDATOR.md) for validator
-authoring, packaging, judging, and diagnostics.
+[the default token validator](docs/custom-validator/TOKEN_VALIDATOR.md) for
+standard output-comparison behavior, or
+[custom interactive validators](docs/custom-validator/INTERACTIVE_VALIDATOR.md)
+for interactive authoring, packaging, judging, and diagnostics.
 
 ### Rating
 
@@ -401,10 +410,11 @@ a `.env` file. Variables use prefixes that identify their owners:
 | `NOCA_` | Shared database, Valkey, security, email, and runtime settings |
 | `NOCA_WEB_` | Contest application |
 | `NOCA_ARENA_` | Arena application |
+| `NOCA_ANIMATOR_` | Animator application |
+| `NOCA_HEALTHMON_` | Health Monitor application |
 | `NOCA_JUDGE_` | AutoJudge worker |
 | `NOCA_RATING_` | Rating worker |
 | `NOCA_AI_` | AI Assistant worker |
-| `NOCA_ANIMATOR_` | Animator presentation runtime |
 
 The [configuration reference](docs/CONFIG.md) lists every supported option,
 its default, validation rules, ownership, and operational notes. Production
@@ -435,7 +445,8 @@ Start each selected runtime in a separate terminal. Common combinations are:
 - Arena with AI feedback: `noca-arena` + `noca-autojudge` +
   `noca-aiassistant`.
 - Public status dashboards: add `noca-healthmonitor` to any combination.
-- Full ecosystem: all seven runtime modules.
+- Full ecosystem: all eight runtime modules. Run the seven Python entry points
+  below and the `landingpage` container.
 
 For example, start the complete ecosystem with:
 
@@ -447,6 +458,14 @@ uv run noca-rating
 uv run noca-aiassistant
 uv run noca-healthmonitor
 uv run noca-animator
+```
+
+Start the non-Python landing page through the sample Compose service after
+setting its four required public URL variables and its release tag
+(`NOCA_LANDINGPAGE_VERSION`, shown in the page footer):
+
+```bash
+docker compose -f docker-compose.yml.sample up --build landingpage
 ```
 
 Run **only one** Rating replica. Contest doesn't depend on Arena, Rating, or AI
@@ -461,8 +480,8 @@ language images, and production preparation.
 
 The repository includes [a Docker Compose sample](docker-compose.yml.sample)
 with Caddy, Contest, Arena, AutoJudge, Rating, AI Assistant, Health Monitor,
-PostgreSQL, and Valkey services. Use it as a deployment template and remove application or
-worker services that you don't need.
+Animator, Landing Page, PostgreSQL, and Valkey services. Use it as a deployment
+template and remove application or worker services that you don't need.
 
 The sample mounts persistent PostgreSQL and Valkey volumes, problem statements,
 shared test case storage, the crypto environment file, and the Docker socket
@@ -487,7 +506,8 @@ docker compose -f docker-compose.yml.sample up --build
 NOCA requires Python 3.14 and uses `uv` for workspace and dependency management.
 PostgreSQL, Valkey, and Docker must be available for integration paths that use
 them. During local application development, run Contest, Arena, AutoJudge,
-Rating, and AI Assistant directly instead of placing them in containers.
+Rating, AI Assistant, Health Monitor, and Animator directly instead of placing
+them in containers.
 
 The repository's implementation conventions are documented in
 [AGENTS.md](AGENTS.md), and the detailed architecture is in
@@ -505,7 +525,8 @@ uv run mypy web shared autojudge arena rating aiassistant healthmonitor animator
 uv run pytest
 ```
 
-The full test suite takes more than five minutes. During development, run the
+The full test suite takes over 14 minutes serially, or around 5 minutes in
+parallel with pytest-xdist (`uv run pytest -n auto`). During development, run the
 focused module or test file first, then run the full suite before release.
 Template changes also require `djlint`:
 

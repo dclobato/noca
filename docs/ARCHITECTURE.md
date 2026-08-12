@@ -10,7 +10,10 @@ Related references:
 - [DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md](DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md) for the submission lifecycle
 - [CONTEST_BACKUP_FORMAT.md](CONTEST_BACKUP_FORMAT.md) for the contest
   backup/restore ZIP format and fidelity notes
-- [CUSTOM_VALIDATOR.md](CUSTOM_VALIDATOR.md) for interactive custom validators: authoring, exit codes, and which limits apply
+- [Interactive validator guide](custom-validator/INTERACTIVE_VALIDATOR.md) for
+  authoring, exit codes, and applicable limits
+- [Output checker validator rationale](custom-validator/OUTPUT_CHECKER_VALIDATOR.md)
+  for the planned non-interactive output-checker strategy
 - [FASTAPI_FLASH.md](FASTAPI_FLASH.md) for the flash-message pattern used in the web and arena modules
 - [web/docs/ROUTES.md](../web/docs/ROUTES.md) and [web/docs/SERVICES.md](../web/docs/SERVICES.md) for web-layer responsibilities
 - [SHARED_SERVICES.md](SHARED_SERVICES.md) for cross-module shared services (email, network, image, Valkey, locks)
@@ -26,7 +29,7 @@ Related references:
 
 ## 1. High-level design
 
-NOCA is split into seven main runtime modules:
+NOCA is split into eight main runtime modules:
 
 - `web/`: the FastAPI application that serves HTML pages, handles authentication, enforces authorization, manages contests/problems/users, and creates judging work
 - `autojudge/`: the asynchronous judge worker that consumes queued judgments, compiles and runs submissions inside containers, and writes results back
@@ -36,13 +39,26 @@ NOCA is split into seven main runtime modules:
   uses the OpenAI Responses API for user-key reviews, uses the OpenAI Batch API
   for platform-key reviews, and stores feedback in the database
 - `healthmonitor/`: the public health-monitoring FastAPI server that probes the
-  other modules through their Valkey worker-presence keys and renders an
-  environment status page plus a 30-day uptime heatmap dashboard
+  other modules through their Valkey worker-presence keys and renders a 30-day
+  uptime heatmap dashboard with live per-service statuses
 - `animator/`: the standalone FastAPI presentation runtime (default port 8003) that reads
   PostgreSQL and Valkey directly to serve a live scoreboard and post-freeze reveal
   ceremony; it reuses the shared scoreboard projection and never imports `web`
+- `landingpage/`: a standalone Caddy-served entry point (default internal port
+  8080) that presents the NOCA environment and links to the configured Web,
+  Arena, Animator, and Health Monitor deployments without using Python,
+  PostgreSQL, or Valkey
 
-Those modules are intentionally separated. The web app owns contest-admin workflows; the autojudge owns untrusted-code execution and verdict production; the arena owns public participant registration and authentication; the rating worker owns periodic rating recomputation cycles so they run exactly once regardless of how many Arena replicas are deployed; the aiassistant worker owns external AI provider calls and cost recording; the health monitor owns availability observation and uptime history without participating in any business workflow; the animator owns public scoreboard and reveal presentation, reading the shared schema directly through SQLAlchemy Core.
+Those modules are intentionally separated. The web app owns contest-admin
+workflows; the autojudge owns untrusted-code execution and verdict production;
+the arena owns public participant registration and authentication; the rating
+worker owns periodic rating recomputation cycles so they run exactly once
+regardless of how many Arena replicas are deployed; the aiassistant worker owns
+external AI provider calls and cost recording; the health monitor owns
+availability observation and uptime history without participating in any
+business workflow; the animator owns public scoreboard and reveal presentation,
+reading the shared schema directly through SQLAlchemy Core; the landing page
+owns only public navigation into an environment and has no data-plane access.
 
 Between them there is one important shared module:
 
@@ -88,11 +104,13 @@ Runtime isolation:
   Valkey, calling the OpenAI Responses API for online user-key reviews, and
   polling OpenAI Batch API jobs for platform-key reviews
 - **healthmonitor**: FastAPI server with a Valkey connection only (no database),
-  serving the public status and uptime dashboards (default port 8002)
+  serving the public uptime dashboard (default port 8002)
 - **animator**: FastAPI server with async database (SQLAlchemy Core) and Valkey
   connections, serving the public live scoreboard and reveal presentation (default port 8003).
   Publishes a presence-only `WorkerClass.ANIMATOR` heartbeat from its lifespan, so
   the health monitor shows it as its own service
+- **landingpage**: Caddy static-file and template server with no database,
+  Valkey, Python, or Node.js runtime (default internal port 8080)
 - No Python imports between modules; all communication goes through infrastructure
 
 ## 3. uv workspace and package layout
@@ -128,6 +146,14 @@ package directories in the virtual environment.
 The runtime packages depend on `noca-shared` through the uv workspace source
 mapping. This keeps shared schema and service contracts importable without
 turning the root project into an installable Python package.
+
+The `landingpage/` module is intentionally not a workspace package. Its
+container copies the Caddy configuration, the HTML page and its static assets,
+the startup validator, and the two product illustrations owned by `web/` and
+`arena/`. It also imports the shared font stylesheet and the Public Sans, Inter,
+and IBM Plex Mono files from the internal `assets-base` build stage, so the
+landing page renders in the same typefaces as every other NOCA surface without
+depending on a CDN. It runs no Python and no Node.js.
 
 ## 4. Data model and schema ownership
 
@@ -332,6 +358,44 @@ names a reverse-proxy-managed header. The request identifier comes from
 `X-Request-ID`; deployments must only trust it when the reverse proxy strips
 incoming values and sets its own ID.
 
+Error responses are owned by the same shared module across all four HTTP modules
+(`shared.error_handlers`). Generic failures the router or validator produced --
+`404`, `405`, and every `RequestValidationError` -- answer a neutral
+`{"error": <code>}` body rather than FastAPI's `{"detail": ...}` and Pydantic's
+error array, which otherwise name the stack, disclose internal parameter names,
+and echo the caller's input back. Anything an application authored keeps its
+`detail` verbatim, and statuses outside `{404, 405, 422}` are untouched, so the
+animator control panel still reads its refusal messages out of `payload.detail`.
+Because every handler derives its response from the status code alone and never
+from the cause, the animator's requirement that an unknown slug, a disabled
+contest, and the control kill switch stay indistinguishable holds for the neutral
+body exactly as it did for the framework default.
+
+Integer request parameters are bounded through `shared.http_params` (`DbId`,
+`PageNumber`). PostgreSQL `integer` is 32-bit while Python integers are unbounded,
+so an unbounded parameter reaches a query and raises
+`asyncpg.DataError: value out of int32 range`, which surfaces as a misleading
+`503` and logs a full SQL statement. Row primary keys are `String(36)` UUIDs, so
+this applies to the natural-number columns -- `arena_number`, ordinals, page
+numbers, and the problem limit fields -- not to the `str`-typed id parameters.
+Route *paths* use the `dbid` convertor (`{arena_number:dbid}`) rather than
+Starlette's built-in `int`, whose `int(value)` call raises inside `Route.matches()`
+for a path longer than CPython's 4300-digit limit -- before any handler, so it
+escaped the error handlers as an unauthenticated `500`. Both rules are enforced by
+`tests/shared/test_route_int_bounds.py` against the real registered routes.
+
+Browser security headers are owned by one shared middleware
+(`shared.services.security_headers`) that **all four** HTTP modules install — web,
+arena, animator, and healthmonitor — so a public page cannot ship without CSP,
+HSTS, `nosniff`, framing, referrer, and permissions policy. The two cookieless
+modules (animator, healthmonitor) derive `hsts_enabled` from `ENVIRONMENT` alone
+rather than from `COOKIE_SECURE`. `NOCA_SECURITY_HEADERS_ENABLED` and
+`NOCA_CSP_REPORT_ONLY` are deliberately unprefixed so one setting governs every
+module at once. The sample Caddyfile re-applies a subset of the same headers at
+the edge with set-only-if-absent semantics as defense in depth, and strips
+`Server` and `Via` so the origin stack is not named to clients; see
+[CONFIG.md](CONFIG.md) for the two Caddy operator pitfalls involved.
+
 ## 5. Module summaries
 
 ### `web/`
@@ -412,21 +476,26 @@ review jobs from the Valkey `ai:queue:pending` list, calling the OpenAI Response
 API when the submitting user has a personal `ai_api_key`, and submitting an
 OpenAI Batch API job when the worker falls back to the platform key configured
 via `NOCA_AI_OPENAI_API_KEY`. Online user-key jobs store the AI review immediately.
-Platform-key jobs first insert a durable `arena_ai_batch_jobs` row, then the
-batch poller stores the result after OpenAI completes the batch.
+Platform-key jobs first insert a durable `arena_ai_batch_jobs` row with
+`local_status='staged'`, without calling OpenAI. The batch flusher periodically
+collects all staged rows into one multi-item OpenAI batch, and the batch poller
+stores each result after OpenAI completes that batch.
 
-The worker runs four async loops in one deployment unit: the dequeue loop, the
-stale-job reaper, the batch poller, and the reconciler. The reaper uses
+The worker runs the dequeue loop, stale-job reaper, batch flusher, batch poller,
+reconciler, and worker-presence loop in one deployment unit. It also runs the
+signed command loop when a worker command secret is configured. The reaper uses
 `ai:queue:inflight:times` to recover queue jobs that were dispatched but not
-cleaned up. The batch poller reads non-terminal `arena_ai_batch_jobs` rows,
-retrieves OpenAI batch status, stores completed review output in
-`arena_submission_ai_reviews`, creates Arena notifications, clears failed retry
-flags, and deletes uploaded OpenAI files after terminal states. At the top of each
-batch poll cycle a stale-batch detector locally expires batch jobs whose
-`submitted_at` is older than `NOCA_AI_BATCH_STALE_HOURS`: in one transaction per
-submission it atomically claims the row, refunds the consumed platform credit,
-clears `submit_to_ai`, notifies the user, and finalizes the row as `expired`, then
-best-effort cancels the OpenAI batch and deletes its files.
+cleaned up. The batch flusher wakes every five batch-poll intervals, or when
+triggered. It submits all staged jobs as one OpenAI batch. The batch poller
+reads non-terminal `arena_ai_batch_jobs` rows, retrieves OpenAI batch status,
+stores completed review output in `arena_submission_ai_reviews`, creates Arena
+notifications, clears failed retry flags, and deletes uploaded OpenAI files
+after terminal states. At the top of each batch poll cycle, a stale-batch
+detector locally expires batch jobs whose `submitted_at` is older than
+`NOCA_AI_BATCH_STALE_HOURS`: in one transaction per submission it atomically
+claims the row, refunds the consumed platform credit, clears `submit_to_ai`,
+notifies the user, and finalizes the row as `expired`, then best-effort cancels
+the OpenAI batch and deletes its files.
 
 After any poll cycle that completes a batch, the worker derives turnaround
 statistics from the 100 most recent successful platform-key reviews and stores
@@ -447,17 +516,21 @@ pending/inflight queue presence and re-enqueues them.
 ### `healthmonitor/`
 
 The healthmonitor module is a standalone FastAPI server (default port 8002) with no
-database access and no authentication — both of its pages are public. It reads
+database access and no authentication — its single page is public. It reads
 the Valkey worker-presence keys published by all other runtime modules (the
 `web`, `arena`, and `animator` HTTP servers publish presence from their
 lifespans exactly like the workers do, under the presence-only
 `WorkerClass.WEB` / `ARENA` / `ANIMATOR` classes) and serves:
 
-- `/` — the environment status page: one Available/Unavailable/Unknown card per
-  service, read live at request time
-- `/dashboard` — the uptime dashboard: the same live statuses plus a 30-day
-  heatmap per service (60 slots of 12 hours, colored from green at 100% slot
-  uptime to red at 70% or below)
+- `/` — the uptime dashboard: the live Available/Unavailable/Unknown status of
+  every monitored service plus an ECharts 30-day heatmap per service (60 slots
+  of 12 hours, colored from green at 100% slot uptime to red at 70% or below)
+- `/refresh` — the HTMX dashboard fragment, polled every 30 seconds while
+  automatic refresh is active; the browser preserves card expansion and focus
+  while replacing the live status and chart containers
+- `/uptime.json` — the JSON source for all six heatmaps; the browser fetches it
+  after initial load and every HTMX refresh, then recreates the ECharts
+  instances and their accessible data-table fallbacks
 
 A prober loop records one up/down sample per service every
 `NOCA_HEALTHMON_PROBE_INTERVAL` seconds into per-slot `up`/`total` hashes
@@ -650,6 +723,47 @@ focus, derived team views), never the persisted `reveal_log` or
 [animator/docs/ROUTES.md](../animator/docs/ROUTES.md) and
 [animator/docs/SERVICES.md](../animator/docs/SERVICES.md).
 
+### `landingpage/`
+
+The landing page is a standalone Caddy static site (default internal port 8080)
+that serves one public page: an overview of the deployment and links into the
+Contest, Arena, Animator, and Health Monitor instances running in it. It has no
+Python package, no application framework, no database or Valkey connection, and
+no background loop, which is why it stays outside the `uv` workspace.
+
+Its only runtime input is configuration. Caddy's template middleware renders the
+four `NOCA_LANDINGPAGE_*_URL` values and `NOCA_LANDINGPAGE_VERSION` into the page
+on each request and HTML-escapes them; `containers/landingpage/entrypoint.sh`
+rejects a missing, relative, or whitespace-bearing URL and a missing, oversized,
+or whitespace-bearing version tag before Caddy starts, so a misconfigured
+deployment fails rather than publishing broken navigation. The version is
+configuration rather than something discovered at runtime precisely because there
+is no application behind the page to ask.
+
+The module sits outside every infrastructure boundary in section 2. It reaches
+neither PostgreSQL, Valkey, nor another module, and its
+`Content-Security-Policy` enforces that from the browser side as well: it begins
+at `default-src 'none'`, allows only same-origin styles, scripts, fonts, and
+images, and sets `connect-src 'none'`. A consequence worth stating explicitly is
+that the page cannot display live service status, by construction; it links to
+the Health Monitor instead.
+
+Because it publishes no Valkey worker-presence heartbeat — there is no
+`WorkerClass` member for it, unlike the `WEB`, `ARENA`, and `ANIMATOR`
+presence-only classes — the landing page deliberately does **not** appear as a
+service on the health monitor's status and uptime dashboards. Its own liveness is
+the dependency-free `/health` route, for container and load-balancer probes only.
+
+The image is the official Caddy image plus static files. A build-only stage
+supplies the shared NOCA webfonts, so the page uses the same typefaces as every
+other surface without a CDN, and the Contest, Arena, and Animator illustrations
+are copied from the modules that own them rather than duplicated into this one.
+Development uses `landingpage/serve_dev.py`, a stand-in for Caddy that renders
+the same template calls and sends the same headers; it never ships in the image.
+See [landingpage/README.md](../landingpage/README.md),
+[landingpage/docs/ROUTES.md](../landingpage/docs/ROUTES.md), and
+[landingpage/docs/SERVICES.md](../landingpage/docs/SERVICES.md).
+
 ### `shared/`
 
 The shared module defines cross-runtime contracts: SQLAlchemy Core schema, enums,
@@ -750,7 +864,9 @@ Packages carry them as `interaction/NNN.interaction` (the raw transcript JSON) a
 `interaction/` members dropped on import; a validator package with none warns the
 importer that the problem shows no examples.
 
-See [CUSTOM_VALIDATOR.md](CUSTOM_VALIDATOR.md) for the authoring workflow, the
+See the
+[interactive validator guide](custom-validator/INTERACTIVE_VALIDATOR.md) for
+the authoring workflow, the
 exit-code-to-verdict mapping, and which problem limits are enforced by the judge
 versus by the validator.
 
@@ -766,7 +882,7 @@ no failing round to explain.
 
 ## 6. Summary
 
-NOCA is a seven-process contest platform:
+NOCA is an eight-process contest platform:
 
 - `web` manages contest and business workflows (default port 8000)
 - `autojudge` manages sandboxed compilation and execution
@@ -774,8 +890,10 @@ NOCA is a seven-process contest platform:
 - `rating` manages the single-replica Arena rating recomputation cycles
 - `aiassistant` manages the Arena AI code review pipeline (OpenAI Responses API
   and Batch API)
-- `healthmonitor` manages the public availability dashboards (default port 8002)
+- `healthmonitor` manages the public uptime dashboard (default port 8002)
 - `animator` manages the public live scoreboard and reveal presentation (default port 8003)
+- `landingpage` serves the environment entry point and public module links
+  (default internal port 8080)
 - `shared` defines the common contract between them
 
 The architecture is built around separation of concerns, a shared PostgreSQL schema

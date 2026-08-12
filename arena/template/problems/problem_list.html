@@ -113,7 +113,7 @@
                     <thead>
                         <tr>
                             {% if current_user %}<th class="arena-col-favorite column-width-tiny" aria-label="Favorite"></th>{% endif %}
-                            <th class="arena-col-sortable column-width-tiny">
+                            <th class="arena-col-sortable arena-problem-number column-width-tiny">
                                 <a href="{{ request.url.include_query_params(sort_by='number_desc' if sort_by == 'number_asc' else 'number_asc', page=1) }}"
                                    class="arena-sort-link d-flex align-items-center gap-1">
                                     #
@@ -182,7 +182,7 @@
                                         {% endif %}
                                     </td>
                                 {% endif %}
-                                <td class="column-width-tiny">
+                                <td class="arena-problem-number column-width-tiny">
                                     <a href="{{ request.url_for('arena_problem_detail', arena_number=item.arena_number) }}?{{ back_params_qs }}"
                                        class="arena-link-no-underline">{{ item.arena_number }}</a>
                                 </td>

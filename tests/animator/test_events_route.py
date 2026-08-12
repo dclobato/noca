@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -30,6 +30,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from animator.error_handlers import register_error_handlers
 from animator.routes.public import router as public_router
 from animator.services.event_stream_service import AnimatorEventStream
 from shared.queue_schema import SubmissionEvent, VerdictEvent
@@ -53,6 +54,10 @@ def _build_app(engine: AsyncEngine, stream: AnimatorEventStream) -> FastAPI:
     app.state.db_session = async_sessionmaker(engine, expire_on_commit=False)
     app.state.event_stream = stream
     app.include_router(public_router)
+    # Register the real handlers: the indistinguishability guarantee below is a
+    # property of the responses this app actually produces, so a bare FastAPI
+    # here would assert the framework default rather than what ships.
+    register_error_handlers(app)
     return app
 
 
@@ -299,18 +304,27 @@ async def test_timer_tick_streams_server_time(session: Any, uberadmin: UberAdmin
     assert "server_time" in json.loads(frames[0]["data"])
 
 
-@pytest.mark.parametrize("slug", ["ev-unknown", "ev-disabled"])
-async def test_missing_and_disabled_are_indistinguishable_404(session: Any, uberadmin: UberAdmin, slug: str) -> None:
+async def test_missing_and_disabled_are_indistinguishable_404(session: Any, uberadmin: UberAdmin) -> None:
+    """An unknown slug and a disabled contest must be impossible to tell apart.
+
+    Compares the two responses to each other rather than each to a literal, so
+    the guarantee is asserted directly: any future divergence in status, body,
+    or content type fails here regardless of what the body happens to be.
+    """
     await _make_contest(session, uberadmin, slug="ev-disabled", frozen=False, enabled=False)
     stream = AnimatorEventStream(_BlockingRuntime())  # type: ignore[arg-type]
     app = _build_app(session.bind, stream)
 
     # The 404 comes from the dependency before any streaming, so plain httpx works.
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get(f"/c/{slug}/events")
+        unknown = await client.get("/c/ev-unknown/events")
+        disabled = await client.get("/c/ev-disabled/events")
 
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Not Found"}
+    assert unknown.status_code == disabled.status_code == 404
+    assert unknown.content == disabled.content
+    assert unknown.headers.get("content-type") == disabled.headers.get("content-type")
+    # And the shared body must not name the framework.
+    assert unknown.json() == {"error": "not_found"}
 
 
 async def test_disconnect_unregisters_channel(session: Any, uberadmin: UberAdmin) -> None:

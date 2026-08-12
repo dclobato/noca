@@ -17,7 +17,7 @@ pattern = '(?m)^version = "(?P<version>[^"]+)"'
 [project]
 name = "noca-healthmonitor"
 dynamic = ["version"]
-description = "NOCA health monitor: public status and uptime dashboards for all runtime modules."
+description = "NOCA health monitor: public live status and uptime dashboard for all runtime modules."
 authors = [
     { name = "Daniel Correa Lobato", email = "daniel@lobato.org" }
 ]

@@ -47,9 +47,11 @@ token usage when OpenAI provides usage data.
 ### Batch path
 
 The batch path runs when the queued job is marked `use_platform_key=True` and
-`NOCA_AI_OPENAI_API_KEY` is configured. `aiassistant/batch_reviewer.py` uploads
-the files, creates a JSONL request, submits the OpenAI Batch API job, and writes
-an `arena_ai_batch_jobs` row.
+`NOCA_AI_OPENAI_API_KEY` is configured. The dequeue loop writes a `staged`
+`arena_ai_batch_jobs` row without calling OpenAI. `aiassistant/batch_flusher.py`
+later collects all staged rows in a flush window, and
+`aiassistant/batch_reviewer.py` uploads the files, builds one multi-item JSONL,
+submits a single windowed OpenAI Batch API job, and marks the rows `submitted`.
 
 `aiassistant/batch_poller.py` later polls non-terminal batch rows. When OpenAI
 returns a completed output file, `aiassistant/batch_results.py` extracts the
@@ -76,6 +78,9 @@ the whole worker.
   `NOCA_AI_RECONCILER_GRACE_SECONDS`.
 - **Batch poller loop**: polls active OpenAI batch jobs, stores completed
   output, expires stale local batches, and refreshes turnaround statistics.
+- **Batch flusher loop**: collects `staged` batch rows every
+  `5 × NOCA_AI_BATCH_POLL_INTERVAL_SECONDS` (or immediately on the `flush-now`
+  command) and submits them as one windowed multi-item OpenAI batch.
 - **Presence and command loops**: publish worker status and apply signed
   pause/resume, flush-now, and poll-now commands.
 
@@ -129,7 +134,8 @@ OpenAI file content itself includes untrusted-data markers.
 These boundaries are used in:
 
 - `aiassistant/reviewer.py` for online Responses API reviews
-- `aiassistant/batch_reviewer.py` for single-item and windowed Batch API reviews
+- `aiassistant/batch_reviewer.py` for windowed Batch API reviews (the legacy
+  single-item helper remains only for tests)
 
 Do not replace these boundaries with prompt-injection stripping. Stripping is
 brittle and can remove legitimate source code or statements. Keep the controls
@@ -185,11 +191,15 @@ are:
 - `NOCA_AI_OPENAI_API_KEY`
 - `NOCA_AI_OPENAI_MODEL`
 - `NOCA_AI_OPENAI_MAX_OUTPUT_TOKENS`
+- `NOCA_AI_OPENAI_REASONING_EFFORT`
+- `NOCA_AI_POLL_INTERVAL_SECONDS`
+- `NOCA_AI_REAPER_INTERVAL_SECONDS`
 - `NOCA_AI_BATCH_POLL_INTERVAL_SECONDS`
 - `NOCA_AI_BATCH_STALE_HOURS`
 - `NOCA_AI_STALE_THRESHOLD_SECONDS`
 - `NOCA_AI_MAX_REQUEUE_COUNT`
 - `NOCA_AI_RECONCILER_INTERVAL_SECONDS`
+- `NOCA_AI_RECONCILER_GRACE_SECONDS`
 
 The module also reads shared database, Valkey, logging, worker-command, and
 crypto settings.

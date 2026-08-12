@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -147,8 +147,6 @@ async def test_run_worker_fails_fast_before_pool_warm_and_cleans_up(monkeypatch)
     monkeypatch.setattr(worker_module.aiovalkey, "from_url", _fake_from_url)
     monkeypatch.setattr(worker_module, "touch_heartbeat_file", lambda: None)
     monkeypatch.setattr(worker_module, "remove_heartbeat_file", lambda: None)
-    monkeypatch.setattr(worker_module.settings, "LOCK_TTL_SECONDS", 120)
-    monkeypatch.setattr(worker_module.settings, "REAPER_STALE_THRESHOLD_MINUTES", 1)
     monkeypatch.setattr(worker_module, "registry_from_rows", lambda rows: {})
 
     with pytest.raises(RuntimeError) as excinfo:

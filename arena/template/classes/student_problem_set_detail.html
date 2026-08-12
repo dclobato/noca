@@ -63,7 +63,7 @@
                     <table class="arena-table arena-student-problem-set-table">
                         <thead>
                             <tr>
-                                <th class="arena-student-problem-set-number">#</th>
+                                <th class="arena-problem-number arena-student-problem-set-number">#</th>
                                 <th class="arena-student-problem-set-problem">Problem</th>
                                 <th class="arena-student-problem-set-verdict">Best verdict</th>
                                 <th class="arena-student-problem-set-submitted">Submitted at</th>
@@ -73,7 +73,8 @@
                             {% for row in detail.problems %}
                                 <tr class="arena-clickable-row"
                                     data-href="{{ request.url_for('arena_problem_detail', arena_number=row.arena_number) }}">
-                                    <td class="arena-student-problem-set-number" data-label="Problem number">{{ row.arena_number }}</td>
+                                    <td class="arena-problem-number arena-student-problem-set-number"
+                                        data-label="Problem number">{{ row.arena_number }}</td>
                                     <td class="arena-student-problem-set-problem" data-label="Problem">
                                         <span class="fw-semibold">{{ row.title }}</span>
                                     </td>

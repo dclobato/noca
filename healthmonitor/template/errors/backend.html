@@ -1,0 +1,38 @@
+{#  NOCA -- Next Online Contest Administrator
+    Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. #}
+{# Standalone document on purpose: it must render without the app context that
+   _base.html assumes, since an error can happen before that context exists. #}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>{{ brand_name }} — {{ status_code }}</title>
+        <link rel="icon" type="image/x-icon" href="/favicon.ico">
+        {# Set the theme before stylesheets load so there is no light flash. #}
+        <script>
+        (function () {
+            var theme = localStorage.getItem('noca-theme') || 'light';
+            document.documentElement.setAttribute('data-bs-theme', theme);
+        })();
+        </script>
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='bootstrap.min.css') }}">
+        <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('healthmon_static_css', path='healthmonitor.css') }}?v={{ app_version }}"
+              rel="stylesheet">
+    </head>
+    <body class="d-flex flex-column align-items-center justify-content-center min-vh-100 p-4">
+        <main class="text-center">
+            <p class="display-1 fw-bold mb-0">{{ status_code }}</p>
+            <h1 class="h4 mt-3">{{ heading }}</h1>
+            <p class="text-body-secondary">{{ message }}</p>
+            <a class="btn btn-primary btn-sm mt-3"
+               href="{{ request.url_for("healthmon_dashboard") }}">Back to dashboard</a>
+        </main>
+    </body>
+</html>

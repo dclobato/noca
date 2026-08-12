@@ -86,11 +86,15 @@ Canonical location:
 Main entrypoints:
 - `configure_logging(logging_level=logging.DEBUG) -> None`
 - `log_settings(logger, settings, *, level=logging.DEBUG) -> None`
+- `sqlalchemy_echo_enabled(logging_level) -> bool` — used by the database engine
+  setup of web, arena, autojudge, rating, aiassistant, and animator
 
 Notes:
-- `log_settings` accepts any `pydantic.BaseModel` settings instance; all five module
-  `Settings` classes qualify. It is called once, immediately after each module's
-  `| Initializing services |` startup marker.
+- `log_settings` accepts any `pydantic.BaseModel` settings instance; all seven runtime
+  module `Settings` classes qualify. It is called once, immediately after the
+  `| Initializing services |` startup marker, in web, arena, autojudge, rating, and
+  aiassistant; healthmonitor logs the marker but does not call `log_settings`, and
+  animator does neither.
 - Each field is logged on its own line as `name = value [default|override]`, where the tag
   comes from `model_fields_set`.
 - Secret-bearing string fields (name token in `PASSWORD/PASSWD/PWD/SECRET/KEY/TOKEN` with a
@@ -139,12 +143,14 @@ Notes:
 ## `error_handlers.py`
 
 Purpose:
-- centralize HTML/JSON content negotiation for backend failures in the Web and
-  Arena HTTP applications
+- centralize HTML/JSON content negotiation for backend failures in all four HTTP
+  applications (Web, Arena, animator, health monitor)
 - provide configured handlers for database unavailability (`503`) and unexpected
   application failures (`500`)
 - register `SQLAlchemyError`, connection, timeout, and fallback exception handlers
   consistently
+- answer generic router and validation failures with a neutral body that does not
+  name the application stack
 
 Canonical location:
 - `shared/error_handlers.py`
@@ -156,14 +162,78 @@ Main entrypoints:
 - `register_backend_error_handlers(app, handlers) -> None`
 - `render_error_response(...) -> Response`
 - `request_accepts_html(request) -> bool`
+- `is_generic_http_exception(exc) -> bool`
+- `generic_error_response(request, config, *, status_code) -> Response`
+- `create_validation_exception_handler(config) -> ExceptionHandler`
+- `create_generic_http_exception_handler(config) -> ExceptionHandler`
+- `register_generic_error_handlers(app, config) -> None` — the registration path
+  consumed by animator and healthmonitor; web and arena hand-roll their generic
+  handling from `is_generic_http_exception` + `generic_error_response`
 
 Notes:
-- Web and Arena own their templates and presentation context. Web remains
-  text-only, while Arena adds its backend illustration URL through its context
-  builder.
+- Each application owns its templates and presentation context. Web remains
+  text-only, Arena adds its backend illustration URL through its context builder,
+  and animator and health monitor use a minimal standalone `errors/backend.html`.
 - HTTP-specific behavior remains local. Web owns its branded `404` response, and
   Arena owns its illustrated `404`, authentication redirects, permission
   redirects, and forced logout handling.
+- **Only generic failures are rewritten.** A router-generated `404`/`405` carries
+  no application message (Starlette fills `detail` with the status phrase), so it
+  answers `{"error": "not_found"}` / `{"error": "method_not_allowed"}` instead of
+  the framework's `{"detail": ...}` shape. A `RequestValidationError` always
+  answers `{"error": "invalid_request"}` and the exception is never inspected,
+  because Pydantic's default body names the validation library, discloses internal
+  parameter names, and echoes the caller's input back.
+- Anything an application authored keeps its `detail` verbatim, and statuses
+  outside `{404, 405, 422}` are untouched. This is what lets the animator control
+  panel keep reading refusal messages out of `payload.detail`.
+- The animator relies on this: its unknown-slug, disabled-contest, and
+  control-kill-switch refusals must stay indistinguishable, so every handler
+  derives its response from the status code alone and never from the cause.
+
+---
+
+## `http_params.py`
+
+Purpose:
+- bound integer request parameters so a value larger than the PostgreSQL column
+  it is compared against is refused at the HTTP boundary instead of failing
+  inside a query
+
+Canonical location:
+- `shared/http_params.py`
+
+Main entrypoints:
+- `PG_INT32_MAX` — PostgreSQL `integer` is signed 32-bit, and the shared schema
+  uses it for every route-addressable natural-number column
+- `MAX_PAGE` — page-number cap, chosen so the computed SQL `OFFSET` stays orders
+  of magnitude inside `int32`
+- `DbId` / `DbIdQuery` — a path or query parameter naming a row by integer id
+- `PageNumber` — a one-based page number from the query string
+- `BoundedIntConvertor`, registered at import time as the `dbid` path convertor —
+  use `{name:dbid}` in a route path, never the built-in `{name:int}`
+
+Notes:
+- Python integers are unbounded, so a bare `int` route parameter accepts values
+  no column can hold. asyncpg then raises `DataError: value out of int32 range`
+  at query time, which reaches the caller as a **503** and writes a full SQL
+  statement to the log — a trivially triggerable error path, and a misleading one
+  since nothing is actually unavailable.
+- Row primary keys are `String(36)` UUIDs, so `str`-typed path parameters cannot
+  overflow. These aliases are for the natural-number columns: `arena_number`,
+  ordinals, page numbers, and the problem limit fields.
+- **The path convertor matters as much as the annotation.** Starlette's built-in
+  `int` convertor matches `[0-9]+` and then calls `int(value)`, which CPython
+  refuses above `sys.get_int_max_str_digits()` (4300). The resulting `ValueError`
+  is raised inside `Route.matches()` — during routing, before any dependency or
+  exception handler — so an oversized numeric path became an **unauthenticated
+  500 with a traceback**, bypassing the neutral bodies entirely. `dbid` bounds the
+  digit count in the regex, so an oversized path simply fails to match and is an
+  ordinary 404. A value that parses but exceeds the column is still refused by the
+  `le` bound. Negative and non-numeric segments remain 404s, as before.
+- The handful of `BigInteger` columns (login/rating history, worker control) are
+  not addressed by route parameters. A route that ever does address one needs its
+  own wider bound rather than `DbId`.
 
 ---
 
@@ -180,7 +250,8 @@ Canonical location:
 - `shared/services/arena_rating.py`
 
 Main entrypoints:
-- `rate_problem(*, session, problem_id)`, `rate_all_problems(session)`
+- `rate_problem(*, session, problem_id, pivot: float | None = None)` — `pivot` is an
+  optional population-contrast pivot — and `rate_all_problems(session)`
 - `rate_user(*, session, user_id)`, `rate_all_users(session)`
 - `rate_affiliation(*, session, affiliation_id, f)`, `rate_all_affiliations(session, f)`
 - `format_next_rating_update(next_update) -> str | None` (Arena footer countdown)
@@ -315,15 +386,29 @@ Purpose:
 Canonical location:
 - `shared/services/arena_query_helpers.py`
 
-Main entrypoint:
+Main entrypoints:
 - `active_arena_judgment_subquery() -> Subquery` — most-recent non-`SUPERSEDED`
   judgment timestamp per submission (`submission_id`, `max_created_at`); join it back
   against `arena_submission_judgments` on `(submission_id, created_at)` to pick the
   active row
+- `counts_toward_problem_rating(user_id_col, owner_id) -> ColumnElement[bool]` —
+  whether a submission counts toward problem rating; used by
+  `shared/services/arena_rating.py`, `shared/services/arena_stats.py`, and
+  `arena/services/problem_browse_service.py`
+- `is_excluded_from_problem_rating(user_id, owner_id) -> bool` — Python-side
+  counterpart used by `arena/services/submission_service.py` and
+  `autojudge/db/_arena_submission.py`
 
 Reused by:
 - `arena/services/live_feed_service.py`, `arena/services/submission_list_service.py`,
-  `shared/services/arena_stats.py`, and `shared/services/arena_badges.py`
+  `arena/services/arena_problem_set_service.py`,
+  `arena/services/arena_batch_feedback_service.py`,
+  `arena/services/arena_problem_set_report_service.py`,
+  `shared/services/arena_stats.py`, and the badge siblings
+  `shared/services/arena_badge_data.py`, `shared/services/arena_badge_rules.py`,
+  `shared/services/arena_badge_rules_catalogue.py`,
+  `shared/services/arena_badge_rules_sets.py`, and
+  `shared/services/arena_badge_rules_sequences.py`
 
 ---
 
@@ -664,16 +749,17 @@ Main entrypoint:
 
 Reused by:
 - `arena/services/user_timezone_service.py` (which adds user-object and datetime helpers) and
-  `shared/services/arena_badges.py`
+  `shared/services/arena_badge_data.py` (`timezone_name_for_country`)
 
 ---
 
 ## `sse_refresh.py`
 
 Purpose:
-- own the Server-Sent Events refresh loop shared by the web contest live feed and the
-  Arena live feed, so the subtle async lifecycle (heartbeat, reconnect, task
-  cancellation, generator cleanup) cannot drift between the two routes
+- own the Server-Sent Events refresh loop shared by the web contest live feed, the
+  Arena live feed, and the Arena per-user submission-status stream, so the subtle
+  async lifecycle (heartbeat, reconnect, task
+  cancellation, generator cleanup) cannot drift between the routes
 
 Canonical location:
 - `shared/services/sse_refresh.py`
@@ -688,6 +774,9 @@ Main entrypoint:
 Reused by:
 - `web/routes/contest_live_feed.py` (filters by `contest_id` via `should_emit`)
 - `arena/routes/live.py` (`emit_initial_ping=True`, emits for every event)
+- `arena/routes/user_submission_status.py` (per-user submission-status SSE stream
+  using `iter_refresh_events` with `should_emit` filtering on owned submission ids
+  and `emit_initial_ping=True`)
 
 Frontend counterpart:
 - `shared/static/js/live-feed-core.js` is the shared browser engine for both feeds
@@ -739,6 +828,39 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
   `arena/static/js/problem-statement-editor.js` only syncs on submit, while
   `web/static/js/problem-statement-editor.js` adds the web-only PDF/MD source
   switching (file input, "Replace with empty Markdown" button, `statement_source`).
+- `clipboard.js`: copies plain text through the modern Clipboard API with an
+  HTTP-compatible fallback; exposes `window.NocaClipboard.copyText(text)`, which
+  always returns a Promise.
+- `confetti-celebrate.js`: shared confetti burst used by the web runs page and the
+  Arena profile submissions tab. Exposes `NocaConfetti.celebrate(key, options?)`
+  (timed two-sided burst, deduped per key) and `NocaConfetti.burst(options)` for an
+  un-deduped one-shot; inert when the tsParticles confetti bundle is absent.
+- `markdown-directives.js`: applies NOCA's one-line Markdown directives to rendered
+  Markdown and EasyMDE previews, converting supported directives into presentation
+  classes and removing the directive paragraph; unsupported or misplaced directives
+  remain visible so authors can correct them.
+- `print-page.js`: binds any `[data-print-page]` control to the browser's print
+  dialog; used by the standalone print-friendly problem pages in web and arena.
+- `row-href.js`: makes list/table rows navigable through their row link, skipping
+  interactive elements, `.arena-favorite-icon`, and any `[data-no-row-link]`
+  opt-out inside the row.
+- `si-add-row.js`: shared inline "Add sample interaction" rows for the web and
+  arena admin problem-edit pages on custom-validator problems; appends rows to
+  `#si-add-rows` submitted as `si_transcript_N` / `si_explanation_N` with the
+  enclosing problem form.
+- `slugify.js`: URL-slug generation shared by the Contest and Arena modules
+  (lowercase, strip diacritics, hyphenate alphanumeric runs); the per-surface
+  stop-word policy is passed in, because the modules deliberately disagree.
+- `theme-toggle.js`: light/dark theme toggle persisted under the `noca-theme`
+  localStorage key.
+- `contest-clock-utils.js`: shared display logic for contest countdown clocks
+  (`ContestClockUtils` pure formatting helpers); used by web and the animator.
+- `noca-echarts-theme.js`: registers the `noca-light` / `noca-dark` ECharts themes
+  (axes, legend, tooltip, text, dataZoom, categorical palette) and hands out a
+  managed wrapper via `NocaECharts.create(el)`; consumed arena-side.
+- `noca-presence.js`: online-presence client — heartbeat POST to keep the current
+  user marked online, plus online-dot polling over `.avatar-wrapper[data-user-id]`
+  elements; consumed arena-side (paired with `shared/static/css/presence.css`).
 
 ---
 
@@ -756,9 +878,13 @@ shared `live-feed-*` rules / `live-feed-row-flash` keyframes (paired with
 `live-feed-core.js`), the `.noca-transcript-*` interactive-transcript rules, and the
 `.noca-problem-image` / `.noca-problem-figure` / `.noca-problem-figure-caption` /
 `.noca-problem-image-preview` problem-illustration rules (paired with
-`problem-image-preview.js` and the two image partials). Module-specific design tokens stay in the per-module
+`problem-image-preview.js` and the two image partials). The directory also holds
+`tokens.css` — the shared design tokens, the single source of truth for the NOCA
+visual identity across web and arena — plus `presence.css` and
+`components-dark.css`, all imported by `common.css`. The remaining module-specific
+rules stay in the per-module
 stylesheets: `web/static/css/contest.css` and `arena/static/css/arena.css` keep
-their own `:root` variables, `.material-symbols-outlined`, and `.live-feed-summary`
+their own `:root` additions, `.material-symbols-outlined`, and `.live-feed-summary`
 (which references a module-specific border token). The `arena-`-prefixed
 look-alikes (e.g. `.arena-icon-btn`) are intentionally left in `arena.css` as part
 of the Arena design-system namespace.
@@ -780,6 +906,8 @@ Internal structure:
 - `errors.py` — network and validation exception types
 - `validation.py` — URL, header, param, IP, and SSRF-protection helpers
 - `service.py` — `NetworkService` request execution and compatibility static methods
+- `ip_reputation.py` — `IPQualityScoreIPReputationService` and the `IPReputation`
+  result type
 
 Main types:
 - `NetworkService`
@@ -795,7 +923,7 @@ Main types:
 
 Main entrypoints on `NetworkService`:
 - `make_json_request(url, params=None, header=None) -> dict[str, Any]`
-- `validate_and_parse_url(url, *, block_private_networks=False, allowed_schemes=None) -> ParseResult`
+- `validate_and_parse_url(url, block_private_networks=False, allowed_schemes=None) -> ParseResult`
 - `sanitize_params(params, *, max_params=100, max_depth=5) -> dict[str, Any] | None`
 - `sanitize_headers(headers) -> dict[str, str] | None`
 - `build_safe_request_kwargs(...) -> tuple[str, dict[str, Any], int]`
@@ -882,6 +1010,9 @@ Main entrypoints:
 - `EmailValidationService.normalize(email) -> str` — raises `ValueError` on invalid input
 - `EmailValidationService.mask(email) -> str` — partial display (e.g. `use***@ex****.com`)
 - `EmailValidationService.montar_destinatario(nome, email) -> str` — RFC 5322 display-name + address string
+- `EmailValidationService.canonicalize(email) -> str` — strips `+tag` subaddressing
+  and dots for alias-collision detection; backs the `email_canonical` column via
+  `arena/services/user_registration_service.py` and `arena/models/arena_users.py`
 
 Notes:
 - backed by the `email-validator` package with `check_deliverability=False`
@@ -920,7 +1051,11 @@ Main entrypoints:
 Notes:
 - API errors and network failures are logged and return `None` — the caller never raises
 - Configured via `NOCA_IPQUALITYSCORE_APIKEY` in both the `web` and `arena` modules
-- Not yet wired into any signup flow; the service and its tests exist standalone
+- Wired into the Arena signup flow: `arena/main.py` builds
+  `app.state.email_reputation_service`, `arena/routes/auth_signup.py` passes it to
+  `record_signup_reputation(...)`, and `arena/services/signup_reputation_service.py`
+  calls `email_reputation_service.check(email)`. Also consumed by
+  `scripts/backfill_email_reputation.py`
 
 ---
 
@@ -939,9 +1074,10 @@ Main entrypoints:
 
 Notes:
 - passing `timeout_s=0` skips the wait and raises immediately on first failure (useful in tests)
-- `wait_for_db` runs early in all five module startup sequences
-- `wait_for_valkey` runs in web, Arena, autojudge, and AI assistant startup;
-  the rating worker does not use Valkey
+- `wait_for_db` runs early in the six module startup sequences that use a database:
+  web, arena, autojudge, aiassistant, rating, and animator (healthmonitor has no DB)
+- `wait_for_valkey` runs in web, Arena, autojudge, AI assistant, animator, and
+  healthmonitor startup; the rating worker does not use Valkey
 
 ---
 
@@ -1105,8 +1241,9 @@ Do not reimplement:
 
 Purpose:
 - own the reusable animator access-control domain logic so both Web
-  administration and the future animator runtime share it without importing each
-  other
+  administration and the animator runtime share it without importing each
+  other (the animator consumes it today via `animator/dependencies.py` and
+  `animator/routes/control.py`)
 - update a site's validated medal cutoffs
 - update a contest's validated global (contest-wide) medal cutoffs
 - manage the lifecycle of scoped operator credentials (site-scoped and
@@ -1278,6 +1415,7 @@ Lock timeout semantics:
 - `acquire_lock` still clamps Valkey TTL to at least 1 second as a safety guard
 
 Main types:
+- `LockKind = Literal["clarification", "task", "review"]` — the public lock-kind alias
 - `LockClient` — `valkey.asyncio.Valkey | ValkeyRuntime`
 - `LockState` — one active lock payload (`kind`, `contest_id`, `resource_id`, `holder_id`, `holder_role`, `acquired_at`, `expires_at`)
 - `LockBatchResult` — bulk lookup result with `service_available` plus `locks_by_resource_id`
@@ -1324,7 +1462,7 @@ Main entrypoints:
   raw-client strict purge used by the runtime and integration tests
 - `ContestValkeyPurgeError` — reports unavailable, failed, or unverifiable
   cleanup without degrading to best-effort behavior
-- `create_valkey_pool() -> ConnectionPool`
+- `create_valkey_pool(valkey_url: str) -> ConnectionPool`
 - `enqueue_job(client_or_runtime, job, *, priority) -> None`
 - `enqueue_arena_submission_job(client_or_runtime, job) -> None`
 - `enqueue_profiling_job(client_or_runtime, job) -> None`
@@ -1493,8 +1631,9 @@ Arena AI batch review state:
   jobs for idempotency, lists pending rows for the poller, updates OpenAI poll
   metadata, and finalizes terminal states.
 - `ArenaAIBatchJobStatus` in `shared/enumerations.py` defines the local state
-  machine values: `preparing`, `submitted`, `polling`, `completed`, `failed`,
-  `expired`, and `cancelled`.
+  machine values: `staged` (accepted, waiting for the batch flusher window),
+  `preparing`, `submitted`, `polling`, `expiring` (transient in-transaction
+  claim sentinel), `completed`, `failed`, `expired`, and `cancelled`.
 
 Notes:
 - `dequeue_job_id` atomically moves the first ready job from profiling, priority, or pending into
@@ -1512,7 +1651,8 @@ Notes:
 ## `health_rate_limit.py`
 
 Purpose:
-- shared public `/health` endpoint rate limiting for Web and Arena
+- shared public `/health` endpoint rate limiting for Web, Arena, and the
+  animator (`animator/routes/health.py` enforces it on `/health`)
 - Valkey-backed fixed-window counters with a process-local fallback when
   Valkey is unavailable
 - trusted CIDR bypass for local container and load-balancer health checks
@@ -1533,13 +1673,17 @@ Main entrypoints:
 ## `scoreboard_cache.py`
 
 Purpose:
-- scoreboard cache invalidation helpers shared between web and future arena ranking cache needs
+- scoreboard cache invalidation helpers shared by web, the autojudge worker, and
+  contest purge
 
 Canonical location:
 - `shared/services/scoreboard_cache.py`
 
 Notes:
-- arena computes rankings on demand without a scoreboard cache; this module is currently web-only but lives in shared for future use
+- arena computes rankings on demand without a scoreboard cache; the current
+  consumers are web, autojudge (`autojudge/submission_job.py` calls
+  `invalidate_scoreboard_cache` to invalidate on verdict), and
+  `shared/services/valkey_service/contest_purge.py`
 
 ---
 
@@ -1547,7 +1691,9 @@ Notes:
 
 Purpose:
 - single owner of the ICPC scoreboard semantics: snapshot DTOs, cache serialization, and the pure `compute_icpc` calculation
-- consumed by the web scoreboard service today and by the animator runtime later, without importing `web` models
+- consumed by the web scoreboard service and by the animator runtime
+  (`animator/services/reveal_engine.py`, `reveal_projection.py`, `reveal_loader.py`,
+  `contest_feed_service.py`), without importing `web` models
 
 Canonical location:
 - `shared/services/scoreboard_projection.py`
@@ -1578,8 +1724,8 @@ Notes:
 ## `security_headers.py`
 
 Purpose:
-- apply the shared browser security-header baseline to Web and Arena HTTP
-  responses
+- apply the shared browser security-header baseline to Web, Arena, health
+  monitor, and animator HTTP responses
 
 Canonical location:
 - `shared/services/security_headers.py`
@@ -1587,7 +1733,8 @@ Canonical location:
 Key types and functions:
 - `SecurityHeaderSettings` — runtime flags for header enablement, CSP
   report-only mode, and HSTS
-- `SecurityHeadersMiddleware` — ASGI middleware registered by Web and Arena
+- `SecurityHeadersMiddleware` — ASGI middleware registered by Web, Arena,
+  healthmonitor (`healthmonitor/main.py`), and animator (`animator/main.py`)
 - `apply_security_headers(headers, settings=...)` — testable header mutation
   helper
 
@@ -1648,7 +1795,8 @@ Key types and functions:
 - `record_request_security_event(...)` — insert an event with request IP and
   user-agent metadata; also forwards `actor_user_id`, `actor_label`, and
   `X-Request-ID`
-- `list_recent_security_events(session, limit=50, module=None, event_type=None)`
+- `list_recent_security_events(session, limit=50, module=None, event_type=None,
+  modules: Sequence[str] | None = None)`
   — return recent events for callers that need a bounded list
 - `list_security_events_paginated(session, page=..., per_page=..., module=None,
   modules=None, event_type=None)` — return all retained matching events through
@@ -1722,10 +1870,10 @@ Canonical location:
 
 Key types and functions:
 - `record_admin_action(session, request, *, module, actor_user_id, actor_label,
-  action, target_type, target_id, detail=None)` — write one
+  action, target_type, target_id, detail=None, severity: str = "info")` — write one
   `event_type="admin_action"` row with the actor's human-readable login and a
   structured `{"action", "target_type", "target_id", "detail"}` metadata
-  payload
+  payload (`detail` is included only when not `None`)
 
 Notes:
 - the audit row is written on the caller's session so, wherever the mutation
@@ -1735,7 +1883,9 @@ Notes:
 - migration `202607220001` backfills missing labels on existing admin-action
   rows when the referenced actor still exists
 - currently wired to destructive/privilege actions: Arena user role change,
-  activate/deactivate, disable-2FA, and problem/affiliation/category deletes;
+  activate/deactivate, disable-2FA, `toggle_email_confirmed`
+  (`arena/routes/admin_users_actions.py`, with `severity="warning"`), and
+  problem/affiliation/category deletes;
   Web uberadmin enable/disable, contest problem/user deletes, and contest
   start-now/end-now state changes, plus animator settings and credential
   changes and sensitive contest backup exports
@@ -1812,6 +1962,12 @@ Main entrypoints:
 - `count_unread_arena_notifications(executor, *, user_id) -> int`
 - `list_latest_arena_notifications(executor, *, user_id, limit=20) -> list[RowMapping]`
 - `mark_arena_notification_read(executor, *, notification_id, user_id) -> bool`
+- `paginate_arena_notifications(executor, *, user_id, page=1, per_page=25)`
+- `delete_arena_notification(executor, *, notification_id, user_id) -> bool`
+- `mark_all_arena_notifications_read(executor, *, user_id) -> int` — used by
+  `arena/routes/notifications.py`
+- `delete_all_arena_notifications(executor, *, user_id) -> int`
+- `DEFAULT_NOTIFICATION_LIMIT = 20` — public constant behind the topbar list cap
 
 Notes:
 - helpers accept an async SQLAlchemy session or connection
@@ -1841,7 +1997,8 @@ a [Material Symbols](https://fonts.google.com/icons) icon name:
 | `CLASS_MEMBERSHIP_ADDED` | `person_add` |
 | `CLASS_MEMBERSHIP_REMOVED` | `person_remove` |
 | `PROBLEM_REMOVAL_REQUEST` | `delete_forever` |
-| `TEACHER_FEEDBACK_POSTED` | *(fallback `notifications`)* |
+| `CUSTOM_VALIDATOR_DISABLED` | `code_off` |
+| `TEACHER_FEEDBACK_POSTED` | `rate_review` |
 | `OTHER` | `stacked_email` |
 
 The Arena notification serialiser (`arena/routes/notifications.py`) uses this dict to add an
@@ -1883,6 +2040,57 @@ Notes:
 
 ---
 
+## `pagination_service.py`
+
+Purpose:
+- shared pagination helpers for server-rendered pages
+
+Canonical location:
+- `shared/services/pagination_service.py`
+
+Main entrypoints:
+- `Pagination[T]` — frozen, template-friendly pagination result (`items`, `page`,
+  `per_page`, `total`) with derived `pages`, `has_prev`/`has_next`,
+  `prev_num`/`next_num`, `first`/`last`, and an `iter_pages()` window helper
+- `clamp_page(page, *, total, per_page) -> int` — clamp a page to the available
+  range for a known total
+- `parse_page(value, *, default=1) -> int` — parse a raw request page value,
+  clamped to `[1, MAX_PAGE]`
+- `effective_per_page(value, *, allowed, default) -> int` — validated page size; a
+  member of `allowed` or `default`
+
+Consumers:
+- web: `web/routes/uberadmin_security.py`, `web/services/solution_test_service.py`
+- arena: `arena/routes/admin_dashboard_history.py`
+- shared-internal: `shared/services/security_events.py`
+
+---
+
+## `multipart_file_size.py`
+
+Purpose:
+- fail-fast multipart file-size enforcement for NOCA ASGI applications
+
+Canonical location:
+- `shared/services/multipart_file_size.py`
+
+Main entrypoints:
+- `MultipartFileTooLargeError` — HTTP 413 raised as soon as a selected file part
+  exceeds its configured ceiling
+- `MultipartFileSizeRule` — frozen rule matching one route method/path pattern and
+  defining which file fields share its byte ceiling (`field_names=None` limits
+  every file part)
+- `MultipartFileSizeLimitMiddleware` — ASGI middleware that tracks selected file
+  bytes through `python_multipart` while the body streams, without buffering the
+  complete request
+
+Consumers:
+- web (`web/main.py`, `web/error_handlers.py`) and arena (`arena/main.py`,
+  `arena/error_handlers.py`, `arena/image_upload_limits.py`) — mounted as ASGI
+  middleware in both apps, ahead of route parsing
+
+---
+
 ## Arena module — shared service instances
 
 The arena module initializes its own instances of the shared services listed below. All
@@ -1894,7 +2102,9 @@ Purpose:
 - transparent Fernet encryption/decryption for `EncryptedString` columns (OTP secrets)
 
 Canonical location:
-- `secrets_manager` PyPI package (`dclobato/secrets-manager`)
+- `secrets_manager` git dependency (`SecretsManager @
+  git+https://github.com/dclobato/secrets-manager.git@v1.0.0` in
+  `shared/pyproject.toml`)
 - registered globally via `shared.db_schema.custom_types.init_encrypted_string(manager)`
 
 Configuration:
@@ -1919,7 +2129,9 @@ Purpose:
 - issue and validate Arena JWT tokens with `issuer = settings.APP_NAME` (`"noca-arena"`)
 - automatic revocation-store check on `validate()`
 
-Canonical location: `jwtservice` PyPI package; `app.state.jwt_service`
+Canonical location: `jwtservice` git dependency (`jwtservice @
+git+https://github.com/dclobato/jwtservice.git@v2.1.0` in `arena/pyproject.toml`);
+`app.state.jwt_service`
 
 Notes:
 - the issuer comes from `NOCA_ARENA_APP_NAME` (default `"noca-arena"`) and must differ from the web module's `NOCA_WEB_APP_NAME` (default `"noca"`), preventing cross-server token acceptance

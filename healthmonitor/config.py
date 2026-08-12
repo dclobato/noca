@@ -9,7 +9,7 @@
 Reads the same ``NOCA_``-prefixed ``.env`` file as the other modules, but only
 the subset of variables the monitoring server needs: Valkey connectivity plus
 its own probing/retention knobs. The module deliberately has no database or
-JWT configuration -- both dashboards are public and all state lives in Valkey.
+JWT configuration -- the dashboard is public and all state lives in Valkey.
 
 Monitor-specific fields declare an explicit ``validation_alias`` so they resolve
 to ``NOCA_HEALTHMON_*`` (the alias replaces the ``env_prefix``, avoiding an
@@ -73,6 +73,17 @@ class Settings(BaseSettings):
         default="NOCA",
         validation_alias="NOCA_HEALTHMON_BRAND_NAME",
         description="Brand name shown on monitor pages",
+    )
+    # Deliberately unprefixed (NOCA_SECURITY_HEADERS_ENABLED / NOCA_CSP_REPORT_ONLY)
+    # so one setting governs the header policy of every HTTP module at once,
+    # exactly as web and arena already read it.
+    SECURITY_HEADERS_ENABLED: bool = Field(
+        default=True,
+        description="Enable shared browser security headers.",
+    )
+    CSP_REPORT_ONLY: bool = Field(
+        default=True,
+        description="Send Content-Security-Policy-Report-Only instead of enforcing CSP.",
     )
 
     # ------------------------------------------------------------------

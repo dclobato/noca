@@ -17,9 +17,9 @@
 - `uv run noca-animator`: run the animator presentation server
 - `uv run djlint web/template --reformat`: format HTML templates
 
-NOTE: The full test suite takes over 8 minutes serially, so keep the timeout above this value
-for `uv run pytest`; `uv run pytest -n auto` finishes considerably faster but still needs a
-generous timeout.
+NOTE: The full test suite takes over 14 minutes serially, so keep the timeout above this value
+for `uv run pytest`; `uv run pytest -n auto` (pytest-xdist) finishes in around 5 minutes but
+still needs a generous timeout.
 
 The repo is a uv workspace with eight members: `shared`, `web`, `arena`, `autojudge`, `rating`,
 `aiassistant`, `healthmonitor`, `animator`. Each
@@ -37,7 +37,9 @@ For development, do not use docker containers for web/arena layer and autojudge.
 
 Everytime we need a date/time picker on a HTML template, we must use Flatpickr. Check how we do in the arena/templates/auth/login.html and on arena/template/classes/problem_set_manage.html
 
-In Python 3.14, "except X, Y:" is correct. There is no need to do "except (X, Y):"Each time you write new code, verify it for errors. If you identify any issue, correct it immediately. Do not leave errors in the code, regardless of severity or origin. Use the commands above to validate and format the code before committing.
+In Python 3.14, "except X, Y:" is correct. There is no need to do "except (X, Y):"
+
+Each time you write new code, verify it for errors. If you identify any issue, correct it immediately. Do not leave errors in the code, regardless of severity or origin. Use the commands above to validate and format the code before committing.
 
 While writing code for frontend on web module (HTML, CSS or JavaScript), check for available styles in /web/static/css/contest.css (and styles shared with arena in /shared/static/css/common.css). Do not use inline styles. For JavaScript, check if any of the already available scripts can be reuse or repurposed (including shared scripts in /shared/static/js/). If a new script is required, no not store it inline in the HTML, but create a new file in /web/static/js/ and include it properly in the HTML template.
 
@@ -49,7 +51,25 @@ Everytime you create/update/remove a route, update both ROUTES.md and URL_FOR_RE
 
 Everytime you create/update/remove a service, update SERVICES.md on area/docs or web/docs, or docs/SHARED_SERVICES.md
 
-Check if you change requires updating ARCHITECTURE.md or CONFIG.md, and update them if required/relevant (changes in architecture, on how the app works, or any new configuration variable for app modules)
+Check if you change requires updating ARCHITECTURE.md or CONFIG.md/.env.full, and update them if required/relevant (changes in architecture, on how the app works, or any new configuration variable for app modules)
+
+### Documentation impact requirements
+
+For every change, review its documentation impact and update every applicable
+document in the same change:
+
+- Architecture changes must update `docs/ARCHITECTURE.md`.
+- AI review flow changes must update `docs/AIREVIEW_FLOW.md` and
+  `docs/AIASSISTANT.md`.
+- Shared-service changes must update `docs/SHARED_SERVICES.md`.
+- Judge container Dockerfile or startup behavior changes must update
+  `docs/CONTAINER_STARTUP_OPTIONS.md`.
+- Submission lifecycle or autojudge flow changes must update
+  `docs/DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md`.
+
+These requirements overlap. A change must update every applicable document.
+Do not make no-op documentation edits merely to satisfy this rule; ensure the
+documentation accurately reflects the resulting behavior.
 
 Everytime you create a new table, analyze its write pattern and decide whether it needs a custom per-table autovacuum tuning migration (like `migrations/versions/202607180003_tune_autovacuum.py`). High-churn tables — those with heavy INSERT/UPDATE (e.g. the submission/judging pipeline) or append-then-bulk-delete tables pruned by a retention/reaper loop — should get tightened `autovacuum_*` storage parameters instead of relying on the server-wide defaults. Low-churn/reference tables do not need it.
 

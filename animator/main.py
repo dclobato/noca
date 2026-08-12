@@ -28,6 +28,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader
 
 from animator.config import settings
 from animator.database import create_engine, create_session_factory
+from animator.error_handlers import register_error_handlers
 from animator.routes.assets import router as assets_router
 from animator.routes.control import router as control_router
 from animator.routes.control_page import router as control_page_router
@@ -39,6 +40,7 @@ from animator.routes.team_media import router as team_media_router
 from animator.services.event_stream_service import AnimatorEventStream
 from shared.app_logging import configure_logging
 from shared.enumerations import Environment
+from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
 from shared.services.startup_wait import wait_for_db, wait_for_valkey
 from shared.services.valkey_service import (
     ValkeyRuntime,
@@ -202,6 +204,19 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
+)
+
+register_error_handlers(app)
+
+# The animator has no cookies of its own, so HSTS keys off the environment alone
+# rather than a COOKIE_SECURE flag as in web and arena.
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    settings=SecurityHeaderSettings(
+        enabled=settings.SECURITY_HEADERS_ENABLED,
+        csp_report_only=settings.CSP_REPORT_ONLY,
+        hsts_enabled=settings.ENVIRONMENT == Environment.PRODUCTION,
+    ),
 )
 
 app.mount(

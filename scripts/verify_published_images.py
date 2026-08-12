@@ -46,7 +46,16 @@ from pathlib import Path
 
 import httpx
 
-_APP_TARGETS = ("webapp", "arena", "autojudge", "rating", "aiassistant", "healthmonitor", "animator")
+_APP_TARGETS = (
+    "webapp",
+    "arena",
+    "autojudge",
+    "rating",
+    "aiassistant",
+    "healthmonitor",
+    "animator",
+    "landingpage",
+)
 _LANGUAGES_DIR = Path(__file__).resolve().parents[1] / "containers" / "languages"
 _TIMEOUT = httpx.Timeout(30.0)
 _MANIFEST_ACCEPT = ", ".join(
@@ -190,13 +199,21 @@ class ManifestProbe:
         return str(issued)
 
 
-def expected_images(version: str, include_apps: bool, include_languages: bool) -> list[tuple[str, str, str]]:
+def expected_images(
+    version: str,
+    include_apps: bool,
+    include_languages: bool,
+    components: tuple[str, ...] = (),
+) -> list[tuple[str, str, str]]:
     """List every ``(component, floating_tag, versioned_tag)`` a release publishes.
 
     Args:
         version: The published version, for example ``v15.0.1``.
         include_apps: Whether to include the application images.
         include_languages: Whether to include the judge language images.
+        components: When non-empty, keep only these components. A single-target
+            publish verifies just what it built, so an unrelated image left on an
+            older release is not reported as this run's failure.
 
     Returns:
         One entry per image slot that the release should have published.
@@ -208,6 +225,8 @@ def expected_images(version: str, include_apps: bool, include_languages: bool) -
         languages = sorted(path.name for path in _LANGUAGES_DIR.iterdir() if path.is_dir())
         for language in languages:
             images += [(f"judge-{language}", slot, f"{slot}-{version}") for slot in ("compile", "run")]
+    if components:
+        images = [image for image in images if image[0] in components]
     return images
 
 
@@ -267,6 +286,17 @@ def main(argv: list[str] | None = None) -> int:
         default="all",
         help="Which image family to verify (default: all).",
     )
+    parser.add_argument(
+        "--component",
+        action="append",
+        default=[],
+        dest="components",
+        metavar="NAME",
+        help=(
+            "Verify only this component (repeatable), for example webapp or judge-python3. "
+            "Defaults to every component in the selected scope."
+        ),
+    )
     parser.add_argument("--dockerhub-namespace", default="dclobato", help="Docker Hub namespace.")
     parser.add_argument("--ghcr-owner", default="dclobato", help="GHCR package owner.")
     parser.add_argument("--prefix", default="noca", help="Image family prefix (default: noca).")
@@ -276,7 +306,11 @@ def main(argv: list[str] | None = None) -> int:
         args.version,
         include_apps=args.scope in ("all", "apps"),
         include_languages=args.scope in ("all", "languages"),
+        components=tuple(args.components),
     )
+    if not images:
+        print("No image slots match the requested scope and components.")
+        return 1
 
     targets: list[tuple[Registry, str]] = []
     if args.registries in ("both", "dockerhub"):

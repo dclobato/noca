@@ -4,6 +4,41 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [17.0.0] - 2026-08-12
+
+### ⚠ Breaking Changes
+
+- **healthmonitor:** Redesign uptime dashboard
+
+  The Health Monitor dashboard moves from /dashboard to /.
+  The old /dashboard route and separate status page are removed.
+
+### Features
+
+- **deploy:** Reject methods outside GET/HEAD/POST at the Caddy edge
+- **security:** Stop leaking the origin stack and cover every HTTP module
+- **security:** Stop naming the stack in error bodies and bound integer inputs
+- **[BREAKING]** **healthmonitor:** Redesign uptime dashboard
+- **landingpage:** Build the environment overview page
+
+### Bug Fixes
+
+- **autojudge:** Validate lock TTL during settings load
+- **ci:** Restore warning-free full test suite
+- **landingpage:** Serve /favicon.ico at the site root
+
+### Documentation
+
+- **custom-validator:** Define output checker contract
+- Sync bootstrap and contest report docs with codebase
+- Sync documentation with current codebase behavior
+
+### Ci
+
+- Add manual single-app image publish workflow
+
+
+
 ## [16.0.0] - 2026-08-09
 
 ### ⚠ Breaking Changes

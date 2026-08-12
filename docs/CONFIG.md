@@ -16,6 +16,7 @@ Every variable is prefixed to make its scope explicit:
 | `NOCA_RATING_` | Rating worker only (`rating/config.py`) |
 | `NOCA_HEALTHMON_` | Health monitor only (`healthmonitor/config.py`) |
 | `NOCA_ANIMATOR_` | Animator presentation runtime only (`animator/config.py`) |
+| `NOCA_LANDINGPAGE_` | Standalone landing page only (`landingpage/`) |
 
 The sections below are grouped the same way: **Common**, **Shared between Web and
 Arena**, then one section per module.
@@ -80,8 +81,8 @@ ASGI client correctly behind a trusted reverse proxy.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOCA_SECURITY_HEADERS_ENABLED` | `true` | Enable security headers on Web and Arena responses. |
-| `NOCA_CSP_REPORT_ONLY` | `true` | Send `Content-Security-Policy-Report-Only` instead of enforcing CSP. Set to `false` only after validating current assets. |
+| `NOCA_SECURITY_HEADERS_ENABLED` | `true` | Enable security headers on Web, Arena, animator, and health monitor responses. Deliberately unprefixed so one setting governs every HTTP module at once. |
+| `NOCA_CSP_REPORT_ONLY` | `true` | Send `Content-Security-Policy-Report-Only` instead of enforcing CSP. Applies to all four HTTP modules. Set to `false` only after validating current assets. |
 | `NOCA_AUTH_RATE_LIMIT_ENABLED` | `true` | Enable auth throttling on Web login and Arena login, 2FA, password reset, and signup. |
 | `NOCA_AUTH_RATE_LIMIT_WINDOW_SECONDS` | `900` | Failure-count window in seconds. |
 | `NOCA_AUTH_RATE_LIMIT_IP_MAX_FAILURES` | `20` | Maximum failures per ASGI client IP in the window. |
@@ -161,7 +162,7 @@ These variables are shared by the application modules identified below.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOCA_HEALTHMON_URL` | *(empty)* | Public URL of the health monitor status page (for example, `https://status.example.com` or `http://192.168.1.10:8002`). Rendered as the "Status" link in the Web, Arena, and Animator footers; the link is hidden when empty. |
+| `NOCA_HEALTHMON_URL` | *(empty)* | Public URL of the health monitor uptime dashboard (for example, `https://status.example.com` or `http://192.168.1.10:8002`). Rendered as the "Status" link in the Web, Arena, and Animator footers; the link is hidden when empty. |
 
 ### Reverse proxy
 
@@ -195,6 +196,30 @@ These variables are shared by the application modules identified below.
 >   `{http.request.uuid}`, sends it to Web/Arena, returns it in responses, and
 >   appends it to Caddy access logs as `request_id`. Web/Arena persist that
 >   value in `security_events.request_id` for correlation.
+> - The sample Caddyfile refuses every method outside `GET`, `HEAD`, and `POST`
+>   at the edge with a `405` carrying `Allow: GET, HEAD, POST`, so `OPTIONS`,
+>   `TRACE`, `PUT`, `PATCH`, and `DELETE` are never proxied and no upstream
+>   framework default can answer them. Every NOCA route is a `GET` or a `POST`
+>   (`HEAD` is served implicitly by each `GET`), so this removes response surface
+>   without removing functionality. If a future route needs another verb, widen
+>   the `@method_not_allowed` matcher and the `Allow` header together.
+> - The sample Caddyfile strips `Server` and `Via` from every response. These
+>   must be **deferred** deletes (`header { -Server \n -Via \n defer }`): both are
+>   written by the server/proxy layer after the `header` directive would normally
+>   run, so a non-deferred delete leaves them on the wire. Behind Cloudflare this
+>   matters most for `Via` — Cloudflare replaces `Server` with its own value but
+>   forwards `Via: 1.1 Caddy` verbatim, naming the origin proxy to every client.
+> - The sample Caddyfile also sets a defense-in-depth security-header baseline
+>   with the `?` (set-only-if-absent) operator, covering upstreams that do not run
+>   `shared.services.security_headers` themselves (animator and healthmonitor;
+>   web and arena do). CSP and `Cross-Origin-Resource-Policy` are deliberately
+>   excluded — both need per-application tuning and a blanket edge value would
+>   break pages rather than harden them.
+> - **Caddy pitfall:** a `?` default must be deferred *and* live in its own
+>   `header` block. Caddy applies a block's defaults under a single "none of these
+>   fields are present" condition, so grouping several `?` ops means one header
+>   already set by the application silently suppresses **all** the other defaults
+>   in that block — the headers just never appear, with no error.
 > - **Caddy pitfall:** header ops apply as add → set → delete (not in written
 >   order), so `header_up -X-Request-ID` alongside `header_up X-Request-ID …`
 >   deletes the value *after* setting it and the app receives nothing. A bare
@@ -522,16 +547,37 @@ and requeues them up to a configurable limit.
 
 ---
 
+## Landing page
+
+These variables configure the standalone `noca/landingpage` Caddy container.
+The module doesn't read the common database, Valkey, authentication, or logging
+settings. Its entrypoint requires all four URLs and rejects values that aren't
+absolute HTTP(S) URLs or that contain whitespace.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `NOCA_LANDINGPAGE_PORT` | `8080` | Internal Caddy listener port. The sample Compose stack publishes this listener on host port `84`. |
+| `NOCA_LANDINGPAGE_WEB_URL` | *(required)* | Public URL for the Contest Web deployment. |
+| `NOCA_LANDINGPAGE_ARENA_URL` | *(required)* | Public URL for the Arena deployment. |
+| `NOCA_LANDINGPAGE_ANIMATOR_URL` | *(required)* | Public URL for the Animator deployment. |
+| `NOCA_LANDINGPAGE_HEALTHMON_URL` | *(required)* | Public URL for the Health Monitor deployment. |
+| `NOCA_LANDINGPAGE_VERSION` | *(required)* | Release tag rendered in the landing page footer; set it to the tag you deployed. The page has no application behind it to ask, so the value is configuration: the entrypoint rejects an empty value, whitespace, or more than 32 characters. |
+
+The URL values are browser destinations, not container-network upstreams. Use
+the externally reachable HTTPS addresses in production.
+
+---
+
 ## Health monitor
 
 These variables are consumed by the standalone **`noca-healthmonitor`** server
-(default port 8002), which renders the public environment status page and uptime
-dashboard. The module reads only Valkey (common `NOCA_VALKEY_*` variables plus
+(default port 8002), which renders the public uptime dashboard. The module
+reads only Valkey (common `NOCA_VALKEY_*` variables plus
 `NOCA_ENVIRONMENT`, `NOCA_LOG_LEVEL`, `NOCA_STARTUP_TIMEOUT_SECONDS`, and
 `NOCA_FORWARDED_ALLOW_IPS` — same contract as Web, Arena, and Animator); it
 has no database or JWT configuration. The related `NOCA_HEALTHMON_URL` variable
-is consumed by Web and Arena (footer "Status" link), not by this module — see
-"Shared between Web and Arena".
+is consumed by Web, Arena, and Animator (footer "Status" link), not by this
+module — see "Shared application settings".
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -540,7 +586,7 @@ is consumed by Web and Arena (footer "Status" link), not by this module — see
 | `NOCA_HEALTHMON_PROBE_INTERVAL` | `300` | Seconds between up/down probes of the monitored services (30 s – 1 h). Each probe increments the current 12-hour heatmap slot's `up`/`total` counters in Valkey. |
 | `NOCA_HEALTHMON_REAPER_INTERVAL` | `43200` | Seconds between cleanup passes that delete uptime slots older than the retention window (1 h – 1 week). Must be greater than or equal to `NOCA_HEALTHMON_PROBE_INTERVAL`. |
 | `NOCA_HEALTHMON_RETENTION_DAYS` | `30` | Days of per-slot uptime history kept for the heatmap (7–90). Slot keys also carry a TTL one day longer than this window as a safety net. |
-| `NOCA_HEALTHMON_BRAND_NAME` | `NOCA` | Brand name shown on the monitor pages. |
+| `NOCA_HEALTHMON_BRAND_NAME` | `NOCA` | Exact public brand name shown in the dashboard navigation and page title. |
 
 ---
 

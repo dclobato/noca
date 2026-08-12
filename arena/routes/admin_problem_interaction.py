@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -28,6 +28,7 @@ from arena.routes.admin_problem_common import get_problem_or_403
 from arena.routes.admin_problem_form_views import build_interaction_row_views
 from arena.routes.admin_problem_form_views import html_response as _html
 from arena.services import admin_problem_interaction_service
+from shared.http_params import PG_INT32_MAX
 from shared.services.sample_interactions import InteractionParseError, parse_interaction_text, transcript_to_text
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
@@ -135,7 +136,7 @@ async def arena_admin_problem_interaction_move(
     request: Request,
     problem_id: str,
     si_id: str,
-    new_ordinal: int = Query(..., ge=1),
+    new_ordinal: int = Query(..., ge=1, le=PG_INT32_MAX),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:

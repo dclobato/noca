@@ -143,7 +143,7 @@
                 <table class="arena-table">
                     <thead>
                         <tr>
-                            <th class="arena-col-sortable">
+                            <th class="arena-col-sortable arena-problem-number">
                                 <a href="{{ request.url.include_query_params(sort_by='number_desc' if sort_by == 'number_asc' else 'number_asc', page=1) }}"
                                    class="arena-sort-link d-flex align-items-center gap-1">
                                     #
@@ -191,7 +191,7 @@
                     <tbody>
                         {% for row in pagination.items %}
                             <tr id="{{ row.id }}">
-                                <td>
+                                <td class="arena-problem-number">
                                     <a href="{{ request.url_for('arena_problem_detail', arena_number=row.arena_number) }}">{{ row.arena_number }}</a>
                                 </td>
                                 <td>

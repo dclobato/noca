@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -29,6 +29,7 @@ from arena.models.arena_users import ArenaUser
 from arena.routes.admin_problem_form_views import build_testcase_row_views
 from arena.services import admin_problem_service, admin_problem_tc_service
 from shared.enumerations import ArenaRole
+from shared.http_params import PG_INT32_MAX
 from shared.services.custom_validator import status_view
 from shared.services.testcase_files import read_testcase_full
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES, build_single_testcase_zip, parse_single_testcase_zip
@@ -362,7 +363,7 @@ async def admin_problem_tc_move(
     request: Request,
     problem_id: str,
     tc_id: str,
-    new_ordinal: int = Query(..., ge=1),
+    new_ordinal: int = Query(..., ge=1, le=PG_INT32_MAX),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:

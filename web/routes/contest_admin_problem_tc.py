@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.http_params import PG_INT32_MAX
 from shared.services.custom_validator import status_view
 from shared.services.testcase_files import read_testcase_full, read_testcase_sizes
 from shared.tc_zip import (
@@ -538,7 +539,7 @@ async def move_test_case_route(
     tc_id: str,
     flash: FlashDep,
     direction: str | None = Query(None),
-    new_ordinal: int | None = Query(None),
+    new_ordinal: int | None = Query(None, le=PG_INT32_MAX),
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
 ) -> HTMLResponse | RedirectResponse:
     edit_url = str(request.url_for("edit_problem_form", slug=ctx.contest.login_slug, problem_id=problem_id))

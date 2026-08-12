@@ -24,7 +24,7 @@
                aria-label="Latest problems">
             <thead>
                 <tr>
-                    <th scope="col">#</th>
+                    <th scope="col" class="arena-problem-number">#</th>
                     <th scope="col">Title</th>
                     <th scope="col" class="arena-dashboard-updated-column">Updated</th>
                 </tr>
@@ -33,7 +33,7 @@
                 {% for problem in latest_problems %}
                     {% set problem_url = request.url_for('arena_problem_detail', arena_number=problem.arena_number) %}
                     <tr data-href="{{ problem_url }}">
-                        <td>
+                        <td class="arena-problem-number">
                             <a href="{{ problem_url }}">{{ problem.arena_number }}</a>
                         </td>
                         <td>

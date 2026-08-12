@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.http_params import PG_INT32_MAX
 from shared.services.admin_audit import record_admin_action
 from shared.services.custom_validator import (
     build_validation_job,
@@ -483,7 +484,7 @@ async def move_problem_htmx(
     request: Request,
     problem_id: str,
     direction: str | None = Query(None),
-    new_ordinal: int | None = Query(None),
+    new_ordinal: int | None = Query(None, le=PG_INT32_MAX),
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
 ) -> HTMLResponse:
     templates = request.app.state.templates

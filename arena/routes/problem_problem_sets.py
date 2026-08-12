@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -26,6 +26,7 @@ from arena.services.arena_problem_assignment_service import (
     ProblemAssignmentProblemNotFoundError,
     ProblemAssignmentSelectionError,
 )
+from shared.http_params import DbId
 
 router = APIRouter(tags=["arena-problems"])
 
@@ -60,12 +61,12 @@ def _problem_detail_url(
 
 
 @router.post(
-    "/problems/{arena_number:int}/problem-sets",
+    "/problems/{arena_number:dbid}/problem-sets",
     name="arena_problem_problem_set_add",
 )
 async def arena_problem_problem_set_add(
     request: Request,
-    arena_number: int,
+    arena_number: DbId,
     flash: FlashDep,
     problem_set_id: Annotated[str, Form()],
     back_page: Annotated[str, Form()] = "1",

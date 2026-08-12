@@ -20,10 +20,10 @@ class MonitoredService:
     icon: str
 
 
-#: Display order of the monitored services on both dashboards. Icons follow
+#: Display order of the monitored services on the dashboard. Icons follow
 #: the Arena admin dashboard metadata for the worker classes it also shows.
 MONITORED_SERVICES: tuple[MonitoredService, ...] = (
-    MonitoredService(WorkerClass.WEB, "Web", "language"),
+    MonitoredService(WorkerClass.WEB, "Contest", "language"),
     MonitoredService(WorkerClass.ARENA, "Arena", "stadium"),
     MonitoredService(WorkerClass.AUTOJUDGE, "AutoJudge", "gavel"),
     MonitoredService(WorkerClass.RATING, "Rating", "monitoring"),

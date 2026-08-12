@@ -192,7 +192,8 @@ async def test_user_ranking_renders_default_medal_bands(session: AsyncSession, m
     token = _login_token(app, viewer)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.get("/ranking/users", cookies={"arena_access_token": token})
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/ranking/users")
 
     assert response.status_code == 200
     assert response.text.count("/assets/medal/gold") == 1
@@ -214,7 +215,8 @@ async def test_user_ranking_medals_follow_configured_cutoffs(
     token = _login_token(app, viewer)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.get("/ranking/users", cookies={"arena_access_token": token})
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/ranking/users")
 
     assert response.status_code == 200
     assert response.text.count("/assets/medal/gold") == 2
@@ -233,7 +235,8 @@ async def test_affiliation_ranking_renders_medal_bands(session: AsyncSession, mo
     token = _login_token(app, viewer)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.get("/ranking/affiliations", cookies={"arena_access_token": token})
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/ranking/affiliations")
 
     assert response.status_code == 200
     assert response.text.count("/assets/medal/gold") == 1
@@ -259,10 +262,8 @@ async def test_affiliation_scoped_user_ranking_has_no_medals(
     token = _login_token(app, viewer)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.get(
-            f"/ranking/affiliations/{affiliation.id}/users",
-            cookies={"arena_access_token": token},
-        )
+        client.cookies.set("arena_access_token", token)
+        response = await client.get(f"/ranking/affiliations/{affiliation.id}/users")
 
     assert response.status_code == 200
     assert "Member" in response.text

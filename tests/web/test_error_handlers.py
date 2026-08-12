@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -12,13 +12,16 @@ from typing import Any
 
 import pytest
 from fastapi import Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import web.main as main_module
+from shared.error_handlers import create_validation_exception_handler
 from web.error_handlers import (
+    _backend_config,
     database_exception_handler,
     http_exception_response,
     unexpected_exception_handler,
@@ -80,10 +83,24 @@ def _http_exception_app() -> main_module.FastAPI:
     app = main_module.FastAPI()
     app.state.templates = _FakeTemplates()
     app.add_exception_handler(StarletteHTTPException, http_exception_response)
+    app.add_exception_handler(
+        RequestValidationError,
+        create_validation_exception_handler(_backend_config),
+    )
 
     @app.get("/contests", name="contests_list")
     async def contests_list() -> HTMLResponse:
         return HTMLResponse("contests")
+
+    # GET-only, so a POST exercises the router's own 405.
+    @app.get("/boom-http")
+    async def boom_http() -> HTMLResponse:
+        return HTMLResponse("ok")
+
+    # A typed query parameter, so a non-integer exercises Pydantic's 422.
+    @app.get("/needs-int")
+    async def needs_int(value: int) -> HTMLResponse:
+        return HTMLResponse(str(value))
 
     return app
 
@@ -153,10 +170,39 @@ async def test_web_browser_route_not_found_renders_branded_html() -> None:
 
 
 @pytest.mark.asyncio
-async def test_web_api_route_not_found_keeps_default_json() -> None:
+async def test_web_api_route_not_found_uses_neutral_body() -> None:
+    """A router 404 must not answer with the framework's own body shape."""
     transport = ASGITransport(app=_http_exception_app(), raise_app_exceptions=True)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/missing-page", headers={"accept": "application/json"})
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "Not Found"}
+    assert response.json() == {"error": "not_found"}
+    assert "detail" not in response.json()
+
+
+@pytest.mark.asyncio
+async def test_web_api_method_not_allowed_uses_neutral_body() -> None:
+    """A wrong-method 405 leaks the same tell as a 404 and gets the same body."""
+    transport = ASGITransport(app=_http_exception_app(), raise_app_exceptions=True)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/boom-http", headers={"accept": "application/json"})
+
+    assert response.status_code == 405
+    assert response.json() == {"error": "method_not_allowed"}
+    # Rewriting the body must not drop a protocol-required header: RFC 9110
+    # makes Allow mandatory on a 405 and the router already computed it.
+    assert "GET" in (response.headers.get("allow") or "")
+
+
+@pytest.mark.asyncio
+async def test_web_validation_error_does_not_echo_input_or_name_pydantic() -> None:
+    """A 422 must not disclose the failing field, the reason, or the input."""
+    transport = ASGITransport(app=_http_exception_app(), raise_app_exceptions=True)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/needs-int?value=abc", headers={"accept": "application/json"})
+
+    assert response.status_code == 422
+    assert response.json() == {"error": "invalid_request"}
+    for leak in ("int_parsing", "loc", "msg", "type", "input", "abc", "value"):
+        assert leak not in response.text

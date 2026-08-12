@@ -205,7 +205,7 @@
                                 <th class="arena-problem-set-report-student-column">Student</th>
                                 <th class="arena-problem-set-report-progress-column text-end">AC rate</th>
                                 {% for problem in report.problems %}
-                                    <th class="text-center">
+                                    <th class="arena-problem-number">
                                         <a href="{{ request.url_for('arena_problem_detail', arena_number=problem.arena_number) }}">{{ problem.arena_number }}</a>
                                     </th>
                                 {% endfor %}

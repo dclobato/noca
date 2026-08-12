@@ -29,7 +29,7 @@ Related references:
 
 ### `web/`
 
-The web module is a server-rendered FastAPI application (~13k LOC) with these main layers:
+The web module is a server-rendered FastAPI application with these main layers:
 
 **Core application (`web/*.py`)**:
 - `main.py`: FastAPI application factory with lifespan management, route mounting, and service initialization
@@ -98,7 +98,7 @@ It owns:
 - **Scoreboard**: Live, frozen, and released-final scoreboards with Valkey-backed caching
 - **Chief judge workflow**: Special role for verdict overrides and final decisions (shared with ADMIN — see [ROUTES.md § Permission Model](../web/docs/ROUTES.md#permission-model))
 
-### `autojudge/` (~23 Python files)
+### `autojudge/`
 
 The autojudge module is a separate async worker process that owns:
 
@@ -164,9 +164,13 @@ The autojudge module is a separate async worker process that owns:
 **Arena submission job (`arena_submission_job.py`):**
 - Arena-specific adapter for `JobKind.ARENA_SUBMISSION`
 - Uses the same compile/run/container pipeline as contest submissions
-- Loads Arena test cases from database rows and stores only the first non-AC case result
-- Writes final verdicts directly to Arena tables; no pub/sub or SSE event is emitted
-- Test case content is normalized to Unix line endings (LF only) when fetched from the database, covering rows stored with CRLF endings before the normalization contract was enforced
+- Loads test case identity and order from PostgreSQL, then reads input and
+  expected-output bytes from `<testcase-root>/arena/<problem_id>/`
+- Stores only the first non-AC case result
+- Writes final verdicts directly to Arena tables and publishes a best-effort
+  `ArenaVerdictEvent` on `arena:results`
+- Normalizes test case files to Unix line endings (LF only) at read time,
+  covering files written with CRLF endings
 
 **Profiling job (`profiling_job.py`):**
 - Auto-Limit profiling pipeline: `process_profiling_job`
@@ -267,10 +271,10 @@ while `NOCA_JUDGE_IMAGE_NAMING=flat` supports flattened repos such as
 
 ### `shared/`
 
-The shared module (~30k LOC including wordlists) contains the pieces all runtime modules must agree on:
+The shared module contains the pieces all runtime modules must agree on:
 
 **Schema and data structures:**
-- `db_schema.py`: Centralized SQLAlchemy Core table definitions
+- `db_schema/`: Centralized SQLAlchemy Core table definitions
 - `queue_schema.py`: Pydantic models for judge, profiling, Arena submission,
   Arena AI review, and verdict-event queue payloads
 - `enumerations.py`: RoleEnum, Verdict, JudgmentStatus, ContestStatus, TaskType, Environment
@@ -282,7 +286,8 @@ The shared module (~30k LOC including wordlists) contains the pieces all runtime
 
 **Language support:**
 - `language_registry.py`: Language configuration and compilation/execution commands
-- `languages.py`: Language runtime definitions
+- `language_configs.py`: Language runtime configuration models
+- `language_stubs.py`: Template source used for language-specific starter code
 
 **Utilities:**
 - `app_logging.py`: Structured logging configuration
@@ -337,8 +342,10 @@ duplicate set of cycles writing the same `arena_*_rating*` tables.
   `run_affiliation_rating_loop` — the sequential `problems → users → affiliations`
   chain, importing the pure rate functions from `shared/services/arena_rating.py`
 - `worker.py`: `main` / `run_rating_worker` — boots the engine + `ValkeyRuntime`,
-  installs SIGTERM/SIGINT handlers, `asyncio.gather`s the three loops, and shuts
-  down gracefully (console script `noca-rating`)
+  installs SIGTERM/SIGINT handlers, and runs the three chained rating loops,
+  independent problem-stat and user-stat loops, the badge-assignment loop, and
+  the worker-presence loop together before graceful shutdown (console script
+  `noca-rating`)
 
 The worker publishes scheduler metadata to Valkey: the next scheduled cycle
 timestamp at `arena:rating:next_update` (ISO8601, absent while a cycle is
@@ -366,15 +373,16 @@ process and uses only shared infrastructure boundaries.
 - `database.py`: async SQLAlchemy engine factory for Core queries against the
   shared schema
 - `worker.py`: `main` / `run_ai_worker` entrypoint for `noca-aiassistant`; runs
-  the dequeue loop, the stale-job reaper, the OpenAI batch poller, and the
-  reconciler together
+  the dequeue loop, stale-job reaper, batch flusher, OpenAI batch poller,
+  reconciler, and worker-presence loop together, plus the optional signed
+  command loop
 - `reconciler.py`: database-driven safety net that re-enqueues AI review jobs
   lost between the request route's PostgreSQL commit and its Valkey enqueue
 - `reviewer.py`: online OpenAI Responses API path used when the Arena user has
   a personal `ai_api_key`
-- `batch_reviewer.py` and `batch_poller.py`: platform-key OpenAI Batch API
-  submission, polling, terminal-state handling, result storage, and uploaded
-  OpenAI file cleanup
+- `batch_reviewer.py`, `batch_flusher.py`, and `batch_poller.py`: platform-key
+  OpenAI Batch API submission, staged-job accumulation, polling, terminal-state
+  handling, result storage, and uploaded OpenAI file cleanup
 - `db/queries.py` and `db/batch_queries.py`: SQLAlchemy Core access to
   `arena_submissions`, `arena_submission_ai_reviews`, `arena_users`, and
   `arena_ai_batch_jobs` without importing Arena ORM code
@@ -385,19 +393,22 @@ The worker decrypts user-owned API keys through the shared `EncryptedString`
 type, so it loads `NOCA_CRYPTO_ENV_FILE` and registers its own
 `SecretsManager` during startup. User-key jobs use the online Responses API and
 store results immediately. Platform-key jobs use `NOCA_AI_OPENAI_API_KEY`, create
-a durable `arena_ai_batch_jobs` row, remove the queue item from inflight, and
-let the batch poller store results after OpenAI reaches a terminal state.
+a durable staged `arena_ai_batch_jobs` row without calling OpenAI, and remove
+the queue item from inflight. The batch flusher periodically collects all staged
+rows into one multi-item OpenAI batch, and the batch poller stores results after
+OpenAI reaches a terminal state.
 
 ### `healthmonitor/`
 
 The healthmonitor module is a standalone FastAPI server (default port 8002) with a
-Valkey connection only — no database, no JWT, no session handling. Both of its
-pages are public. Structure:
+Valkey connection only — no database, no JWT, no session handling. Its dashboard
+and refresh fragment are public. Structure:
 
 - `main.py`: FastAPI app, lifespan (Valkey runtime, templates, background
   loops), static mounts, `noca-healthmonitor` entrypoint
-- `routes/status.py`, `routes/dashboard.py`, `routes/health.py`: the public
-  status page, the uptime dashboard, and the runtime health endpoint
+- `routes/dashboard.py`, `routes/health.py`: the public uptime dashboard, its
+  HTMX refresh fragment, the ECharts uptime JSON endpoint, and the runtime
+  health endpoint
 - `services/service_registry.py`: the ordered list of monitored services
 - `services/presence_probe.py`: live up/down reads from the shared
   worker-presence keys (Valkey outage reports every service as unknown)
@@ -436,6 +447,35 @@ schema consumer, never a steward. Caddy proxies it on host port 83; SSE passes
 through unbuffered because Caddy ignores `flush_interval` for
 `text/event-stream` responses.
 
+### `landingpage/`
+
+The landing page is a standalone Caddy runtime (default internal port 8080).
+It has no Python package, application framework, database connection, Valkey
+connection, or background loop. Its runtime consists of:
+
+- `landingpage/Caddyfile`: read-only routing, security headers, template
+  rendering, static file serving, and the dependency-free `/health` response
+- `landingpage/index.html`: the environment overview, whose four public
+  application URLs and footer release tag come from Caddy's environment template
+  function
+- `landingpage/static/`: the page's own stylesheet, scripts, site icon, and
+  authored SVG icon set, all served same-origin
+- `containers/landingpage/entrypoint.sh`: fail-fast validation for the required
+  absolute HTTP(S) URLs and the release tag
+
+The page reaches nothing at runtime. Its `Content-Security-Policy` starts from
+`default-src 'none'` and allows only same-origin styles, scripts, fonts, and
+images, with `connect-src 'none'`. It therefore cannot show live service status
+by construction; the Health Monitor link serves that need instead.
+
+Deployment: `containers/landingpage/Dockerfile` builds the `noca/landingpage`
+image from the official Caddy image, plus a build-only stage that supplies the
+shared NOCA webfonts (Public Sans, Inter, IBM Plex Mono) and the Contest and
+Arena illustrations owned by `web/` and `arena/`. The resulting image carries no
+Python or Node.js runtime. The process runs as the unprivileged `caddy` user and
+doesn't wait for any other module. The sample Compose stack publishes it on host
+port 84.
+
 ## 2. Communication model between `web` and `autojudge`
 
 ### PostgreSQL
@@ -457,14 +497,17 @@ The worker does not receive full source code or problem metadata from Valkey. In
 
 Valkey is used as the lightweight coordination layer for judgment execution and scoreboard caching:
 
-**Judgment queue keys:**
+**Judge queue and event keys:**
 
 - `judge:queue:priority`
+- `judge:queue:profiling`
 - `judge:queue:pending`
 - `judge:queue:inflight`
 - `judge:queue:inflight:times`
-- `judge:job:<judgment_id>`
-- `judge:results`
+- `judge:job:<job_id>`
+- `judge:results`: contest verdict events
+- `judge:submissions`: new contest-submission nudges
+- `arena:results`: Arena final-verdict nudges
 
 **Arena AI review queue keys:**
 
@@ -494,9 +537,14 @@ Typical web contest flow:
 Typical Arena flow:
 
 1. Arena creates `ArenaSubmission` and `ArenaSubmissionJudgment` rows and enqueues `JobKind.ARENA_SUBMISSION` on `judge:queue:pending`.
-2. Autojudge loads Arena source, limits, and test cases from PostgreSQL, using the same language containers as web submissions.
+2. Autojudge loads Arena source, limits, and test case metadata from PostgreSQL,
+   reads test case bytes from the shared Arena test case directory, and uses the
+   same language containers as web submissions.
 3. Autojudge writes the final Arena verdict directly to `arena_submission_judgments` and records only the first non-AC row in `arena_submission_test_results`.
-4. Arena users poll for result state; no `VerdictEvent`, SSE, or scoreboard cache invalidation is emitted for Arena jobs.
+4. Autojudge publishes a best-effort final `ArenaVerdictEvent` on
+   `arena:results`. Owner-scoped SSE treats the event as a freshness nudge and
+   fetches the authoritative `status.json`; fallback polling bounds staleness.
+   Arena jobs do not invalidate a scoreboard cache.
 
 Typical Arena AI review flow:
 
@@ -511,9 +559,10 @@ Typical Arena AI review flow:
    recovered or requeued.
 3. If the user has a personal OpenAI key, the worker calls the Responses API and
    writes `arena_submission_ai_reviews` immediately.
-4. If the user has no personal key and `NOCA_AI_OPENAI_API_KEY` is configured, the
-   worker submits a single-item OpenAI Batch API job, writes
-   `arena_ai_batch_jobs`, and the batch poller stores the review after terminal
+4. If the user has no personal key and `NOCA_AI_OPENAI_API_KEY` is configured,
+   the worker writes a durable staged `arena_ai_batch_jobs` row without calling
+   OpenAI. The batch flusher later collects all staged rows into one multi-item
+   OpenAI batch, and the batch poller stores each review after terminal
    completion.
 5. Completed and failed AI reviews create durable Arena notifications through
    `shared.services.arena_notification_service`.
@@ -651,6 +700,9 @@ The web module runs multiple async background reapers (long-lived coroutines) al
 
 - **Clarification reaper (`clarification_reaper.py`):** Auto-answers leftover open clarifications once a contest is past; active clarification coordination uses Valkey TTL locks
 - **Task reaper (`task_reaper.py`):** Auto-concludes leftover tasks once a contest is past; active staff coordination uses Valkey TTL locks
+- **Security events reaper (`shared.services.security_events_reaper`):** Deletes
+  expired Web security events according to the configured retention period; the
+  Web process scopes this pass to events whose module is `web`
 
 **Reaper lifecycle management:**
 - Created during FastAPI lifespan startup in `main.py` with `asyncio.Event` stop signals
@@ -691,7 +743,9 @@ The task queue (`TaskType` enum) provides in-contest services:
 - Login-issued tokens carry an original `session_started_at` claim so the web layer
   can enforce the optional absolute cap configured by
   `NOCA_JWT_REFRESH_MAX_SESSION_SECONDS`
-- Logout still deletes the cookie but does not invalidate an already-issued JWT
+- Logout deletes the cookie and best-effort revokes the JWT ID in Valkey for the
+  token's remaining lifetime. Revocation checks fail open during a Valkey
+  outage, so the token can remain usable until it expires in that degraded mode
 - UberAdmin tokens contain global system access claims
 
 **Session middleware:**
@@ -715,7 +769,9 @@ The task queue (`TaskType` enum) provides in-contest services:
 - Route-level: `ensure_allowed_role()` dependency checks
 - Service-level: Role checks in business logic
 - Data-level: Contest scoping in all queries (`contest_id` filters)
-- Action-level: Granular permission checks (e.g., only chief judge can override)
+- Action-level: Granular permission checks (for example, a contest administrator
+  or the contest chief judge can override a verdict; UberAdmin cannot because
+  the audit row references a contest user)
 
 **Contest scoping:**
 - All users (except UBERADMIN) are tied to exactly one `contest_id`
@@ -842,7 +898,7 @@ expiration is retryable. After two such attempts, an Arena validator becomes
 removed from Valkey, and its owner receives one idempotent notification. Clean
 exit codes never trigger containment.
 
-In short, NOCA is a seven-process contest platform:
+In short, NOCA is an eight-process contest platform:
 
 - `web` manages contest and business workflows (default port 8000)
 - `autojudge` manages sandboxed compilation and execution
@@ -851,6 +907,8 @@ In short, NOCA is a seven-process contest platform:
 - `aiassistant` manages Arena AI code review execution and OpenAI batch polling
 - `healthmonitor` manages the public availability dashboards (default port 8002)
 - `animator` manages the public live scoreboard and reveal presentation (default port 8003)
+- `landingpage` serves the environment entry point and public module links
+  (default internal port 8080)
 - `shared` defines the common contract between them
 
 The runtime architecture is built around a strong separation of concerns, a shared

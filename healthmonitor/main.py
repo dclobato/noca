@@ -6,10 +6,12 @@
 
 """Health monitor FastAPI application (default port 8002).
 
-Serves two public pages: the environment status page (``/``) and the uptime
-dashboard with per-service 30-day heatmaps (``/dashboard``). Two background
-loops probe the monitored services through their Valkey presence keys and
-reap uptime slots older than the retention window.
+Serves one public page, the uptime dashboard (``/``) with per-service live
+statuses and 30-day ECharts heatmaps, an HTMX refresh fragment (``/refresh``),
+an uptime data endpoint (``/uptime.json``), and a ``/health`` endpoint for
+liveness probes. Two background loops probe the monitored services through
+their Valkey presence keys and reap uptime slots older than the retention
+window.
 """
 
 import asyncio
@@ -26,12 +28,13 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, FileSystemLoader
 
 from healthmonitor.config import settings
+from healthmonitor.error_handlers import register_error_handlers
 from healthmonitor.routes.dashboard import router as dashboard_router
 from healthmonitor.routes.health import router as health_router
-from healthmonitor.routes.status import router as status_router
 from healthmonitor.services.loops import run_prober_loop, run_reaper_loop
 from shared.app_logging import configure_logging
 from shared.enumerations import Environment
+from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
 from shared.services.startup_wait import wait_for_valkey
 from shared.services.valkey_service import ValkeyRuntime
 from shared.static_files import ShortCacheStaticFiles
@@ -52,8 +55,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Boot Valkey connectivity, templates and background loops."""
     configure_logging(logging_level=settings.resolved_log_level)
     logger.info("*" * 80)
-    logger.info(f"| NOCA Health Monitor {APP_VERSION} starting |".center(80, "-"))
-    logger.info("*" * 80)
+    logger.info(r" _   _            _ _   _    ___  ___            _ _             ".center(80))
+    logger.info(r"| | | |          | | | | |   |  \/  |           (_) |            ".center(80))
+    logger.info(r"| |_| | ___  __ _| | |_| |__ | .  . | ___  _ __  _| |_ ___  _ __ ".center(80))
+    logger.info(r"|  _  |/ _ \/ _` | | __| '_ \| |\/| |/ _ \| '_ \| | __/ _ \| '__|".center(80))
+    logger.info(r"| | | |  __/ (_| | | |_| | | | |  | | (_) | | | | | || (_) | |   ".center(80))
+    logger.info(r"\_| |_/\___|\__,_|_|\__|_| |_\_|  |_/\___/|_| |_|_|\__\___/|_|   ".center(80))
+    logger.info(" " * 80)
+
+    banner = f"Starting Health Monitor (version {APP_VERSION}, environment {settings.ENVIRONMENT.value})"
+    logger.info(banner.center(80, " "))
+    logger.info("| Initializing services |".center(80, "-"))
 
     await wait_for_valkey(settings.valkey_url, timeout_s=settings.STARTUP_TIMEOUT_SECONDS, logger=logger)
 
@@ -128,6 +140,19 @@ app = FastAPI(
     openapi_url=None,
 )
 
+register_error_handlers(app)
+
+# The health monitor has no cookies of its own, so HSTS keys off the environment
+# alone rather than a COOKIE_SECURE flag as in web and arena.
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    settings=SecurityHeaderSettings(
+        enabled=settings.SECURITY_HEADERS_ENABLED,
+        csp_report_only=settings.CSP_REPORT_ONLY,
+        hsts_enabled=settings.ENVIRONMENT == Environment.PRODUCTION,
+    ),
+)
+
 app.mount(
     "/static/css",
     ShortCacheStaticFiles(directory=_HEALTHMON_DIR / "static" / "css"),
@@ -164,7 +189,6 @@ app.mount(
     name="static_webfonts",
 )
 
-app.include_router(status_router)
 app.include_router(dashboard_router)
 app.include_router(health_router)
 

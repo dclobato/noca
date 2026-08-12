@@ -122,10 +122,12 @@
     gap: var(--arena-space-sm);
 }
 .arena-problem-set-student-report-problem-number {
-    flex: 0 0 auto;
+    flex: 0 0 4rem;
     color: var(--arena-primary);
     font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     font-weight: 700;
+    text-align: right;
+    white-space: nowrap;
 }
 .arena-problem-set-student-report-problem-title {
     min-width: 0;

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -308,13 +308,6 @@ async def run_worker() -> None:
     logger.info("| Initializing services |".center(80, "-"))
     log_settings(logger, settings)
     logger.info("- Worker id: %s", wid)
-
-    assert settings.LOCK_TTL_SECONDS > settings.REAPER_STALE_THRESHOLD_MINUTES * 60, (
-        f"judge_lock_ttl_seconds ({settings.LOCK_TTL_SECONDS}s) must be greater than "
-        f"reaper_stale_threshold_minutes * 60 "
-        f"({settings.REAPER_STALE_THRESHOLD_MINUTES * 60:.0f}s). "
-        "Increase NOCA_JUDGE_LOCK_TTL_SECONDS or decrease NOCA_JUDGE_REAPER_STALE_THRESHOLD_MINUTES."
-    )
 
     await wait_for_db(settings.db_url, timeout_s=settings.STARTUP_TIMEOUT_SECONDS, logger=logger)
     await wait_for_valkey(settings.valkey_url, timeout_s=settings.STARTUP_TIMEOUT_SECONDS, logger=logger)

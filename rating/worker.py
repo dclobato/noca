@@ -120,7 +120,7 @@ async def _publish_rating_metadata(valkey_runtime: ValkeyRuntime) -> None:
 
 
 async def run_rating_worker() -> None:
-    """Boot resources, run the three rating loops, and shut down gracefully."""
+    """Boot resources, run the rating, stats, and badge loops, and shut down gracefully."""
     worker_id = resolve_worker_id(settings.RATING_WORKER_ID)
     started_at = datetime.now(UTC)
     logger.info("*" * 80)

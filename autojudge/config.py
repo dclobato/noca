@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -33,9 +33,9 @@ import logging
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import DirectoryPath, Field, field_validator
+from pydantic import DirectoryPath, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from shared.enumerations import Environment
@@ -616,6 +616,20 @@ class Settings(NocaSettings):
         ),
     )
 
+    @model_validator(mode="after")
+    def validate_lock_ttl_exceeds_reaper_threshold(self) -> Self:
+        """Require the idempotency lock to outlive the reaper threshold."""
+        stale_threshold_seconds = self.REAPER_STALE_THRESHOLD_MINUTES * 60
+        if stale_threshold_seconds >= self.LOCK_TTL_SECONDS:
+            raise ValueError(
+                "NOCA_JUDGE_LOCK_TTL_SECONDS must be greater than "
+                "NOCA_JUDGE_REAPER_STALE_THRESHOLD_MINUTES * 60 "
+                f"({self.LOCK_TTL_SECONDS}s <= {stale_threshold_seconds:.0f}s). "
+                "Increase NOCA_JUDGE_LOCK_TTL_SECONDS or decrease "
+                "NOCA_JUDGE_REAPER_STALE_THRESHOLD_MINUTES."
+            )
+        return self
+
     @field_validator("LOG_LEVEL")
     @classmethod
     def validate_log_level(cls, v: str | None) -> str | None:
@@ -714,7 +728,8 @@ def _load_settings_or_exit() -> Settings:
         lines = ["[autojudge] Configuration error — fix the following before starting the worker:"]
         for err in exc.errors():
             field = " → ".join(str(loc) for loc in err["loc"])
-            lines.append(f"  • {field}: {err['msg']}")
+            field_prefix = f"{field}: " if field else ""
+            lines.append(f"  • {field_prefix}{err['msg']}")
         print("\n".join(lines), file=sys.stderr)
         sys.exit(1)
 

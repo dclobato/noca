@@ -56,6 +56,7 @@ from arena.services.statement_language_service import (
     safe_statement_language,
 )
 from shared.enumerations import StatementLanguage
+from shared.http_params import PG_INT32_MAX
 from shared.services.admin_audit import record_admin_action
 from shared.services.custom_validator import status_view
 from shared.services.imageprocessing_service import ImageProcessingError
@@ -201,10 +202,10 @@ async def admin_problem_create(
     author_is_owner: bool = Form(False),
     source: str = Form(""),
     hide_author_show_source: bool = Form(False),
-    time_limit_ms: int = Form(1000),
-    memory_limit_kb: int = Form(262144),
-    pids_limit: int = Form(64),
-    output_limit_in_bytes: int = Form(65536),
+    time_limit_ms: int = Form(1000, ge=1, le=PG_INT32_MAX),
+    memory_limit_kb: int = Form(262144, ge=1, le=PG_INT32_MAX),
+    pids_limit: int = Form(64, ge=1, le=PG_INT32_MAX),
+    output_limit_in_bytes: int = Form(65536, ge=1, le=PG_INT32_MAX),
     problem_statement: str = Form(""),
     category_ids: list[str] = Form(default=[]),
     return_page: str = Form("1"),
@@ -455,10 +456,10 @@ async def admin_problem_update(
     author_is_owner: bool = Form(False),
     source: str = Form(""),
     hide_author_show_source: bool = Form(False),
-    time_limit_ms: int = Form(1000),
-    memory_limit_kb: int = Form(262144),
-    pids_limit: int = Form(64),
-    output_limit_in_bytes: int = Form(65536),
+    time_limit_ms: int = Form(1000, ge=1, le=PG_INT32_MAX),
+    memory_limit_kb: int = Form(262144, ge=1, le=PG_INT32_MAX),
+    pids_limit: int = Form(64, ge=1, le=PG_INT32_MAX),
+    output_limit_in_bytes: int = Form(65536, ge=1, le=PG_INT32_MAX),
     problem_statement: str = Form(""),
     category_ids: list[str] = Form(default=[]),
     return_page: str = Form("1"),

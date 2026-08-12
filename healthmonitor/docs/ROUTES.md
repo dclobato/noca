@@ -4,19 +4,13 @@ All health monitor routes are public: the module has no authentication, no
 session handling, and no database access. It reads everything it shows from
 Valkey.
 
-## Status (`healthmonitor/routes/status.py`)
-
-| Method | URL | Description |
-|--------|-----|-------------|
-| `GET` | `/` | Public environment status page. Shows one Available/Unavailable/Unknown card per monitored service (web, arena, autojudge, rating, aiassistant, animator), read live from the Valkey worker-presence keys at request time. Renders Unknown for every service when Valkey is unreachable. Endpoint name: `healthmon_status`. |
-
----
-
 ## Dashboard (`healthmonitor/routes/dashboard.py`)
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `GET` | `/dashboard` | Public uptime dashboard. Shows the same live status per service plus a collapsible 30-day heatmap (60 slots of 12 hours each) built from the prober's per-slot `up`/`total` counters. Cells carry the exact uptime percentage and probe counts in their tooltip. Endpoint name: `healthmon_dashboard`. |
+| `GET` | `/` | Public uptime dashboard, the module's only full page. Shows an aggregate verdict banner and live status per monitored service (web, arena, autojudge, rating, aiassistant, animator). ECharts renders each service's 30-day uptime history from `/uptime.json`; an expandable data table exposes the same values without relying on the canvas. Endpoint name: `healthmon_dashboard`. |
+| `GET` | `/refresh` | Public HTMX fragment containing the dashboard timestamp, verdict, live service statuses, and chart containers. The page polls it every 30 seconds while automatic refresh is active and also exposes pause, resume, and manual refresh controls. After each swap, the client fetches `/uptime.json`, recreates every chart, and preserves card expansion, data-table expansion, and focused controls. Endpoint name: `healthmon_dashboard_refresh`. |
+| `GET` | `/uptime.json` | Public ECharts data contract. Returns every monitored service in display order with 60 12-hour slots containing the UTC start time, uptime percentage or `null`, successful probe count, and total probe count. Returns `503` when the history cannot be read from Valkey. Endpoint name: `healthmon_uptime_data`. |
 
 ---
 

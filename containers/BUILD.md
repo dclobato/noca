@@ -8,6 +8,7 @@ This repository provides:
 - an `aiassistant` worker image under `containers/aiassistant/`
 - a `healthmonitor` server image under `containers/healthmonitor/`
 - an `animator` presentation image under `containers/animator/`
+- a standalone `landingpage` image under `containers/landingpage/`
 - language-specific judge images under `containers/languages/`
 
 For contestant-facing runtime/compiler details, see:
@@ -145,6 +146,10 @@ The Animator presentation image is tagged as:
 - path naming: `<prefix>/animator`
 - flat naming: `<prefix>-animator`
 
+The standalone landing-page image is tagged as:
+- path naming: `<prefix>/landingpage`
+- flat naming: `<prefix>-landingpage`
+
 ## Runtime UID/GID
 
 The `webapp`, `arena`, `autojudge`, `rating`, `aiassistant`, and
@@ -169,6 +174,7 @@ The script supports the following targets:
 - `aiassistant`
 - `healthmonitor`
 - `animator`
+- `landingpage`
 - `bash`
 - `gcc-c17`
 - `gcc-cpp23`
@@ -342,7 +348,7 @@ judge set — each of which has to round-trip on every push. That is precisely t
 object that went missing in the `v15.0.1` failure above, where the lost
 attestation manifest took the whole Bake down with it.
 
-App images keep their attestations. There are only seven of them, they are what
+App images keep their attestations. There are only eight of them, they are what
 operators actually deploy, and their push is small enough that the extra
 manifests are not a risk.
 
@@ -529,11 +535,11 @@ docker buildx inspect noca-builder   # Platforms line should list linux/arm64, e
 Images are tagged as:
 - path naming: `<prefix>/webapp`, `<prefix>/arena`, `<prefix>/autojudge`,
   `<prefix>/rating`, `<prefix>/aiassistant`, `<prefix>/healthmonitor`,
-  `<prefix>/animator`,
+  `<prefix>/animator`, `<prefix>/landingpage`,
   `<prefix>/judge-<language>:compile`, `<prefix>/judge-<language>:run`
 - flat naming: `<prefix>-webapp`, `<prefix>-arena`, `<prefix>-autojudge`,
   `<prefix>-rating`, `<prefix>-aiassistant`, `<prefix>-healthmonitor`,
-  `<prefix>-animator`,
+  `<prefix>-animator`, `<prefix>-landingpage`,
   `<prefix>-judge-<language>:compile`, `<prefix>-judge-<language>:run`
 
 Prefix configuration, in order:
@@ -616,6 +622,12 @@ Build only Animator:
 
 ```bash
 ./containers/build.sh animator
+```
+
+Build only the standalone landing page:
+
+```bash
+./containers/build.sh landingpage
 ```
 
 Build webapp plus selected judge images:
@@ -753,11 +765,16 @@ docker buildx imagetools inspect <prefix>-judge-gcc-c17:run
   the Arena AI review pipeline (OpenAI Responses API and Batch API). Run one replica
   only to avoid duplicate batch submissions.
 - The `healthmonitor` image is built from `containers/healthmonitor/Dockerfile`.
-  It serves the public status pages and uses Valkey only.
+  It serves the public uptime dashboard and uses Valkey only.
 - The `animator` image is built from `containers/animator/Dockerfile`. It serves
   the Contest presentation UI and connects directly to PostgreSQL and Valkey.
-- Runtime images copy only their target module source plus `shared`; unrelated
-  workspace member source is not included. They still copy workspace member
+- The `landingpage` image is built from `containers/landingpage/Dockerfile`. It
+  runs Caddy as a fixed non-root user and has no application-service dependency.
+  It does consume `assets-base` at build time, for the shared NOCA webfonts only,
+  so a `landingpage` build pulls in the `app-base` → `assets-base` prerequisite
+  chain like the other asset-consuming images.
+- Python runtime images copy only their target module source plus `shared`;
+  unrelated workspace member source is not included. They still copy workspace member
   `pyproject.toml` files for `uv` workspace resolution and migration assets for
   startup schema upgrades.
 - Judge images are built from their language-specific directories under `containers/languages/`.

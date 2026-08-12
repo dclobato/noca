@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -121,7 +121,7 @@ async def download_submission_validator_source(
     submission_id: str,
     ctx: ContestContext = Depends(get_contest_context),
 ) -> Response:
-    """Download the validator source used to judge an interactive submission."""
+    """Download the problem's currently active validator source."""
     ensure_allowed_role(ctx.actor, (RoleEnum.UBERADMIN, RoleEnum.ADMIN, RoleEnum.JUDGE))
 
     submission = await load_submission_in_contest(

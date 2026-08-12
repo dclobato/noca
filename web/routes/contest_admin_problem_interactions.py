@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.http_params import PG_INT32_MAX
 from shared.services.custom_validator import status_view
 from shared.services.sample_interactions import (
     MAX_SAMPLE_INTERACTIONS,
@@ -290,7 +291,7 @@ async def move_problem_interaction(
     problem_id: str,
     si_id: str,
     flash: FlashDep,
-    new_ordinal: int = Query(..., ge=1),
+    new_ordinal: int = Query(..., ge=1, le=PG_INT32_MAX),
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
 ) -> HTMLResponse | RedirectResponse:
     """Move a sample interaction and return the refreshed list partial."""

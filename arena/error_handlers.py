@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi_flash import FlashCategory
@@ -28,6 +29,9 @@ from arena.services.session_service import (
 from shared.error_handlers import (
     BackendErrorConfig,
     create_backend_error_handlers,
+    create_validation_exception_handler,
+    generic_error_response,
+    is_generic_http_exception,
     register_backend_error_handlers,
     request_accepts_html,
 )
@@ -61,6 +65,10 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ForceLogoutException, force_logout_handler)
     app.add_exception_handler(StarletteHTTPException, arena_starlette_404_handler)
     app.add_exception_handler(HTTPException, arena_http_exception_handler)
+    app.add_exception_handler(
+        RequestValidationError,
+        create_validation_exception_handler(_backend_config),
+    )
 
 
 def _render_404(request: Request) -> Response:
@@ -86,12 +94,30 @@ async def force_logout_handler(request: Request, exc: Exception) -> RedirectResp
     return response
 
 
+async def _default_response(request: Request, exc: StarletteHTTPException) -> Response:
+    """Return the framework default, or a neutral body for a generic router error.
+
+    A router-generated 404/405 carries no application message to preserve, so its
+    default body would only name the framework to a non-browser caller.  Anything
+    an application authored keeps the response it asked for -- including the
+    animator control API's refusals, whose ``detail`` its JavaScript reads back.
+    """
+    if is_generic_http_exception(exc):
+        return generic_error_response(
+            request,
+            _backend_config,
+            status_code=exc.status_code,
+            headers=exc.headers,
+        )
+    return await http_exception_handler(request, exc)
+
+
 async def arena_starlette_404_handler(request: Request, exc: Exception) -> Response:
     """Render route-not-found errors for browsers and preserve API responses."""
     http_exception = cast(StarletteHTTPException, exc)
     if request_accepts_html(request) and http_exception.status_code == 404:
         return _render_404(request)
-    return await http_exception_handler(request, http_exception)
+    return await _default_response(request, http_exception)
 
 
 async def arena_http_exception_handler(request: Request, exc: Exception) -> Response:
@@ -112,18 +138,18 @@ async def arena_http_exception_handler(request: Request, exc: Exception) -> Resp
                 FlashCategory.WARNING,
             )
             return RedirectResponse(_safe_browser_return_url(request), status_code=303)
-        return await http_exception_handler(request, http_exception)
+        return await _default_response(request, http_exception)
 
     if (not accepts_html and not is_htmx_request) or http_exception.status_code not in {
         401,
         403,
         404,
     }:
-        return await http_exception_handler(request, http_exception)
+        return await _default_response(request, http_exception)
 
     if http_exception.status_code == 404:
         if not accepts_html:
-            return await http_exception_handler(request, http_exception)
+            return await _default_response(request, http_exception)
         return _render_404(request)
 
     if http_exception.status_code == 401:

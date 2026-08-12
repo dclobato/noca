@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, selectinload
 
 from arena.models.arena_problems import ArenaCategory, ArenaProblem, ArenaRatingProblem
-from arena.services.pagination_service import Pagination, PaginationParams
+from arena.services.pagination_service import Pagination, PaginationParams, clamp_page
 from arena.services.problem_list_query_service import ProblemListCategory, categories_by_problem_id
 from arena.services.problem_search_service import prepare_problem_search
 from shared.db_schema.arena import arena_affiliations as _affiliations_table
@@ -225,6 +225,15 @@ async def list_enabled_problems_paginated(
 
     count_stmt = select(func.count()).select_from(filtered_problem_ids.subquery())
     total: int = (await session.execute(count_stmt)).scalar_one()
+
+    # Clamp to the pages that actually exist before the offset is computed, as
+    # every other paginated service here does.  Without it a large page number
+    # becomes an out-of-range SQL OFFSET, which PostgreSQL rejects and which
+    # surfaces as a 503 rather than an empty last page.
+    params = PaginationParams(
+        page=clamp_page(params.page, total=total, per_page=params.per_page),
+        per_page=params.per_page,
+    )
 
     solver_counts = (
         select(

@@ -1,4 +1,4 @@
-# Custom Interactive Validators
+# Custom interactive validators
 
 A custom validator turns a problem into an **interactive** problem: instead of comparing the
 contestant's output against a fixed expected-output file, NOCA runs a program you supply — the
@@ -13,24 +13,17 @@ Kattis interactive problem does.
 Both problem domains support this: Contest problems (web module) and Arena problems.
 
 Related references:
-- [DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md](DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md) — where the interactive branch sits in the submission lifecycle
-- [../autojudge/docs/AUTOJUDGE_INFRA.md](../autojudge/docs/AUTOJUDGE_INFRA.md) — worker isolation and the queue protocol
-- [CONFIG.md](CONFIG.md) — `NOCA_JUDGE_CUSTOM_VALIDATOR_WATCHDOG_SECONDS` and the container limits
 
-## Table of Contents
-
-- [1. How judging works](#1-how-judging-works)
-- [2. Setting a validator on a problem](#2-setting-a-validator-on-a-problem)
-- [3. Test cases and sample interactions](#3-test-cases-and-sample-interactions)
-- [4. Writing a validator](#4-writing-a-validator)
-  - [The algorithm](#the-algorithm)
-  - [Reference implementations](#reference-implementations)
-  - [The rules behind it](#the-rules-behind-it)
-- [5. Exit codes and verdicts](#5-exit-codes-and-verdicts)
-- [6. Which limits are enforced, and by whom](#6-which-limits-are-enforced-and-by-whom)
-- [7. Failure handling and retries](#7-failure-handling-and-retries)
-- [8. Diagnostics](#8-diagnostics)
-- [9. Limits and constants at a glance](#9-limits-and-constants-at-a-glance)
+- [Default token validator](TOKEN_VALIDATOR.md) — the built-in comparison used
+  by standard, non-interactive problems
+- [Submission data flow](../DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md) — where
+  the interactive branch sits in the submission lifecycle
+- [Autojudge infrastructure](../../autojudge/docs/AUTOJUDGE_INFRA.md) — worker
+  isolation and the queue protocol
+- [Configuration](../CONFIG.md) —
+  `NOCA_JUDGE_CUSTOM_VALIDATOR_WATCHDOG_SECONDS` and the container limits
+- [Output checker validator rationale](OUTPUT_CHECKER_VALIDATOR.md) — the
+  rationale for a separate, non-interactive custom validation strategy
 
 ## 1. How judging works
 
@@ -67,16 +60,41 @@ protocol is generated live by the validator. Consequences:
 - A validator problem's test cases hold **input, sample flag and explanation only** — no
   expected output. The editors hide the expected-output field, and the packages, ZIPs and
   downloads for such a problem carry `.in` files only.
-- Its cases may be **secret** like any other problem's. Only `is_sample` cases appear on the
-  statement, showing the input and the explanation (there is no output to show).
-- No `test_results` rows are produced. The per-attempt record is an
+- Every test case is **secret**. Interactive problems publish separate sample
+  interactions instead of test-case inputs or expected outputs.
+- No submission `test_results` rows are produced. The per-attempt record is an
   interactive-attempt row instead (see [Diagnostics](#8-diagnostics)).
 
 ## 2. Setting a validator on a problem
 
-The validator is a single **UTF-8 source file** in any globally active Autojudge language —
-not necessarily a language enabled for the contest. NOCA compiles it with that language's
-normal compile command.
+The validator is a single **UTF-8 source file** in any globally active
+Autojudge language, not necessarily a language enabled for the contest. NOCA
+compiles it with that language's normal compile command.
+
+The source must be non-empty and non-blank, and its encoded upload must not
+exceed 256 KiB. Multi-file bundles, prebuilt binaries, archives, and
+problem-defined build commands are not supported. NOCA uses the selected
+language's registered source filename, compile image, compile command, compile
+timeout, artifact rules, run image, and run command. The registered run command
+is the validator entry point; the problem cannot override it.
+
+NOCA does not supply or inject a validator helper library. A validator must be
+a standalone program that uses its language's normal runtime facilities and
+this protocol. The reference implementations later in this guide are examples,
+not runtime dependencies.
+
+The validation strategy is selected when the problem is created and is
+immutable afterward. An interactive problem cannot become a standard or checker
+problem; changing strategy requires creating a new problem from scratch. Web and
+Arena must eventually enforce this invariant in their creation and edit
+workflows. Removing validator source leaves the problem interactive but unable
+to accept submissions until another validator candidate becomes active.
+
+NOCA stores the language, UTF-8 source, and revision metadata, but never retains
+a compiled validator artifact. Candidate validation discards its artifact. The
+active source is compiled once for every submission or solution-test judgment,
+and that judgment-local artifact may be reused across its test cases. No
+artifact is cached across judgments or revisions.
 
 **Arena:** on the problem edit page, the *Custom interactive validator* card. Pick a language,
 upload the source, submit. New problems can also carry a validator straight from the create
@@ -91,16 +109,65 @@ result:
 
 - **Compiles** → the candidate is promoted to the active `VALID` revision. The problem can now
   be enabled and accept submissions.
-- **Fails to compile** → the candidate is kept as `INVALID` with the compiler diagnostics shown
-  on the page. An older active revision, if any, keeps working — a bad replacement never breaks
-  a problem that was already judging.
+- **Compiler rejection or compilation-limit violation** → the candidate is kept
+  as `INVALID`, with bounded diagnostics shown on the page. An older active
+  revision, if any, keeps working.
+- **Infrastructure failure** → the candidate remains `PENDING` while queue
+  recovery retries validation. The previous active revision, if any, keeps
+  working.
 
-While a validator is configured but not `VALID`, submissions to that problem are refused, and
-an Arena problem cannot be enabled.
+Here, **validated** means compilation or syntax checking only. Candidate
+validation never starts the validator, uses no problem test case or sample
+interaction, and accepts no author-provided valid or invalid protocol vectors.
+It therefore cannot prove that the compiled validator follows the runtime
+protocol; runtime crashes and other protocol outcomes follow
+[Failure handling and retries](#7-failure-handling-and-retries) when an actual
+judgment runs.
 
-**Replacing a validator:** remove the current one first, then upload the new one. **Removing**
-a validator clears both the active and candidate revisions; any in-flight validation job for
-the removed candidate is discarded harmlessly (its token no longer matches).
+Candidate compilation uses a disposable network-disabled compile container,
+the selected language's registered compile timeout, a 512 MB container memory
+limit, and a 128-PID container limit. Retained compiler diagnostics are capped
+at 8,192 characters by the shared compiler. There is no interactive watchdog
+or protocol-stream limit during candidate validation because the validator is
+not run.
+
+Promotion is token-fenced and transactional. The candidate is committed before
+its job is enqueued. The worker compiles it only while the candidate token still
+matches and its state is `PENDING`; a stale or superseded result is a no-op.
+Successful promotion updates the active language, source, state, and validation
+timestamp and clears the candidate fields in one commit. A compiler rejection
+or compilation-limit violation changes only the matching candidate to `INVALID`
+and preserves any active revision.
+
+Docker startup or communication errors, missing judge images, worker crashes,
+queue failures, database or storage failures, and artifact-transfer failures are
+infrastructure failures. They must not be reported as compiler rejections. The
+worker must leave the matching candidate `PENDING`, preserve the active
+revision, and let the existing queue recovery and reaper workflow retry the same
+candidate token. If retry recovery is exhausted, NOCA marks the candidate
+`INVALID` with a bounded diagnostic that states validation could not complete
+after repeated internal failures. Detailed infrastructure diagnostics remain in
+operator logs. An administrator can then retry validation or upload the
+candidate again without first removing the active revision.
+
+If staging cannot commit the candidate, the request fails and no candidate is
+published. If enqueueing fails after the commit, the committed candidate stays
+`PENDING` for reconciliation; an HTTP error alone is not the asynchronous
+recovery mechanism. If a promotion transaction rolls back, neither the active
+revision nor candidate state changes, and queue recovery may retry the job.
+
+When a problem has no active `VALID` validator, submissions to it are refused,
+and an Arena problem cannot be enabled. A pending or invalid replacement does
+not block judging with the previous active `VALID` revision.
+
+**Replacing a validator:** upload the new source as a candidate without removing
+the active revision. Both domains continue judging with the previous active
+`VALID` revision while the replacement is `PENDING` or `INVALID`. A successful
+candidate promotion atomically replaces the active revision. **Removing** a
+validator clears both the active and candidate revisions; any in-flight
+validation job for the removed candidate is discarded harmlessly because its
+token no longer matches. Removal does not convert the problem to another
+validation strategy.
 
 Removing a validator also leaves the problem's [sample interactions](#3-test-cases-and-sample-interactions)
 with nothing to illustrate, so the removal is confirmed through a modal that makes you choose:
@@ -108,8 +175,24 @@ with nothing to illustrate, so the removal is confirmed through a modal that mak
 permanently. The endpoints require that choice as an exact `keep_interactions=true|false`; there
 is no default.
 
-**Downloading:** the problem edit page offers the current validator source; the submission
-review/detail pages offer the validator that judged that submission.
+**Downloading:** the problem edit page offers the current active validator
+source. The Web Contest submission review page also offers that current source
+to authorized staff and labels it as current. Arena submission detail pages do
+not display a validator source or version. NOCA does not retain the validator
+revision that originally judged a completed submission, and no submission page
+can reconstruct it. Replacing or removing the active validator may therefore
+change or remove the source available from a historical Web submission page.
+
+Changing a validator does not change completed judgment records automatically.
+An administrator who wants existing submissions evaluated with the replacement
+must explicitly requeue those submissions; the new judgments use the active
+validator at dispatch time. Persistently pinning each judgment to its validator
+revision may be added in a future release.
+
+**Profiling and Auto-Limit:** interactive problems support neither profiling nor
+Auto-Limit. Their limits must be configured explicitly. Candidate compilation
+still uses the profiling-priority queue; that queue placement does not make the
+problem eligible for profiling.
 
 **Problem packages:** an export of a validator problem carries `validator/validator<ext>`
 (e.g. `validator/validator.py`, named for the validator's language) plus a
@@ -122,7 +205,13 @@ interactions. A package with **no** validator has its `interaction/` folder drop
 package with no interactions imports fine but warns you that the problem shows no examples.
 Public exports never include validator source, but they *do* include the sample interactions —
 those are the public examples. See
-[PROBLEM_PACKAGE_FORMAT.md](PROBLEM_PACKAGE_FORMAT.md).
+[problem package format](../PROBLEM_PACKAGE_FORMAT.md).
+
+The future package version that introduces output checkers also makes
+`validator_type` explicit. In that version, an interactive package must declare
+`"validator_type": "interactive"` together with its `custom_validator`, and
+package updates must not change an existing problem's strategy. The current
+package format remains unchanged until that version bump is implemented.
 
 ## 3. Test cases and sample interactions
 
@@ -135,20 +224,39 @@ Each case carries **input and an optional explanation, no expected output**. The
 to the validator's stdin before the conversation starts, so it *parametrizes* one round rather
 than declaring an answer; the validator decides the verdict.
 
-Every case is **secret**. A bare input reveals a secret without showing the contestant what to do
-with it, so there is nothing worth publishing. The rule a problem with a configured validator must
-satisfy is therefore:
+Every case is **secret**. A bare input reveals a secret without showing the
+contestant what to do with it, so there is nothing worth publishing. Every
+problem whose immutable strategy is `interactive` must therefore satisfy this
+rule, even while it has no active validator source:
 
 > **zero public test cases, and at least one secret one.**
 
-The application keeps it that way from several directions: staging a validator demotes any
-existing public case to secret, the sample/secret toggle is refused while a validator is
-configured, new cases are forced secret, and no edit path may remove the last secret case.
+The application keeps it that way from several directions: selecting the
+interactive strategy during creation makes every case secret, the sample/secret
+toggle is refused for interactive problems, new cases are forced secret, and no
+edit path may remove the last secret case.
 
 The "at least one secret case" half is a **gate**, not a write barrier. Arena's create form
 legitimately stages a validator on a brand-new *disabled* problem that has no cases yet, so an
 incomplete draft is allowed to exist. It is only forced to be complete where it would become
 visible or judgeable: the Arena enable gate, and the submission preflight in both modules.
+
+### Test-case changes and rejudging
+
+Adding, removing, reordering, or replacing an interactive test-case input does
+not alter completed judgments, invalidate the active validator, disable the
+problem, or automatically requeue submissions. An administrator or problem
+owner who wants all existing submissions evaluated against the changed cases
+must explicitly request a full rejudgment for that problem. The rejudgment uses
+the active validator and test-case data available at its dispatch time.
+
+A queued judgment that has not been dispatched uses the latest published case
+set when it is dispatched. At dispatch, Autojudge loads one coherent, ordered,
+job-local copy of every test-case input. A running judgment continues to use
+that copy, so a concurrent edit cannot make one judgment mix old and new test
+cases. The copy is ephemeral and is destroyed when the job ends; completed
+judgments do not retain an immutable test-case revision or complete input
+snapshot.
 
 ### Sample interactions: the public examples
 
@@ -198,10 +306,13 @@ A validator plays one round, from the top, on a fresh process. Do these seven th
 2. **Read the test case from stdin.** This is the round's secret data — the number to guess, the
    hidden graph, the query budget. Read *exactly* as many bytes as the case holds and not one
    more, because the contestant's first message is already queued behind it on the same stream.
-3. **Optional: read the limits from the environment.** `PROBLEM_TIME_LIMIT`, `USER_LANGUAGE`, and
-   the rest (see [Limit metadata available to the validator](#limit-metadata-available-to-the-validator))
-   let you scale a query budget to the submitted language instead of hard-coding one. Treat every
-   one as optional: read it, and fall back to a default when it is unset.
+3. **Read limits from the environment when needed.** `PROBLEM_TIME_LIMIT`,
+   `USER_LANGUAGE`, and the other core values listed in
+   [Limit metadata available to the validator](#limit-metadata-available-to-the-validator)
+   are guaranteed by the runtime contract. They let you scale a query budget to
+   the submitted language instead of hard-coding one. A validator may still use
+   defensive fallbacks so it can run in a local development environment that
+   does not reproduce NOCA's complete contract.
 4. **Open the conversation.** Print whatever the protocol says the contestant hears first — the
    upper bound, the board size, the number of queries it gets — and **flush**.
 5. **Loop over the contestant's messages.** For each line it sends:
@@ -224,7 +335,7 @@ In pseudocode:
 AC, WA, TLE, RE, PE = 0, 1, 2, 3, 4
 
 max_value, max_tries, secret = read three lines of case input
-limits = read environment (optional)
+limits = read guaranteed environment values when needed
 
 print(max_value); flush                  # open the conversation
 
@@ -394,10 +505,12 @@ is the validator's responsibility.**
 
 ### Limit metadata available to the validator
 
-The validator process receives the submitted language and the effective problem
-limits as environment variables. These values let you adapt the protocol or
-enforce a custom time budget from inside the validator; they do not change which
-limits the judge enforces automatically.
+The validator process always receives the submitted language and the effective
+problem limits as the five core environment variables below. Their presence is
+part of the runtime contract. These values let you adapt the protocol or enforce
+a custom time budget from inside the validator; they do not change which limits
+the judge enforces automatically. Defensive handling of missing values is only
+portability advice for running a validator outside NOCA.
 
 | Environment variable | Value |
 | --- | --- |
@@ -407,24 +520,10 @@ limits the judge enforces automatically.
 | `PROBLEM_PID_LIMIT` | Effective PID limit for the submitted language |
 | `USER_LANGUAGE` | Submitted language ID, such as `python3` |
 
-For Web contest problems, validators also receive `PER_LANGUAGE_LIMITS`: a JSON
-object keyed by language ID. Each entry contains the effective limits that would
-apply to that language:
-
-```json
-{
-  "python3": {
-    "time_limit_ms": 1000,
-    "memory_limit_kb": 262144,
-    "pids_limit": 64,
-    "output_limit_in_bytes": 65536,
-    "repetitions": 1
-  }
-}
-```
-
-Arena problems do not set `PER_LANGUAGE_LIMITS` because Arena has one effective
-limit set per problem, not contest-level per-language overrides.
+These five values contain everything the validator receives about problem
+limits. Web and Arena do not inject the limits of other languages. A validator's
+behavior must not depend on which unrelated languages are enabled or on their
+configured limits.
 
 ### Applied to the validator
 
@@ -465,42 +564,106 @@ contestant).
 
 ## 8. Diagnostics
 
-Each attempt is recorded in `submission_interactive_attempts` /
-`arena_submission_interactive_attempts`, holding the `test_case_ordinal` it belongs to, both
-exit codes and signals, the contestant's wall time and memory, the enforced-limit outcome,
-either the clean validator verdict or a typed crash reason, bounded **stderr** excerpts for both
-sides, and the **transcript**.
+Interactive diagnostics preserve the last conversation that could explain a
+judgment without retaining every secret interaction. Attempt records, captured
+streams, and validator-source access remain separate concerns.
 
-A judgment retains only the attempts of the **last executed test case** (at most two rows: the
-attempt plus its retry). Starting a new case clears the previous case's rows, so what survives
-is the conversation that actually decided the submission — the failing one. On an accepted
-submission every case passed, so there is nothing to explain and **the frontends show no
-transcript at all**; they render it only for a non-`AC` verdict, naming the test case it came
-from.
+### Submission-attempt records
 
-The transcript is the conversation itself, captured by the judge as it relays the bytes:
-an ordered, line-split JSON list of `{"dir": "user" | "validator", "line": ...}` entries. The
-test case's own input is **not** part of it — it is the problem's data, not something either
-side said. Recording is capture-only: past its 256 KiB cap the transcript is flagged truncated
-and stops growing, while the run itself continues unaffected — a verdict never depends on the
-recording.
+Each attempt is recorded in `submission_interactive_attempts` or
+`arena_submission_interactive_attempts`. Its row holds the test-case ordinal,
+attempt number, both exit codes and signals, contestant wall time and memory,
+contestant output byte count, enforced-limit outcome, clean validator verdict
+or typed crash reason, bounded stderr excerpts for both sides, and the
+transcript.
 
-Diagnostics (including the validator source) are visible only to the audiences already trusted
-with test-case data: contest admins/judges and the submission's owner in Arena. They are never
-shown to other contestants.
+A judgment retains only the attempts of the last executed test case, with at
+most two rows. Recording attempt 1 for a new case clears the previous case's
+rows. Recording attempt 2 replaces only an existing attempt-2 row. A crash on
+attempt 1 followed by a valid retry therefore leaves both rows only while that
+case remains the last executed case.
+
+On an accepted submission every case passed. The final case's attempt rows may
+remain in the database, but the frontends show no transcript for `AC`. They
+render attempts only for a non-`AC` or failed judgment and identify the test
+case that produced them.
+
+### Transcript and stderr capture
+
+The transcript is the conversation captured while the judge relays it. It is
+an ordered, line-split JSON list of
+`{"dir": "user" | "validator", "line": ..., "partial"?: true}` entries. A
+trailing line without a newline carries `partial: true`. The test-case input is
+not part of the transcript because it is problem data rather than a message
+produced by either process.
+
+The transcript retains a prefix of complete protocol lines containing at most
+256 KiB of raw line-content bytes across both directions. Newline separators do
+not count toward the cap. If the next complete line would exceed the cap, NOCA
+omits that whole line, sets `truncated: true`, and records no later lines. The UI
+renders a truncation notice from that flag. Recording is capture-only: the judge
+continues relaying bytes, and the cap cannot change the verdict.
+
+Contestant and validator stderr each retain their first 16 KiB of raw bytes per
+attempt. NOCA appends no marker and stores no stderr truncation flag. A stored
+excerpt of exactly 16 KiB therefore does not prove that the process produced no
+additional stderr.
+
+Byte caps apply before decoding. NOCA decodes transcript lines and stderr as
+UTF-8 with replacement, so invalid sequences become `U+FFFD`, then removes NUL
+characters because PostgreSQL text columns cannot store them.
+
+### Solution-test attempts
+
+Interactive solution tests use `solution_test_case_results`, with a non-null
+`attempt_number` distinguishing interactive attempts from ordinary case rows.
+They follow the same last-case-only, two-attempt retention policy and the same
+transcript and stderr capture limits as submission judgments.
+
+The aligned contract requires solution-test attempts to retain both process
+exit codes and signals, both stderr excerpts, the transcript, contestant
+measurements, and the clean validator verdict or typed crash reason. The current
+schema retains only part of that validator-side detail; completing parity is an
+implementation backlog item. Solution-test diagnostics are visible only to the
+Contest administrators and judges authorized to access that solution-test run.
+
+### Visibility and validator source
+
+Web Contest submission diagnostics are visible only to Uberadmins, contest
+admins, and judges. Contestants cannot access the submission-review page, even
+for their own submissions.
+
+Arena diagnostics are visible to the submission owner, Arena admins, and an
+authorized teacher viewing the submission through its class-report context.
+Other Arena users and unrelated contestants cannot access them. Operators can
+inspect persisted attempts and service logs through operational access; this
+contract does not introduce an operator-facing application role or page.
+
+Validator-source access is separate. Authorized problem managers can download
+the current active source from the problem editor. Authorized Web Contest staff
+can also download that current source from a historical submission page, where
+it must be labeled as current. Arena submission pages expose no validator source
+or version. No submission page can recover the validator revision that produced
+a historical judgment.
 
 ## 9. Limits and constants at a glance
 
 | Thing | Value |
 | --- | --- |
 | Validator source upload | UTF-8, max **256 KiB**, non-empty |
-| Compiler diagnostics retained on a failed candidate | 16 384 characters |
+| Candidate validation | Source/metadata validation plus compilation or syntax check only; the validator is not run |
+| Candidate compiler failure | `INVALID`; retain bounded compiler diagnostics and preserve any active revision |
+| Candidate infrastructure failure | Keep `PENDING` and retry through queue recovery; after exhaustion, mark `INVALID` with an internal-failure diagnostic |
+| Candidate compile container | Network disabled, 512 MB memory limit, 128-PID limit, registered per-language compile timeout |
+| Compiler diagnostics retained on a failed candidate | 8 192 characters |
+| Profiling and Auto-Limit | Not supported; configure interactive problem limits explicitly |
+| Compiled validator retention | None; compile the active source once per judgment |
 | Test cases required | **at least 1 secret** case; an interactive problem has no public ones |
 | Sample interactions per problem | max **5** (`MAX_SAMPLE_INTERACTIONS`) |
 | Attempts per test case | 2 (one retry, only for unclean validator exits) |
 | Attempt rows kept per judgment | 2 (the last executed case only) |
 | Interactive watchdog | `NOCA_JUDGE_CUSTOM_VALIDATOR_WATCHDOG_SECONDS`, default **300 s**, **per test case** |
 | Contestant output limit | `min(` the problem's `output_limit_in_bytes`, `NOCA_JUDGE_OUTPUT_LIMIT_BYTES)` (global ceiling, default 64 MB), counted per test case. The problem always states one — the column is NOT NULL — so the global value is a ceiling, not a fallback. |
-| Validator limit env vars | `PROBLEM_TIME_LIMIT`, `PROBLEM_OUTPUT_LIMIT`, `PROBLEM_MEMORY_LIMIT`, `PROBLEM_PID_LIMIT`, `USER_LANGUAGE`; Web contest problems also set `PER_LANGUAGE_LIMITS` |
+| Validator limit env vars | `PROBLEM_TIME_LIMIT`, `PROBLEM_OUTPUT_LIMIT`, `PROBLEM_MEMORY_LIMIT`, `PROBLEM_PID_LIMIT`, `USER_LANGUAGE` |
 | Transcript recording cap | 256 KiB per attempt, then flagged truncated |
 | stderr excerpt cap (per side) | 16 KiB |

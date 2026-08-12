@@ -1,8 +1,9 @@
 # Arena AI Review Flow
 
 This document describes the end-to-end life cycle of an Arena AI code review
-request, from the user clicking "Request AI Review" through to the review being
-displayed on the submission detail page.
+request, from the user clicking "Want some help?" and confirming in the
+"Confirm AI review" modal through to the review being displayed on the
+submission detail page.
 
 For the worker module boundary, runtime loops, and security guardrails, see
 [AI assistant module](AIASSISTANT.md).
@@ -13,8 +14,9 @@ There are two distinct execution paths:
   OpenAI API key. The review is produced synchronously and stored immediately,
   typically within a few seconds.
 - **Batch path** — used when no user key exists and the platform key
-  (`NOCA_AI_OPENAI_API_KEY`) is configured. The review is submitted to the OpenAI
-  Batch API and polled for completion. Results typically arrive within a few
+  (`NOCA_AI_OPENAI_API_KEY`) is configured. The job is first staged in
+  PostgreSQL, then submitted to the OpenAI Batch API in a windowed multi-item
+  batch and polled for completion. Results typically arrive within a few
   hours, up to 24 hours.
 
 ---
@@ -56,14 +58,15 @@ arena (FastAPI)
                 ▼
            Valkey: ai:queue:pending (LIST)
                 │
-    ┌───────────┘ BLMOVE (atomic)
+    ┌───────────┘ Lua script (atomic RPOP → LPUSH)
     │
     ▼
 aiassistant worker (dequeue loop)
     │
     ├── reads use_platform_key from ai:job:{submission_id} hash (decision frozen at request time)
     │       use_platform_key=False → Online path (Responses API, sync) ──► result stored immediately
-    │       use_platform_key=True  → Batch path (Batch API, async)     ──► poller stores result later
+    │       use_platform_key=True  → Batch path: stage row, then windowed ──► poller stores result later
+    │                                  batch flush + poll (async)
     │
     ▼
 arena_submission_ai_reviews (PostgreSQL)
@@ -85,10 +88,11 @@ arena (FastAPI) displays review on submission detail page
 | Valkey job hash | `ai:job:{submission_id}` HASH | Stores recovery metadata while the Valkey job is active; terminal cleanup deletes it |
 | `aiassistant` worker — dequeue loop | `aiassistant/worker.py` | Dequeues jobs, dispatches to online or batch path |
 | `aiassistant` worker — reaper loop | `aiassistant/reaper.py` | Recovers stale inflight jobs |
-| `aiassistant` worker — reconciler loop | `aiassistant/reconciler.py` | Re-enqueues jobs lost between the request route's DB commit and Valkey enqueue |
+| `aiassistant` worker — reconciler loop | `aiassistant/reconciler.py` | Re-enqueues jobs lost between the request route's DB commit and Valkey enqueue (re-derives `use_platform_key` from the user's current key state) |
+| `aiassistant` worker — batch flusher loop | `aiassistant/batch_flusher.py` | Collects `staged` rows and submits them as one windowed multi-item OpenAI batch |
 | `aiassistant` worker — batch poller | `aiassistant/batch_poller.py` | Polls OpenAI for completed batches, stores results |
 | Online reviewer | `aiassistant/reviewer.py` | Synchronous OpenAI Responses API call |
-| Batch reviewer | `aiassistant/batch_reviewer.py` | Builds JSONL, uploads files, calls `batches.create` |
+| Batch reviewer | `aiassistant/batch_reviewer.py` | Builds the windowed multi-item JSONL, uploads files, calls `batches.create` |
 | Batch job table | `arena_ai_batch_jobs` | Durable state machine for each submitted batch |
 | Review result table | `arena_submission_ai_reviews` | Stores the final AI response text and cost |
 | Notifications table | `arena_notifications` | `AI_REVIEW_COMPLETED` or `AI_REVIEW_FAILED` events |
@@ -99,15 +103,17 @@ arena (FastAPI) displays review on submission detail page
 
 | Key | Type | Purpose |
 |-----|------|---------|
-| `ai:queue:pending` | LIST (LPUSH/BRPOPLPUSH) | FIFO queue of `submission_id` strings awaiting processing |
+| `ai:queue:pending` | LIST (LPUSH enqueue; Lua RPOP → LPUSH dequeue) | FIFO queue of `submission_id` strings awaiting processing |
 | `ai:queue:inflight` | LIST | `submission_id` strings currently being processed by the worker |
 | `ai:queue:inflight:times` | ZSET (score = epoch seconds) | Dispatch timestamps; used by the reaper to detect stale jobs |
-| `ai:job:{submission_id}` | HASH | `user_id`, `problem_id`, `language_id`, `use_platform_key`, `requeue_count` |
+| `ai:job:{submission_id}` | HASH | `submission_id`, `user_id`, `problem_id`, `language_id`, `use_platform_key`, `requeue_count`, `job_kind` |
 | `ai:batch:turnaround:stats` | STRING (JSON) | Statistics for the 100 most recent successful platform-key reviews |
 
-The atomic dequeue uses a Lua script that moves the item from `ai:queue:pending`
-to `ai:queue:inflight` in a single operation, preventing double-processing even
-under concurrent workers.
+The atomic dequeue uses a Lua script that `RPOP`s the item from
+`ai:queue:pending` and `LPUSH`es it to `ai:queue:inflight` in a single
+operation, preventing double-processing even under concurrent workers. The
+dispatch timestamp (`ZADD ai:queue:inflight:times`) is a separate follow-up
+command.
 
 ---
 
@@ -139,7 +145,7 @@ arena HTTP ──► credit gate passed (user has own API key)
            ──► use_platform_key=False frozen in job hash
            ──► submit_to_ai=True, LPUSH ai:queue:pending
                             │
-                    dequeue loop (BLMOVE)
+                    dequeue loop (Lua RPOP → LPUSH)
                             │
                     reads use_platform_key=False from hash
                             │
@@ -236,67 +242,86 @@ Stored as integer micros (`round(cost × 1_000_000)`) in `_ai_review_cost`.
 
 Used when the user had no personal API key at request time (`use_platform_key=True` in the job hash). One `ai_backend_credits` credit was consumed atomically by the Arena HTTP layer before enqueuing. Requires `NOCA_AI_OPENAI_API_KEY` to be set on the worker side.
 
-### 6.1 Submission phase (dequeue loop)
+### 6.1 Staging phase (dequeue loop)
+
+The dequeue loop makes no OpenAI call for platform-key jobs. It stages the job
+in PostgreSQL and completes the Valkey job; the batch flusher loop (§6.2)
+submits it to OpenAI later.
 
 ```
 dequeue loop → reads use_platform_key=True from hash
              → _process_job(use_platform_key=True)
                     │
-              api_key = platform key     ← NOCA_AI_OPENAI_API_KEY
-              is_platform_key = True
+              _process_job_batch()       ← no OpenAI calls here
                     │
-              _process_job_batch()
-                    │
-              ┌──────────────────────────────────────────────────────┐
-              │  batch_reviewer.submit_ai_batch_review()             │
-              │                                                      │
-              │  1. write source code to temp file                   │
-              │  2. write problem statement to temp file             │
-              │  3. files.create(code, purpose="user_data")          │
-              │     → code_file_id                                   │
-              │  4. files.create(stmt, purpose="user_data")          │
-              │     → statement_file_id                              │
-              │  5. build JSONL line:                                │
-              │     { "custom_id": submission_id,                    │
-              │       "method": "POST",                              │
-              │       "url": "/v1/responses",                        │
-              │       "body": { model, instructions,                 │
-              │                 max_output_tokens, reasoning,        │
-              │                 input: [input_file, input_file,      │
-              │                         input_image?, input_text] }} │
-              │  6. files.create(jsonl, purpose="batch")             │
-              │     → input_file_id                                  │
-              │  7. batches.create(                                   │
-              │       input_file_id=input_file_id,                   │
-              │       endpoint="/v1/responses",                      │
-              │       completion_window="24h"                        │
-              │     ) → openai_batch_id                              │
-              │  8. delete three temp files from disk                │
-              │  *** OpenAI files are NOT deleted here ***           │
-              └──────────────────────────────────────────────────────┘
-                    │
-              ┌── AuthenticationError / PermissionDeniedError?
-              │     clear submit_to_ai flag
-              │     store AI_REVIEW_FAILED notification
-              │     complete_arena_ai_review_job()
-              │     (no retry — bad platform key)
-              │
-              └── success:
-                    (a) insert_batch_job()
-                          → INSERT arena_ai_batch_jobs
-                            (local_status = 'submitted')
-                    (b) complete_arena_ai_review_job()
+              (a) insert_staged_batch_job()
+                    → INSERT arena_ai_batch_jobs (local_status = 'staged')
+              (b) complete_arena_ai_review_job()
+                    → remove pending and inflight entries, dispatch
+                      timestamp, and job hash from Valkey
 ```
 
-> **Crash safety:** `(a)` writes the DB row before `(b)` removes the pending and
-> inflight entries, dispatch timestamp, and job hash from Valkey. If the
-> process crashes between the two, the reaper re-enqueues the job. On
-> re-processing, the idempotency guard detects the existing
-> `arena_ai_batch_jobs` row and skips without creating a duplicate batch.
+> **Crash safety:** `(a)` writes the DB row before `(b)` removes the Valkey
+> job state. If the process crashes between the two, the reaper re-enqueues
+> the job. On re-processing, the idempotency guard detects the non-terminal
+> (`staged`) `arena_ai_batch_jobs` row and skips without creating a duplicate.
 
-### 6.2 `arena_ai_batch_jobs` local status state machine
+### 6.2 Windowed flush (batch flusher loop)
+
+The batch flusher loop wakes every `5 × AI_BATCH_POLL_INTERVAL_SECONDS`
+(default 25 minutes), or immediately on the signed `flush-now` worker command.
+Each cycle collects every `staged` row and submits all of them as **one**
+multi-item OpenAI batch, so several submissions share a single
+`openai_batch_id`. If nothing is staged, the cycle is a no-op.
 
 ```
+run_batch_flusher_loop()
+    │
+    └── every flush window (or flush-now trigger):
+            get_staged_batch_jobs()  ← rows where local_status = 'staged'
+                │
+                └── staged rows exist and NOCA_AI_OPENAI_API_KEY is set:
+                        build one StagedItem per row
+                          (submission, problem statement, preferred language,
+                           interactive context)
+                        submit_windowed_batch()
+                          1. per item: write wrapped source and statement
+                             temp files
+                          2. per item: files.create(code, purpose="user_data")
+                          3. per item: files.create(stmt, purpose="user_data")
+                          4. one JSONL line per item:
+                             { "custom_id": submission_id,
+                               "method": "POST",
+                               "url": "/v1/responses",
+                               "body": { model, instructions,
+                                         max_output_tokens, reasoning,
+                                         input: [input_file, input_file,
+                                                 input_image?, input_text] } }
+                          5. files.create(jsonl, purpose="batch")
+                             → shared input_file_id
+                          6. batches.create(endpoint="/v1/responses",
+                                            completion_window="24h")
+                             → shared openai_batch_id
+                          7. delete all temp files from disk
+                          *** OpenAI files are NOT deleted here ***
+                        mark_staged_jobs_submitted()
+                          → every flushed row: local_status = 'submitted',
+                            shared openai_batch_id and input_file_id,
+                            per-item code_file_id and statement_file_id
+```
+
+Staged rows whose submission no longer exists are skipped and left `staged`.
+If the flusher crashes after `batches.create` but before
+`mark_staged_jobs_submitted` commits, the staged rows are unchanged and the
+next window submits a fresh batch; the orphaned OpenAI batch is an accepted
+side effect.
+
+### 6.3 `arena_ai_batch_jobs` local status state machine
+
+```
+                  [staged]   (dequeue loop insert; excluded from polling)
+                      │  batch flusher window (§6.2)
+                      ▼
                   [submitted]
                       │
           ┌───────────┘  (first poller cycle)
@@ -321,11 +346,15 @@ invisible until the transaction commits, at which point it is already `expired`.
 It is **not** a terminal status (so a crashed mid-expiry row is re-detected and
 retried), but it is excluded from the pollable set and from `update_batch_job_poll`.
 
+`staged` rows are excluded from the pollable set as well — they have no OpenAI
+batch until the flusher submits one. The `ArenaAIBatchJobStatus` enum also
+defines `preparing`, a legacy value written by no current code.
+
 OpenAI statuses that are tracked verbatim in `openai_status`:
 `validating`, `in_progress`, `finalizing`, `completed`,
 `failed`, `expired`, `cancelling`, `cancelled`.
 
-### 6.3 Polling phase (batch poller loop)
+### 6.4 Polling phase (batch poller loop)
 
 The batch poller loop wakes every `AI_BATCH_POLL_INTERVAL_SECONDS` (default 300 s)
 and processes every non-terminal `arena_ai_batch_jobs` row.
@@ -334,7 +363,7 @@ and processes every non-terminal `arena_ai_batch_jobs` row.
 batch_poller.run_batch_poller_loop()
     │
     └── every AI_BATCH_POLL_INTERVAL_SECONDS:
-            _expire_stale_batches()  ← runs first; see §6.4
+            _expire_stale_batches()  ← runs first; see §6.5
             get_pending_batch_jobs()  ← rows where local_status NOT IN terminal set
                 │
                 └── for each job:
@@ -373,11 +402,13 @@ batch_poller.run_batch_poller_loop()
                                     record last_error on batch row
                                 │
                         finalize_batch_job()  ← local_status, completed_at
-                        _delete_openai_files()
+                        delete_openai_files()
                             delete: input_file_id, code_file_id,
                                     statement_file_id, error_file_id
-                            (each deletion wrapped in contextlib.suppress —
-                             a failure on one does not abort the others)
+                            (each deletion guarded by its own try/except —
+                             a failure on one does not abort the others;
+                             failed deletions are recorded durably via
+                             record_batch_cleanup_error)
                 │
                 └── if at least one batch completed:
                         recompute turnaround statistics from PostgreSQL
@@ -402,7 +433,7 @@ render an unavailable state when the key is missing or invalid.
 Overrideable via `NOCA_AI_OPENAI_BATCH_INPUT_TOKEN_PRICE` / `NOCA_AI_OPENAI_BATCH_OUTPUT_TOKEN_PRICE`.  
 `used_platform_key = True`.
 
-### 6.4 Stale-batch detector (`_expire_stale_batches`)
+### 6.5 Stale-batch detector (`_expire_stale_batches`)
 
 OpenAI batch jobs can hang without reaching a terminal status — either because of
 a pipeline issue on our side or at OpenAI. When that happens the user's platform
@@ -510,10 +541,10 @@ On re-enqueue, `_process_job` runs the idempotency checks again:
 |----------|-----------|
 | Review requested twice (double-click) | Arena HTTP layer returns early when an `arena_submission_ai_reviews` row exists; when only `submit_to_ai=True` it re-enqueues idempotently to self-heal a lost job — no credit charged on the duplicate |
 | Request route crashes (or Valkey enqueue fails) after the `submit_to_ai=True` commit but before the enqueue | The reconciler loop finds the flagged submission with no pending/inflight queue presence and re-enqueues it; a user re-request also self-heals it |
-| Re-request after a previous attempt failed (terminal `arena_ai_batch_jobs` row, no review) | Dequeue loop's guard deletes the spent terminal batch row and submits a fresh batch instead of skipping |
+| Re-request after a previous attempt failed (terminal `arena_ai_batch_jobs` row, no review) | Dequeue loop's guard deletes the spent terminal batch row and stages a fresh one instead of skipping; the flusher submits it in the next window |
 | Worker crashes after API call but before `complete_arena_ai_review_job` | Reaper re-enqueues; dequeue loop finds existing `arena_submission_ai_reviews` row and performs terminal cleanup |
-| Worker crashes after `batches.create` but before `insert_batch_job` | Orphaned OpenAI batch and files; reaper re-enqueues; no DB row found → new batch submitted (old files must be cleaned manually) |
-| Worker crashes after `insert_batch_job` but before `complete_arena_ai_review_job` | Reaper re-enqueues; dequeue loop finds the non-terminal `arena_ai_batch_jobs` row and performs terminal cleanup |
+| Flusher crashes after `batches.create` but before `mark_staged_jobs_submitted` | Orphaned OpenAI batch and files; the `staged` rows are unchanged, so the next flush window submits a fresh batch (old files must be cleaned manually) |
+| Worker crashes after `insert_staged_batch_job` but before `complete_arena_ai_review_job` | Reaper re-enqueues; dequeue loop finds the non-terminal (`staged`) `arena_ai_batch_jobs` row and performs terminal cleanup |
 | Batch poller crashes mid-output-processing | `finalize_batch_job` not called; job remains non-terminal; next poller cycle retries the whole output parse (result storage uses `ON CONFLICT DO NOTHING`) |
 
 ---
@@ -542,9 +573,13 @@ shows one of four states for the AI review section, evaluated in this order:
 | Priority | Condition | UI displayed |
 |----------|-----------|-------------|
 | 1 | `ai_review` row exists | Review text, timestamp, and cost (if recorded) |
-| 2 | `submission_submit_to_ai = True` (online path pending) | "AI review in progress…" spinner |
-| 3 | `batch_local_status` is non-terminal (batch path pending) | "Review queued for batch processing — results usually ready within a few hours (up to 24 h)" |
-| 4 | None of the above | "Request AI Review" button |
+| 2 | `batch_local_status` is non-terminal (batch path pending) | "Your review has been queued for batch processing — results are usually ready within a few hours (up to 24 h)" |
+| 3 | `submission_submit_to_ai = True` (online path pending) | "AI review pending — you'll be notified when it's ready." |
+| 4 | None of the above | "Want some help?" button (opens the "Confirm AI review" modal) |
+
+The batch state is checked before `submit_to_ai` because the flag stays `True`
+while a staged or submitted batch is pending — the opposite order would
+permanently shadow the batch-queued state.
 
 The `batch_local_status` is surfaced by LEFT JOINing `arena_ai_batch_jobs` in
 the submission detail query (`arena/routes/submissions.py`).
@@ -558,6 +593,7 @@ the submission detail query (`arena/routes/submissions.py`).
 | `NOCA_AI_OPENAI_API_KEY` | *(unset)* | Platform-level API key. Unset = batch path inactive; user keys only |
 | `NOCA_AI_OPENAI_MODEL` | `gpt-5.4-mini` | OpenAI model for all reviews |
 | `NOCA_AI_OPENAI_MAX_OUTPUT_TOKENS` | `500` | Maximum output tokens per review |
+| `NOCA_AI_OPENAI_REASONING_EFFORT` | `medium` | Reasoning effort for the Responses API (`none`, `low`, `medium`, `high`, `xhigh`) |
 | `NOCA_AI_OPENAI_INPUT_TOKEN_PRICE` | `0.75` | USD per 1M input tokens (online path cost recording) |
 | `NOCA_AI_OPENAI_OUTPUT_TOKEN_PRICE` | `4.50` | USD per 1M output tokens (online path cost recording) |
 | `NOCA_AI_OPENAI_BATCH_INPUT_TOKEN_PRICE` | *(unset — half of online)* | USD per 1M input tokens (batch path). Defaults to `OPENAI_INPUT_TOKEN_PRICE / 2` |

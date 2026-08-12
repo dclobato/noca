@@ -1,0 +1,156 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% from "_macros.html" import render_icon with context %}
+<div id="healthmon-dashboard-live"
+     hx-get="{{ request.url_for("healthmon_dashboard_refresh") }}"
+     hx-trigger="every 30s"
+     hx-target="this"
+     hx-swap="outerHTML"
+     hx-indicator="#healthmon-refresh-indicator"
+     data-healthmon-uptime-url="{{ request.url_for("healthmon_uptime_data") }}">
+    {% if summary["unknown"] == service_statuses | length %}
+        {% set overview_tone = "warning" %}
+        {% set overview_icon = "visibility_off" %}
+        {% set overview_title = "Monitoring data is temporarily unavailable" %}
+        {% set overview_detail = "Every service is shown as Unknown." %}
+    {% elif summary["unavailable"] > 0 %}
+        {% set overview_tone = "danger" %}
+        {% set overview_icon = "error" %}
+        {% set overview_title = "%d of %d services unavailable" | format(summary["unavailable"], service_statuses | length) %}
+        {% set overview_detail = none %}
+    {% else %}
+        {% set overview_tone = "success" %}
+        {% set overview_icon = "check_circle" %}
+        {% set overview_title = "All systems operational" %}
+        {% set overview_detail = none %}
+    {% endif %}
+    <section class="healthmon-overview healthmon-overview--{{ overview_tone }} mb-4">
+        <span class="healthmon-overview-icon" aria-hidden="true">{{ render_icon(icon=overview_icon, filled=True) }}</span>
+        <div class="healthmon-overview-copy" role="status">
+            <h2 class="healthmon-overview-title mb-1">{{ overview_title }}</h2>
+            {% if overview_detail %}<p class="healthmon-overview-detail mb-1">{{ overview_detail }}</p>{% endif %}
+            <p class="healthmon-overview-time mb-0">
+                Checked at
+                <time datetime="{{ checked_at.isoformat() }}">{{ checked_at.strftime("%H:%M:%S UTC") }}</time>
+                <span id="healthmon-refresh-indicator"
+                      class="healthmon-refresh-indicator htmx-indicator"
+                      role="status">Refreshing&hellip;</span>
+            </p>
+        </div>
+        <div class="healthmon-overview-actions">
+            <button id="healthmon-refresh-toggle"
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    data-healthmon-refresh-toggle>Pause automatic refresh</button>
+            <button id="healthmon-refresh-now"
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    hx-get="{{ request.url_for("healthmon_dashboard_refresh") }}"
+                    hx-target="#healthmon-dashboard-live"
+                    hx-swap="outerHTML"
+                    hx-indicator="#healthmon-refresh-indicator">Refresh now</button>
+        </div>
+    </section>
+    <div class="d-flex flex-column gap-3">
+        {% for status in service_statuses %}
+            {% set service_key = status.service.worker_class.value %}
+            <section class="healthmon-card" data-healthmon-service="{{ service_key }}">
+                <div class="healthmon-card-head">
+                    <h2 class="healthmon-card-title mb-0">
+                        <button id="heatmap-toggle-{{ service_key }}"
+                                class="healthmon-card-toggle"
+                                type="button"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#heatmap-{{ service_key }}"
+                                aria-expanded="true"
+                                aria-controls="heatmap-{{ service_key }}"
+                                aria-label="Collapse or expand the {{ status.service.title }} heatmap">
+                            {{ render_icon(icon=status.service.icon) }}
+                            {{ status.service.title }}
+                            {{ render_icon(icon="expand_more", classes="healthmon-chevron") }}
+                        </button>
+                    </h2>
+                    {% if status.state.value == "available" %}
+                        {% set up_label = "%d instance%s up" | format(status.online_count, "" if status.online_count == 1 else "s") %}
+                        <span class="healthmon-service-state healthmon-service-state--available">
+                            {{ render_icon(icon="check_circle", filled=True) }}
+                            <span class="fw-semibold">{{ up_label }}</span>
+                        </span>
+                    {% elif status.state.value == "unavailable" %}
+                        <span class="healthmon-service-state healthmon-service-state--unavailable">
+                            {{ render_icon(icon="cancel", filled=True) }}
+                            <span class="fw-semibold">Unavailable</span>
+                        </span>
+                    {% else %}
+                        <span class="healthmon-service-state healthmon-service-state--unknown">
+                            {{ render_icon(icon="help", filled=True) }}
+                            <span class="fw-semibold">Unknown</span>
+                        </span>
+                    {% endif %}
+                </div>
+                <div class="collapse show" id="heatmap-{{ service_key }}">
+                    <div id="heatmap-chart-{{ service_key }}"
+                         class="healthmon-heatmap-chart mt-3"
+                         data-healthmon-heatmap
+                         data-healthmon-service="{{ service_key }}"
+                         role="img"
+                         aria-busy="true"
+                         aria-describedby="heatmap-detail-{{ service_key }}"
+                         aria-label="Loading the 30-day uptime heatmap for {{ status.service.title }}"></div>
+                    <p class="text-danger small mt-2 mb-0 d-none"
+                       role="alert"
+                       data-healthmon-chart-error>
+                        Uptime history could not be loaded. Refresh the dashboard to try again.
+                    </p>
+                    <p id="heatmap-detail-{{ service_key }}"
+                       class="healthmon-slot-detail mt-2 mb-0"
+                       aria-live="polite"
+                       aria-atomic="true">Select a chart cell to inspect its 12-hour uptime.</p>
+                    <div class="healthmon-heatmap-legend mt-2"
+                         role="group"
+                         aria-label="Uptime color scale">
+                        <span>30 days ago</span>
+                        <span class="healthmon-legend-scale">
+                            <span class="healthmon-legend-swatch healthmon-legend-swatch--down"></span>
+                            &le;70%
+                            <span class="healthmon-legend-swatch healthmon-legend-swatch--mixed"></span>
+                            85%
+                            <span class="healthmon-legend-swatch healthmon-legend-swatch--up"></span>
+                            100%
+                            <span class="healthmon-legend-swatch healthmon-legend-swatch--empty"></span>
+                            no data
+                        </span>
+                        <span>now</span>
+                    </div>
+                    <details class="healthmon-uptime-data mt-2" data-healthmon-uptime-details>
+                        <summary id="uptime-data-toggle-{{ service_key }}">View exact uptime values</summary>
+                        <div class="table-responsive mt-2">
+                            <table class="table table-sm align-middle mb-0">
+                                <caption class="visually-hidden">
+                                    30-day uptime data for {{ status.service.title }}
+                                </caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Slot (UTC)</th>
+                                        <th scope="col">Uptime</th>
+                                        <th scope="col">Probes</th>
+                                    </tr>
+                                </thead>
+                                <tbody data-healthmon-uptime-table>
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                    <noscript>
+                        <p class="text-warning small mt-2 mb-0">JavaScript is required to load uptime history.</p>
+                    </noscript>
+                </div>
+            </section>
+        {% endfor %}
+    </div>
+</div>

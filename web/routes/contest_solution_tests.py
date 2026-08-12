@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -23,6 +23,7 @@ from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy import select
 
 from shared.enumerations import RoleEnum
+from shared.http_params import PageNumber
 from web.config import settings
 from web.dependencies import ContestContext, ensure_allowed_role, get_contest_context
 from web.models.problem import Problem
@@ -61,7 +62,7 @@ def _own_runs_only(ctx: ContestContext) -> str | None:
 async def view(
     request: Request,
     ctx: ContestContext = Depends(get_contest_context),
-    page: int = Query(1, ge=1),
+    page: PageNumber = 1,
     problem_id: str = Query(""),
 ) -> HTMLResponse:
     """Render the solution-test form and the actor's visible run history."""

@@ -33,6 +33,7 @@ build/
 
 /.docker/
 .scratch
+/temp
 
 # Vendor assets
 /docker-compose.yml

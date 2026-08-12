@@ -1,5 +1,5 @@
 //  NOCA -- Next Online Contest Administrator
-//  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 //  This program is distributed in the hope that it will be useful,
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -153,6 +153,10 @@ var NocaECharts = (function () {
             if (renderFn) renderFn(inst);
         }
 
+        function resize() {
+            if (!inst.isDisposed()) inst.resize();
+        }
+
         var mgr = {
             render: function (fn) {
                 renderFn = fn;
@@ -165,6 +169,7 @@ var NocaECharts = (function () {
             chart: function () { return inst; },
             dispose: function () {
                 _registry = _registry.filter(function (e) { return e !== entry; });
+                window.removeEventListener("resize", resize);
                 inst.dispose();
             },
         };
@@ -172,7 +177,7 @@ var NocaECharts = (function () {
         var entry = { retheme: retheme };
         _registry.push(entry);
 
-        window.addEventListener("resize", function () { inst.resize(); });
+        window.addEventListener("resize", resize);
 
         return mgr;
     }

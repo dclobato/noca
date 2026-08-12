@@ -46,6 +46,13 @@ def test_env_names_resolve_without_double_prefix(monkeypatch: pytest.MonkeyPatch
     assert settings.PORT == 9002
 
 
+def test_brand_name_uses_healthmonitor_specific_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The public monitor brand resolves from its documented environment variable."""
+    settings = _make_settings(monkeypatch, NOCA_HEALTHMON_BRAND_NAME="Contest Operations")
+
+    assert settings.BRAND_NAME == "Contest Operations"
+
+
 def test_double_prefixed_names_are_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
     """A doubly prefixed name is not the configured variable and changes nothing."""
     settings = _make_settings(

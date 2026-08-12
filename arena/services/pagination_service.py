@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,6 +8,8 @@
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+
+from shared.http_params import MAX_PAGE
 
 
 @dataclass(frozen=True)
@@ -123,7 +125,11 @@ def parse_page(value: str | int | None, *, default: int = 1) -> int:
         page = int(value if value is not None else default)
     except TypeError, ValueError:
         page = default
-    return max(1, page)
+    # Upper bound as well as lower: an unbounded page becomes an unbounded SQL
+    # OFFSET, which PostgreSQL rejects as out of range and which surfaces as a
+    # misleading 503.  These routes take a page as a forgiving string, so the
+    # value is clamped rather than refused.
+    return min(max(1, page), MAX_PAGE)
 
 
 def build_pagination_params(page: str | int | None, *, per_page: int) -> PaginationParams:

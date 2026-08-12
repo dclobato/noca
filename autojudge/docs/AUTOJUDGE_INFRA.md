@@ -147,6 +147,64 @@ judgment tables and unaffected by this fencing.
 - The reaper scans stale inflight jobs and requeues them up to a configured retry limit.
 - The reconciler periodically (and at startup) re-scans the database for non-terminal jobs (QUEUED/DISPATCHED/JUDGING) that are missing from the Valkey queue and re-enqueues them. This recovers jobs lost between a producer's DB commit and its follow-up Valkey enqueue (the web/arena submission and rejudge paths commit first, then enqueue) without waiting for a worker restart.
 
+## Standard output comparison
+
+For a `STANDARD` problem, the runner compares the contestant's bounded stdout
+with the expected-output file as raw bytes. It does not decode text, fold case,
+or interpret numeric tokens. The
+[default token validator guide](../../docs/custom-validator/TOKEN_VALIDATOR.md)
+is the author-facing contract. The
+[comparison implementation](../verdict.py) applies the following checks in
+order:
+
+1. Return `AC` when the two outputs are byte-identical.
+2. Normalize trailing whitespace and line endings. Return `AC` when the
+   normalized outputs match.
+3. Split both outputs into whitespace-delimited tokens. Return `PE` when the
+   token sequences are byte-identical.
+4. Return `WA` when the token sequences differ.
+
+The normalization in step 2 splits on LF (`0x0a`), CR (`0x0d`), and CRLF line
+endings. It removes trailing whitespace from every line, removes trailing blank
+lines, and joins the remaining lines with LF. It does not remove leading
+whitespace or change whitespace between tokens.
+
+Tokenization in step 3 recognizes exactly these ASCII whitespace bytes:
+
+- horizontal tab (`0x09`);
+- line feed (`0x0a`);
+- vertical tab (`0x0b`);
+- form feed (`0x0c`);
+- carriage return (`0x0d`);
+- space (`0x20`).
+
+One or more consecutive whitespace bytes form one delimiter. Leading and
+trailing whitespace does not create an empty token. Tokens remain raw,
+case-sensitive byte strings.
+
+For example, when the expected output is `10 20` followed by LF, the comparator
+produces these verdicts:
+
+- `10 20` followed by LF is `AC` because the bytes match.
+- `10 20` followed by spaces and LF is `AC` because normalization removes the
+  trailing spaces.
+- `10` followed by five spaces, `20`, and LF is `PE` because only the tokens
+  match.
+- A leading space followed by `10 20` and LF is `PE` for the same reason.
+- `10 30` followed by LF is `WA` because a token differs.
+
+The comparison function also supports a strict internal mode. With
+`ignore_trailing_whitespace=False`, only an exact byte match is `AC`, and every
+other difference is `WA`; strict mode does not produce `PE`. The current
+submission runner does not select this mode and always uses the default
+comparison described above.
+
+`STANDARD` keeps this existing behavior for compatibility with historical
+judgments and rejudging. The proposed `OUTPUT_CHECKER` strategy uses the same
+six tokenizing bytes but has its own explicit whitespace policy. See the
+[output-checker comparison rationale](../../docs/custom-validator/OUTPUT_CHECKER_VALIDATOR.md#relationship-with-standard-comparison)
+for that distinction.
+
 ## Recovery boundary: reconciler vs reaper
 
 The two loops recover different failures and must not overlap:
@@ -154,7 +212,7 @@ The two loops recover different failures and must not overlap:
 - **The reconciler rebuilds *missing* queue state.** Its discriminator is queue membership, never the database status. An initial snapshot can conservatively skip a known queued job for one pass, but every repair or enqueue reads current membership and mutates it in one Lua script. The script cannot interleave with a worker's atomic dequeue: an inflight or locked job is left alone, an already-queued job is never pushed twice, and only a job absent from every queue and unlocked is rebuilt and enqueued.
 - **The reaper reclaims *stale inflight* work.** It is the only loop that requeues a job a worker was executing. Candidate discovery from `judge:queue:inflight:times` is advisory; one Lua transition revalidates the current score and inflight membership before deleting a lock or requeueing. Multiple worker replicas therefore cannot requeue the same stale attempt twice, and an old candidate cannot delete a replacement attempt's fresh lock. When the reconciler finds an inflight job with no timestamp, it writes one without moving an existing score forward.
 
-The invariant that keeps the reaper from reclaiming *live* work is therefore **`REAPER_STALE_THRESHOLD_MINUTES` must exceed the longest legitimate run**. The reaper does not treat the lock as a liveness signal and deliberately deletes it when the timestamp goes stale. The separate `LOCK_TTL_SECONDS > REAPER_STALE_THRESHOLD_MINUTES * 60` assertion keeps the lock from expiring naturally before the reaper's stale decision; it does not protect live work from that decision.
+The invariant that keeps the reaper from reclaiming *live* work is therefore **`REAPER_STALE_THRESHOLD_MINUTES` must exceed the longest legitimate run**. The reaper does not treat the lock as a liveness signal and deliberately deletes it when the timestamp goes stale. The separate `LOCK_TTL_SECONDS > REAPER_STALE_THRESHOLD_MINUTES * 60` settings validation keeps the lock from expiring naturally before the reaper's stale decision; it does not protect live work from that decision.
 
 Successful dispatch cleanup is also one Lua transition. Each lock contains an attempt-specific token prefixed by the worker id, and cleanup removes the hash, inflight entry, timestamp, and lock only when that exact token still owns the lock. An expired worker can therefore finish late without deleting a replacement attempt's state.
 
@@ -166,8 +224,10 @@ This is a **fence, not a claim**: `DISPATCHED`/`JUDGING` are accepted so a legit
 - The worker writes detailed judgment state transitions and audit entries back to PostgreSQL.
 # Custom validator validation
 
-See [../../docs/CUSTOM_VALIDATOR.md](../../docs/CUSTOM_VALIDATOR.md) for the author-facing
-contract (exit codes, limits, how to write a validator). This section covers the worker side.
+See the
+[interactive validator guide](../../docs/custom-validator/INTERACTIVE_VALIDATOR.md)
+for the author-facing contract (exit codes, limits, and how to write a
+validator). This section covers the worker side.
 
 Custom validator candidates share the profiling-priority queue. The worker
 loads the globally active language registry, compiles the candidate in a

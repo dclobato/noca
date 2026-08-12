@@ -48,8 +48,8 @@ this setting.
 
 Most cross-table cells share one format, produced by the `cv()` template macro:
 
-- A non-zero cell shows the **count** followed by a **percentage** in
-  parentheses, for example `12 (34.5%)`.
+- A non-zero cell shows the **count** on the first line and the **percentage**
+  in parentheses on the line below it.
 - A zero cell shows a muted dash (`-`).
 
 The percentage's denominator is stated for each table below, because it differs
@@ -58,19 +58,22 @@ single row).
 
 ## The tables and charts
 
-The page renders nine reports, top to bottom.
+The page renders eight reports, top to bottom. Above the first one, a
+**Problems** legend maps each problem's balloon letter and color to its title.
 
 ### 1. Problem summary
 
-A one-row-per-problem table of raw counts:
+A transposed summary table — one column per problem, plus a **Total** column —
+with one row per metric:
 
 - **Runs:** total judged runs for the problem.
-- **AC:** accepted-count for the problem. The percentage is the problem's AC
+- **AC:** accepted count for the problem. The percentage is the problem's AC
   rate (AC divided by that problem's runs).
 - **AC + PE:** shown only when the contest accepts PE, using the same
   denominator.
 
-The footer totals the runs, AC, and (when shown) AC + PE across all problems.
+The **Total** column totals the runs, AC, and (when shown) AC + PE across all
+problems.
 
 ### 2. Runs distribution by problem
 
@@ -137,8 +140,10 @@ language shows a higher timeout rate.
 A team-by-problem matrix. Each row is one participating team, sorted by total
 submissions in descending order, so the busiest teams appear first.
 
-- The **Team** column shows the team's site identity plus its login, for example
-  `Site name / Team full name (username)`.
+- The **Team** column shows the team's site identity, display name, and login,
+  for example `[Site name] Team full name (username)`. When the team has no
+  site, the bracketed prefix is omitted; when it has no full name, the username
+  is used as the display name.
 - Each problem column is the count of that team's runs against the problem; the
   percentage is that problem's share of the **team's** total runs (the row).
 - **Total:** the team's total judged runs across all problems.
@@ -148,25 +153,33 @@ submissions in descending order, so the busiest teams appear first.
 Reading across a row tells you how a team spread its attempts among the
 problems; the accepted column tells you how many of all its runs succeeded.
 
+The **Team**, **Total**, and **`AC` / `AC + PE`** headers are buttons that
+re-sort the table in the browser: by team name (A to Z), by total runs
+(busiest first, the default), or by acceptance rate. The acceptance-rate
+ordering ranks teams by the Wilson score lower bound of their accepted share,
+a sample-size-aware rate, so a lucky 1/1 does not outrank a solid 40/50.
+
 ### 8. Runs by time (10-minute windows)
 
-A bar chart of all judged runs bucketed into 10-minute windows, based on each
-submission's contest-relative timestamp (in seconds, divided into 600-second
-windows). Submissions without a valid non-negative contest timestamp are
-excluded from the time charts. This shows the overall submission activity curve
-across the contest.
+A stacked bar chart of all judged runs bucketed into 10-minute windows, based
+on each submission's contest-relative timestamp (in seconds, divided into
+600-second windows). Submissions without a valid non-negative contest
+timestamp are excluded from the chart. Each bar's total height is that
+window's run volume, split into an accepted segment (`AC`, or `AC + PE` when
+the contest accepts PE) and a non-accepted segment, so you can see when
+accepted solutions arrived relative to overall submission activity.
 
-### 9. `AC + PE` runs by time (10-minute windows)
-
-The same 10-minute windows as report 8, but counting only accepted runs. Compare
-it with report 8 to see when accepted solutions arrived relative to total
-submission volume.
+The windows span the whole contest duration (`ceil(duration_minutes / 10)`
+windows), extended with extra windows when a run's timestamp lands beyond the
+contest duration.
 
 ## Where the code lives
 
 - Route: `web/routes/contest_reports.py`
 - Aggregation: `web/services/contest_report_service/computation.py`
+- Shared verdict list and helpers: `web/services/contest_report_service/common.py`
 - Table builders and DTOs: `web/services/contest_report_service/tables.py` and
   `models.py`
 - Template: `web/template/admin/reports.html`
 - Charts: `web/static/js/reports-charts.js` (rendered with ECharts)
+- Team-table sorting: `web/static/js/reports-team-sort.js`

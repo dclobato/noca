@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -140,9 +140,9 @@ def test_append_is_multiprocess_safe(tmp_path: Path) -> None:
     import multiprocessing as mp
 
     workers, per_worker = 4, 25
-    # fork inherits the worker function directly, so the test works regardless
-    # of whether the tests package is importable by name.
-    ctx = mp.get_context("fork")
+    # Avoid forking pytest's multithreaded xdist worker. The worker function is
+    # module-level so the spawn context can import and pickle it safely.
+    ctx = mp.get_context("spawn")
     procs = [ctx.Process(target=_mp_worker, args=(str(tmp_path), i, per_worker)) for i in range(workers)]
     for p in procs:
         p.start()

@@ -4,4 +4,4 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""NOCA health monitor: public status and uptime dashboards."""
+"""NOCA health monitor: public live status and uptime dashboard."""

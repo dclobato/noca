@@ -68,6 +68,17 @@ class Settings(BaseSettings):
         validation_alias="NOCA_HEALTHMON_URL",
         description="Optional public URL shown as the footer Status link.",
     )
+    # Deliberately unprefixed (NOCA_SECURITY_HEADERS_ENABLED / NOCA_CSP_REPORT_ONLY)
+    # so one setting governs the header policy of every HTTP module at once,
+    # exactly as web and arena already read it.
+    SECURITY_HEADERS_ENABLED: bool = Field(
+        default=True,
+        description="Enable shared browser security headers.",
+    )
+    CSP_REPORT_ONLY: bool = Field(
+        default=True,
+        description="Send Content-Security-Policy-Report-Only instead of enforcing CSP.",
+    )
     HOST: str = Field(
         default="0.0.0.0",
         validation_alias="NOCA_ANIMATOR_HOST",

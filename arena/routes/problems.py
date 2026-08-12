@@ -69,6 +69,7 @@ from arena.services.user_timezone_service import format_user_datetime
 from shared.db_schema import languages as languages_table
 from shared.db_schema.arena import arena_submissions
 from shared.enumerations import ArenaNotificationKind, ArenaRole, StatementLanguage
+from shared.http_params import DbId
 from shared.language_registry import ace_mode_for_language_id, default_stub_for_language_id
 from shared.services.arena_notification_service import create_arena_notification
 from shared.services.custom_validator import status_view
@@ -216,6 +217,10 @@ async def arena_problem_list(
     sort_by: str | None = None,
     category_slugs: list[str] | None = Query(None),
     language: str = "",
+    # Deliberately unbounded here rather than a bounded PageNumber: this public
+    # list has always been forgiving about the page (?page=0 shows page one), and
+    # parse_page below now caps the value while clamp_page in the service bounds
+    # it to the pages that exist, so a hostile page can no longer reach an OFFSET.
     page: int = 1,
     current_user: ArenaUser | None = Depends(get_current_arena_user),
     session: AsyncSession = Depends(get_db),
@@ -285,10 +290,10 @@ async def arena_problem_list(
     )
 
 
-@router.get("/problems/{arena_number:int}", response_class=HTMLResponse, name="arena_problem_detail")
+@router.get("/problems/{arena_number:dbid}", response_class=HTMLResponse, name="arena_problem_detail")
 async def arena_problem_detail(
     request: Request,
-    arena_number: int,
+    arena_number: DbId,
     back_page: str = "1",
     back_search: str = "",
     back_sort_by: str = problem_browse_service.DEFAULT_SORT,
@@ -490,10 +495,10 @@ async def arena_problem_detail(
     )
 
 
-@router.get("/problems/{arena_number:int}/print", response_class=HTMLResponse, name="arena_problem_print")
+@router.get("/problems/{arena_number:dbid}/print", response_class=HTMLResponse, name="arena_problem_print")
 async def arena_problem_print(
     request: Request,
-    arena_number: int,
+    arena_number: DbId,
     current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
@@ -553,11 +558,11 @@ async def arena_problem_print(
 
 
 @router.get(
-    "/problems/{arena_number:int}/rating-history",
+    "/problems/{arena_number:dbid}/rating-history",
     name="arena_problem_rating_history_public",
 )
 async def arena_problem_rating_history_public(
-    arena_number: int,
+    arena_number: DbId,
     current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -587,13 +592,13 @@ async def arena_problem_rating_history_public(
 
 
 @router.get(
-    "/problems/{arena_number:int}/statistics",
+    "/problems/{arena_number:dbid}/statistics",
     response_class=HTMLResponse,
     name="arena_problem_statistics",
 )
 async def arena_problem_statistics(
     request: Request,
-    arena_number: int,
+    arena_number: DbId,
     current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
@@ -637,11 +642,11 @@ async def arena_problem_statistics(
 
 
 @router.get(
-    "/problems/{arena_number:int}/statistics.json",
+    "/problems/{arena_number:dbid}/statistics.json",
     name="arena_problem_statistics_data",
 )
 async def arena_problem_statistics_data(
-    arena_number: int,
+    arena_number: DbId,
     current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -672,11 +677,11 @@ async def arena_problem_statistics_data(
 
 
 @router.get(
-    "/problems/{arena_number:int}/sample-testcases.zip",
+    "/problems/{arena_number:dbid}/sample-testcases.zip",
     name="arena_problem_sample_testcases_zip",
 )
 async def arena_problem_sample_testcases_zip(
-    arena_number: int,
+    arena_number: DbId,
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Download a ZIP archive of the sample test cases for a problem.
@@ -717,9 +722,9 @@ async def arena_problem_sample_testcases_zip(
     )
 
 
-@router.get("/problems/{arena_number:int}/export", name="arena_problem_export")
+@router.get("/problems/{arena_number:dbid}/export", name="arena_problem_export")
 async def arena_problem_export(
-    arena_number: int,
+    arena_number: DbId,
     current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -772,10 +777,10 @@ async def arena_problem_export(
     )
 
 
-@router.post("/problems/{arena_number:int}/submit", name="arena_problem_submit")
+@router.post("/problems/{arena_number:dbid}/submit", name="arena_problem_submit")
 async def arena_problem_submit(
     request: Request,
-    arena_number: int,
+    arena_number: DbId,
     flash: FlashDep,
     language_id: str = Form(default=""),
     source_code: str = Form(default=""),
@@ -851,10 +856,10 @@ async def arena_problem_submit(
     return RedirectResponse(url=profile_url, status_code=303)
 
 
-@router.post("/problems/{arena_number:int}/favorite", name="arena_problem_toggle_favorite")
+@router.post("/problems/{arena_number:dbid}/favorite", name="arena_problem_toggle_favorite")
 async def arena_problem_toggle_favorite(
     request: Request,
-    arena_number: int,
+    arena_number: DbId,
     current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -886,10 +891,10 @@ async def arena_problem_toggle_favorite(
     return JSONResponse({"is_favorite": now_favorite})
 
 
-@router.post("/problems/{arena_number:int}/request-removal", name="arena_problem_request_removal")
+@router.post("/problems/{arena_number:dbid}/request-removal", name="arena_problem_request_removal")
 async def arena_problem_request_removal(
     request: Request,
-    arena_number: int,
+    arena_number: DbId,
     flash: FlashDep,
     current_user: ArenaUser = Depends(require_arena_user),
     session: AsyncSession = Depends(get_db),

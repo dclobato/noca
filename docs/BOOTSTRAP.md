@@ -1,17 +1,20 @@
 # NOCA Bootstrap
 
 This document describes the current bootstrap flow for running the `web` app,
-the `arena` app, the `rating` worker, the `aiassistant` worker, and the `autojudge`
-worker from a fresh clone.
+the `arena` app, the `autojudge` worker, the `rating` worker, the `aiassistant`
+worker, the `healthmonitor` server, and the `animator` server from a fresh
+clone. It also covers the standalone `landingpage` Caddy container.
 
 The repo supports two real startup modes:
 
-- local development: run `web`, `arena`, `rating`, `aiassistant`, and `autojudge` directly on the host
-- container runtime: run `web`, `arena`, `rating`, `aiassistant`, and `autojudge` from Docker images
+- local development: run `web`, `arena`, `autojudge`, `rating`, `aiassistant`, `healthmonitor`, and `animator` directly on the host
+- container runtime: run `web`, `arena`, `autojudge`, `rating`, `aiassistant`,
+  `healthmonitor`, `animator`, and `landingpage` from Docker images
 
 For day-to-day development, the intended workflow is host-run `web`, `arena`,
-`rating`, `aiassistant`, and `autojudge`, with PostgreSQL and Valkey running in Docker
-containers and accessed via the host network.
+`autojudge`, `rating`, `aiassistant`, `healthmonitor`, and `animator`, with
+PostgreSQL and Valkey running in Docker containers and accessed via the host
+network.
 
 Scripts are organized by ownership:
 
@@ -19,6 +22,9 @@ Scripts are organized by ownership:
 - web-specific scripts live under `scripts/web/`
 - arena-specific scripts live under `scripts/arena/`
 - autojudge-specific scripts live under `scripts/autojudge/`
+
+The landing page owns no host-run script. Build and run it through the
+`landingpage` service in `docker-compose.yml.sample`.
 
 ---
 
@@ -62,7 +68,8 @@ uv run python scripts/fetch_assets.py
 # Start from the sample and keep only postgres + valkey.
 cp docker-compose.yml.sample docker-compose-db-valkey.yml
 # Then edit the file:
-# - remove caddy, web, and autojudge
+# - keep only the postgres and valkey services (remove caddy, web, arena,
+#   autojudge, rating, aiassistant, healthmonitor, animator, and landingpage)
 # - add ports:
 #   postgres: - 5432:5432
 #   valkey:   - 6379:6379
@@ -110,6 +117,14 @@ uv run noca-web
 ./containers/build.sh gcc-c17 gcc-cpp23 python3 java javascript kotlin fpc-pascal go rust c-sharp scala ocaml php
 ```
 
+That list covers the commonly used languages; `containers/languages/` defines
+21 language images in total (the list above plus `bash`, `fortran`, `haskell`,
+`lua`, `perl`, `prolog`, `ruby`, and `swift`). Use
+`./containers/build.sh --all-languages` to build every one of them, and see
+the usage header at the top of `containers/build.sh` for the remaining targets
+and flags (`--repo`, `--naming`, `--push`, `--platforms`, `--version`,
+`--no-cache`).
+
 10. Start the worker:
 
 ```bash
@@ -139,6 +154,14 @@ uv run noca-aiassistant
 
 ```bash
 uv run noca-animator
+```
+
+15. Start the health monitor server (optional; probes the other services
+    through their Valkey presence keys and serves the uptime dashboard on the
+    port from `NOCA_HEALTHMON_PORT`, default 8002):
+
+```bash
+uv run noca-healthmonitor
 ```
 
 ### Full container runtime
@@ -203,6 +226,30 @@ If you change `NOCA_DB_PASSWORD` after PostgreSQL has already initialized its
 data volume, the container credentials do not update automatically. Reset the
 password inside PostgreSQL or recreate the volume.
 
+### Windows clones and the `CLAUDE.md` symlink
+
+`CLAUDE.md` is a symlink to `AGENTS.md`, so both agent tools always read the
+same project instructions. Linux and macOS clones handle this automatically.
+On Windows, git needs OS-level permission to create symlinks, so you must
+enable Developer Mode (or run the terminal as Administrator) before cloning:
+
+1. On Windows 11, open Settings → System → For developers and toggle
+   **Developer Mode** on. On Windows 10, open Settings → Update & Security →
+   For developers and select **Developer Mode**.
+2. Set `core.symlinks=true` (for example with
+   `git config --global core.symlinks true`).
+3. Clone the repo. Git decides whether to materialize symlinks at checkout
+   time, so both steps must happen before the clone.
+
+For an existing clone that already checked out `CLAUDE.md` as a plain text
+file containing the string `AGENTS.md`, fix it after enabling Developer Mode
+with:
+
+```bash
+git config core.symlinks true
+rm CLAUDE.md && git restore CLAUDE.md
+```
+
 ### Web bootstrap on the host
 
 Run:
@@ -218,11 +265,14 @@ What happens:
 3. Reload is enabled automatically when `NOCA_ENVIRONMENT=development`.
 4. During FastAPI lifespan startup, the app:
    - configures logging
+   - waits for PostgreSQL and Valkey to become reachable
    - opens the async SQLAlchemy engine and session factory
    - starts the Valkey runtime
    - initializes JWT/auth/image services
    - builds the Jinja environment
-   - optionally starts the clarification/task reapers
+   - reconciles interrupted problem-import journals
+   - optionally starts the clarification, task, and security-events reapers
+   - starts a worker-presence heartbeat loop
 
 Important notes:
 
@@ -259,9 +309,13 @@ What happens during worker startup:
 
 1. `autojudge.worker:main()` configures logging and starts the async worker.
 2. The worker connects to PostgreSQL and Valkey.
-3. It loads the language registry from the database.
+3. It loads the language registry from the database and syncs the registry's
+   image tags from settings.
 4. It verifies that every required compile/run image is already present locally.
-5. It starts the fixed-width worker loops, reaper loop, and heartbeat loop.
+5. It reconciles leftover queue state from any previous run.
+6. It starts the fixed-width worker loops, reaper loop, and heartbeat loop.
+   When `NOCA_JUDGE_PRE_WARM_CONTAINERS` is enabled (the default), container
+   pools are warmed lazily on the first submission for each language.
 
 If the judge images are missing, startup aborts with a message like:
 
@@ -305,7 +359,9 @@ What happens during worker startup:
 
 1. `rating.worker:main()` configures logging and starts the async worker.
 2. The worker connects to PostgreSQL and Valkey.
-3. It starts the three sequential rating recomputation loops (problem → user → affiliation).
+3. It starts the rating loops: the three sequential rating recomputation loops
+   (problem → user → affiliation), the problem and user stats loops, the badge
+   assignment loop, and a worker-presence heartbeat loop.
 
 ### AI assistant bootstrap on the host
 
@@ -326,8 +382,11 @@ What happens during worker startup:
 
 1. `aiassistant.worker:main()` configures logging and starts the async worker.
 2. The worker connects to PostgreSQL and Valkey.
-3. It starts three concurrent async loops: the dequeue loop (online reviews),
-   the stale-job reaper loop, and the batch poller loop (platform-key reviews).
+3. It starts its async loops: the dequeue loop (online reviews), the stale-job
+   reaper loop, the batch flusher loop, the batch poller loop (platform-key
+   reviews), the reconciler loop, and a worker-presence heartbeat loop. When
+   `NOCA_WORKER_COMMAND_SECRET` is set, it also starts a pause/resume and
+   trigger command loop.
 
 ### Host-run worker checklist:
 
@@ -367,6 +426,10 @@ Notes:
 - `real_db` tests use the SQLAlchemy test engine/session fixtures.
 - `real_valkey` tests require reachable Valkey (`NOCA_VALKEY_*`).
 - When Valkey is unavailable, Valkey-backed tests are skipped.
+- Additional markers target other optional infrastructure: `slow`
+  (performance checks), `real_docker` (a real Docker daemon), `real_openai`
+  (requires `NOCA_AI_OPENAI_API_KEY`), and `real_ipqualityscore` (requires
+  `NOCA_IPQUALITYSCORE_APIKEY`).
 
 ### Startup verification
 
@@ -389,7 +452,19 @@ Common issues:
 ## Container Bootstrap
 
 The container runtime is slightly different because `web`, `arena`,
-`rating`, `aiassistant`, and `autojudge` have entrypoint scripts.
+`autojudge`, `rating`, `aiassistant`, `healthmonitor`, and `animator` have
+entrypoint scripts.
+
+The `landingpage` container has its own smaller entrypoint. It validates the
+four required public application URLs and the required `NOCA_LANDINGPAGE_VERSION`
+release tag, then starts Caddy as an unprivileged user. It doesn't wait for
+PostgreSQL, Valkey, migrations, or another service.
+
+Every entrypoint first runs a privilege-drop phase: it creates (or reuses) a
+runtime user matching the `PUID`/`PGID` environment variables (default
+`1000:100`) and re-executes itself as that user via `setpriv`, so the
+application never runs as root. The autojudge entrypoint additionally maps the
+Docker socket's group so the runtime user can reach the daemon.
 
 ### Web container bootstrap
 
@@ -415,8 +490,10 @@ Operational consequence:
 1. wait for PostgreSQL
 2. wait for Valkey
 3. run `scripts/run_migrations.py`
-4. optionally run `scripts/bootstrap_languages.py` when `NOCA_SEED_LANGUAGES=true`
-5. start `noca-arena` if no explicit command was provided
+4. optionally run `scripts/arena/create_arena_admin.py` when
+   `NOCA_ARENA_ADMIN_EMAIL` is set
+5. optionally run `scripts/bootstrap_languages.py` when `NOCA_SEED_LANGUAGES=true`
+6. start `noca-arena` if no explicit command was provided
 
 ### Autojudge container bootstrap
 
@@ -424,31 +501,60 @@ Operational consequence:
 
 1. wait for PostgreSQL TCP reachability
 2. wait for Valkey TCP reachability
-3. run `scripts/run_migrations.py`
+3. wait for the schema to reach the latest migration via
+   `scripts/wait_for_migrations.py`
 4. exec the worker command
 
 ### Rating container bootstrap
 
 `containers/rating/entrypoint.sh` performs this sequence:
 
-1. wait for PostgreSQL TCP reachability
-2. wait for Valkey TCP reachability
-3. run `scripts/run_migrations.py`
+1. wait for PostgreSQL to accept connections
+2. wait for Valkey to answer `PING`
+3. wait for the schema to reach the latest migration via
+   `scripts/wait_for_migrations.py`
 4. exec the worker command
 
 ### AI assistant container bootstrap
 
 `containers/aiassistant/entrypoint.sh` performs this sequence:
 
-1. wait for PostgreSQL TCP reachability
-2. wait for Valkey TCP reachability
-3. run `scripts/run_migrations.py`
+1. wait for PostgreSQL to accept connections
+2. wait for Valkey to answer `PING`
+3. wait for the schema to reach the latest migration via
+   `scripts/wait_for_migrations.py`
 4. exec the worker command
+
+### Health monitor container bootstrap
+
+`containers/healthmonitor/entrypoint.sh` performs this sequence:
+
+1. wait for Valkey to answer `PING`
+2. start `noca-healthmonitor` if no explicit command was provided
+
+The health monitor does not connect to PostgreSQL and never runs migrations;
+it probes the monitored services through their Valkey presence keys.
+
+### Animator container bootstrap
+
+`containers/animator/entrypoint.sh` performs this sequence:
+
+1. wait for PostgreSQL to accept connections
+2. wait for Valkey to answer `PING`
+3. wait for the schema to reach the latest migration via
+   `scripts/wait_for_migrations.py`
+4. start `noca-animator` if no explicit command was provided
+
+The animator is a read-only presentation consumer of the shared schema: it
+blocks until `web` or `arena` migrates, and never runs migrations itself.
 
 Operational consequence:
 
-- concurrent `web`, `arena`, `rating`, `aiassistant`, and `autojudge` startup is safe
-  because only one container holds the migration advisory lock at a time
+- concurrent startup of all containers is safe: only `web` and `arena` run
+  migrations (serialized by a PostgreSQL advisory lock), while `autojudge`,
+  `rating`, `aiassistant`, and `animator` block on
+  `scripts/wait_for_migrations.py` until the schema reaches the head their
+  image expects, and `healthmonitor` skips the schema entirely
 - language seeding is available in the web and arena containers, controlled by
   `NOCA_SEED_LANGUAGES=true`
 
@@ -496,6 +602,8 @@ The current bootstrap behavior is defined in:
 - `rating/worker.py` for host-run rating worker startup
 - `aiassistant/worker.py` for host-run AI assistant startup
 - `healthmonitor/main.py` for host-run health monitor startup
+- `landingpage/Caddyfile` and `containers/landingpage/entrypoint.sh` for the
+  standalone landing-page runtime
 - `animator/main.py` for host-run animator startup
 - `autojudge/worker.py` for host-run autojudge worker startup
 - `containers/webapp/entrypoint.sh` for containerized web bootstrap
@@ -503,6 +611,8 @@ The current bootstrap behavior is defined in:
 - `containers/rating/entrypoint.sh` for containerized rating worker bootstrap
 - `containers/aiassistant/entrypoint.sh` for containerized AI assistant bootstrap
 - `containers/autojudge/entrypoint.sh` for containerized autojudge worker bootstrap
+- `containers/healthmonitor/entrypoint.sh` for containerized health monitor
+  bootstrap (Valkey-only: it never touches PostgreSQL or migrations)
 - `containers/animator/entrypoint.sh` for containerized animator bootstrap (a
   schema consumer: it waits for `web`/`arena` to migrate, and never migrates)
 - `CONFIG.md` for environment variable definitions

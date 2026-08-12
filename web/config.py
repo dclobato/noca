@@ -114,7 +114,7 @@ class Settings(BaseSettings):
         default="",
         validation_alias="NOCA_HEALTHMON_URL",
         description=(
-            "Public URL of the health monitor status page (e.g. https://status.example.com). "
+            "Public URL of the health monitor uptime dashboard (e.g. https://status.example.com). "
             "Shown as the footer 'Status' link; the link is hidden when empty."
         ),
     )

@@ -853,7 +853,7 @@ Main types:
 - `ContestReport` — all aggregated data: problem summary, distributions, cross-tables (problem×verdict, problem×language, language×verdict), team×problem, time windows
 
 Main entrypoints:
-- `compute_contest_report(contest, submissions) -> ContestReport` — filters to DONE judgments with non-null final_verdict; aggregates all data in a single pass; respects `contest.accept_pe` for accepted predicate
+- `compute_contest_report(contest, submissions, languages) -> ContestReport` — filters to DONE judgments with non-null final_verdict; aggregates all data in a single pass; respects `contest.accept_pe` for accepted predicate
 
 Constants:
 - `ALL_VERDICTS` — ordered list of all `Verdict` values used as cross-table columns

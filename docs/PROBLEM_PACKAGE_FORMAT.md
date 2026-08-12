@@ -13,7 +13,11 @@ is built by `shared/services/sample_problem_package.py`, and
 `scripts/validate_problem_package.py` checks a package offline with the same reader.
 
 Related references:
-- [CUSTOM_VALIDATOR.md](CUSTOM_VALIDATOR.md) — interactive-problem lifecycle and verdict protocol
+
+- [Default token validator](custom-validator/TOKEN_VALIDATOR.md) — standard
+  expected-output and comparison behavior
+- [Interactive validator guide](custom-validator/INTERACTIVE_VALIDATOR.md) —
+  interactive-problem lifecycle and verdict protocol
 - [SHARED_SERVICES.md](SHARED_SERVICES.md) — the `problem_package` subsystem, staging, and the import journal
 - [../shared/services/problem_package/](../shared/services/problem_package/) — reader, writer, staging, journal
 - [../shared/services/sample_problem_package.py](../shared/services/sample_problem_package.py) — the reference "A + B" package
@@ -431,8 +435,9 @@ readable page.
 ## Interactive problems (`validator/`)
 
 A custom validator makes a problem **interactive**: the contestant's program talks to a validator
-that decides the verdict. See [CUSTOM_VALIDATOR.md](CUSTOM_VALIDATOR.md) for the lifecycle and
-protocol.
+that decides the verdict. See the
+[interactive validator guide](custom-validator/INTERACTIVE_VALIDATOR.md) for
+the lifecycle and protocol.
 
 ```
 validator/

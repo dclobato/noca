@@ -83,6 +83,16 @@
     color: var(--arena-primary);
 }
 
+.arena-table .arena-problem-number {
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.arena-table .arena-problem-number > .arena-sort-link {
+    justify-content: flex-end;
+}
+
 /* Live submission feed — shared rules in shared/static/css/common.css */
 .live-feed-summary {
     border-top: 1px solid var(--arena-outline-variant);

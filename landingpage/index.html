@@ -1,0 +1,439 @@
+<!--
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NOCA — Next Online Contest Administrator</title>
+    <meta name="description"
+          content="Entry point for this NOCA deployment: ICPC-style contests, a free training arena, and the shared judging infrastructure behind both.">
+    <meta name="color-scheme" content="light dark">
+    <link rel="icon" href="/favicon.ico" sizes="32x32">
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/static/vendor/noca-fonts.css">
+    <link rel="stylesheet" href="/static/css/landing.css">
+    <script src="/static/js/theme.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#instances">Skip to the applications</a>
+
+    <svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+      <symbol id="i-pulse" viewBox="0 0 24 24">
+        <path d="M3 12h3.8l2.4-6.5 4.2 13 2.4-6.5H21"/>
+      </symbol>
+      <symbol id="i-cpu" viewBox="0 0 24 24">
+        <rect x="6" y="6" width="12" height="12" rx="1.5"/>
+        <rect x="9.75" y="9.75" width="4.5" height="4.5" rx="0.5"/>
+        <path d="M9.5 3v3M14.5 3v3M9.5 18v3M14.5 18v3M3 9.5h3M3 14.5h3M18 9.5h3M18 14.5h3"/>
+      </symbol>
+      <symbol id="i-trend" viewBox="0 0 24 24">
+        <path d="m3 17 6.5-6.5 4 4L21 7"/>
+        <path d="M15 7h6v6"/>
+      </symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24">
+        <path d="M11 3.5 12.6 8.4 17.5 10 12.6 11.6 11 16.5 9.4 11.6 4.5 10 9.4 8.4 11 3.5Z"/>
+        <path d="M18 15.5 18.8 18l2.5.8-2.5.8-.8 2.5-.8-2.5-2.5-.8 2.5-.8.8-2.5Z"/>
+      </symbol>
+      <symbol id="i-layers" viewBox="0 0 24 24">
+        <path d="M12 3 3 7.5 12 12l9-4.5L12 3Z"/>
+        <path d="m3 12.5 9 4.5 9-4.5"/>
+        <path d="m3 17 9 4.5 9-4.5"/>
+      </symbol>
+      <symbol id="i-go" viewBox="0 0 24 24">
+        <path d="M7 17 17 7"/>
+        <path d="M8.5 7H17v8.5"/>
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="m4.5 12.5 5 5 10-11"/>
+      </symbol>
+      <symbol id="i-tag" viewBox="0 0 24 24">
+        <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.8 12V4.8a2 2 0 0 1 2-2H12a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.8Z"/>
+        <circle cx="7.75" cy="7.75" r="1.15"/>
+      </symbol>
+      <symbol id="i-book" viewBox="0 0 24 24">
+        <path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H19v15H5.5A1.5 1.5 0 0 0 4 19.5v-15Z"/>
+        <path d="M4 19.5A1.5 1.5 0 0 1 5.5 21H19v-3"/>
+      </symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4.5"/>
+        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24">
+        <path d="M20.2 14.6A8.6 8.6 0 0 1 9.4 3.8a8.6 8.6 0 1 0 10.8 10.8Z"/>
+      </symbol>
+      <symbol id="i-github" viewBox="0 0 24 24">
+        <path d="M12 .5C5.73.5.7 5.53.7 11.8c0 5.02 3.26 9.28 7.78 10.78.57.1.78-.25.78-.55v-1.93c-3.17.69-3.84-1.53-3.84-1.53-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.75 1.18 1.75 1.18 1.02 1.75 2.68 1.24 3.33.95.1-.74.4-1.24.72-1.53-2.53-.29-5.19-1.27-5.19-5.63 0-1.24.44-2.26 1.17-3.06-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.14 1.17a10.9 10.9 0 0 1 5.72 0c2.18-1.48 3.14-1.17 3.14-1.17.62 1.57.23 2.73.11 3.02.73.8 1.17 1.82 1.17 3.06 0 4.37-2.67 5.33-5.21 5.62.41.35.78 1.05.78 2.12v3.14c0 .3.2.66.79.55A11.32 11.32 0 0 0 23.3 11.8C23.3 5.53 18.27.5 12 .5Z"/>
+      </symbol>
+    </svg>
+
+    <header class="hero">
+      <div class="page masthead">
+        <span class="wordmark">
+          <span class="wordmark__dot" aria-hidden="true"></span>
+          NOCA
+          <span class="wordmark__expansion">Next Online Contest Administrator</span>
+        </span>
+        <button class="theme-toggle" type="button" data-theme-toggle hidden aria-pressed="false"
+                aria-label="Switch to dark theme">
+          <svg class="icon theme-toggle__moon" aria-hidden="true"><use href="#i-moon"></use></svg>
+          <svg class="icon theme-toggle__sun" aria-hidden="true"><use href="#i-sun"></use></svg>
+          <span class="theme-toggle__label">Dark</span>
+        </button>
+      </div>
+
+      <div class="page hero__body">
+        <h1 class="hero__title">Two products.<em>One judge.</em></h1>
+        <p class="hero__lede">
+          <strong>Contest</strong> organizes and runs ICPC-style competitions.
+          <strong>Arena</strong> is a free training environment that stays open all year.
+          Both compile and execute every submission through the same isolated AutoJudge
+          infrastructure, and both are running in this deployment.
+        </p>
+        <p class="hero__actions">
+          <a class="button button--primary" href="{{env "NOCA_LANDINGPAGE_WEB_URL" | html}}">
+            Open Contest
+            <svg class="icon" aria-hidden="true"><use href="#i-go"></use></svg>
+          </a>
+          <a class="button button--ghost" href="{{env "NOCA_LANDINGPAGE_ARENA_URL" | html}}">
+            Open Arena
+            <svg class="icon" aria-hidden="true"><use href="#i-go"></use></svg>
+          </a>
+        </p>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="page instances" id="instances" aria-labelledby="instances-title">
+        <h2 class="instances__title" id="instances-title">Running in this environment</h2>
+        <ul class="instances__grid">
+          <li>
+            <a class="tile" href="{{env "NOCA_LANDINGPAGE_WEB_URL" | html}}" data-entrance>
+              <span class="tile__top">
+                <img class="tile__portrait" src="/static/img/contest.png" alt="" width="256" height="256">
+                <svg class="icon tile__go" aria-hidden="true"><use href="#i-go"></use></svg>
+              </span>
+              <span class="tile__name">Contest</span>
+              <span class="tile__role">
+                Run a competition: problems, teams, submissions, clarifications, scoreboards,
+                and reports.
+              </span>
+              <span class="tile__url">{{env "NOCA_LANDINGPAGE_WEB_URL" | html}}</span>
+            </a>
+          </li>
+          <li>
+            <a class="tile" href="{{env "NOCA_LANDINGPAGE_ARENA_URL" | html}}" data-entrance>
+              <span class="tile__top">
+                <img class="tile__portrait" src="/static/img/arena.png" alt="" width="256" height="256">
+                <svg class="icon tile__go" aria-hidden="true"><use href="#i-go"></use></svg>
+              </span>
+              <span class="tile__name">Arena</span>
+              <span class="tile__role">
+                Practice year-round: browse problems, submit solutions, track ratings, join a class.
+              </span>
+              <span class="tile__url">{{env "NOCA_LANDINGPAGE_ARENA_URL" | html}}</span>
+            </a>
+          </li>
+          <li>
+            <a class="tile" href="{{env "NOCA_LANDINGPAGE_ANIMATOR_URL" | html}}" data-entrance>
+              <span class="tile__top">
+                <img class="tile__portrait" src="/static/img/animator.png" alt="" width="256" height="256">
+                <svg class="icon tile__go" aria-hidden="true"><use href="#i-go"></use></svg>
+              </span>
+              <span class="tile__name">Animator</span>
+              <span class="tile__role">
+                The live scoreboard and the post-freeze reveal ceremony, for the room and the
+                projector.
+              </span>
+              <span class="tile__url">{{env "NOCA_LANDINGPAGE_ANIMATOR_URL" | html}}</span>
+            </a>
+          </li>
+          <li>
+            <a class="tile" href="{{env "NOCA_LANDINGPAGE_HEALTHMON_URL" | html}}" data-entrance>
+              <span class="tile__top">
+                <svg class="icon" aria-hidden="true"><use href="#i-pulse"></use></svg>
+                <svg class="icon tile__go" aria-hidden="true"><use href="#i-go"></use></svg>
+              </span>
+              <span class="tile__name">Health Monitor</span>
+              <span class="tile__role">
+                Live status of every runtime here, plus a 30-day uptime history for each one.
+              </span>
+              <span class="tile__url">{{env "NOCA_LANDINGPAGE_HEALTHMON_URL" | html}}</span>
+            </a>
+          </li>
+        </ul>
+      </section>
+
+      <section class="page section" aria-labelledby="flow-heading">
+        <div class="section__head">
+          <h2 class="section__title" id="flow-heading">How a submission becomes a verdict</h2>
+          <p class="section__lede">
+            Contest and Arena never execute submitted code themselves. They durably record the
+            submission, then hand the work to AutoJudge across an infrastructure boundary.
+          </p>
+        </div>
+
+        <div class="flow">
+          <figure class="flow__figure">
+            <svg class="flow__canvas" viewBox="0 0 1000 268" role="img"
+                 aria-labelledby="flow-title flow-desc" xmlns="http://www.w3.org/2000/svg">
+              <title id="flow-title">The NOCA submission path</title>
+              <desc id="flow-desc">
+                A submission travels from Contest or Arena to PostgreSQL, where it is stored
+                durably; then to Valkey, where the job is queued; then to AutoJudge, which
+                compiles and runs it inside Docker and isolate. AutoJudge writes the verdict and
+                test results back to PostgreSQL, which the application reads to show the result.
+              </desc>
+
+              <defs>
+                <marker id="flow-arrowhead" markerWidth="9" markerHeight="9" refX="8" refY="4.5"
+                        orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+                  <path class="flow__arrow" d="M0 0.75 8.5 4.5 0 8.25Z"/>
+                </marker>
+              </defs>
+
+              <g>
+                <rect class="flow__node-box" x="10" y="50" width="186" height="96" rx="10"/>
+                <text class="flow__node-name" x="103" y="92" text-anchor="middle">Contest / Arena</text>
+                <text class="flow__node-role" x="103" y="116" text-anchor="middle">you submit source</text>
+              </g>
+              <g>
+                <rect class="flow__node-box" x="278" y="50" width="186" height="96" rx="10"/>
+                <text class="flow__node-name" x="371" y="92" text-anchor="middle">PostgreSQL</text>
+                <text class="flow__node-role" x="371" y="116" text-anchor="middle">authoritative record</text>
+              </g>
+              <g>
+                <rect class="flow__node-box" x="546" y="50" width="186" height="96" rx="10"/>
+                <text class="flow__node-name" x="639" y="92" text-anchor="middle">Valkey</text>
+                <text class="flow__node-role" x="639" y="116" text-anchor="middle">durable job queue</text>
+              </g>
+              <g>
+                <rect class="flow__node-box flow__node-box--accent" x="814" y="50" width="186" height="96" rx="10"/>
+                <text class="flow__node-name" x="907" y="92" text-anchor="middle">AutoJudge</text>
+                <text class="flow__node-role" x="907" y="116" text-anchor="middle">Docker + isolate</text>
+              </g>
+
+              <path class="flow__edge" d="M200 98h64" marker-end="url(#flow-arrowhead)"/>
+              <path class="flow__edge" d="M468 98h64" marker-end="url(#flow-arrowhead)"/>
+              <path class="flow__edge" d="M736 98h64" marker-end="url(#flow-arrowhead)"/>
+
+              <text class="flow__edge-label" x="237" y="82" text-anchor="middle">store</text>
+              <text class="flow__edge-label" x="505" y="82" text-anchor="middle">enqueue</text>
+              <text class="flow__edge-label" x="773" y="82" text-anchor="middle">claim</text>
+
+              <path class="flow__edge flow__edge--return" d="M907 146v66H371v-56"
+                    marker-end="url(#flow-arrowhead)"/>
+              <text class="flow__edge-label" x="639" y="234" text-anchor="middle">
+                verdict and per-test results written back
+              </text>
+            </svg>
+
+            <ol class="flow__steps">
+              <li>
+                <b>Contest or Arena</b>
+                <span>Stores your submission and a queued judgment in PostgreSQL.</span>
+              </li>
+              <li>
+                <b>Valkey</b>
+                <span>Carries the job identifier on a durable queue.</span>
+              </li>
+              <li>
+                <b>AutoJudge</b>
+                <span>Claims the job, compiles it, and runs it against the test cases inside
+                  Docker and isolate.</span>
+              </li>
+              <li>
+                <b>PostgreSQL</b>
+                <span>Receives the verdict and per-test results, which the application reads
+                  back to you.</span>
+              </li>
+            </ol>
+
+            <figcaption class="flow__note">
+              <b>Submissions are immutable; judgments are not.</b> A rejudge adds a new judgment
+              attempt instead of rewriting the original submission, so the trail of who decided
+              what, and when, survives. If the queue and the database ever disagree, PostgreSQL
+              wins and the lost job is queued again.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="page section" aria-labelledby="foundation-heading">
+        <div class="section__head">
+          <h2 class="section__title" id="foundation-heading">What runs behind them</h2>
+          <p class="section__lede">
+            These are part of this environment but have no page to visit. They do their work on
+            queues and timers, and you meet them through Contest and Arena.
+          </p>
+        </div>
+        <dl class="foundation">
+          <div class="foundation__item">
+            <svg class="icon" aria-hidden="true"><use href="#i-cpu"></use></svg>
+            <dt class="foundation__name">AutoJudge</dt>
+            <dd class="foundation__text">
+              Compiles and runs every submission from both products, in isolated containers with
+              enforced time, memory, process, and output limits.
+            </dd>
+          </div>
+          <div class="foundation__item">
+            <svg class="icon" aria-hidden="true"><use href="#i-trend"></use></svg>
+            <dt class="foundation__name">Rating</dt>
+            <dd class="foundation__text">
+              Recomputes Arena problem difficulty, user and affiliation ratings, statistics, and
+              badges on a schedule. Optional, and single-replica by design.
+            </dd>
+          </div>
+          <div class="foundation__item">
+            <svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg>
+            <dt class="foundation__name">AI Assistant</dt>
+            <dd class="foundation__text">
+              Reviews an Arena submission on request and explains where it goes wrong without
+              writing the solution. Optional; Arena works fully without it.
+            </dd>
+          </div>
+          <div class="foundation__item">
+            <svg class="icon" aria-hidden="true"><use href="#i-layers"></use></svg>
+            <dt class="foundation__name">Shared services</dt>
+            <dd class="foundation__text">
+              The database schema, language registry, queue payloads, and scoring rules both
+              products agree on. No runtime imports another's code.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="page section" aria-labelledby="products-heading">
+        <div class="section__head">
+          <h2 class="section__title" id="products-heading">Which door do you want?</h2>
+          <p class="section__lede">
+            Contest and Arena keep separate accounts. Registering for one does not sign you in to
+            the other.
+          </p>
+        </div>
+
+        <div class="products">
+          <article class="product">
+            <h3 class="product__name">Contest</h3>
+            <p class="product__role">
+              For organizers, judges, staff, and competing teams — before, during, and after an
+              event.
+            </p>
+            <ul class="product__list">
+              <li>
+                <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+                <span>Multiple concurrent contests, each with isolated users, problems,
+                  schedules, and scoreboards.</span>
+              </li>
+              <li>
+                <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+                <span>Roles for administrators, judges, staff, teams, and read-only observers,
+                  scoped to one contest.</span>
+              </li>
+              <li>
+                <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+                <span>Automatic judging or a human-confirmation workflow, with rejudging and
+                  chief-judge overrides.</span>
+              </li>
+              <li>
+                <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+                <span>Live, frozen, and final scoreboards, plus reports and multi-site
+                  organization.</span>
+              </li>
+              <li>
+                <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+                <span>Clarification, balloon, print, and SOS task queues for the event floor.</span>
+              </li>
+              <li>
+                <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+                <span>Problem packages, PDF and Markdown statements, and Auto-Limit profiling of
+                  reference solutions.</span>
+              </li>
+            </ul>
+            <p class="product__foot">
+              Judged against every active language in the shared registry, which currently defines
+              <code>21</code> languages.
+            </p>
+          </article>
+
+          <article class="product">
+            <h3 class="product__name">Arena</h3>
+            <p class="product__role">
+              For learners and teachers who want the judge available on an ordinary Tuesday, not
+              only on competition day.
+            </p>
+            <ul class="product__list">
+              <li>
+                <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+                <span>Free self-service registration, email confirmation, and optional two-factor
+                  authentication.</span>
+              </li>
+              <li>
+                <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+                <span>Teacher-owned classes and scheduled problem sets, with reviewed
+                  registration requests.</span>
+              </li>
+              <li>
+                <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+                <span>Public problem browsing with samples, statistics, and rating history.</span>
+              </li>
+              <li>
+                <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+                <span>Interactive problems with custom validators, marked as such before you
+                  open them.</span>
+              </li>
+              <li>
+                <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+                <span>Profiles, leaderboards, live submission activity, and Capybara badges.</span>
+              </li>
+              <li>
+                <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+                <span>AI review that explains where a submission goes wrong instead of writing
+                  the solution for you, using your own OpenAI key or platform-funded
+                  credits.</span>
+              </li>
+              <li>
+                <svg class="icon" aria-hidden="true"><use href="#i-check"></use></svg>
+                <span>An age gate that declines registrations under 13 and asks for guardian
+                  consent from 13 to 17.</span>
+              </li>
+            </ul>
+            <p class="product__foot">
+              Ratings, statistics, badges, and AI review depend on optional workers. Submitting and
+              judging never do.
+            </p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="colophon">
+      <div class="page colophon__inner">
+        <p class="colophon__identity">
+          <span class="version">
+            <svg class="icon" aria-hidden="true"><use href="#i-tag"></use></svg>
+            {{env "NOCA_LANDINGPAGE_VERSION" | html}}
+          </span>
+          <span>NOCA — Next Online Contest Administrator</span>
+        </p>
+        <p class="colophon__links">
+          <a class="colophon__link" href="https://github.com/dclobato/noca">
+            <svg class="icon icon--solid" aria-hidden="true"><use href="#i-github"></use></svg>
+            Source on GitHub
+          </a>
+          <a class="colophon__link" href="https://github.com/dclobato/noca/blob/master/docs/ARCHITECTURE.md">
+            <svg class="icon" aria-hidden="true"><use href="#i-book"></use></svg>
+            Architecture
+          </a>
+        </p>
+      </div>
+    </footer>
+
+    <script src="/static/js/landing.js" defer></script>
+  </body>
+</html>

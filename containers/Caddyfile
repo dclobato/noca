@@ -25,15 +25,88 @@
 		X-Request-ID {http.request.uuid}
 	}
 
-	reverse_proxy {args[0]} {
-		# A bare (unprefixed) header_up is a SET, which already replaces any
-		# client-supplied value. Do NOT add a `header_up -X-Request-ID` strip
-		# line: Caddy applies header ops as add -> set -> delete, so a named
-		# delete runs AFTER the set and would wipe the UUID before proxying.
-		header_up X-Request-ID {http.request.uuid}
-		# Trusted client source port for audit correlation; pair with
-		# NOCA_SOURCE_PORT_HEADER=X-Source-Port on the web/arena services.
-		header_up X-Source-Port {remote_port}
+	# Strip origin fingerprints. `defer` is mandatory: both fields are written by
+	# the server/proxy layer AFTER the header directive would normally run, so a
+	# non-deferred delete runs too early and leaves them on the wire. Cloudflare
+	# replaces `Server` with its own, but it forwards `Via: 1.1 Caddy` verbatim,
+	# which names the origin proxy to every client. Deletes carry no `?`
+	# condition, so they may share one block (see the next comment).
+	header {
+		-Server
+		-Via
+		defer
+	}
+
+	# Defense-in-depth security baseline for any upstream that does not set its
+	# own headers (animator and healthmonitor do not use
+	# shared.services.security_headers; web and arena do). Two rules make this
+	# correct, both verified against a running Caddy:
+	#
+	#   1. `?` is set-only-if-absent and must be DEFERRED, or Caddy writes the
+	#      value before the upstream response is merged in and a self-hosting app
+	#      ends up with the header twice.
+	#   2. Each `?` needs its OWN block. Caddy applies a block's defaults under a
+	#      single "none of these fields are present" condition, so grouping them
+	#      means one header already set by the app silently suppresses ALL the
+	#      other defaults in that block.
+	#
+	# CSP and Cross-Origin-Resource-Policy are deliberately NOT set here: both
+	# need per-application tuning (CDN script sources, cross-origin asset embeds)
+	# and a blanket edge value would break pages rather than harden them.
+	header {
+		?X-Content-Type-Options "nosniff"
+		defer
+	}
+
+	header {
+		?X-Frame-Options "DENY"
+		defer
+	}
+
+	header {
+		?Referrer-Policy "strict-origin-when-cross-origin"
+		defer
+	}
+
+	header {
+		?Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=()"
+		defer
+	}
+
+	header {
+		?Cross-Origin-Opener-Policy "same-origin"
+		defer
+	}
+
+	header {
+		?Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		defer
+	}
+
+	# The NOCA applications register GET and POST routes only (HEAD is served
+	# implicitly by every GET route). Everything else -- OPTIONS, TRACE, PUT,
+	# PATCH, DELETE, CONNECT, and any unknown verb -- is refused here instead of
+	# being proxied, so no upstream framework default can answer it and disclose
+	# the route surface. `handle` blocks are mutually exclusive and evaluated in
+	# written order, so this cannot be reordered behind `reverse_proxy`.
+	@method_not_allowed not method GET HEAD POST
+	handle @method_not_allowed {
+		# RFC 9110 requires Allow on a 405.
+		header Allow "GET, HEAD, POST"
+		respond 405
+	}
+
+	handle {
+		reverse_proxy {args[0]} {
+			# A bare (unprefixed) header_up is a SET, which already replaces any
+			# client-supplied value. Do NOT add a `header_up -X-Request-ID` strip
+			# line: Caddy applies header ops as add -> set -> delete, so a named
+			# delete runs AFTER the set and would wipe the UUID before proxying.
+			header_up X-Request-ID {http.request.uuid}
+			# Trusted client source port for audit correlation; pair with
+			# NOCA_SOURCE_PORT_HEADER=X-Source-Port on the web/arena services.
+			header_up X-Source-Port {remote_port}
+		}
 	}
 }
 

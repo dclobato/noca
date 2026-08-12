@@ -212,7 +212,7 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
         """Stub for the status route referenced by the footer."""
         return Response("status")
 
-    @app.get("/problems/{arena_number:int}", name="arena_problem_detail")
+    @app.get("/problems/{arena_number:dbid}", name="arena_problem_detail")
     async def _arena_problem_detail(arena_number: int) -> Response:
         """Stub for problem detail links rendered in progress lists."""
         return Response(f"problem {arena_number}")

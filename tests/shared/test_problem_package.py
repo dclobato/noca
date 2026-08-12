@@ -315,7 +315,8 @@ def test_duplicate_member_is_rejected(tmp_path: Path) -> None:
         archive.writestr("statement.md", MINIMAL_STATEMENT)
         archive.writestr("in/001.in", "1\n")
         archive.writestr("out/001.out", "1\n")
-        archive.writestr("in/001.in", "2\n")
+        with pytest.warns(UserWarning, match=r"Duplicate name: 'in/001\.in'"):
+            archive.writestr("in/001.in", "2\n")
 
     with pytest.raises(PackageError, match="duplicate member"):
         read(path)

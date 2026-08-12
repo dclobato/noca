@@ -45,6 +45,7 @@ group "release" {
     "aiassistant",
     "healthmonitor",
     "animator",
+    "landingpage",
     "judge-bash-compile",
     "judge-bash-run",
     "judge-c-sharp-compile",
@@ -122,7 +123,7 @@ target "_assets-consumer" {
 # 42 judge targets — and losing one of those uploads fails the manifest-list
 # push with "content digest <sha>: not found", which aborts the whole Bake and
 # every other target with it. That is exactly how the v15.0.1 language publish
-# died. App images keep their attestations: there are only seven of them, and
+# died. App images keep their attestations: there are only eight of them, and
 # they are what operators actually deploy.
 target "_judge-common" {
   inherits = ["_publish-common"]
@@ -304,6 +305,24 @@ target "animator" {
         "${ALT_REPO}${ALT_NAME_SEPARATOR}animator",
         "${ALT_REPO}${ALT_NAME_SEPARATOR}animator:${VERSION}",
       ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}animator"]
+    ) : [],
+  )
+}
+
+target "landingpage" {
+  inherits = ["_publish-common", "_assets-consumer"]
+  context = "."
+  dockerfile = "containers/landingpage/Dockerfile"
+  tags = concat(
+    VERSION != "" ? [
+      "${REPO}${NAME_SEPARATOR}landingpage",
+      "${REPO}${NAME_SEPARATOR}landingpage:${VERSION}",
+    ] : ["${REPO}${NAME_SEPARATOR}landingpage"],
+    ALT_REPO != "" ? (
+      VERSION != "" ? [
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}landingpage",
+        "${ALT_REPO}${ALT_NAME_SEPARATOR}landingpage:${VERSION}",
+      ] : ["${ALT_REPO}${ALT_NAME_SEPARATOR}landingpage"]
     ) : [],
   )
 }
