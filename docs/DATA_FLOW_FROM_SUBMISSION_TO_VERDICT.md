@@ -160,10 +160,11 @@ cases cannot be judged and ends as internal `FAILED`.
 Interactive judging creates no test-result rows. It stores one or two
 interactive-attempt rows for only the last executed test case, tagged with its
 `test_case_ordinal`, carrying both exit codes/signals, contestant
-resource usage, enforced-limit outcome, either the clean validator verdict or a
-typed crash reason, bounded stderr excerpts, and an ordered `transcript` of the
-conversation. Starting a new case clears the previous case's rows, so what
-survives is the round that decided the submission.
+resource usage, enforced-limit outcome (`MLE`, `OLE`, or a contestant-attributed
+watchdog `TLE`), either the clean validator verdict or a typed crash reason,
+bounded stderr excerpts, and an ordered `transcript` of the conversation.
+Starting a new case clears the previous case's rows, so what survives is the
+round that decided the submission.
 
 The `transcript` JSON column is the record of the protocol itself:
 `{"lines": [{"dir": "user" | "validator", "line": ..., "partial"?: true}],
@@ -171,20 +172,25 @@ The `transcript` JSON column is the record of the protocol itself:
 it records both sides in the order it observed them, split into protocol lines
 (`partial` marks a trailing line that ended without a newline). The test case's
 own input is deliberately excluded — it is the problem's data, not something
-either side said. It is null when the bridge never ran (a startup or watchdog
-failure). Recording is capture-only: past a 256 KiB cap the transcript reports
-itself `truncated` while the bridge keeps relaying, so a verdict never depends
-on it. The Arena submission-detail and web submission-review pages render it as
-the User/Validator conversation, and only for a non-`AC` verdict — an accepted
-submission has no failing round to explain.
+either side said. It is null when the bridge never ran, such as after a startup
+failure or outer safety timeout. A bridge watchdog retains every line exchanged
+before the stall. Recording is capture-only: past a 256 KiB cap the transcript
+reports itself `truncated` while the bridge keeps relaying, so capture
+truncation never changes a verdict. The Arena submission-detail and web
+submission-review pages render it as the User/Validator conversation, and only
+for a non-`AC` verdict — an accepted submission has no failing round to explain.
 
-Per case, final precedence is `MLE`, `OLE`, unclean validator failure,
-contestant `RE`, then validator exit mapping: `0` to `AC`, `1` to `WA`, `2` to
-`TLE`, and `4` to `PE`. Every other clean validator exit is contestant `RE`.
-Only an unclean validator exit retries once, on a fresh container pair, for that
-case; a second unclean Arena attempt activates crash containment. Diagnostics
-are available only through the existing authorized submission-detail/review
-pages.
+Per case, final precedence is `MLE`, `OLE`, contestant-attributed watchdog
+`TLE`, unclean validator failure, contestant `RE`, then validator exit mapping:
+`0` to `AC`, `1` to `WA`, `2` to `TLE`, and `4` to `PE`. Every other clean
+validator exit is contestant `RE`. On watchdog expiry, the last complete
+protocol line identifies the stalled receiver: a validator line followed by no
+contestant reply is contestant `TLE`; a contestant line followed by no validator
+reply is an internal validator failure. A partial line or no complete line is
+ambiguous and remains internal. Only an internal failure retries once, on a
+fresh container pair, for that case; a second internal Arena attempt activates
+crash containment. Diagnostics are available only through the existing
+authorized submission-detail/review pages.
 
 ## Key architectural decisions
 

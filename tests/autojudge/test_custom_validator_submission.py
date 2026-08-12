@@ -224,7 +224,7 @@ async def test_retries_no_clean_exit_once_with_fresh_containers(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("verdict", [Verdict.RE, Verdict.MLE, Verdict.OLE])
+@pytest.mark.parametrize("verdict", [Verdict.RE, Verdict.TLE, Verdict.MLE, Verdict.OLE])
 async def test_clean_or_judge_limit_outcomes_are_not_retried(monkeypatch, verdict: Verdict) -> None:
     run = AsyncMock(return_value=_result(verdict))
     monkeypatch.setattr(service, "run_docker_interaction", run)

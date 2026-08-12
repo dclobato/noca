@@ -880,6 +880,14 @@ the conversation that decided the submission. Both frontends render them from on
 shared partial — and only for a non-`AC` verdict, since an accepted submission has
 no failing round to explain.
 
+The per-case watchdog attributes a line-protocol stall only when a complete
+message identifies the side that failed to reply. A validator message followed
+by contestant silence becomes contestant `TLE`; a contestant message followed
+by validator silence remains an internal failure and retries once. A partial
+message or no message remains ambiguous and internal. When a complete validator
+message establishes contestant silence, that stall can never disable the Arena
+problem by being mistaken for a validator failure.
+
 ## 6. Summary
 
 NOCA is an eight-process contest platform:

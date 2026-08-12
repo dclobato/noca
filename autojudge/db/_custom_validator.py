@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -169,6 +169,8 @@ class _CustomValidatorMixin(_DatabaseBase):
             }.get(result.validator_exit_code, Verdict.RE)
         final_verdict = result.classification.verdict
         limit_outcome = final_verdict.value if final_verdict in {Verdict.MLE, Verdict.OLE} else None
+        if final_verdict == Verdict.TLE and result.watchdog_stalled_side == "contestant":
+            limit_outcome = Verdict.TLE.value
         await self._conn.execute(
             table.insert().values(
                 id=str(uuid.uuid4()),

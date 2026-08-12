@@ -41,8 +41,10 @@ from __future__ import annotations
 import argparse
 import concurrent.futures as futures
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 import httpx
 
@@ -58,6 +60,7 @@ _APP_TARGETS = (
 )
 _LANGUAGES_DIR = Path(__file__).resolve().parents[1] / "containers" / "languages"
 _TIMEOUT = httpx.Timeout(30.0)
+_AUTH_FAILURE_CODES: Final = frozenset((httpx.codes.UNAUTHORIZED, httpx.codes.FORBIDDEN))
 _MANIFEST_ACCEPT = ", ".join(
     (
         "application/vnd.oci.image.index.v1+json",
@@ -116,28 +119,34 @@ def ghcr_registry() -> Registry:
     Returns:
         The descriptor, carrying credentials when the environment supplies them.
     """
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    username = os.environ.get("GHCR_USERNAME") or os.environ.get("GITHUB_ACTOR") or "token"
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or os.environ.get("GHCR_TOKEN")
     return Registry(
         name="GHCR",
         api="https://ghcr.io",
         auth_url="https://ghcr.io/token",
         auth_service="ghcr.io",
         separator="/",
-        credentials=("token", token) if token else None,
+        credentials=(username, token) if token else None,
     )
+
+
+class ManifestProbeError(RuntimeError):
+    """A registry response prevented the verifier from deciding tag state."""
 
 
 class ManifestProbe:
     """Resolves manifest digests by tag, caching one pull token per repository."""
 
-    def __init__(self, registry: Registry) -> None:
+    def __init__(self, registry: Registry, transport: httpx.BaseTransport | None = None) -> None:
         """Prepare the probe.
 
         Args:
             registry: The registry to query.
+            transport: Optional HTTP transport, primarily for isolated tests.
         """
         self._registry = registry
-        self._client = httpx.Client(timeout=_TIMEOUT)
+        self._client = httpx.Client(timeout=_TIMEOUT, transport=transport)
         self._tokens: dict[str, str] = {}
 
     def __enter__(self) -> ManifestProbe:
@@ -156,33 +165,41 @@ class ManifestProbe:
             tag: The tag to resolve.
 
         Returns:
-            The digest, or ``None`` when the tag does not resolve.
+            The digest, or ``None`` only when the registry returns ``404``.
+
+        Raises:
+            ManifestProbeError: If authentication or the registry request fails.
         """
         token = self._token(repository)
-        if token is None:
-            return None
-        response = self._client.request(
+        response = self._request(
             "HEAD",
             f"{self._registry.api}/v2/{repository}/manifests/{tag}",
             headers={"Accept": _MANIFEST_ACCEPT, "Authorization": f"Bearer {token}"},
         )
-        if response.status_code != httpx.codes.OK:
+        if response.status_code == httpx.codes.NOT_FOUND:
             return None
+        self._raise_for_probe_failure(response, "manifest request")
         digest: str | None = response.headers.get("Docker-Content-Digest")
+        if not digest:
+            raise ManifestProbeError("manifest response omitted Docker-Content-Digest")
         return digest
 
-    def _token(self, repository: str) -> str | None:
+    def _token(self, repository: str) -> str:
         """Obtain (and cache) a pull token for one repository.
 
         Args:
             repository: The repository path.
 
         Returns:
-            The bearer token, or ``None`` when none could be obtained.
+            The bearer token.
+
+        Raises:
+            ManifestProbeError: If authentication or the token request fails.
         """
         if repository in self._tokens:
             return self._tokens[repository]
-        response = self._client.get(
+        response = self._request(
+            "GET",
             self._registry.auth_url,
             params={
                 "service": self._registry.auth_service,
@@ -190,13 +207,62 @@ class ManifestProbe:
             },
             auth=self._registry.credentials,
         )
-        if response.status_code != httpx.codes.OK:
-            return None
-        issued = response.json().get("token") or response.json().get("access_token")
+        self._raise_for_probe_failure(response, "token request")
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ManifestProbeError("token response was not valid JSON") from exc
+        issued = payload.get("token") or payload.get("access_token")
         if not issued:
-            return None
+            raise ManifestProbeError("token response omitted a bearer token")
         self._tokens[repository] = str(issued)
         return str(issued)
+
+    def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+        params: Mapping[str, str] | None = None,
+        auth: tuple[str, str] | None = None,
+    ) -> httpx.Response:
+        """Send one registry request with a stable diagnostic on transport errors.
+
+        Args:
+            method: HTTP request method.
+            url: Absolute request URL.
+            headers: Optional request headers.
+            params: Optional query parameters.
+            auth: Optional basic-auth credentials.
+
+        Returns:
+            The registry response.
+
+        Raises:
+            ManifestProbeError: If the request cannot reach the registry.
+        """
+        try:
+            return self._client.request(method, url, headers=headers, params=params, auth=auth)
+        except httpx.HTTPError as exc:
+            raise ManifestProbeError(f"registry request failed: {exc}") from exc
+
+    @staticmethod
+    def _raise_for_probe_failure(response: httpx.Response, operation: str) -> None:
+        """Reject non-success responses without confusing access with absence.
+
+        Args:
+            response: Response to classify.
+            operation: Human-readable operation name for diagnostics.
+
+        Raises:
+            ManifestProbeError: If the response is not successful.
+        """
+        if response.status_code == httpx.codes.OK:
+            return
+        if response.status_code in _AUTH_FAILURE_CODES:
+            raise ManifestProbeError(f"authentication failed during {operation} (HTTP {response.status_code})")
+        raise ManifestProbeError(f"{operation} failed with HTTP {response.status_code}")
 
 
 def expected_images(
@@ -248,10 +314,17 @@ def verify(registry: Registry, namespace: str, prefix: str, images: list[tuple[s
         def check(entry: tuple[str, str, str]) -> str | None:
             component, floating, versioned = entry
             repository = registry.repository(namespace, prefix, component)
-            pinned_digest = probe.digest(repository, versioned)
+            try:
+                pinned_digest = probe.digest(repository, versioned)
+            except ManifestProbeError as exc:
+                return f"{component}: could not verify {versioned}: {exc}"
             if pinned_digest is None:
                 return f"{component}: {versioned} is missing"
-            if probe.digest(repository, floating) != pinned_digest:
+            try:
+                floating_digest = probe.digest(repository, floating)
+            except ManifestProbeError as exc:
+                return f"{component}: could not verify {floating}: {exc}"
+            if floating_digest != pinned_digest:
                 return f"{component}: {floating} does not point at {versioned}"
             return None
 

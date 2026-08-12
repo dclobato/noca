@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -14,6 +14,7 @@ from typing import Literal
 from shared.enumerations import CustomValidatorCrashReason, Verdict
 
 FinishedFirst = Literal["contestant", "validator"]
+WatchdogStalledSide = Literal["contestant", "validator"]
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,7 @@ class InteractiveOutcome:
     output_limit_reached: bool = False
     crash_reason: CustomValidatorCrashReason | None = None
     finished_first: FinishedFirst | None = None
+    watchdog_stalled_side: WatchdogStalledSide | None = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +53,8 @@ def classify_interactive_outcome(outcome: InteractiveOutcome) -> InteractiveVerd
         return InteractiveVerdict(Verdict.MLE, False)
     if outcome.output_limit_reached:
         return InteractiveVerdict(Verdict.OLE, False)
+    if outcome.watchdog_stalled_side == "contestant":
+        return InteractiveVerdict(Verdict.TLE, False)
     if outcome.validator_signal is not None:
         return InteractiveVerdict(None, True)
     if outcome.crash_reason in {

@@ -15,6 +15,9 @@ import pytest
 
 import autojudge.arena_submission_job as job_module
 from autojudge.arena_submission_job import process_arena_submission_job
+from autojudge.interactive_runner import InteractiveAttemptResult
+from autojudge.interactive_transcript import InteractiveTranscript, TranscriptLine
+from autojudge.interactive_verdict import InteractiveVerdict
 from autojudge.types import ArenaQueuedTestCase, ProblemLimits, QueuedArenaSubmission, RepetitionCaseResult
 from shared.enumerations import Verdict
 from shared.language_registry import default_language_registry
@@ -128,3 +131,57 @@ async def test_normal_verdict_exit_publishes_arena_verdict(monkeypatch: pytest.M
     assert len(events) == 1
     assert events[0].verdict == Verdict.AC.value
     assert events[0].submission_id == "submission-1"
+
+
+@pytest.mark.asyncio
+async def test_contestant_watchdog_tle_does_not_contain_validator(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Contestant silence finalizes normally and cannot disable an Arena problem."""
+    interactive_result = InteractiveAttemptResult(
+        classification=InteractiveVerdict(Verdict.TLE, False),
+        contestant_exit_code=None,
+        contestant_signal=None,
+        validator_exit_code=None,
+        validator_signal=None,
+        transcript=InteractiveTranscript(
+            lines=[TranscriptLine(direction="validator", line="53002399")],
+            truncated=False,
+        ),
+        contestant_stderr_excerpt=b"",
+        validator_stderr_excerpt=b"",
+        contestant_output_bytes=0,
+        crash_reason=None,
+        watchdog_stalled_side="contestant",
+    )
+    monkeypatch.setattr(job_module, "prepare_custom_validator", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        job_module,
+        "compile_submission",
+        AsyncMock(return_value=SimpleNamespace(success=True, compile_log="", artifact_data=b"artifact")),
+    )
+    monkeypatch.setattr(
+        job_module,
+        "run_custom_validator_submission",
+        AsyncMock(return_value=(interactive_result, None)),
+    )
+    db = AsyncMock()
+    valkey = AsyncMock()
+
+    await process_arena_submission_job(
+        submission=_submission(),
+        db=db,
+        valkey=valkey,
+        pool_manager=AsyncMock(),
+        language_registry=_REGISTRY,
+        docker_client=SimpleNamespace(),
+        executor=SimpleNamespace(),
+        worker_id="worker-1",
+        attempt_token="worker-1:attempt",
+    )
+
+    db.set_arena_judgment_done.assert_awaited_once()
+    assert db.set_arena_judgment_done.await_args.kwargs["verdict"] == Verdict.TLE
+    db.contain_arena_validator_crash.assert_not_awaited()
+    db.set_arena_judgment_failed.assert_not_awaited()
+    events = _published_events(valkey)
+    assert len(events) == 1
+    assert events[0].verdict == Verdict.TLE.value

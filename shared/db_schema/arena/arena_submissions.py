@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -313,7 +313,10 @@ arena_submission_interactive_attempts = Table(
         "NOT (validator_verdict IS NOT NULL AND crash_reason IS NOT NULL)",
         name="ck_arena_interactive_outcome_exclusive",
     ),
-    CheckConstraint("limit_outcome IS NULL OR limit_outcome IN ('MLE', 'OLE')", name="ck_arena_limit_outcome"),
+    CheckConstraint(
+        "limit_outcome IS NULL OR limit_outcome IN ('MLE', 'OLE', 'TLE')",
+        name="ck_arena_limit_outcome",
+    ),
     CheckConstraint(
         "validator_verdict IS NULL OR validator_verdict IN ('AC', 'WA', 'TLE', 'PE', 'RE')",
         name="ck_arena_validator_verdict",

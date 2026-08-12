@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -31,6 +31,20 @@ def test_validator_failure_is_internal_and_retryable(reason: CustomValidatorCras
     result = classify_interactive_outcome(InteractiveOutcome(0, None, None, None, crash_reason=reason))
     assert result.verdict is None
     assert result.retryable_validator_failure is True
+
+
+def test_watchdog_attributed_to_contestant_is_tle() -> None:
+    result = classify_interactive_outcome(
+        InteractiveOutcome(
+            None,
+            None,
+            None,
+            None,
+            watchdog_stalled_side="contestant",
+        )
+    )
+
+    assert result == result.__class__(Verdict.TLE, False)
 
 
 def test_resource_limits_precede_missing_validator_exit() -> None:

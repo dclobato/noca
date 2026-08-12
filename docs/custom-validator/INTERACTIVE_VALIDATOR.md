@@ -462,7 +462,9 @@ actually means.
 | Contestant exits first, validator never exits cleanly | no clean validator exit | any | `RE` |
 | Validator crashes | signal, startup failure, or communication failure | any | internal failure, retried once |
 | Validator never exits cleanly | no clean validator exit, and the contestant did not exit first | any | internal failure, retried once |
-| Neither side finishes before the watchdog | no clean validator exit | any | internal failure, retried once |
+| Watchdog after a complete validator line | no clean validator exit | does not send a complete reply | `TLE` |
+| Watchdog after a complete contestant line | does not send a complete reply | still running | internal failure, retried once |
+| Watchdog before any complete line | no attributable stalled side | any | internal failure, retried once |
 
 A clean validator exit is a verdict signal, and it is authoritative whichever side the judge
 observes terminating first. A contestant that prints its final answer and exits `0` is *not*
@@ -535,18 +537,29 @@ memory and PID ceilings as a backstop.
 ### The watchdog
 
 An emergency wall-clock watchdog covers **each test case's attempt**:
-`NOCA_JUDGE_CUSTOM_VALIDATOR_WATCHDOG_SECONDS` (default **300 s**, applied per case, not to the
-submission as a whole). This is a protection against a stalled protocol (e.g. both sides waiting
-on each other because someone forgot to flush) — **it is not the problem's time limit**, and a
-submission that hits it is reported as an internal judge failure, not as contestant `TLE`.
+`NOCA_JUDGE_CUSTOM_VALIDATOR_WATCHDOG_SECONDS` (default **300 s**, applied
+per case, not to the submission as a whole). This protects against a stalled
+line protocol, such as both sides waiting on each other because one side didn't
+send or flush its next line. It is **not** the problem's CPU or wall-time limit.
+
+When neither process has finished, the bridge uses the last complete relayed
+line to attribute the stall. If the validator sent that line, the contestant
+failed to reply and receives `TLE`; the judge doesn't retry the case. If the
+contestant sent that line, the validator failed to reply, so the judge treats
+the watchdog as an internal failure and retries once. A partial line isn't
+enough to blame its receiver, and a watchdog before any complete line remains
+an ambiguous internal failure.
 
 ## 7. Failure handling and retries
 
-An attempt that ends without a clean validator exit — validator signal, container
-startup/communication failure, or watchdog expiry — is an **internal failure**, not a
-contestant verdict. That **test case** is retried **once**, on two brand-new containers (an
-unclean exit leaves both containers killed, so the retry cannot reuse them). A case that then
-passes lets the judgment carry on to the next case as normal.
+An attempt that ends with a validator signal, container startup or communication
+failure, or a watchdog attributed to the validator is an **internal failure**,
+not a contestant verdict. An ambiguous watchdog is also internal. That **test
+case** is retried **once**, on two brand-new containers (an unclean exit leaves
+both containers killed, so the retry cannot reuse them). A case that then passes
+lets the judgment carry on to the next case as normal. A watchdog attributed to
+the contestant is `TLE`, so it doesn't retry and never activates validator
+crash containment.
 
 If the second attempt at a case also fails to produce a clean exit, the validator is presumed
 broken:
@@ -557,10 +570,11 @@ broken:
   and the problem's owner receives a notification. Fix the validator and upload a new revision
   to bring the problem back.
 
-Things that never count as a validator crash: a clean but undocumented exit code, a contestant
-crash, and a contestant that hits `MLE` / `OLE`. A validator that **fails to compile** at
-submission time is an internal failure too (`FAILED`, not `CE` — a `CE` would wrongly blame the
-contestant).
+Things that never count as a validator crash: a clean but undocumented exit
+code, a contestant crash, a contestant that hits `MLE` / `OLE`, and a watchdog
+attributed to a contestant that didn't reply. A validator that **fails to
+compile** at submission time is an internal failure too (`FAILED`, not `CE` — a
+`CE` would wrongly blame the contestant).
 
 ## 8. Diagnostics
 

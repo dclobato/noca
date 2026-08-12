@@ -25,6 +25,7 @@ COMPOSE_FILE = REPO_ROOT / "docker-compose.yml.sample"
 BUILD_SCRIPT = REPO_ROOT / "containers" / "build.sh"
 BAKE_FILE = REPO_ROOT / "containers" / "docker-bake.hcl"
 PUBLISH_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "publish-images.yml"
+SINGLE_PUBLISH_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "publish-single-image.yml"
 VERIFY_SCRIPT = REPO_ROOT / "scripts" / "verify_published_images.py"
 ENV_FULL = REPO_ROOT / ".env.full"
 CONFIG_DOC = REPO_ROOT / "docs" / "CONFIG.md"
@@ -274,3 +275,11 @@ def test_landingpage_is_in_every_build_and_publish_inventory() -> None:
     assert 'target "landingpage"' in BAKE_FILE.read_text(encoding="utf-8")
     assert re.search(r"APP_TARGETS:.*\blandingpage\b", workflow)
     assert '"landingpage"' in VERIFY_SCRIPT.read_text(encoding="utf-8")
+
+
+def test_application_publish_workflows_serialize_mutable_tags() -> None:
+    """Full and single-image publishes cannot race on the same tags."""
+    expected = {"group": "publish-application-images", "cancel-in-progress": False}
+    for workflow_path in (PUBLISH_WORKFLOW, SINGLE_PUBLISH_WORKFLOW):
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        assert workflow["concurrency"] == expected

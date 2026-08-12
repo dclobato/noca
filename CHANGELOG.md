@@ -4,6 +4,15 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [17.0.1] - 2026-08-12
+
+### Bug Fixes
+
+- **autojudge:** Attribute interactive watchdog stalls
+- **ci:** Serialize and harden image publishing
+
+
+
 ## [17.0.0] - 2026-08-12
 
 ### ⚠ Breaking Changes

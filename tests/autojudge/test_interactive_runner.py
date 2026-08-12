@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -16,7 +16,7 @@ from autojudge.interactive_runner import (
     run_interaction,
 )
 from autojudge.interactive_transcript import InteractiveTranscript, TranscriptLine
-from autojudge.interactive_verdict import FinishedFirst, InteractiveVerdict
+from autojudge.interactive_verdict import FinishedFirst, InteractiveVerdict, WatchdogStalledSide
 from autojudge.types import IsolateMeta
 from shared.enumerations import CustomValidatorCrashReason, Verdict
 
@@ -140,15 +140,71 @@ async def test_output_limit_terminates_both_without_validator_crash() -> None:
 
 
 @pytest.mark.asyncio
-async def test_watchdog_is_retryable_internal_failure() -> None:
+async def test_watchdog_without_a_complete_message_is_retryable_internal_failure() -> None:
     contestant = endpoint()
     validator = endpoint()
     contestant.stdout = asyncio.Queue()
 
-    result = await run_interaction(contestant, validator, output_limit_bytes=100, watchdog_seconds=0.01)
+    result = await run_interaction(
+        contestant,
+        validator,
+        output_limit_bytes=100,
+        watchdog_seconds=0.01,
+    )
 
     assert result.crash_reason == CustomValidatorCrashReason.WATCHDOG
     assert result.classification.retryable_validator_failure is True
+    assert result.watchdog_stalled_side is None
+
+
+@pytest.mark.asyncio
+async def test_watchdog_after_validator_prompt_is_contestant_tle() -> None:
+    contestant = endpoint()
+    contestant.stdout = asyncio.Queue()
+    validator = endpoint(b"53002399\n")
+
+    result = await run_interaction(
+        contestant,
+        validator,
+        output_limit_bytes=100,
+        watchdog_seconds=0.01,
+    )
+
+    assert result.crash_reason is None
+    assert result.watchdog_stalled_side == "contestant"
+    assert result.classification == InteractiveVerdict(Verdict.TLE, False)
+    assert result.contestant_output_bytes == 0
+    assert _entries(result) == [("validator", "53002399")]
+
+
+@pytest.mark.asyncio
+async def test_watchdog_after_contestant_message_is_retryable_validator_failure() -> None:
+    contestant = endpoint(b"!42\n")
+    validator = endpoint()
+    validator.stdout = asyncio.Queue()
+
+    result = await run_interaction(
+        contestant,
+        validator,
+        output_limit_bytes=100,
+        watchdog_seconds=0.01,
+    )
+
+    assert result.crash_reason == CustomValidatorCrashReason.WATCHDOG
+    assert result.watchdog_stalled_side == "validator"
+    assert result.classification == InteractiveVerdict(None, True)
+
+
+@pytest.mark.asyncio
+async def test_partial_validator_prompt_does_not_blame_contestant() -> None:
+    contestant = endpoint()
+    contestant.stdout = asyncio.Queue()
+    validator = endpoint(b"incomplete prompt")
+
+    result = await run_interaction(contestant, validator, output_limit_bytes=100, watchdog_seconds=0.01)
+
+    assert result.watchdog_stalled_side is None
+    assert result.classification == InteractiveVerdict(None, True)
 
 
 def _entries(result: InteractiveAttemptResult) -> list[tuple[str, str]]:
@@ -266,6 +322,7 @@ def _bridge(
     verdict: Verdict | None = Verdict.AC,
     crash: CustomValidatorCrashReason | None = None,
     finished_first: FinishedFirst | None = None,
+    watchdog_stalled_side: WatchdogStalledSide | None = None,
 ) -> InteractiveAttemptResult:
     return InteractiveAttemptResult(
         classification=InteractiveVerdict(verdict, verdict is None),
@@ -282,6 +339,7 @@ def _bridge(
         contestant_output_bytes=10,
         crash_reason=crash,
         finished_first=finished_first,
+        watchdog_stalled_side=watchdog_stalled_side,
     )
 
 
@@ -309,6 +367,21 @@ def test_metadata_contestant_oom_precedes_missing_validator_exit() -> None:
     )
     assert result.classification == InteractiveVerdict(Verdict.MLE, False)
     assert result.crash_reason is None
+
+
+def test_metadata_preserves_contestant_watchdog_tle_without_crash_reason() -> None:
+    result = finalize_interactive_metadata(
+        _bridge(
+            verdict=Verdict.TLE,
+            watchdog_stalled_side="contestant",
+        ),
+        None,
+        None,
+    )
+
+    assert result.classification == InteractiveVerdict(Verdict.TLE, False)
+    assert result.crash_reason is None
+    assert result.watchdog_stalled_side == "contestant"
 
 
 def test_metadata_preserves_validator_first_precedence() -> None:

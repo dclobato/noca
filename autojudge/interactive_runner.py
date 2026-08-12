@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -35,6 +35,7 @@ from autojudge.interactive_verdict import (
     FinishedFirst,
     InteractiveOutcome,
     InteractiveVerdict,
+    WatchdogStalledSide,
     classify_interactive_outcome,
 )
 from autojudge.languages import LanguageConfig
@@ -83,6 +84,7 @@ class InteractiveAttemptResult:
     wall_time_ms: int | None = None
     memory_kb: int | None = None
     finished_first: FinishedFirst | None = None
+    watchdog_stalled_side: WatchdogStalledSide | None = None
 
 
 class _OutputLimitReached(Exception):
@@ -217,11 +219,13 @@ def finalize_interactive_metadata(
     memory_limit_reached = bool(contestant_meta and contestant_meta.cg_oom_killed)
     output_limit_reached = bridge_result.classification.verdict == Verdict.OLE
     judge_terminated = memory_limit_reached or output_limit_reached
-    crash_reason = None if judge_terminated else bridge_result.crash_reason
-    if not judge_terminated and crash_reason is None and validator_meta is None:
+    contestant_watchdog = bridge_result.watchdog_stalled_side == "contestant"
+    crash_reason = None if judge_terminated or contestant_watchdog else bridge_result.crash_reason
+    if not judge_terminated and not contestant_watchdog and crash_reason is None and validator_meta is None:
         crash_reason = CustomValidatorCrashReason.COMMUNICATION
     elif (
         not judge_terminated
+        and not contestant_watchdog
         and crash_reason is None
         and validator_meta is not None
         and validator_meta.exit_signal is not None
@@ -242,6 +246,7 @@ def finalize_interactive_metadata(
             output_limit_reached=output_limit_reached,
             crash_reason=crash_reason,
             finished_first=bridge_result.finished_first,
+            watchdog_stalled_side=bridge_result.watchdog_stalled_side,
         )
     )
     return InteractiveAttemptResult(
@@ -258,6 +263,7 @@ def finalize_interactive_metadata(
         wall_time_ms=contestant_meta.wall_time_ms if contestant_meta else None,
         memory_kb=contestant_meta.memory_kb if contestant_meta else None,
         finished_first=bridge_result.finished_first,
+        watchdog_stalled_side=bridge_result.watchdog_stalled_side,
     )
 
 
@@ -292,6 +298,22 @@ async def run_interaction(
     output_limited = False
     crash_reason: CustomValidatorCrashReason | None = None
     finished_first: FinishedFirst | None = None
+    watchdog_stalled_side: WatchdogStalledSide | None = None
+    last_complete_message: TranscriptDirection | None = None
+    protocol_line_buffers: dict[TranscriptDirection, bytearray] = {
+        "user": bytearray(),
+        "validator": bytearray(),
+    }
+
+    def observe_completed_protocol_lines(direction: TranscriptDirection, chunk: bytes) -> None:
+        """Track the latest complete line independently of transcript truncation."""
+        nonlocal last_complete_message
+        buffer = protocol_line_buffers[direction]
+        buffer.extend(chunk)
+        if (last_newline := buffer.rfind(b"\n")) == -1:
+            return
+        del buffer[: last_newline + 1]
+        last_complete_message = direction
 
     async def pump(
         source: InteractiveEndpoint,
@@ -313,6 +335,7 @@ async def run_interaction(
                 if contestant_output_bytes >= output_limit_bytes:
                     raise _OutputLimitReached
             await destination.write_stdin(chunk)
+            observe_completed_protocol_lines(direction, chunk)
         recorder.close(direction)
         await destination.close_stdin()
 
@@ -360,6 +383,11 @@ async def run_interaction(
                 await asyncio.gather(contestant.terminate(), validator.terminate(), return_exceptions=True)
     except TimeoutError:
         crash_reason = CustomValidatorCrashReason.WATCHDOG
+        if finished_first is None:
+            if last_complete_message == "validator":
+                watchdog_stalled_side = "contestant"
+            elif last_complete_message == "user":
+                watchdog_stalled_side = "validator"
         await asyncio.gather(contestant.terminate(), validator.terminate(), return_exceptions=True)
     except Exception:
         crash_reason = CustomValidatorCrashReason.COMMUNICATION
@@ -368,14 +396,16 @@ async def run_interaction(
     await first_exit_task
     contestant_exit, contestant_signal = await contestant.wait()
     validator_exit, validator_signal = await validator.wait()
+    reported_crash_reason = None if watchdog_stalled_side == "contestant" else crash_reason
     outcome = InteractiveOutcome(
         contestant_exit,
         contestant_signal,
         validator_exit,
         validator_signal,
         output_limit_reached=output_limited,
-        crash_reason=crash_reason,
+        crash_reason=reported_crash_reason,
         finished_first=finished_first,
+        watchdog_stalled_side=watchdog_stalled_side,
     )
     return InteractiveAttemptResult(
         classification=classify_interactive_outcome(outcome),
@@ -387,6 +417,7 @@ async def run_interaction(
         contestant_stderr_excerpt=bytes(contestant_stderr),
         validator_stderr_excerpt=bytes(validator_stderr),
         contestant_output_bytes=contestant_output_bytes,
-        crash_reason=crash_reason,
+        crash_reason=reported_crash_reason,
         finished_first=finished_first,
+        watchdog_stalled_side=watchdog_stalled_side,
     )

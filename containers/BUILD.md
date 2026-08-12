@@ -292,12 +292,36 @@ same sources `build.sh` uses, so a newly added language is verified
 automatically.
 
 Public repositories verify anonymously. Set `DOCKERHUB_USERNAME` /
-`DOCKERHUB_TOKEN` and `GITHUB_TOKEN` to check private ones.
+`DOCKERHUB_TOKEN`, or `GHCR_USERNAME` and `GITHUB_TOKEN`, to check private
+ones. `GHCR_TOKEN` and `GH_TOKEN` are also accepted as GHCR token names. A
+private package queried without usable credentials is reported as an
+authentication failure, not as a missing tag.
 
 The publish workflows also retry the push up to `MAX_ATTEMPTS` times with
 increasing backoff, because Bake aborts every target when one push fails: without
 a retry, a single transient registry error costs the whole release. Retries are
 cheap, since the layers are cached and re-pushing an existing tag is a no-op.
+
+## Serializing application image publishes
+
+The full application release workflow and the manual single-application
+workflow both write the same mutable `latest` tags. They share the
+`publish-application-images` Actions concurrency group, with cancellation
+disabled, so only one of those workflows can publish at a time. A second run
+waits for the active run instead of interrupting it.
+
+This workflow contract requires Gitea 1.26 or newer. Earlier Gitea releases
+ignore `concurrency`; upgrade the server or run application publishes on a
+dedicated runner with capacity `1` before enabling parallel Actions workers.
+
+Without this serialization, two Bake runs can push the same target's `latest`
+and versioned tags in different orders. Build metadata can give the runs
+different manifest digests even when they checked out the same source revision.
+The resulting registry can then hold `latest` from one run and the versioned tag
+from the other, which the release verifier correctly rejects.
+
+The language-image workflow doesn't use this concurrency group. It writes
+separate `judge-*` repositories and cannot race with the application tags.
 
 ## Publishing one registry at a time
 
@@ -596,6 +620,11 @@ GHCR:
 echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
 ```
 
+The first push of a personal-account GHCR package creates it as private. If the
+image is intended for anonymous deployment, open the package's **Package
+settings** page and change its visibility to **Public** after the first push.
+GitHub doesn't let you make that package private again.
+
 ## Usage
 
 Build everything:
@@ -709,23 +738,33 @@ requested final images. Internal base images stay inside the BuildKit graph.
 
 ### 4. CI multi-platform release
 
-The GitHub Actions release workflows log in to Docker Hub and GHCR, then run
-`build.sh` once with both tag layouts:
+The GitHub Actions release workflows log in to Docker Hub and GHCR, then run one
+single-registry pass for each selected registry:
 
 ```bash
 ./containers/build.sh \
   --repo docker.io/dclobato/noca \
   --naming flat \
-  --alt-repo ghcr.io/dclobato/noca \
-  --alt-naming path \
+  --platforms=linux/amd64,linux/arm64 \
+  --push \
+  --version "$VERSION"
+
+./containers/build.sh \
+  --repo ghcr.io/dclobato/noca \
+  --naming path \
   --platforms=linux/amd64,linux/arm64 \
   --push \
   --version "$VERSION"
 ```
 
-That release path keeps `app-base`, `assets-base`, `isolate-base`, and `judge-compile-base` internal to the
-BuildKit graph, builds each target once, and publishes only the final runtime
-and judge images to both registries.
+Both passes share the same BuildKit instance, so the second pass reuses the
+first pass's build cache. See
+[Publishing one registry at a time](#publishing-one-registry-at-a-time) for the
+failure mode this avoids.
+
+That release path keeps `app-base`, `assets-base`, `isolate-base`, and
+`judge-compile-base` internal to the BuildKit graph. Each pass publishes only
+the final runtime and judge images for its selected registry.
 
 ## Verify
 
