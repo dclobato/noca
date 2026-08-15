@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,6 +33,7 @@ from arena.database import get_db
 from arena.dependencies.admin import require_arena_admin
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_dashboard_history import router
+from arena.routes.admin_dashboard_security import router as security_events_router
 from arena.routes.legal import router as arena_legal_router
 from arena.services import admin_login_history_service
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
@@ -269,6 +272,12 @@ async def test_global_history_second_page_returns_correct_slice(session: AsyncSe
 # ---------------------------------------------------------------------------
 
 
+@asynccontextmanager
+async def _shared_session_factory(session: Any) -> AsyncIterator[Any]:
+    """Hand routes that open their own session the shared test session."""
+    yield session
+
+
 def _build_app(session: Any, *, authorized: bool = True) -> FastAPI:
     """Build a minimal FastAPI app for the global login history route tests."""
     app = FastAPI()
@@ -343,12 +352,15 @@ def _build_app(session: Any, *, authorized: bool = True) -> FastAPI:
         return Response("[]", media_type="application/json")
 
     app.include_router(router)
+    app.include_router(security_events_router)
     app.include_router(arena_legal_router)
 
     async def _get_db_override() -> Any:
         yield session
 
     app.dependency_overrides[get_db] = _get_db_override
+    # The CSV export opens its own session instead of the request-scoped one.
+    app.state.arena_db_session = lambda: _shared_session_factory(session)
 
     if authorized:
 

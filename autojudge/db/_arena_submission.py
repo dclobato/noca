@@ -31,7 +31,6 @@ from autojudge.types import (
     QueuedArenaSubmission,
     RecoverableArenaSubmissionJob,
 )
-from shared.db_schema.arena import arena_problem_custom_validators as _arena_problem_custom_validator
 from shared.db_schema.arena import arena_problem_ratings as _arena_problem_rating
 from shared.db_schema.arena import arena_problem_solvers as _arena_problem_solver
 from shared.db_schema.arena import arena_problems as _arena_problem
@@ -40,7 +39,7 @@ from shared.db_schema.arena import arena_submission_judgments as _arena_submissi
 from shared.db_schema.arena import arena_submission_test_results as _arena_submission_test_result
 from shared.db_schema.arena import arena_submissions as _arena_submission
 from shared.db_schema.arena import arena_test_cases as _arena_test_case
-from shared.enumerations import ArenaNotificationKind, JudgmentStatus, Verdict
+from shared.enumerations import ArenaNotificationKind, JudgmentStatus, ProblemValidatorType, Verdict
 from shared.services.arena_notification_service import create_arena_notification
 from shared.services.arena_query_helpers import is_excluded_from_problem_rating
 from shared.services.testcase_files import get_testcase_path
@@ -93,20 +92,18 @@ class _ArenaSubmissionMixin(_DatabaseBase):
             raise LookupError(f"Arena judgment '{judgment_id}' is not judgeable (status={status})")
 
         problem_id = cast(str, result["problem_id"])
-        validator_configured = await self._conn.scalar(
-            select(_arena_problem_custom_validator.c.problem_id).where(
-                _arena_problem_custom_validator.c.problem_id == problem_id,
-                (
-                    _arena_problem_custom_validator.c.active_source.is_not(None)
-                    | _arena_problem_custom_validator.c.candidate_source.is_not(None)
-                ),
-            )
+        strategy = await self._conn.scalar(
+            select(_arena_problem.c.validator_type).where(_arena_problem.c.id == problem_id)
         )
-        # A validator problem's cases carry input only: the input parametrizes the
-        # validator, which decides the verdict instead of an expected-output file.
+        # An interactive problem's cases carry input only: the input parametrizes
+        # the validator, which decides the verdict instead of an expected-output
+        # file. This follows the stored strategy, so a stale validator row cannot
+        # make a standard problem's cases look output-less and a removed source
+        # cannot make an interactive problem's cases look like they need output.
+        interactive = strategy == ProblemValidatorType.INTERACTIVE
         test_cases = await self._get_arena_test_cases(
             problem_id,
-            require_expected_output=validator_configured is None,
+            require_expected_output=not interactive,
         )
         if not test_cases:
             raise LookupError(f"Arena problem '{result['problem_id']}' has no test cases")

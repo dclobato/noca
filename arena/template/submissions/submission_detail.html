@@ -449,6 +449,11 @@
             <h2 class="arena-card-title">
                 {{ render_icon(icon="code") }}
                 Source Code
+                <a class="btn btn-outline-secondary btn-sm arena-icon-button ms-auto"
+                   href="{{ request.url_for('arena_submission_source_download', submission_id=submission_id) }}{% if is_teacher_view %}?back_class_id={{ back_class_id }}&back_set_id={{ back_set_id }}&back_user_id={{ back_user_id }}&back_context={{ back_context }}{% endif %}">
+                    {{ render_icon(icon="download") }}
+                    Download source code
+                </a>
             </h2>
             <pre class="mb-0 arena-source-code-pre" aria-label="Submitted source code"><code class="{{ highlight_language_class }} rounded" data-highlight-line-numbers>{{ source_code | e }}</code></pre>
         </section>

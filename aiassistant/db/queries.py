@@ -51,6 +51,7 @@ class SubmissionForReview:
     submission_id: str
     source_code: str
     user_id: str
+    user_email: str | None
     problem_id: str
     problem_number: int
     problem_title: str
@@ -157,6 +158,7 @@ async def get_submission_for_review(conn: AsyncConnection, submission_id: str) -
             arena_submissions.c.id,
             arena_submissions.c.source_code,
             arena_submissions.c.user_id,
+            arena_users.c.email_normalizado,
             arena_submissions.c.problem_id,
             arena_problems.c.arena_number,
             arena_problems.c.title,
@@ -167,7 +169,12 @@ async def get_submission_for_review(conn: AsyncConnection, submission_id: str) -
             arena_submissions.join(
                 arena_problems,
                 arena_submissions.c.problem_id == arena_problems.c.id,
-            ).outerjoin(
+            )
+            .join(
+                arena_users,
+                arena_submissions.c.user_id == arena_users.c.id,
+            )
+            .outerjoin(
                 arena_submission_ai_reviews,
                 arena_submissions.c.id == arena_submission_ai_reviews.c.submission_id,
             )
@@ -183,6 +190,7 @@ async def get_submission_for_review(conn: AsyncConnection, submission_id: str) -
         submission_id=str(row["id"]),
         source_code=str(row["source_code"]),
         user_id=str(row["user_id"]),
+        user_email=row["email_normalizado"],
         problem_id=str(row["problem_id"]),
         problem_number=int(row["arena_number"]),
         problem_title=str(row["title"]),

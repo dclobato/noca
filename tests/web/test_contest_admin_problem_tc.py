@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -24,6 +24,10 @@ def _build_request() -> Request:
     async def edit_problem_form() -> None:
         """Placeholder route used only by url_for in this test."""
 
+    @app.get("/c/{slug}/admin/problems/{problem_id}/judgment/test-cases", name="problem_judgment_cases")
+    async def problem_judgment_cases() -> None:
+        """Placeholder route used only by url_for in this test."""
+
     scope = {
         "type": "http",
         "method": "GET",
@@ -44,23 +48,32 @@ def test_testcase_edit_return_url_targets_edited_row() -> None:
 
     url = _testcase_edit_return_url(request, "contest", "problem-123", "case-456")
 
-    assert url == "http://testserver/c/contest/admin/problems/problem-123/edit?tab=content#tc-case-456"
+    # Test cases live on their own page now, so the return lands there -- still
+    # anchored to the row that was edited.
+    assert url == "http://testserver/c/contest/admin/problems/problem-123/judgment/test-cases#tc-case-456"
 
 
-def test_problem_edit_template_loads_highlight_row_script() -> None:
-    """The problem edit page needs the shared hash highlighter for test-case rows."""
-    template = Path("web/template/admin/problems/edit.html").read_text(encoding="utf-8")
+def test_judgment_cases_template_loads_highlight_row_script() -> None:
+    """The judgment page owns the test-case row highlighter."""
+    template = Path("web/template/admin/problems/judgment_cases.html").read_text(encoding="utf-8")
 
     assert "highlight-row.js" in template
 
 
-def test_problem_edit_template_links_validator_source_view() -> None:
-    """Configured validators should offer a new-tab highlighted source view."""
-    template = Path("web/template/admin/problems/edit.html").read_text(encoding="utf-8")
+def test_judgment_validator_page_links_the_source_view() -> None:
+    """Configured validators should offer a new-tab highlighted source view.
 
-    assert "view_problem_custom_validator_source" in template
-    assert 'target="_blank"' in template
-    assert 'rel="noopener noreferrer"' in template
+    The page is shared with Arena, so it may not resolve a Contest route name:
+    the URL is pre-built into the page view model and the markup renders it.
+    """
+    page = Path("shared/template/_partials/judgment_validator_page.html").read_text(encoding="utf-8")
+    builder = Path("web/routes/contest_admin_problem_judgment_view.py").read_text(encoding="utf-8")
+
+    assert "page.source_url" in page
+    assert 'target="_blank"' in page
+    assert 'rel="noopener noreferrer"' in page
+    assert "view_problem_custom_validator_source" in builder
+    assert "url_for" not in page
 
 
 def test_validator_source_template_uses_highlight_line_numbers() -> None:
@@ -75,14 +88,17 @@ def test_validator_source_template_uses_highlight_line_numbers() -> None:
 
 
 def test_reorder_templates_load_sortable_assets() -> None:
-    """Problem admin pages should load local SortableJS and reorder glue."""
+    """Only pages with reorderable rows should load SortableJS and its glue."""
     list_template = Path("web/template/admin/problems/list.html").read_text(encoding="utf-8")
-    edit_template = Path("web/template/admin/problems/edit.html").read_text(encoding="utf-8")
+    judgment_template = Path("web/template/admin/problems/judgment_cases.html").read_text(encoding="utf-8")
+    definition_template = Path("web/template/admin/problems/edit.html").read_text(encoding="utf-8")
 
     assert "Sortable.min.js" in list_template
     assert "tc-reorder-sortable.js" in list_template
-    assert "Sortable.min.js" in edit_template
-    assert "tc-reorder-sortable.js" in edit_template
+    assert "Sortable.min.js" in judgment_template
+    assert "tc-reorder-sortable.js" in judgment_template
+    assert "Sortable.min.js" not in definition_template
+    assert "tc-reorder-sortable.js" not in definition_template
 
 
 def test_problem_list_template_renders_drag_metadata() -> None:
@@ -125,25 +141,30 @@ def test_testcase_table_renders_toggle_sample_button() -> None:
     assert "swap_horiz" in template
 
 
-def test_testcase_table_actions_use_icon_btn_group() -> None:
-    """Actions cell should use the shared icon btn-group pattern, not loose text buttons."""
+def test_testcase_table_prioritizes_edit_and_discloses_secondary_actions() -> None:
+    """The row keeps one obvious action and moves secondary work into More."""
     template = Path("shared/template/_partials/testcase_list_table.html").read_text(encoding="utf-8")
 
-    assert "noca-icon-btn-group" in template
-    assert "noca-icon-btn-wrap" in template
-    assert "noca-icon-btn" in template
-    # Text labels must be gone
-    assert ">Edit<" not in template
-    assert ">Remove<" not in template
-    assert ">Undo<" not in template
+    assert "noca-row-actions" in template
+    assert "dropdown-menu dropdown-menu-end" in template
+    assert "More actions for test case" in template
+    assert "Download ZIP" in template
+    assert "Replace from ZIP" in template
+    assert "Remove test case" in template
+    assert "noca-icon-btn-group" not in template
 
 
 def test_problem_edit_template_includes_shared_image_field() -> None:
-    """The admin form renders the shared problem-image partial, not its own copy."""
-    template = Path("web/template/admin/problems/edit.html").read_text(encoding="utf-8")
+    """The editor renders the shared problem-image partial, not its own copy.
 
-    assert "_partials/problem_image_field.html" in template
-    assert 'image_form_id="edit-form"' in template
+    The illustration lives on the Statement pane, which is itself shared, so the
+    include moved there; only the script tag stays on the page shell.
+    """
+    template = Path("web/template/admin/problems/edit.html").read_text(encoding="utf-8")
+    statement_tab = Path("shared/template/_partials/problem_statement_tab.html").read_text(encoding="utf-8")
+
+    assert "_partials/problem_image_field.html" in statement_tab
+    assert 'image_form_id = "edit-form"' in template
     assert "problem-image-preview.js" in template
 
 

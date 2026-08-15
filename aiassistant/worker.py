@@ -305,6 +305,7 @@ async def _process_job_online(
                 event_type="ai_response_redacted",
                 severity="warning",
                 actor_user_id=submission.user_id,
+                actor_label=submission.user_email,
                 metadata={
                     "submission_id": submission_id,
                     "path": "online",

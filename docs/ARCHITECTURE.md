@@ -9,7 +9,7 @@ Related references:
 - [autojudge/docs/AUTOJUDGE_INFRA.md](../autojudge/docs/AUTOJUDGE_INFRA.md) for worker isolation, queue protocol, and container execution details
 - [DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md](DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md) for the submission lifecycle
 - [CONTEST_BACKUP_FORMAT.md](CONTEST_BACKUP_FORMAT.md) for the contest
-  backup/restore ZIP format and fidelity notes
+  backup/restore ZIP format (version 2, restoring 1 and 2) and fidelity notes
 - [Interactive validator guide](custom-validator/INTERACTIVE_VALIDATOR.md) for
   authoring, exit codes, and applicable limits
 - [Output checker validator rationale](custom-validator/OUTPUT_CHECKER_VALIDATOR.md)
@@ -235,6 +235,26 @@ before global medals existed simply carries `medal_cutoffs=None` and shows no me
 back with a configured global ceremony in flight is recovered the same way every unreadable
 payload is — `start-reveal` with `restart=true`.
 
+Every problem in both domains stores its **validation strategy** explicitly in
+`problems.validator_type` / `arena_problems.validator_type` (`ProblemValidatorType`:
+`standard`, `interactive`, or the reserved `checker`), NOT NULL with no server default so
+every creation path states it and a path that forgets fails loudly. It replaces the previous
+derivation from custom-validator row presence, which was wrong in both directions: a problem
+whose validator source was removed silently became a standard problem judged by the token
+comparator, and a standard problem carrying a stale validator row looked interactive. The
+strategy is **immutable** after creation, enforced at the service boundary and again by a
+`before_flush` ORM guard (`shared/services/validator_type_guard.py`) in both domains; direct
+SQL is outside that boundary and is not detected. Presence of validator *source* remains a
+separate axis, governing revision actions -- upload, replace, remove -- so an interactive
+problem whose source was removed stays interactive and simply becomes non-judgeable until an
+active `VALID` revision exists.
+
+The same tables carry `artifact_generation` (`BigInteger`, NOT NULL, default 0), a monotonic
+fence for editor saves that promote filesystem artifacts. It lands with the strategy so the
+schema settles in one migration; nothing increments it yet. Its purpose is recovery after a
+crash: for an *import*, the problem row's existence answers "did the transaction commit",
+but for an *edit* it cannot, since the problem exists either way.
+
 Problem test-case content (both Web and Arena) lives on a single shared filesystem mount
 configured by `NOCA_PROBLEM_TESTCASE_DIR`, namespaced by identity domain:
 `<root>/contest/<problem_id>/NNN.in|out` for Web and `<root>/arena/<problem_id>/NNN.in|out`
@@ -249,7 +269,22 @@ files directly from the appropriate domain subdirectory.
 Problem **packages** — the import/export ZIP both domains speak — are owned end to end by
 `shared/services/problem_package/`, which is the single place every format decision is made:
 integer coercion, null semantics, string widths, UTF-8, image resolution, archive safety, and the
-export field set. Both domain importers consume one frozen `ProblemPackage` and are left with only
+export field set. The format is at **version 2**, which carries the stored `validator_type`
+explicitly rather than leaving it to be inferred from validator presence; version 1 (and a package
+with no version key at all) is still read, with the strategy derived from `custom_validator`
+presence, which is the only thing such a package says. A `checker` package is refused centrally in
+the shared parser rather than by each importer, and only version 2 is written — so a `full` export
+refuses an interactive problem with no validator source, which version 2 cannot express.
+
+Contest **backups** are versioned independently and moved to version 2 with the same change, since
+strict row validation compares each archived row against the *live* table: a new column would
+otherwise make every existing archive unrestorable the day it lands. The restorer accepts versions
+1 and 2, requiring the strategy on version 2 and treating it as optional on version 1. Crucially,
+version 1 covers **two** archive shapes — those captured before the column existed, and those
+captured after it landed but before this bump, which carry the strategy under a version-1 label — so
+the rule is *explicit wins, infer only on absence*. One shared predicate serves both the restorer
+and the integrity check that decides whether an expected-output payload member is required, so an
+archive cannot validate under one strategy and restore under another. Both domain importers consume one frozen `ProblemPackage` and are left with only
 category resolution, target-language availability, ORM row construction, and lifecycle queueing.
 Neither direction ever holds an archive in RAM: an upload is spooled to disk in bounded chunks and
 opened once, and an export is written to a temporary path the route streams and deletes.
@@ -262,6 +297,74 @@ recoverable, and is reconciled at Web and Arena startup as well as before each i
 journal-supplied path re-validated against its configured root before anything is deleted. See
 [SHARED_SERVICES.md](SHARED_SERVICES.md) and
 [PROBLEM_PACKAGE_FORMAT.md](PROBLEM_PACKAGE_FORMAT.md).
+
+**Editing** an existing problem gets the same ordering through a *sibling* mechanism rather than the
+import path, because both of that path's assumptions are false for an edit. Promotion would delete
+the author's existing test-case directory, so a failed commit followed by the import rollback would
+leave the problem with no files at all; and recovery's commit signal — does the problem row exist? —
+cannot answer anything for a problem that exists either way. The edit swap therefore **quarantines**
+what it displaces into a hidden same-filesystem sibling and renames it back on rollback, records that
+quarantine — in the journal *before* the first rename, and in memory before the rename that would
+strand it, since both windows are otherwise unrecoverable — resolves recovery on what is actually on
+disk rather than on a snapshot that may have gone stale, and fences recovery on
+`artifact_generation`: the journal states the value the row will hold after the Save commits, and a stored value at or beyond it means the commit landed — keep the new
+artifacts and drop the quarantine — while a strictly lower one means it was lost, and the originals
+are restored. Both kinds of journal live in the same directory and are resolved by the same startup
+and pre-import passes, each on its own predicate. A Save materializes the complete desired test-case
+directory in staging, with no exception for small or single-case edits, so no database row is ever
+committed ahead of an unprotected filesystem write. A Save can also end with *less* on disk than it
+began with — a Contest statement switched from PDF to Markdown drops the PDF — and that deletion goes
+through the same swap: the file is parked in the quarantine rather than unlinked, so a failed commit
+leaves the problem with the statement it had rather than with neither.
+
+A problem is edited through **two** doors, and the split is deliberate. The *definition* editor
+owns what the problem is -- title, statement, illustration, categories, and Contest's resource
+limits -- as one form with one Save and client-side panes, because those fields belong to one
+transaction and switching between them must not lose typed input. The *judgment-data* editor owns
+what judging runs against -- test cases, the custom validator, sample interactions -- as separate
+**pages**, because a problem can carry many cases and a case can be large, so neither holding them
+all in one page nor deferring them to one Save is reasonable. Creation collects the definition only
+and lands on the judgment pages.
+
+On the judgment pages every action on data that already exists posts immediately; the only thing the
+server has not seen is a row the author typed and has not saved, which that page's own Save applies
+and which an upload warns before discarding. The client-side pending model that the single Save
+required -- optimistic markers, undo, rehydration after a reorder swap, conflict rules, and a re-emit
+path for rejected saves -- is gone with it, and with it the class of bug where the browser's idea of
+the problem and the server's disagree.
+
+Durability did not move. An action that changes **rows and files** stages the complete desired
+test-case directory, promotes it, commits, and finishes, with the same edit swap and the same
+`artifact_generation` fence; a single shared helper (`shared/services/judgment_case_action.py`) owns
+that ordering so it is written once rather than once per endpoint. Each such action takes the problem
+row's lock *before* it reads the current cases, because two actions that both snapshot the live
+directory would each stage a complete replacement and the loser would reinstate what the winner
+replaced. Actions that change **no** file -- the sample toggle, validator upload and removal, every
+interaction mutation -- commit directly under that lock, because there is nothing on disk for a
+failed commit to leave behind; that is a stated rule, not an oversight.
+
+Staging seeds itself with hardlinks so an immediate action costs a link per case rather than a copy
+of the problem's entire test data, which is precisely what made per-action posts affordable on the
+large problems that motivated separate pages. The invariant that makes it safe is that nothing is
+ever written *through* a link: writes go to a temporary name in the same directory and are renamed
+into position. Where the filesystem has no hardlinks the seed copies instead and logs it once; see
+[BOOTSTRAP.md](BOOTSTRAP.md) for what a data root must support.
+
+Two properties make the fence trustworthy rather than merely plausible. The writes are **flushed**
+before the transaction that depends on them commits -- the bytes before the rename that publishes
+them, and the directory entries the promotion creates -- because a committed generation pointing at
+content still in the kernel's page cache is precisely the state recovery cannot detect: the fence
+tells it the Save landed. And reconciliation asks whether a journal is stale *before* resolving it.
+The pre-import pass runs while the application is serving, so a Save may be between its promotion
+and its commit right now, which from outside its transaction is indistinguishable from a lost commit
+-- the row still holds the previous generation. A Save holds the problem row locked for exactly that
+window, so a row another transaction holds means "leave this journal alone", and it is probed with
+`SKIP LOCKED` inside a savepoint so the probe neither waits on the Save nor holds a lock of its own.
+When more than one interrupted Save exists for the same problem, reconciliation keeps that guard
+while it restores the entire newest-first journal chain. Releasing it between journals would expose
+an intermediate, never-committed predecessor to a newly starting Save. Recovery also flushes the
+directory entries changed by restores, quarantine deletion, and journal deletion before discarding
+the recovery record, so another host crash cannot preserve only half of that decision.
 
 Both problem tables make `output_limit_in_bytes` **NOT NULL** (server default 65536): a problem
 always states an output limit, and `NOCA_JUDGE_OUTPUT_LIMIT_BYTES` is a hard global ceiling applied
@@ -279,7 +382,8 @@ cleanup before changing PostgreSQL or files. It then moves each problem's PDF,
 Markdown, and test-case directory into guarded same-filesystem quarantine and
 deletes the contest graph in one PostgreSQL transaction. The transaction also
 adds one warning-level `contest_deleted` security event containing only the
-acting UberAdmin ID and deleted contest ID. A pre-commit failure rolls back the
+acting UberAdmin ID, that UberAdmin's username as the event actor label, and the
+deleted contest ID. A pre-commit failure rolls back the
 database and restores the quarantine; a successful commit erases it. Global
 languages, global problem categories, UberAdmins, unrelated contests, and
 existing security events remain outside the deletion graph.

@@ -36,7 +36,7 @@ from shared.db_schema.arena import (
     arena_problems,
     arena_users,
 )
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, ProblemValidatorType
 
 
 @pytest_asyncio.fixture
@@ -168,7 +168,10 @@ async def test_postgresql_search_behavior_and_int4_bounds(
             text(
                 "SELECT indexname FROM pg_indexes "
                 "WHERE indexname LIKE 'ix_arena_problems_%_trgm' "
-                "OR indexname = 'ix_arena_problems_search_vector_gin'"
+                "OR indexname IN ("
+                "'ix_arena_problems_search_vector_gin', "
+                "'ix_arena_problems_license_search_vector_gin'"
+                ")"
             )
         )
     )
@@ -179,6 +182,8 @@ async def test_postgresql_search_behavior_and_int4_bounds(
         "ix_arena_problems_statement_trgm",
         "ix_arena_problems_source_trgm",
         "ix_arena_problems_author_trgm",
+        "ix_arena_problems_license_search_vector_gin",
+        "ix_arena_problems_license_trgm",
     } <= index_names, "Arena problem-search migration is not applied to the PostgreSQL test database"
 
     owner_id = "00000000-0000-4000-8000-000000000901"
@@ -198,10 +203,12 @@ async def test_postgresql_search_behavior_and_int4_bounds(
                 "id": "00000000-0000-4000-8000-000000000911",
                 "arena_number": 2_100_000_011,
                 "title": "Running Algorithms Searchfixturemarker",
+                "validator_type": ProblemValidatorType.STANDARD,
                 "owner_id": owner_id,
                 "author": "Programadores Unidos",
                 "author_is_owner": False,
                 "source": None,
+                "license": None,
                 "enabled": True,
                 "problem_statement": "Compute the final value.",
                 "statement_language": "pt",
@@ -210,10 +217,12 @@ async def test_postgresql_search_behavior_and_int4_bounds(
                 "id": "00000000-0000-4000-8000-000000000912",
                 "arena_number": 2_100_000_012,
                 "title": "Sequence Analysis",
+                "validator_type": ProblemValidatorType.STANDARD,
                 "owner_id": owner_id,
                 "author": None,
                 "author_is_owner": True,
                 "source": None,
+                "license": None,
                 "enabled": True,
                 "problem_statement": "Running searchfixturemarker values must be accumulated.",
                 "statement_language": "en",
@@ -222,10 +231,12 @@ async def test_postgresql_search_behavior_and_int4_bounds(
                 "id": "00000000-0000-4000-8000-000000000913",
                 "arena_number": 2_100_000_013,
                 "title": "Airplane Routes",
+                "validator_type": ProblemValidatorType.STANDARD,
                 "owner_id": owner_id,
                 "author": None,
                 "author_is_owner": True,
                 "source": None,
+                "license": None,
                 "enabled": True,
                 "problem_statement": "Find the shortest route.",
                 "statement_language": "en",
@@ -234,10 +245,12 @@ async def test_postgresql_search_behavior_and_int4_bounds(
                 "id": "00000000-0000-4000-8000-000000000914",
                 "arena_number": 2_100_000_014,
                 "title": "Hidden Vehicle",
+                "validator_type": ProblemValidatorType.STANDARD,
                 "owner_id": owner_id,
                 "author": None,
                 "author_is_owner": True,
                 "source": None,
+                "license": None,
                 "enabled": True,
                 "problem_statement": "Track one intercontinentalairplane safely.",
                 "statement_language": "en",
@@ -246,10 +259,12 @@ async def test_postgresql_search_behavior_and_int4_bounds(
                 "id": "00000000-0000-4000-8000-000000000915",
                 "arena_number": 2_100_000_015,
                 "title": "Misleading Needle Title",
+                "validator_type": ProblemValidatorType.STANDARD,
                 "owner_id": owner_id,
                 "author": None,
                 "author_is_owner": True,
                 "source": "Unrelated archive",
+                "license": None,
                 "enabled": False,
                 "problem_statement": "This problem has the term only in its title.",
                 "statement_language": "en",
@@ -258,10 +273,12 @@ async def test_postgresql_search_behavior_and_int4_bounds(
                 "id": "00000000-0000-4000-8000-000000000916",
                 "arena_number": 2_100_000_016,
                 "title": "Stored source value",
+                "validator_type": ProblemValidatorType.STANDARD,
                 "owner_id": owner_id,
                 "author": None,
                 "author_is_owner": True,
                 "source": "Needle archive Searchfixturemarker",
+                "license": "Creative Commons Attribution 4.0",
                 "enabled": False,
                 "problem_statement": "This problem stores the suggestion term in its source.",
                 "statement_language": "en",
@@ -270,10 +287,12 @@ async def test_postgresql_search_behavior_and_int4_bounds(
                 "id": "00000000-0000-4000-8000-000000000917",
                 "arena_number": 2_100_000_017,
                 "title": "%",
+                "validator_type": ProblemValidatorType.STANDARD,
                 "owner_id": owner_id,
                 "author": None,
                 "author_is_owner": True,
                 "source": None,
+                "license": None,
                 "enabled": True,
                 "problem_statement": "Literal percent wildcard fixture.",
                 "statement_language": "en",
@@ -302,6 +321,13 @@ async def test_postgresql_search_behavior_and_int4_bounds(
         caller_id=owner_id,
         is_admin=True,
     ) == ["Needle archive Searchfixturemarker"]
+    assert await search_problem_suggestions(
+        session,
+        field="license",
+        query="creative attribution",
+        caller_id=owner_id,
+        is_admin=True,
+    ) == ["Creative Commons Attribution 4.0"]
     await _assert_problem_picker_behavior(session, owner_id)
 
     await session.execute(
@@ -309,7 +335,7 @@ async def test_postgresql_search_behavior_and_int4_bounds(
             """
             INSERT INTO arena_problems (
                 id, arena_number, title, owner_id, author, author_is_owner,
-                enabled, problem_statement, statement_language
+                enabled, problem_statement, statement_language, validator_type
             )
             SELECT
                 md5('fts-plan-' || series::text),
@@ -323,7 +349,8 @@ async def test_postgresql_search_behavior_and_int4_bounds(
                     THEN repeat('ordinary statement text ', 40) || ' statementmarker'
                     ELSE repeat('ordinary statement text ', 40)
                 END,
-                'en'::statementlanguage
+                'en'::statementlanguage,
+                'standard'::problemvalidatortype
             FROM generate_series(1, 5000) AS series
             """
         ),
@@ -397,6 +424,11 @@ async def test_postgresql_search_behavior_and_int4_bounds(
     assert "ix_arena_problems_search_vector_gin" in author_plan
     assert "ix_arena_problems_author_trgm" in author_plan
     assert "Seq Scan on arena_problems" not in author_plan
+
+    license_plan = await _suggestion_plan_for("license", "Creative")
+    assert "ix_arena_problems_license_search_vector_gin" in license_plan
+    assert "ix_arena_problems_license_trgm" in license_plan
+    assert "Seq Scan on arena_problems" not in license_plan
 
     picker_plan = await _picker_plan_for("Planner")
     assert "ix_arena_problems_search_vector_gin" in picker_plan

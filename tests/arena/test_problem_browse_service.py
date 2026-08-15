@@ -22,7 +22,12 @@ from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidato
 from arena.models.arena_users import ArenaUser
 from arena.services.problem_browse_service import get_latest_problems, list_enabled_problems_paginated
 from shared.db_schema.arena import arena_problem_ratings, arena_problem_solvers
-from shared.enumerations import ArenaRole, CustomValidatorActiveState, CustomValidatorCandidateState
+from shared.enumerations import (
+    ArenaRole,
+    CustomValidatorActiveState,
+    CustomValidatorCandidateState,
+    ProblemValidatorType,
+)
 from web.models.language import Language
 
 _TEMPLATE = Path(__file__).resolve().parents[2] / "arena" / "template" / "problems" / "problem_list.html"
@@ -70,6 +75,7 @@ async def _make_problem(
     author: str | None = None,
     source: str | None = None,
     statement: str = "<p>Echo.</p>",
+    validator_type: ProblemValidatorType = ProblemValidatorType.STANDARD,
 ) -> ArenaProblem:
     problem = ArenaProblem(
         arena_number=arena_number or int(uuid.uuid4().int % 1_000_000_000) + 1,
@@ -80,6 +86,7 @@ async def _make_problem(
         source=source,
         enabled=True,
         problem_statement=statement,
+        validator_type=validator_type,
     )
     session.add(problem)
     await session.flush()
@@ -263,8 +270,20 @@ async def test_public_problem_list_marks_custom_validator_problems(
     owner = await _make_user(session, role=ArenaRole.ARENA_JUDGE)
     language = await _make_language(session)
     plain_problem = await _make_problem(session, owner, arena_number=501, title="Plain")
-    validator_problem = await _make_problem(session, owner, arena_number=502, title="Interactive")
-    candidate_problem = await _make_problem(session, owner, arena_number=503, title="Candidate")
+    validator_problem = await _make_problem(
+        session,
+        owner,
+        arena_number=502,
+        title="Interactive",
+        validator_type=ProblemValidatorType.INTERACTIVE,
+    )
+    candidate_problem = await _make_problem(
+        session,
+        owner,
+        arena_number=503,
+        title="Candidate",
+        validator_type=ProblemValidatorType.INTERACTIVE,
+    )
     session.add(
         ArenaProblemCustomValidator(
             problem_id=validator_problem.id,

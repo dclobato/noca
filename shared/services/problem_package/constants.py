@@ -23,8 +23,19 @@ from shared.services.sample_interactions import (
     MAX_INTERACTION_MEMBER_BYTES,
 )
 
-FORMAT_VERSION = 1
-"""The only package format version this build reads and writes."""
+FORMAT_VERSION = 2
+"""The package format version this build writes.
+
+Version 2 adds the explicit ``validator_type`` discriminator. Version 1 -- and a
+package with no ``format_version`` key at all, which predates the key -- is still
+read, with the strategy derived from ``custom_validator`` presence.
+"""
+
+LEGACY_FORMAT_VERSION = 1
+"""The older package format version this build still reads."""
+
+SUPPORTED_FORMAT_VERSIONS = (LEGACY_FORMAT_VERSION, FORMAT_VERSION)
+"""Every package format version this build accepts on import."""
 
 # --- Field-length caps (the larger of each historical pair, both domains) -----
 

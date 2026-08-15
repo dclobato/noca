@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -39,6 +39,7 @@ class TestCaseRowView:
         replace_url: Per-row offline ZIP replace POST URL.
         move_url: Per-row reorder POST URL.
         toggle_sample_url: Per-row sample/secret toggle POST URL.
+        delete_url: Per-row deletion POST URL.
     """
 
     id: str
@@ -55,3 +56,4 @@ class TestCaseRowView:
     replace_url: str
     move_url: str
     toggle_sample_url: str
+    delete_url: str

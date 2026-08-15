@@ -1,3 +1,9 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -7,6 +13,7 @@ from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.db_schema import contest_languages as contest_languages_table
+from shared.enumerations import ProblemValidatorType
 from web.models.contest import Contest
 from web.models.language import Language
 from web.models.problem import Problem, ProblemLanguageLimit
@@ -285,6 +292,7 @@ async def test_update_contest_metadata_syncs_languages_and_removes_stale_problem
         time_limit_ms=1000,
         memory_limit_kb=262144,
         pids_limit=64,
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

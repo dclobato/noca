@@ -101,14 +101,27 @@ async def prepare_custom_validator(
     docker_client: docker.DockerClient,
     executor: ThreadPoolExecutor,
 ) -> PreparedCustomValidator | None:
-    """Load and compile the active revision before contestant compilation."""
+    """Load and compile the active revision before contestant compilation.
+
+    Returns ``None`` when the problem is not judged by a validator at all, which
+    is what routes an ordinary submission to the token comparator. A strategy
+    this build cannot judge raises instead of returning ``None``, so it can never
+    reach the comparator by accident.
+
+    Raises:
+        CustomValidatorUnavailableError: If the problem is interactive but has no
+            active valid revision, or its strategy is unsupported.
+    """
     state = await db.get_custom_validator_dispatch_state(domain, problem_id)
     if not isinstance(state, CustomValidatorDispatchState):
         return None
-    if not state.configured:
+    if state.unsupported_reason is not None:
+        raise CustomValidatorUnavailableError(state.unsupported_reason)
+    if not state.is_interactive:
         return None
     if state.active is None:
-        raise CustomValidatorUnavailableError("The configured custom validator has no active valid revision.")
+        message = "This interactive problem has no active valid validator revision."
+        raise CustomValidatorUnavailableError(message)
     language = get_language(language_registry, state.active.language_id)
     compile_result = await compile_submission(
         SubmissionSource(judgment_id, f"validator-{judgment_id}", state.active.source_code),

@@ -32,7 +32,7 @@ from arena.models.arena_problems import ArenaTestCase
 from arena.models.arena_users import ArenaUser
 from arena.routes import admin_problem_io
 from arena.services import admin_problem_service
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, ProblemValidatorType
 from shared.services.problem_package.staging import STAGING_PREFIX
 from shared.services.problem_package.upload import safe_package_filename
 
@@ -95,6 +95,7 @@ async def test_problem_export_runs_zip_builder_off_event_loop(
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.commit()
 
@@ -141,6 +142,7 @@ async def test_export_leaves_no_temporary_file_behind(session: AsyncSession) -> 
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.commit()
 
@@ -173,6 +175,7 @@ async def test_export_reports_a_missing_stored_test_case_as_a_conflict(session: 
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     # A row whose file was never written: exactly the state that used to export
     # as b"" and silently lose the case.

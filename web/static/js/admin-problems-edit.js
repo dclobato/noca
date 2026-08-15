@@ -1,5 +1,5 @@
 // NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+// Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -193,126 +193,21 @@ document.addEventListener("DOMContentLoaded", function() {
     if (initialColor && initialColor.value) selectBalloonColor(initialColor.value);
   }
 
-  // Activate tab from server-rendered data-active-tab or ?tab= query param
-  const _tabNav = document.getElementById("problem-edit-tabs");
-  const _activeTabInput = document.getElementById("active-tab-input");
-  const _tabParam = new URLSearchParams(window.location.search).get("tab")
-    || (_tabNav && _tabNav.dataset.activeTab);
-  if (_tabParam && _tabParam !== "content") {
-    const _tabBtn = document.querySelector(`[data-bs-target="#tab-${_tabParam}"]`);
-    if (_tabBtn && typeof bootstrap !== "undefined") {
-      bootstrap.Tab.getOrCreateInstance(_tabBtn).show();
-    }
-  }
-
-  if (_tabNav && _activeTabInput) {
-    _tabNav.addEventListener("shown.bs.tab", function(e) {
-      const target = e.target && e.target.getAttribute("data-bs-target");
-      _activeTabInput.value = target === "#tab-limits" ? "limits" : "content";
-    });
-  }
+  // Tab activation and the active_tab round-trip now live in the shared
+  // problem-edit-tabs.js, which both modules load. The version that lived here
+  // only knew the two-tab Content/Limits vocabulary and would have written
+  // "content" for Statement, Test cases and Sample interactions alike.
 
   // Edit-form submit: serialize category chips
   const form = document.getElementById("edit-form");
   if (form) {
-    form.addEventListener("submit", function(e) {
+    form.addEventListener("submit", function () {
       updateCategoryInput();
 
-      // Create-mode: validate at least 1 test case
-      const isCreate = !document.getElementById("problem-id-hint");
-      if (!isCreate) return;
-
-      const rows = document.querySelectorAll("#tc-add-rows > div").length;
-      const zipInput = document.getElementById("testcases_zip_input");
-      const hasZip = zipInput && zipInput.files && zipInput.files.length > 0;
-      if (rows === 0 && !hasZip) {
-        e.preventDefault();
-        const warn = document.getElementById("tc-count-warning");
-        if (warn) warn.classList.remove("d-none");
-        const addRows = document.getElementById("tc-add-rows");
-        if (addRows) addRows.scrollIntoView({ behavior: "smooth" });
-      }
+      // No client-side "at least one test case" gate: an incomplete draft is
+      // explicitly allowed to be saved and completed later. Judgeability is
+      // enforced at the execution gates -- submission, solution test, dispatch,
+      // export -- never at Save.
     });
   }
 });
-
-// ---------------------------------------------------------------------------
-// Create-mode dynamic test case rows
-// ---------------------------------------------------------------------------
-
-let tcRowCount = 0;
-
-function addTcRow() {
-  const container = document.getElementById("tc-add-rows");
-  if (!container) return;
-  const i = tcRowCount++;
-  const div = document.createElement("div");
-  div.className = "border rounded p-3 mb-3 position-relative";
-  div.innerHTML = `
-    <button type="button" class="btn-close position-absolute top-0 end-0 m-2"
-            onclick="this.closest('div').remove(); updateTcCount()"></button>
-    <div class="row g-2">
-      <div class="col-6">
-        <label class="form-label small">Input</label>
-        <textarea name="tc_in_${i}" rows="4"
-                  class="form-control font-monospace form-control-sm"
-                  placeholder="Input data"></textarea>
-      </div>
-      <div class="col-6">
-        <label class="form-label small">Expected output</label>
-        <textarea name="tc_out_${i}" rows="4"
-                  class="form-control font-monospace form-control-sm"
-                  placeholder="Expected output"></textarea>
-      </div>
-      <div class="col-12">
-        <label class="form-label small">Explanation (optional)</label>
-        <textarea name="tc_explanation_${i}" rows="2"
-                  maxlength="1024"
-                  class="form-control form-control-sm"
-                  placeholder="Explain why this test case produces its expected output…"></textarea>
-        <div class="form-text">Shown to contestants below the sample. Up to 1024 characters.</div>
-      </div>
-    </div>
-    <div class="form-check mt-2">
-      <input type="checkbox" name="tc_is_sample_${i}" id="tc_sample_${i}" class="form-check-input">
-      <label class="form-check-label small" for="tc_sample_${i}">Sample (visible to contestants)</label>
-    </div>`;
-  container.appendChild(div);
-  updateTcCount();
-}
-
-function updateTcCount() {
-  const rows = document.querySelectorAll("#tc-add-rows > div").length;
-  const warn = document.getElementById("tc-count-warning");
-  const zipInput = document.getElementById("testcases_zip_input");
-  const hasZip = zipInput && zipInput.files && zipInput.files.length > 0;
-  if (warn) warn.classList.toggle("d-none", rows > 0 || hasZip);
-}
-
-// ---------------------------------------------------------------------------
-// Create-mode single-TC ZIP upload rows
-// ---------------------------------------------------------------------------
-
-let tcZipRowCount = 0;
-
-function addTcZipRow() {
-  const container = document.getElementById("tc-add-rows");
-  if (!container) return;
-  const i = tcZipRowCount++;
-  const div = document.createElement("div");
-  div.className = "border rounded p-3 mb-3 position-relative";
-  div.innerHTML = `
-    <button type="button" class="btn-close position-absolute top-0 end-0 m-2"
-            onclick="this.closest('div').remove(); updateTcCount()"></button>
-    <div class="d-flex flex-wrap align-items-center gap-2">
-      <label class="form-label mb-0 text-nowrap">Test case ZIP:</label>
-      <input type="file" name="tc_zip_${i}" accept=".zip" required
-             class="form-control form-control-sm">
-    </div>
-    <div class="form-check mt-2">
-      <input type="checkbox" name="tc_zip_is_sample_${i}" id="tc_zip_sample_${i}" class="form-check-input">
-      <label class="form-check-label small" for="tc_zip_sample_${i}">Sample (visible to contestants)</label>
-    </div>`;
-  container.appendChild(div);
-  updateTcCount();
-}

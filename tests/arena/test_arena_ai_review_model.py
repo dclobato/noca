@@ -31,7 +31,7 @@ import arena.models.arena_submissions  # noqa: F401 — registers ORM mappers
 import arena.models.arena_users  # noqa: F401 — registers ORM mappers
 from arena.models.arena_submissions import ArenaSubmission, ArenaSubmissionAIReview
 from arena.models.arena_users import ArenaUser
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, ProblemValidatorType
 from web.models.language import Language
 
 # ---------------------------------------------------------------------------
@@ -104,6 +104,7 @@ async def arena_problem(session: AsyncSession, arena_author: ArenaUser):
         title="AI Review Test Problem",
         owner_id=arena_author.id,
         problem_statement="<p>Write some code.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

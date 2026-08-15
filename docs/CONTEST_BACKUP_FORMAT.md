@@ -1,4 +1,4 @@
-# Full Contest Backup Format (v1)
+# Full Contest Backup Format (v2)
 
 This document describes the portable ZIP archive produced by the Web
 `contest_backup_service` when an uberadmin exports a whole contest, and how the
@@ -18,8 +18,8 @@ per-problem package *file* layout only for bulky payload bytes.
 
 ## Archive layout
 
-The version 1 archive uses the following fixed top-level members and one
-directory for each problem.
+The archive uses the following fixed top-level members and one directory for
+each problem; the layout is identical in both supported versions.
 
 ```
 contest-backup-<slug>-<YYYYMMDD-HHMMSS>.zip
@@ -103,8 +103,8 @@ offline-cracking/reuse warning.
 
 The importer applies these gates before it creates database rows or files.
 
-1. **Manifest gate:** required `format_version`, presence of all required JSON
-   members, and every referenced per-problem folder.
+1. **Manifest gate:** a supported `format_version` (1 or 2), presence of all
+   required JSON members, and every referenced per-problem folder.
 2. **Safe members:** reject path traversal, absolute names, drive letters,
    duplicate members, and excessive member counts.
 3. **Bounded reads:** enforce compressed-upload, per-member, JSON-member, and
@@ -129,6 +129,71 @@ The historical replay format intentionally excludes these operational assets.
 
 ## Versioning
 
-The archive is versioned by `format_version` (currently `1`, `FORMAT_VERSION` in
-`web/services/contest_backup_service/models.py`). A server restores only its own
-version. Bump it on any breaking layout change and update this document.
+The archive is versioned by `format_version` (currently `2`, `FORMAT_VERSION` in
+`web/services/contest_backup_service/models.py`). This server restores versions
+**1 and 2**; anything else is refused. Bump it on any breaking layout change and
+update this document.
+
+### Version 2: the stored validation strategy
+
+Version 2 archives carry each problem's `validator_type` and `artifact_generation`
+in the `problems.json` payload rows, and embed **version 2 problem packages**. Both
+columns are mandatory on this branch: a v2 archive that omits one is refused as
+malformed rather than quietly filled in by inference.
+
+### Restoring version 1
+
+Row validation compares each row against the **live** table, so a column added to
+`problems` becomes one every archive is expected to carry. On the v1 branch,
+`validator_type` and `artifact_generation` are therefore treated as optional, and
+the fence takes its server default of `0`.
+
+There are **two v1 shapes in the wild**, and conflating them corrupts data:
+
+| Shape | Captured | Carries `validator_type` |
+| --- | --- | --- |
+| Pre-strategy | before the column existed | no |
+| Interim | after the column landed, before this format bump | **yes** |
+
+The rule is therefore **explicit wins, infer only on absence**
+(`web/services/contest_backup_service/strategy.py`):
+
+- a v1 row that *states* the strategy restores with that value verbatim;
+- a v1 row that omits it falls back to the legacy inference — a custom-validator
+  row in the same archive means `interactive`, otherwise `standard`, never
+  `checker`.
+
+Treating "version 1" as "always infer" would corrupt precisely the interim
+archives: a standard problem carrying a stale validator row would restore as
+interactive. That is the corruption this release exists to eliminate.
+
+The same predicate also decides whether a `problems/NNN/out/NNN.out` payload
+member is required — expected output is required by the *strategy*, not by whether
+a validator row happens to hold active source. One helper serves both callers so
+an archive cannot validate under one strategy and restore under another.
+
+### Why new archives carry the strategy
+
+Stripping it to keep an archive literally v1 was considered and rejected: it is
+lossy in exactly the cases this release exists to fix — a standard problem
+carrying a stale validator row would restore as interactive, and an interactive
+problem whose source was removed has nothing to infer from and would restore as
+standard. Silent strategy corruption on a round trip is worse than the
+forward-compatibility cost, which is that an archive written by this version is
+rejected by an older server with a clear error rather than restored wrongly.
+
+### The embedded packages are not the restore source of record
+
+Each problem folder embeds a `full` problem package, but **restore never parses
+its `problem.json`**: it reads the JSON payload rows and the `in/`/`out/` members
+directly. The embedded package is a convenience artifact for operators who want
+to extract one problem.
+
+That distinction matters because problem-package version 2 cannot represent an
+interactive problem with no validator source, and a full export normally refuses
+one. Applying that rule here would make a contest **un-backupable** merely because
+one problem's validator source was removed — a state the application supports by
+design. The backup exporter therefore passes `require_importable=False`, and the
+validator row itself is preserved verbatim in `problems.json`, so nothing is lost.
+The consequence to know about is that such an embedded package, extracted and fed
+to a problem importer on its own, is refused.

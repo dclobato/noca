@@ -1,0 +1,311 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Arena Metadata pane. Arena keeps its resource limits here rather than on a
+  separate Limits tab, which is why the Arena editor renders no Limits pane at
+  all. The statement language selector lives here too: it describes the problem
+  rather than the statement text, and its confirmation modal is page-level.
+#}
+{% from "_macros.html" import render_icon with context %}
+<div class="arena-card mb-3">
+    <h2 class="arena-card-title">
+        {{ render_icon(icon="badge") }}
+        Identity and attribution
+    </h2>
+    {% if mode == 'edit' %}
+        <div class="arena-rating-sparkline mb-3">
+            <span class="arena-rating-sparkline-label">
+                {{ render_icon(icon="show_chart") }}
+                Difficulty
+            </span>
+            {% with chart_id="problem-rating-chart", data_url=rating_history_url %}
+                {% include "_partials/problem_rating_chart.html" %}
+            {% endwith %}
+        </div>
+    {% endif %}
+    {% if mode == 'edit' and is_admin and problem_owner %}
+        <div class="arena-list-item-meta mb-3">
+            <span class="fw-semibold">
+                {{ render_icon(icon="person") }}
+                Owner
+            </span>
+            <a href="{{ request.url_for('arena_admin_user_profile', user_id=problem_owner.id) }}">{{ problem_owner.nome }}</a>
+        </div>
+    {% endif %}
+    <div class="row g-3">
+        <div class="col-12 col-md-6">
+            <label class="form-label" for="title">
+                Title <span class="text-danger">*</span>
+            </label>
+            <input type="text"
+                   class="form-control{% if field_errors.title %} is-invalid{% endif %}"
+                   id="title"
+                   name="title"
+                   form="edit-form"
+                   value="{{ form.title }}"
+                   maxlength="256"
+                   data-editor-required
+                   {% if field_errors.title %}aria-describedby="title-server-error" aria-invalid="true"{% endif %}
+                   {% if first_error_field == "title" %}autofocus{% endif %}
+                   required>
+            {% if field_errors.title %}
+                <div class="invalid-feedback" id="title-server-error">{{ field_errors.title }}</div>
+            {% endif %}
+        </div>
+        <div class="col-12 col-md-6">
+            <label class="form-label" for="source">Source</label>
+            <input type="text"
+                   class="form-control"
+                   id="source"
+                   name="source"
+                   form="edit-form"
+                   value="{{ form.source }}"
+                   maxlength="256"
+                   list="source-suggestions"
+                   data-suggestions-url="{{ request.url_for("arena_admin_problem_suggestions") }}"
+                   data-suggestions-field="source"
+                   placeholder="e.g. contest name or university">
+            <datalist id="source-suggestions"></datalist>
+        </div>
+        <div class="col-12">
+            <div class="d-flex flex-wrap gap-3 align-items-end">
+                <div class="form-check mb-2">
+                    <input type="checkbox"
+                           class="form-check-input"
+                           id="author_is_owner"
+                           name="author_is_owner"
+                           form="edit-form"
+                           value="true"
+                           aria-controls="author-field"
+                           {% if form.author_is_owner %}checked{% endif %}>
+                    <label class="form-check-label" for="author_is_owner">I'm problem author</label>
+                </div>
+                <div class="flex-grow-1"
+                     id="author-field"
+                     {% if form.author_is_owner %}hidden{% endif %}>
+                    <label class="form-label" for="author">
+                        Author <span class="text-danger">*</span>
+                    </label>
+                    <input type="text"
+                           class="form-control{% if field_errors.author %} is-invalid{% endif %}"
+                           id="author"
+                           name="author"
+                           form="edit-form"
+                           value="{{ form.author }}"
+                           maxlength="256"
+                           list="author-suggestions"
+                           data-suggestions-url="{{ request.url_for("arena_admin_problem_suggestions") }}"
+                           data-suggestions-field="author"
+                           data-editor-required
+                           {% if field_errors.author %}aria-describedby="author-server-error" aria-invalid="true"{% endif %}
+                           {% if first_error_field == "author" %}autofocus{% endif %}
+                           {% if not form.author_is_owner %}required{% endif %}>
+                    {% if field_errors.author %}
+                        <div class="invalid-feedback" id="author-server-error">{{ field_errors.author }}</div>
+                    {% endif %}
+                    <datalist id="author-suggestions"></datalist>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="arena-card mb-3">
+    <h2 class="arena-card-title">
+        {{ render_icon(icon="speed") }}
+        Execution limits
+    </h2>
+    <div class="row g-3">
+        <div class="col-12 col-md-3">
+            <label class="form-label" for="time_limit_ms">
+                Time limit (ms) <span class="text-danger">*</span>
+            </label>
+            <input type="number"
+                   class="form-control{% if field_errors.time_limit_ms %} is-invalid{% endif %}"
+                   id="time_limit_ms"
+                   name="time_limit_ms"
+                   form="edit-form"
+                   value="{{ form.time_limit_ms }}"
+                   min="1"
+                   data-editor-required
+                   data-editor-positive-int
+                   {% if field_errors.time_limit_ms %}aria-describedby="time-limit-server-error" aria-invalid="true"{% endif %}
+                   {% if first_error_field == "time_limit_ms" %}autofocus{% endif %}
+                   required>
+            {% if field_errors.time_limit_ms %}
+                <div class="invalid-feedback" id="time-limit-server-error">{{ field_errors.time_limit_ms }}</div>
+            {% endif %}
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label" for="memory_limit_kb">
+                Memory limit (KB) <span class="text-danger">*</span>
+            </label>
+            <input type="number"
+                   class="form-control{% if field_errors.memory_limit_kb %} is-invalid{% endif %}"
+                   id="memory_limit_kb"
+                   name="memory_limit_kb"
+                   form="edit-form"
+                   value="{{ form.memory_limit_kb }}"
+                   min="1"
+                   data-editor-required
+                   data-editor-positive-int
+                   {% if field_errors.memory_limit_kb %}aria-describedby="memory-limit-server-error" aria-invalid="true"{% endif %}
+                   {% if first_error_field == "memory_limit_kb" %}autofocus{% endif %}
+                   required>
+            {% if field_errors.memory_limit_kb %}
+                <div class="invalid-feedback" id="memory-limit-server-error">{{ field_errors.memory_limit_kb }}</div>
+            {% endif %}
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label" for="pids_limit">
+                PIDs limit <span class="text-danger">*</span>
+            </label>
+            <input type="number"
+                   class="form-control{% if field_errors.pids_limit %} is-invalid{% endif %}"
+                   id="pids_limit"
+                   name="pids_limit"
+                   form="edit-form"
+                   value="{{ form.pids_limit }}"
+                   min="1"
+                   data-editor-required
+                   data-editor-positive-int
+                   {% if field_errors.pids_limit %}aria-describedby="pids-limit-server-error" aria-invalid="true"{% endif %}
+                   {% if first_error_field == "pids_limit" %}autofocus{% endif %}
+                   required>
+            {% if field_errors.pids_limit %}
+                <div class="invalid-feedback" id="pids-limit-server-error">{{ field_errors.pids_limit }}</div>
+            {% endif %}
+            <div class="form-text">Maximum processes the submission may run at once.</div>
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label" for="output_limit_in_bytes">
+                Output limit (bytes) <span class="text-danger">*</span>
+            </label>
+            <input type="number"
+                   class="form-control{% if field_errors.output_limit_in_bytes %} is-invalid{% endif %}"
+                   id="output_limit_in_bytes"
+                   name="output_limit_in_bytes"
+                   form="edit-form"
+                   value="{{ form.output_limit_in_bytes }}"
+                   min="1"
+                   data-editor-required
+                   data-editor-positive-int
+                   {% if field_errors.output_limit_in_bytes %}aria-describedby="output-limit-server-error" aria-invalid="true"{% endif %}
+                   {% if first_error_field == "output_limit_in_bytes" %}autofocus{% endif %}
+                   required>
+            {% if field_errors.output_limit_in_bytes %}
+                <div class="invalid-feedback" id="output-limit-server-error">{{ field_errors.output_limit_in_bytes }}</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+<div class="arena-card mb-3">
+    <h2 class="arena-card-title">
+        {{ render_icon(icon="publish") }}
+        Publication details
+    </h2>
+    <div class="row g-3">
+        <div class="col-12">
+            <div class="form-check">
+                <input type="checkbox"
+                       class="form-check-input"
+                       id="hide_author_show_source"
+                       name="hide_author_show_source"
+                       form="edit-form"
+                       value="true"
+                       {% if form.hide_author_show_source %}checked{% endif %}>
+                <label class="form-check-label" for="hide_author_show_source">Hide author name and show source instead</label>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <label class="form-label" for="statement_language">Statement language</label>
+            <select class="form-select"
+                    id="statement_language"
+                    name="statement_language"
+                    form="edit-form"
+                    data-language-conflict-chosen="{{ language_conflict.chosen if language_conflict else "" }}"
+                    data-language-conflict-detected="{{ language_conflict.detected if language_conflict else "" }}"
+                    data-detect-language-url="{{ detect_language_url }}">
+                <option value="" {% if not form.statement_language %}selected{% endif %}>Detect automatically</option>
+                {% for language in statement_languages %}
+                    <option value="{{ language.value }}"
+                            {% if form.statement_language == language.value %}selected{% endif %}>
+                        {{ language.label }}
+                    </option>
+                {% endfor %}
+            </select>
+            <div class="form-text small">Left on automatic, the language is detected from the statement when saving.</div>
+        </div>
+        <div class="col-12">
+            <label class="form-label" for="cat-input">Categories</label>
+            <div class="arena-cat-picker"
+                 id="cat-picker"
+                 data-form-id="edit-form"
+                 data-search-url="{{ request.url_for("arena_admin_problem_categories_search") }}">
+                <script type="application/json" id="cat-selected-data">{{ selected_cats_data | tojson }}</script>
+                <div id="cat-hidden"></div>
+                <div class="d-flex flex-wrap mb-1" id="cat-pills"></div>
+                <div class="arena-cat-picker-input-wrap">
+                    <input type="search"
+                           id="cat-input"
+                           class="form-control form-control-sm"
+                           placeholder="Search and add categories…"
+                           autocomplete="off"
+                           role="combobox"
+                           aria-autocomplete="list"
+                           aria-expanded="false"
+                           aria-controls="cat-dropdown"
+                           aria-activedescendant=""
+                           aria-describedby="cat-picker-help">
+                </div>
+                <div class="arena-cat-dropdown"
+                     id="cat-dropdown"
+                     role="listbox"
+                     aria-label="Category search results"></div>
+                <div class="visually-hidden"
+                     id="cat-picker-status"
+                     role="status"
+                     aria-live="polite"
+                     aria-atomic="true"></div>
+            </div>
+            <div class="form-text small" id="cat-picker-help">Type to search. Use Up and Down arrows, then Enter, to add.</div>
+        </div>
+        <div class="col-12">
+            <details class="noca-form-disclosure"
+                     {% if form.notes or form.license %}open{% endif %}>
+                <summary>Notes and licensing</summary>
+                <div class="row g-3 mt-1">
+                    <div class="col-12">
+                        <label class="form-label" for="notes">Internal note (optional)</label>
+                        <input type="text"
+                               class="form-control"
+                               id="notes"
+                               name="notes"
+                               form="edit-form"
+                               value="{{ form.notes }}"
+                               maxlength="512"
+                               placeholder="Management-only note, not visible to users">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="license">License (optional)</label>
+                        <input type="text"
+                               class="form-control"
+                               id="license"
+                               name="license"
+                               form="edit-form"
+                               value="{{ form.license }}"
+                               maxlength="256"
+                               list="license-suggestions"
+                               data-suggestions-url="{{ request.url_for("arena_admin_problem_suggestions") }}"
+                               data-suggestions-field="license"
+                               placeholder="License name or terms shown on the problem page">
+                        <datalist id="license-suggestions"></datalist>
+                    </div>
+                </div>
+            </details>
+        </div>
+    </div>
+</div>

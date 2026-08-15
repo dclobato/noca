@@ -1,13 +1,13 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
   Shared sample-interaction list table, rendered by both the Web (contest admin)
   and Arena modules. Mirrors testcase_list_table.html so the same shared JS
-  (tc-reorder-sortable.js, tc-pending-remove.js) drives both lists. Context:
+  (tc-reorder-sortable.js, judgment-actions.js) drives both lists. Context:
     interaction_rows  list[shared.services.sample_interactions.SampleInteractionRowView]
     is_edit_allowed   bool
     si_reorder_target DOM id the move endpoint re-renders (defaults to "si-list")
@@ -26,7 +26,7 @@
                         <th>#</th>
                         <th>First lines</th>
                         <th>Total lines</th>
-                        <th>Explanation?</th>
+                        <th class="text-center">Explanation?</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -43,8 +43,11 @@
                                 <span class="btn btn-sm btn-outline-secondary p-1 noca-icon-btn noca-drag-handle {% if not is_edit_allowed %}disabled{% endif %}"
                                       role="button"
                                       tabindex="{% if is_edit_allowed %} 0 {% else %} -1 {% endif %}"
-                                      aria-label="Drag to reorder sample interaction"
-                                      title="{% if is_edit_allowed %} Drag to reorder {% else %} Not editable {% endif %}">{{ render_icon(icon="drag_indicator") }}</span>
+                                      aria-disabled="{{ 'false' if is_edit_allowed else 'true' }}"
+                                      aria-keyshortcuts="ArrowUp ArrowDown"
+                                      data-reorder-label="Sample interaction {{ si.ordinal }}"
+                                      aria-label="Reorder sample interaction {{ si.ordinal }}. Drag, or use the Up and Down arrow keys."
+                                      title="{% if is_edit_allowed %}Drag, or use Up and Down arrow keys, to reorder{% else %}Not editable{% endif %}">{{ render_icon(icon="drag_indicator") }}</span>
                             </td>
                             <td>{{ si.ordinal }}</td>
                             <td>
@@ -62,12 +65,26 @@
                                      aria-label="Sample interaction actions">
                                     <a href="{{ si.edit_url }}"
                                        class="btn btn-outline-secondary noca-icon-btn"
+                                       aria-label="{{ 'Edit' if is_edit_allowed else 'View' }} sample interaction {{ si.ordinal }}"
                                        title="{{ 'Edit' if is_edit_allowed else 'View' }}">
                                         {{ render_icon(icon="edit" if is_edit_allowed else "visibility") }}
                                     </a>
-                                    {% if is_edit_allowed %}
+                                    {% if is_edit_allowed and si.delete_url %}
+                                        <form method="post"
+                                              action="{{ si.delete_url }}"
+                                              class="noca-icon-btn-wrap"
+                                              data-confirm="Remove sample interaction {{ si.ordinal }}? This cannot be undone.">
+                                            <button type="submit"
+                                                    class="btn btn-outline-danger noca-icon-btn"
+                                                    aria-label="Remove sample interaction {{ si.ordinal }}"
+                                                    title="Remove">{{ render_icon(icon="delete") }}</button>
+                                        </form>
+                                    {% elif is_edit_allowed %}
+                                        {# The retiring tabbed editor still marks removals for its
+                                           Save; the judgment page passes a delete URL instead. #}
                                         <button type="button"
                                                 class="btn btn-outline-danger noca-icon-btn si-remove-btn"
+                                                aria-label="Remove sample interaction {{ si.ordinal }}"
                                                 title="Remove"
                                                 data-row-id="{{ si.id }}"
                                                 data-row-ordinal="{{ si.ordinal }}">
@@ -75,6 +92,7 @@
                                         </button>
                                         <button type="button"
                                                 class="btn btn-outline-secondary noca-icon-btn si-undo-btn d-none"
+                                                aria-label="Undo removal of sample interaction {{ si.ordinal }}"
                                                 title="Undo removal"
                                                 data-row-id="{{ si.id }}">{{ render_icon(icon="undo") }}</button>
                                     {% endif %}

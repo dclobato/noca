@@ -1,0 +1,152 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Contest Metadata pane: the fields that are Contest's own (balloon colour has no
+  Arena equivalent), plus the shared Categories picker. Resource limits live on
+  Contest's separate Limits tab, so they are not here.
+#}
+{% from "_macros.html" import render_icon %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header fw-semibold">Basic info</div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-12 col-md-8">
+                <label for="title" class="form-label">
+                    Title <span class="text-danger">*</span>
+                </label>
+                <input type="text"
+                       class="form-control{% if field_errors.title %} is-invalid{% endif %}"
+                       id="title"
+                       name="title"
+                       form="edit-form"
+                       maxlength="256"
+                       data-editor-required
+                       {% if field_errors.title %}aria-describedby="title-server-error" aria-invalid="true"{% endif %}
+                       {% if first_error_field == "title" %}autofocus{% endif %}
+                       required
+                       value="{{ form_data.title if form_data.title is defined else '' }}"
+                       {% if not is_edit_allowed %}disabled{% endif %}>
+                {% if field_errors.title %}
+                    <div class="invalid-feedback" id="title-server-error">{{ field_errors.title }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="row g-3 mt-1">
+            <div class="col-12">
+                <label class="form-label">Balloon color</label>
+                {% set _init_color = form_data.color if form_data.color is defined else '#FF0000' %}
+                <input type="hidden"
+                       name="color"
+                       id="color-value"
+                       form="edit-form"
+                       value="{{ _init_color }}">
+                <div class="d-flex flex-wrap gap-1 align-items-center"
+                     id="balloon-color-picker">
+                    {% for hex in balloon_colors %}
+                        <button type="button"
+                                class="noca-balloon-opt btn p-0"
+                                data-color="{{ hex }}"
+                                title="{{ hex }}"
+                                {% if not is_edit_allowed %}disabled{% endif %}>
+                            <img src="{{ request.url_for('balloon', color=hex[1:]) }}"
+                                 height="40"
+                                 alt="">
+                        </button>
+                    {% endfor %}
+                    <span class="vr align-self-stretch mx-1"></span>
+                    <div class="position-relative">
+                        <label for="color-custom-input"
+                               class="btn btn-sm btn-outline-secondary noca-balloon-opt"
+                               id="custom-color-btn"
+                               title="Custom color">{{ render_icon(icon="colorize", classes="fs-5") }}</label>
+                        <input type="color"
+                               id="color-custom-input"
+                               value="{{ _init_color }}"
+                               class="noca-color-custom-input"
+                               {% if not is_edit_allowed %}disabled{% endif %}>
+                    </div>
+                    <img id="balloon-preview"
+                         height="40"
+                         src="{{ request.url_for('balloon', color=_init_color[1:]) }}"
+                         alt="selected color"
+                         class="ms-1 noca-balloon-custom-preview">
+                </div>
+            </div>
+        </div>
+        <div class="row g-3 mt-1">
+            <div class="col-12 col-md-6">
+                <label for="author" class="form-label">
+                    Author <span class="text-muted small">(optional)</span>
+                </label>
+                <input type="text"
+                       class="form-control"
+                       id="author"
+                       name="author"
+                       form="edit-form"
+                       maxlength="256"
+                       value="{{ form_data.author if form_data.author is defined else '' }}"
+                       {% if not is_edit_allowed %}disabled{% endif %}>
+            </div>
+            <div class="col-12 col-md-6">
+                <label for="notes" class="form-label">
+                    Notes <span class="text-muted small">(optional)</span>
+                </label>
+                <textarea class="form-control"
+                          id="notes"
+                          name="notes"
+                          form="edit-form"
+                          maxlength="512"
+                          rows="2"
+                          {% if not is_edit_allowed %} disabled {% endif %}>{{ form_data.notes if form_data.notes is defined else '' }}</textarea>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="card shadow-sm mb-4">
+    <div class="card-header fw-semibold">Categories</div>
+    <div class="card-body">
+        <input type="hidden"
+               name="category_names"
+               id="category_names_input"
+               form="edit-form"
+               value="{{ category_names_csv if problem else '' }}">
+        <div id="category-chips" class="d-flex flex-wrap gap-2 mb-2">
+            {% if problem %}
+                {% for cat in problem.categories %}
+                    <span class="badge bg-secondary d-flex align-items-center gap-1 category-chip"
+                          data-name="{{ cat.name }}">
+                        {{ cat.name }}
+                        {% if is_edit_allowed %}
+                            <button type="button"
+                                    class="btn-close btn-close-white noca-chip-close"
+                                    onclick="removeChip(this)"></button>
+                        {% endif %}
+                    </span>
+                {% endfor %}
+            {% endif %}
+        </div>
+        {% if is_edit_allowed %}
+            <div class="position-relative" id="category-autocomplete-wrapper">
+                <div class="input-group input-group-sm">
+                    <input type="text"
+                           id="category-input"
+                           class="form-control"
+                           data-autocomplete-url="{{ request.url_for("problem_categories_autocomplete") }}"
+                           placeholder="Add categories (comma-separated or pick from list)…">
+                    <button type="button"
+                            class="btn btn-outline-secondary"
+                            onclick="addCategories()">Add</button>
+                </div>
+                <div id="category-suggestions"
+                     class="dropdown-menu w-100 d-none noca-category-dropdown"></div>
+            </div>
+            <div class="form-text">
+                New category names will be created automatically. Changes are saved only after clicking Save.
+            </div>
+        {% endif %}
+    </div>
+</div>

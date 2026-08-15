@@ -1,3 +1,9 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 """
 Integration/behavioral tests for clarification_service.py.
 
@@ -16,7 +22,7 @@ import pytest_asyncio
 import valkey.asyncio as aivalkey
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.enumerations import RoleEnum
+from shared.enumerations import ProblemValidatorType, RoleEnum
 from shared.services.lock_service import get_lock
 from web.models.clarification import Clarification
 from web.models.contest import Contest
@@ -159,7 +165,13 @@ async def test_cannot_create_clarification_when_contest_not_running(
 ) -> None:
     from shared.enumerations import RoleEnum
 
-    problem = Problem(contest_id=stopped_contest.id, title="Old Problem", ordinal=1, color="#aaaaaa")
+    problem = Problem(
+        contest_id=stopped_contest.id,
+        title="Old Problem",
+        ordinal=1,
+        color="#aaaaaa",
+        validator_type=ProblemValidatorType.STANDARD,
+    )
     session.add(problem)
     team = User(
         username="stopped_team",
@@ -627,6 +639,7 @@ async def test_reaper_auto_answers_open_clarification_for_past_contest(
         title="Stopped Problem",
         ordinal=1,
         color="#00aa00",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(stopped_problem)
     await session.flush()

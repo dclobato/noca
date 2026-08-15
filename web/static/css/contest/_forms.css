@@ -105,5 +105,4 @@ textarea.tc-content {
     top: 100%;
 }
 
-/* `.noca-tc-preview-cell` and `.tc-pending-removal` moved to
-   shared/static/css/common.css */
+/* `.noca-tc-preview-cell` lives in shared/static/css/common.css. */

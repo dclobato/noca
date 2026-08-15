@@ -71,6 +71,7 @@ from shared.enumerations import (
     ArenaBadge,
     ArenaRole,
     JudgmentStatus,
+    ProblemValidatorType,
     Verdict,
 )
 from shared.services.network_utils import NetworkService
@@ -310,6 +311,7 @@ async def _create_progress_problem(
             title=title,
             owner_id=author.id,
             problem_statement="<p>Test problem.</p>",
+            validator_type=ProblemValidatorType.STANDARD,
         )
     )
     await session.execute(

@@ -13,7 +13,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 #: Backup ZIP format version. Bump on any breaking layout change.
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
+
+#: The older archive version this server still restores.
+LEGACY_FORMAT_VERSION = 1
+
+#: Every archive version this server restores.
+SUPPORTED_FORMAT_VERSIONS: tuple[int, ...] = (LEGACY_FORMAT_VERSION, FORMAT_VERSION)
 
 #: Names of the JSON members that must be present in a valid backup archive.
 MANIFEST_MEMBER = "manifest.json"

@@ -219,7 +219,7 @@ code:not(pre code) {
 
 @keyframes live-feed-row-flash {
     from {
-        background-color: var(--bs-warning-bg-subtle, #fff3cd);
+        background-color: var(--bs-warning-bg-subtle);
     }
     to {
         background-color: transparent;
@@ -246,6 +246,40 @@ code:not(pre code) {
     font-size: 1rem;
 }
 
+/* Hash-target feedback stays semantic in both themes. Reduced-motion users get
+   the same visible confirmation as a brief static state, without animated
+   scrolling or a color transition. */
+.noca-row-highlight {
+    background-color: var(--bs-warning-bg-subtle) !important;
+    transition: none !important;
+}
+
+.noca-row-highlight.noca-row-highlight-fade {
+    background-color: transparent !important;
+    transition: background-color 2s ease-out !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .noca-row-highlight.noca-row-highlight-fade {
+        transition: none !important;
+    }
+}
+
+/* Preserve compact desktop tables while meeting the comfortable 44 px target
+   on devices whose primary pointer is touch. */
+@media (pointer: coarse) {
+    .noca-icon-btn {
+        min-width: 2.75rem;
+        min-height: 2.75rem;
+    }
+
+    .noca-row-actions > .btn,
+    .noca-row-actions > .dropdown > .btn,
+    .noca-row-actions .dropdown-item {
+        min-height: 2.75rem;
+    }
+}
+
 .noca-clickable-row {
     cursor: pointer;
 }
@@ -258,6 +292,103 @@ code:not(pre code) {
 .noca-drag-handle.disabled {
     cursor: not-allowed;
     opacity: 0.45;
+}
+
+/* Judgment-data editor: one quiet operational treatment across Contest and
+   Arena. The status strip carries semantic state while the content cards stay
+   neutral, so authors can scan readiness before entering the artifact. */
+.noca-judgment-readiness {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--noca-outline-variant);
+    border-radius: var(--bs-border-radius);
+    background-color: var(--noca-surface-container-lowest);
+}
+
+.noca-judgment-readiness-main,
+.noca-judgment-readiness-followup,
+.noca-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.noca-judgment-readiness-main {
+    min-width: min(100%, 22rem);
+}
+
+.noca-judgment-readiness-icon {
+    display: inline-flex;
+    color: var(--noca-warning);
+}
+
+.noca-judgment-readiness--ready .noca-judgment-readiness-icon {
+    color: var(--noca-success);
+}
+
+.noca-judgment-readiness--pending .noca-judgment-readiness-icon {
+    color: var(--noca-info);
+}
+
+.noca-operational-card {
+    border-color: var(--noca-outline-variant);
+    border-radius: var(--bs-border-radius);
+    background-color: var(--noca-surface-container-lowest);
+    box-shadow: none;
+}
+
+.noca-operational-card > .card-header {
+    border-color: var(--noca-outline-variant);
+    background-color: var(--noca-surface-container-low);
+    color: var(--noca-on-surface);
+}
+
+.noca-inline-entry {
+    padding: 1rem;
+    border: 1px solid var(--noca-outline-variant);
+    border-radius: var(--bs-border-radius);
+    background-color: var(--noca-surface-container-low);
+}
+
+.noca-row-actions {
+    gap: 0.5rem;
+}
+
+.noca-row-actions .dropdown-item {
+    display: flex;
+    align-items: center;
+}
+
+.noca-form-disclosure {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--noca-outline-variant);
+    border-radius: var(--bs-border-radius);
+    background-color: var(--noca-surface-container-low);
+}
+
+.noca-form-disclosure > summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+@media (max-width: 575.98px) {
+    .noca-judgment-readiness-followup {
+        width: 100%;
+        align-items: flex-start;
+        justify-content: space-between;
+    }
+
+    /* A positioned Bootstrap menu is clipped by the table's responsive overflow.
+       Let it join row flow on narrow screens so every action remains reachable. */
+    .noca-row-actions .dropdown-menu.show {
+        position: static !important;
+        transform: none !important;
+        margin-top: 0.25rem !important;
+    }
 }
 
 .noca-sortable-active .noca-drag-handle {
@@ -282,12 +413,6 @@ code:not(pre code) {
     font-family: var(--noca-font-mono);
     font-variant-numeric: var(--noca-font-variant-numeric-mono);
     font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
-}
-
-/* Test-case row marked for removal on the next save (see tc-pending-remove.js) */
-.tc-pending-removal {
-    opacity: 0.4;
-    text-decoration: line-through;
 }
 
 /* Interactive validator transcript (shared by web review and arena detail pages).
@@ -317,7 +442,7 @@ code:not(pre code) {
     width: 6rem;
     white-space: nowrap;
     font-family: var(--bs-body-font-family);
-    font-size: 0.7rem;
+    font-size: var(--noca-type-label);
     font-weight: bold;
     text-transform: uppercase;
     letter-spacing: 0.03em;
@@ -350,7 +475,7 @@ code:not(pre code) {
 /* ── Devicon language icons ──────────────────────────────────────────────── */
 
 /* Some devicon SVGs are pure-black monochrome artwork (e.g. rust-original.svg)
-   and vanish on dark backgrounds. They are embedded via <img>, so page CSS
+   and vanish on dark backgrounds. They are embedded as image elements, so page CSS
    cannot recolor the SVG internals; inverting the image instead turns the
    black artwork white. Scoped per icon by src suffix — colored icons must not
    be inverted. */
@@ -383,10 +508,192 @@ code:not(pre code) {
     margin-top: 0.25rem;
     margin-left: 5rem;
     margin-right: 5rem;
-    color: var(--bs-secondary-color, #6c757d);
+    color: var(--noca-on-surface-variant);
 }
 
 .noca-problem-image-preview {
     display: block;
     max-height: 120px;
+}
+
+/* Validation-strategy chooser cards (shared/_partials/validator_choice_cards.html).
+   Large click targets give the one immutable decision a problem author makes its
+   own visual peak. A branded icon block identifies each route while the action rail
+   makes the whole-card navigation explicit before hover. The disabled Output checker
+   keeps the same footprint -- it documents a stored strategy with no runtime -- but
+   uses neutral surfaces and no pointer or focus affordance. */
+.card.noca-validator-choice-card {
+    overflow: hidden;
+    color: var(--noca-on-surface);
+    background-color: var(--noca-surface-container-lowest);
+    border-color: var(--noca-outline-variant);
+    box-shadow: 0 2px 2px rgb(0 0 0 / 5%);
+    transition:
+        transform 0.12s ease-in-out,
+        box-shadow 0.12s ease-in-out,
+        border-color 0.12s ease-in-out;
+}
+
+/* Arena applies a global visited-link colour after shared styles load. Keep a
+   previously opened strategy visually identical to the other choices. */
+a.card.noca-validator-choice-card:visited {
+    color: var(--noca-on-surface);
+}
+
+.noca-validator-choice-card .card-body {
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem;
+}
+
+.noca-validator-choice-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.noca-validator-choice-heading {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+.noca-validator-choice-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.25rem;
+    height: 3.25rem;
+    color: var(--noca-on-brand);
+    background-color: var(--noca-brand);
+    border-radius: 0.5rem;
+    transition:
+        color 0.12s ease-in-out,
+        background-color 0.12s ease-in-out;
+}
+
+.noca-validator-choice-icon .material-symbols-outlined {
+    font-size: 2rem;
+}
+
+.noca-validator-choice-action {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-top: 1rem;
+    margin-top: auto;
+    border-top: 1px solid var(--noca-outline-variant);
+    color: var(--noca-brand-container);
+    font-weight: 700;
+}
+
+.noca-validator-choice-content + .noca-validator-choice-action {
+    margin-top: 1.5rem;
+}
+
+[data-bs-theme="dark"] a.noca-validator-choice-card .noca-validator-choice-action {
+    color: var(--noca-brand);
+}
+
+.noca-validator-choice-action .material-symbols-outlined {
+    font-size: 1.25rem;
+    transition: transform 0.12s ease-in-out;
+}
+
+a.card.noca-validator-choice-card:hover,
+a.card.noca-validator-choice-card:focus-visible {
+    color: var(--noca-on-surface);
+    border-color: var(--noca-brand);
+    box-shadow: 0 0.375rem 0.75rem rgb(0 0 0 / 12%);
+    transform: translateY(-2px);
+}
+
+a.card.noca-validator-choice-card:focus-visible {
+    outline: 0.2rem solid rgb(var(--noca-brand-rgb) / 22%);
+    outline-offset: 0.125rem;
+}
+
+a.card.noca-validator-choice-card:hover .noca-validator-choice-icon,
+a.card.noca-validator-choice-card:focus-visible .noca-validator-choice-icon {
+    color: var(--noca-on-brand);
+    background-color: var(--noca-brand-container);
+}
+
+a.card.noca-validator-choice-card:hover .noca-validator-choice-action .material-symbols-outlined,
+a.card.noca-validator-choice-card:focus-visible .noca-validator-choice-action .material-symbols-outlined {
+    transform: translateX(0.25rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .noca-validator-choice-card,
+    .noca-validator-choice-icon,
+    .noca-validator-choice-action .material-symbols-outlined {
+        transition: none;
+    }
+
+    a.card.noca-validator-choice-card:hover,
+    a.card.noca-validator-choice-card:focus-visible {
+        transform: none;
+    }
+}
+
+.noca-validator-choice-card-disabled {
+    cursor: not-allowed;
+    color: var(--noca-on-surface-variant);
+    background-color: var(--noca-surface-container-low);
+    border-style: dashed;
+    box-shadow: none;
+}
+
+.noca-validator-choice-card-disabled .noca-validator-choice-icon {
+    color: var(--noca-on-surface-variant);
+    background-color: var(--noca-surface-container-high);
+}
+
+.noca-validator-choice-card-disabled .noca-validator-choice-action {
+    color: inherit;
+}
+
+/* Problem-editor save bar (shared by the Web and Arena tabbed editors).
+   The editor is one form spread across five panes, so Save has to stay reachable
+   from any scroll position -- an author who edits limits at the bottom of a long
+   statement should not have to scroll back up to commit. Neither module's navbar
+   is sticky, so `top: 0` cannot collide with it. The bar sits above the tab strip
+   and carries its own background so panes do not show through as it overlaps
+   them. */
+.noca-problem-save-bar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 0.5rem;
+    background-color: var(--bs-body-bg);
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+/* Bootstrap modals and dropdowns must still win over the bar. */
+.noca-problem-save-bar .noca-problem-save-bar-spacer {
+    margin-left: auto;
+}
+
+/* Five tabs do not fit a phone. Let the strip scroll on its own rather than the
+   page, and keep the row from wrapping into an unreadable stack. */
+.noca-tab-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    scrollbar-width: thin;
+}
+
+.noca-tab-scroll .nav-item {
+    flex: 0 0 auto;
+}
+
+.noca-tab-scroll .nav-link {
+    white-space: nowrap;
 }

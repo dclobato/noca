@@ -11,12 +11,18 @@ area, prepared in hidden sibling locations *under their configured final roots*
 so every promotion is a same-filesystem rename, and only then promoted. The
 promotion is reversible: if the owning transaction fails to commit, every
 promoted artifact is removed again.
+
+Editing an existing problem needs the same ordering but a different undo, because
+there is content to preserve; that lives in
+:mod:`shared.services.problem_package.quarantine`, which builds on the helpers
+here.
 """
 
 from __future__ import annotations
 
 import shutil
 import tempfile
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -166,8 +172,16 @@ def hidden_sibling(target: Path, token: str) -> Path:
 
 
 def new_token() -> str:
-    """Return a fresh token identifying one import attempt."""
-    return uuid.uuid4().hex
+    """Return a fresh token identifying one import or Save attempt.
+
+    The token leads with a nanosecond timestamp so that sorting tokens
+    lexicographically orders the attempts that produced them. Recovery depends on
+    that: two lost Saves on one problem must be undone newest-first, and a
+    filesystem with coarse ``mtime`` granularity can report their journals as
+    written at the same instant. A random tiebreak there would pick the restore
+    order by coin flip; a monotonic one cannot.
+    """
+    return f"{time.time_ns():020d}-{uuid.uuid4().hex}"
 
 
 def require_inside(path: Path, root: Path) -> None:

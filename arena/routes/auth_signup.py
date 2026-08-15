@@ -97,6 +97,7 @@ async def _record_email_delivery_event(
     request: Request,
     *,
     user_id: str,
+    actor_label: str | None = None,
     purpose: str,
     source: str,
     sent: bool,
@@ -109,6 +110,7 @@ async def _record_email_delivery_event(
         event_type=f"{purpose}_email_{'sent' if sent else 'failed'}",
         severity="info" if sent else "warning",
         actor_user_id=user_id,
+        actor_label=actor_label,
         metadata={"purpose": purpose, "source": source},
     )
 
@@ -457,6 +459,7 @@ async def arena_signup_submit(
         session,
         request,
         user_id=result.user.id,
+        actor_label=result.user.email_normalizado,
         purpose="account_activation",
         source="signup",
         sent=email_sent,
@@ -484,6 +487,7 @@ async def arena_signup_submit(
             session,
             request,
             user_id=result.user.id,
+            actor_label=result.user.email_normalizado,
             purpose="parental_consent",
             source="signup",
             sent=parental_email_sent,

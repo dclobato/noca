@@ -202,6 +202,7 @@ async def _store_output_line(
                 event_type="ai_response_redacted",
                 severity="warning",
                 actor_user_id=sub.user_id,
+                actor_label=sub.user_email,
                 metadata={
                     "submission_id": submission_id,
                     "path": "batch",

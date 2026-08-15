@@ -42,7 +42,12 @@ from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
 from arena.services.user_timezone_service import format_user_datetime
 from shared.db_schema.arena import arena_problem_set_problems
-from shared.enumerations import ArenaRole, CustomValidatorActiveState, StatementLanguage
+from shared.enumerations import (
+    ArenaRole,
+    CustomValidatorActiveState,
+    ProblemValidatorType,
+    StatementLanguage,
+)
 from shared.services.sample_interactions import parse_interaction_text
 from web.models.language import Language
 
@@ -258,6 +263,7 @@ async def _create_enabled_problem(
     *,
     license: str | None = None,
     title: str = "Visible Problem",
+    validator_type: ProblemValidatorType = ProblemValidatorType.STANDARD,
 ) -> ArenaProblem:
     """Create an enabled problem for public detail route tests."""
     problem = await admin_problem_service.create_problem(
@@ -277,6 +283,7 @@ async def _create_enabled_problem(
         notes=None,
         category_ids=[],
         license=license,
+        validator_type=validator_type,
     )
     problem.enabled = True
     await session.commit()
@@ -596,7 +603,9 @@ async def test_problem_detail_renders_custom_validator_banner(session: AsyncSess
     )
     language = await _create_language(session)
     plain_problem = await _create_enabled_problem(session, author, title="Plain Detail")
-    validator_problem = await _create_enabled_problem(session, author, title="Interactive Detail")
+    validator_problem = await _create_enabled_problem(
+        session, author, title="Interactive Detail", validator_type=ProblemValidatorType.INTERACTIVE
+    )
     session.add(
         ArenaProblemCustomValidator(
             problem_id=validator_problem.id,
@@ -634,7 +643,9 @@ async def test_interactive_problem_renders_sample_interactions_not_test_cases(se
         role=ArenaRole.ARENA_JUDGE,
     )
     language = await _create_language(session)
-    problem = await _create_enabled_problem(session, author, title="Guess The Number")
+    problem = await _create_enabled_problem(
+        session, author, title="Guess The Number", validator_type=ProblemValidatorType.INTERACTIVE
+    )
     session.add(
         ArenaProblemCustomValidator(
             problem_id=problem.id,
@@ -696,7 +707,9 @@ async def test_interactive_problem_without_interactions_says_so(session: AsyncSe
         role=ArenaRole.ARENA_JUDGE,
     )
     language = await _create_language(session)
-    problem = await _create_enabled_problem(session, author, title="No Samples")
+    problem = await _create_enabled_problem(
+        session, author, title="No Samples", validator_type=ProblemValidatorType.INTERACTIVE
+    )
     session.add(
         ArenaProblemCustomValidator(
             problem_id=problem.id,

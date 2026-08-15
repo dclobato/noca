@@ -21,7 +21,7 @@ from arena.services.arena_favorite_service import (
     toggle_favorite,
 )
 from shared.db_schema.arena import arena_problems
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, ProblemValidatorType
 
 
 async def _make_user(session: AsyncSession) -> ArenaUser:
@@ -51,6 +51,7 @@ async def _make_problem(session: AsyncSession, *, owner_id: str, title: str) -> 
             title=title,
             owner_id=owner_id,
             problem_statement="<p>Favorite test.</p>",
+            validator_type=ProblemValidatorType.STANDARD,
         )
     )
     await session.flush()

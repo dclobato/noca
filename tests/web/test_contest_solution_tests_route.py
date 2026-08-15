@@ -28,7 +28,7 @@ from shared.enumerations import JudgmentStatus, RoleEnum, Verdict
 from web.dependencies import ContestContext, get_contest_context
 from web.models.contest import Contest
 from web.models.language import Language
-from web.models.problem import Problem
+from web.models.problem import Problem, ProblemTestCase
 from web.models.submission import Submission
 from web.models.users import UberAdmin, User
 from web.routes.contest_solution_tests import router as solution_tests_router
@@ -898,16 +898,38 @@ async def test_unavailable_custom_validator_blocks_the_route(
     uberadmin: UberAdmin,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A validator whose active revision is not VALID makes the problem unjudgeable."""
+    """An interactive problem with no active VALID revision is unjudgeable.
+
+    The problem is interactive by its *stored strategy*. A pending candidate is
+    not something to judge with, and the run must be refused rather than fall
+    back to the token comparator.
+    """
     from shared.db_schema import problem_custom_validators
-    from shared.enumerations import CustomValidatorCandidateState
+    from shared.enumerations import CustomValidatorCandidateState, ProblemValidatorType
 
     language = await _make_language(session, running_contest)
+    interactive_problem = Problem(
+        contest_id=running_contest.id,
+        title="Interactive",
+        ordinal=judgeable_contest_problem.ordinal + 1,
+        color="#00ff00",
+        validator_type=ProblemValidatorType.INTERACTIVE,
+    )
+    session.add(interactive_problem)
+    await session.flush()
+    session.add(
+        ProblemTestCase(
+            problem_id=interactive_problem.id,
+            ordinal=1,
+            is_sample=False,
+            input_size_bytes=2,
+        )
+    )
     await session.execute(
         problem_custom_validators.insert().values(
-            problem_id=judgeable_contest_problem.id,
+            problem_id=interactive_problem.id,
             # A complete PENDING candidate and no active revision at all: the
-            # problem counts as validator-configured, but nothing is judgeable yet.
+            # problem is interactive, but nothing is judgeable yet.
             candidate_language_id="python3",
             candidate_source="print('validator')",
             candidate_token="token-1",
@@ -923,7 +945,7 @@ async def test_unavailable_custom_validator_blocks_the_route(
     enqueue = AsyncMock()
     monkeypatch.setattr(routes_module, "enqueue_solution_test_job", enqueue)
 
-    response = await _submit(app, running_contest, judgeable_contest_problem, language)
+    response = await _submit(app, running_contest, interactive_problem, language)
 
     assert response.status_code == 303  # type: ignore[attr-defined]
     assert enqueue.await_count == 0

@@ -29,7 +29,7 @@ from arena.services import arena_batch_feedback_service as svc
 from arena.services import arena_problem_set_service as ps_svc
 from arena.services.arena_teacher_feedback_service import upsert_teacher_feedback
 from shared.db_schema.arena import arena_submission_ai_reviews
-from shared.enumerations import ArenaClassMembershipStatus, ArenaRole, Verdict
+from shared.enumerations import ArenaClassMembershipStatus, ArenaRole, ProblemValidatorType, Verdict
 from web.models.language import Language
 
 NOW = datetime(2026, 6, 4, 12, 0, tzinfo=UTC)
@@ -76,6 +76,7 @@ async def _make_problem(session: AsyncSession, author: ArenaUser) -> ArenaProble
         title=f"Problem {uuid.uuid4().hex[:8]}",
         owner_id=author.id,
         problem_statement="<p>Echo.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

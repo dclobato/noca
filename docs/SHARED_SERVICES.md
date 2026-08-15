@@ -475,6 +475,249 @@ Model:
 
 ---
 
+## `problem_judgeability.py`
+
+Purpose: one decision for "can this problem be judged in its current state",
+applied at every execution gate.
+
+Incomplete drafts are explicitly allowed. A problem may be saved with no test
+cases and no validator source, which is what makes "choose a strategy, create,
+then upload the validator" possible; nothing about judgeability is enforced at
+save time. The gates -- submission creation (both domains), Web solution tests,
+Arena enablement, AutoJudge dispatch, and full export -- apply this rule
+instead.
+
+| Symbol | Behavior |
+| --- | --- |
+| `ProblemJudgeabilityFacts` | Frozen bundle of domain-neutral facts: the stored strategy, total and secret case counts, how many cases are missing an expected-output *file*, and whether an active `VALID` validator exists. |
+| `judgeability_error(facts)` | The operator-facing reason the problem cannot be judged, or `None`. |
+
+The rules:
+
+- **Standard** -- at least one case, and every case has a present
+  expected-output file. A present-but-empty file is valid output.
+- **Interactive** -- at least one secret input-only case and an active `VALID`
+  validator revision. A problem that lost its validator source stays interactive
+  and is refused here, rather than being token-compared against cases that carry
+  no expected output.
+- **Anything else** (currently the reserved output checker) -- never judgeable,
+  rejected explicitly rather than by falling through, so a future strategy cannot
+  inherit the standard rules by accident.
+
+The module runs no queries and imports neither `web` nor `arena`: each caller
+gathers the facts with whatever query shape suits it, and the decision stays in
+one place. See [ARCHITECTURE.md](ARCHITECTURE.md) for why the strategy is stored
+rather than inferred.
+
+---
+
+## `problem_definition_view.py`
+
+Purpose: the presentation contract for the problem *definition* editor -- what the
+problem is -- so the Web and Arena editors render the same panes without either
+module's route names leaking into shared markup.
+
+`ProblemDefinitionView` is a frozen dataclass holding pre-resolved URLs and
+strategy flags, in the style `shared.services.testcase_view.TestCaseRowView`
+already established for the per-row test-case table. Each module builds one in its
+own presentation helper (`web/routes/contest_admin_problem_view.py`,
+`arena/routes/admin_problem_form_views.py`), and the shared panes read only that.
+
+One member exists because a URL is not enough: `validator_status_template`. The
+compile-status badge is itself shared
+(`_partials/validator_status_badge.html`), but each module wraps it at its own
+path (`admin/problems/_validator_status.html` for Web, `admin/_validator_status.html`
+for Arena) to bind its own HTMX polling route -- the wrapper is also what those poll
+endpoints re-render. The definition editor shows the badge read-only; the judgment
+editor's validator page owns the actions.
+
+The module owns the canonical pane vocabulary -- `metadata`, `statement`, `limits`
+-- so a redirect written in one module cannot name a pane the other never renders.
+Which panes a given editor *accepts* stays per-module: Arena keeps its resource
+limits inside Metadata and renders no Limits pane.
+
+`resolve_tab(raw, *, allowed)` falls back to Metadata rather than failing. A pane
+is a view preference, never an authorization or correctness decision, so an
+unknown value or the retired `content` alias resolves to Metadata -- the
+alternative is a `404` on a page the author is entitled to see.
+
+`MOVED_TO_JUDGMENT` is deliberately *not* an alias table: `test-cases` and
+`sample-interactions` name pages that live in the judgment editor now, so the editor
+redirects those requests there instead of quietly resolving them to a pane an
+author did not ask for.
+
+---
+
+## `judgment_page_view.py`
+
+Purpose: the presentation contract for the *judgment-data* editor -- what judging
+runs against. Test cases, the custom validator and sample interactions are pages
+rather than panes, because a problem can carry many large cases and every action
+on existing data posts immediately.
+
+- `JudgmentShellView` — the chrome each page renders inside: the problem label,
+  the read-only strategy badge, the page navigation, the consolidated
+  `JudgmentReadinessView`, and the links back to the definition editor and the
+  problem list. Modules can attach a permission-checked rejudge URL and safe
+  local return path to the readiness model; a module without that operation
+  renders status and guidance without an action.
+- `build_judgment_readiness(...)` — derives `ready`, `pending`, or `incomplete`
+  from canonical `ProblemJudgeabilityFacts`, the validator lifecycle, and
+  submission presence. It therefore cannot disagree with submission,
+  enablement, solution-test, or worker gates about missing expected output,
+  secret interactive cases, or active-validator validity. A valid active
+  validator keeps an interactive problem ready while a replacement candidate
+  compiles.
+- `build_judgment_nav(validator_type, urls, badges)` — which pages a strategy
+  offers, in display order. A standard problem is offered Test cases alone; an
+  interactive problem is offered all three; the reserved `checker` strategy is
+  refused before any page is built.
+- `TestCasesPageView`, `ValidatorPageView`, `InteractionsPageView` — one small
+  per-page model carrying that page's own action URLs, so the shared page
+  partials resolve no module route names, exactly as
+  `problem_definition_view.py` and `testcase_view.py` do.
+
+---
+
+## `judgment_case_action.py`
+
+Purpose: the one place a judgment action that touches **files** is staged, so the
+ordering is written once instead of once per endpoint.
+
+`stage_case_action(...)` takes the current cases and a single-op
+`PendingTestCaseOps`, plans the desired directory, opens the edit-aware swap and
+returns it with the materialized cases; the caller applies the rows and finishes
+with `commit_with_edit_swap`, abandoning the swap on failure. Staging is seeded by
+hardlink (see `testcase_files.py`), except for a replace-all, which claims nothing
+from the seed and passes `seed=False`.
+
+If staging itself fails it removes its own staging paths before re-raising: the
+caller never receives the swap, so it has nothing to call `abandon_swap` on, and
+staging is where a problem's entire test data is written. Both this cleanup and
+`abandon_swap` are cancellation-shielded; an already-cancelled request cannot
+interrupt rollback and leave a large staging tree behind.
+
+Actions that change **no file** deliberately do not open a swap: the sample
+toggle, validator upload and removal, and every sample-interaction mutation commit
+directly under the problem row lock, because there is nothing on disk for a failed
+commit to leave behind. That is a rule of the design, not an oversight; the
+precedent is Web's limits-only save.
+
+---
+
+## `durable_fs.py`
+
+Purpose: make the editor's filesystem writes as durable as the database rows they
+are compared against.
+
+Recovery decides from a committed `artifact_generation` whether to keep the new
+artifacts or restore the quarantined ones. That comparison is meaningless if the
+files never reached the device: after a host crash, a committed generation
+pointing at content the kernel still held in cache is the one state recovery
+cannot detect, because the fence tells it the Save landed.
+
+- `write_file_durably(target, content)` — writes a temporary sibling, flushes it,
+  and renames it over the target. It never opens the target, because it may be a
+  hardlink into the live directory (that is how staging is seeded).
+- `copy_file_durably(source, target)` — streams the hardlink fallback into a new
+  staging file and flushes it without loading a potentially multi-gigabyte case
+  into memory.
+- `fsync_directory(path)` / `fsync_parents(paths)` — flush the directory entries a
+  rename created, once per directory rather than once per artifact. Best-effort:
+  a filesystem that cannot flush a directory handle keeps the weaker guarantee it
+  already had rather than failing the Save.
+
+Call sites: every test-case write, the staged statement, the staged directory
+after materialization, and the promotion and rollback renames.
+
+---
+
+## `editor_urls.py`
+
+Purpose: build problem-editor return URLs that carry a tab, an existing query,
+and a row anchor at the same time.
+
+Every route that sends an author back to the tabbed editor states which tab they
+land on, a per-row route also states which row, and Arena carries the problem
+list's filter state through the editor -- so one URL can need all three parts.
+`editor_url(base, tab=..., anchor=...)` merges the query and re-attaches the
+fragment last, because the obvious `f"{url}?tab=…#tc-{id}"` is wrong twice: a
+second `?` on a URL that already has a query produces a parameter no server
+parses, and appending after a fragment puts the parameter inside the fragment,
+where it is silently dropped.
+
+---
+
+## `validator_choice.py`
+
+Purpose: resolve the validation strategy named by a creation-chooser route
+parameter, so both modules' `/new/{validator_type}` routes agree on what the
+segment means.
+
+A problem's strategy is chosen once, on the way into the creation editor, and the
+chooser names it **in the URL** rather than in an editable form field -- so no
+crafted POST body can select or change one. Both creation POSTs read the route
+parameter and ignore any `validator_type` the body carries.
+
+| Symbol | Behavior |
+| --- | --- |
+| `CHOOSABLE_VALIDATOR_TYPES` | The strategies a chooser may open an editor for: `standard` and `interactive`. |
+| `VALIDATOR_CHOICE_UNAVAILABLE_MESSAGE` | The operator-facing message for the reserved strategy. |
+| `resolve_validator_choice(raw)` | Return the choosable strategy the segment names. Raise `UnavailableValidatorChoiceError` for `checker` and `UnknownValidatorChoiceError` for anything else. |
+
+Three outcomes must stay distinguishable, which is why this resolves through two
+exception types rather than an `Optional`: a choosable strategy opens its editor;
+the reserved `checker` value parses but has no runtime in this release, so the
+caller redirects back to the chooser with an explanation rather than pretending
+the URL does not exist; anything else answers `404`.
+
+The route parameter is deliberately typed `str` at the handler and resolved here.
+Typed as the enum, FastAPI answers `422` before the handler runs, and
+`shared.error_handlers` renders that as a neutral JSON `{"error": ...}` body --
+wrong for an HTML admin page, and it would make the reserved and unknown outcomes
+indistinguishable. Each module wraps this in its own
+`resolve_choice_or_redirect` (`web/routes/contest_admin_problem_new.py`,
+`arena/routes/admin_problem_new.py`), which owns the module's flash category and
+chooser URL; Arena's additionally preserves the list-return query state across the
+redirect.
+
+---
+
+## `validator_type_guard.py`
+
+Purpose: enforce that a problem's stored validation strategy
+(`problems.validator_type` / `arena_problems.validator_type`) is chosen once, at
+creation or import, and never changes.
+
+The strategy is the authoritative answer to "what kind of problem is this".
+Before it existed, interactive-ness was inferred from the presence of a
+custom-validator row, which is wrong in both directions: a problem whose
+validator source was removed silently became a standard problem judged by the
+token comparator, and a standard problem carrying a stale validator row looked
+interactive. An interactive problem also cannot become a standard one after the
+fact, because its test cases carry no expected output and its contestants were
+shown sample interactions rather than sample cases.
+
+| Function | Behavior |
+| --- | --- |
+| `raise_if_validator_type_changed(instance)` | Raise `ValidatorTypeImmutableError` when a *persistent* instance's `validator_type` holds a changed value. A transient or pending instance is exempt -- stating the strategy at creation is the one permitted write -- and so is reassigning the identical value, which records no history. |
+| `guard_validator_type_immutability(session, problem_types)` | Apply the check to every dirty instance of `problem_types` in a session being flushed. |
+
+Both domains register the guard on SQLAlchemy's `before_flush`:
+`web/models/problem.py` folds it into its existing listener, and
+`arena/models/arena_problems.py` adds its own. The service layer refuses a
+disagreeing value on its update paths as well; both layers are needed, because a
+service guard never sees an assignment that bypasses it.
+
+**Stated boundary:** this covers every supported application workflow -- forms,
+routes, services, packages, backups, and admin tooling -- but not direct SQL.
+Anyone with a `psql` prompt can still change a strategy, and nothing in this
+release detects that. A database trigger was considered and deliberately not
+adopted: the repository has no trigger precedent, and introducing the first one
+as a side effect of this change would set an unreviewed precedent.
+
+---
+
 ## `problem_package/`
 
 Purpose:
@@ -503,9 +746,13 @@ Canonical location:
 | `testcase_archive.py` | shared multi-case classification, pairing, and bare-ZIP parsing |
 | `reader.py` | ZIP path → `StagedPackage` |
 | `writer.py` | `ProblemPackage` + profile → ZIP on disk |
-| `staging.py` | `PackageStagingArea`, reversible `ArtifactPromotion` |
-| `promotion.py` | `ArtifactPromoter` — orders filesystem writes against the transaction |
-| `journal.py` | the crash-safe import journal |
+| `staging.py` | `PackageStagingArea`, reversible `ArtifactPromotion`, shared path guards |
+| `quarantine.py` | `QuarantiningPromotion` — displace-and-restore promotion for content that already exists |
+| `promotion.py` | `ArtifactPromoter` — orders an **import's** filesystem writes against the transaction |
+| `edit_swap.py` | `EditArtifactSwap` — the same ordering for an **editor Save**, quarantining what it displaces |
+| `journal_model.py` | the journal record: kind, entries, promotion state, generation fence |
+| `journal.py` | the crash-safe on-disk journal format and the reconciliation loop |
+| `journal_recovery.py` | what recovery deletes, keeps, or restores for one stale journal |
 | `reconcile.py` | resolving stale journals at startup and before each import |
 | `upload.py` | chunked upload spooling, temp export paths, safe download filenames |
 
@@ -513,16 +760,45 @@ Main entrypoints:
 - `read_problem_package(zip_path)` — a context manager yielding a `StagedPackage`: the immutable
   `ProblemPackage` plus the staging area holding its payloads. Leaving the context removes every
   temporary path, which is why the live handle lives *outside* the frozen value object
-- `build_package(package, destination, *, profile)` — writes `"full"` (importable, every version-1
-  key) or `"public"` (contestant statement bundle, no `problem.json`) to a path on disk
+- `build_package(package, destination, *, profile, require_importable=True)` — writes `"full"`
+  (importable, every version-2 key) or `"public"` (contestant statement bundle, no `problem.json`)
+  to a path on disk. `require_importable=False` waives the version-2 completeness rules for a
+  caller whose package is not a restore source of record; only the contest backup exporter uses it
 - `ArtifactPromoter` — `stage` → `promote` → commit → `finish`, with `rollback` deleting exactly
   what was promoted when the commit fails
+- `EditArtifactSwap` / `commit_with_edit_swap(session, swap)` — the edit-aware counterpart:
+  `stage_test_cases` / `stage_file` → `write_journal` → `promote` → commit → `finish`, with
+  `rollback` **restoring** what the promotion displaced
+- `bump_artifact_generation(session, domain, problem_id)` — the fence value a Save journals
+- `EditArtifactSwap.stage_removal(target, root)` — a Save can end with *less* on disk than it
+  started with (a Contest statement switched from PDF to Markdown drops the PDF), and that deletion
+  is as reversible as a replacement: promotion parks the file in the same quarantine, rollback puts
+  it back, and `finish()` deletes it. Journalled as an ordinary entry with an additive, optional
+  `removal` flag, so recovery still decides from the quarantine on disk and a journal written
+  without the key resolves identically
 - `reconcile_import_journals(session, domain=..., testcase_dir=..., statement_dir=...)`
 - `spool_upload(upload)` / `temporary_package_path()` / `safe_package_filename(title)`
 
 `pypdf` is declared in `shared/pyproject.toml` rather than Web's: the shared reader owns PDF
 statement validation, and a lazy import of a dependency another package declares would make
 shared behavior depend on which module happened to be installed.
+
+### The strategy discriminator (format version 2)
+
+`PackageMetadata.validator_type` carries the problem's validation strategy, and is **always**
+populated regardless of the package's own version: version 2 states it, and a version-1 package has
+it derived from `custom_validator` presence by the parser. Consumers therefore never branch on the
+version to learn the strategy, and `ProblemPackage.is_interactive` reads that normalized value
+rather than `validator is not None`.
+
+The rules are enforced in two places, and the split is structural rather than stylistic:
+`metadata.py` enforces what `problem.json` alone can see (a `standard` problem declares no
+validator; an `interactive` one declares a validator), while `reader.py` enforces what only the
+extracted archive index can see (a `standard` problem ships no `validator/` members). `checker` is
+rejected in `metadata.py`, before any `ProblemPackage` is returned, so neither domain importer
+implements that check and the two cannot diverge on it.
+
+See [PROBLEM_PACKAGE_FORMAT.md](PROBLEM_PACKAGE_FORMAT.md) for the wire format.
 
 ### No archive in RAM, in either direction
 
@@ -564,7 +840,52 @@ thread — copying and renaming a problem's whole test-case directory is blockin
 
 Validator compile tokens stay in the result and are enqueued **after** the commit.
 
-### Import journal
+### Edit-aware artifact swap
+
+An import may delete whatever it finds at its target, because nothing was there before it. An edit
+may not: the author's existing test cases are live data. Reusing `ArtifactPromotion` for a Save
+would therefore lose them — promote deletes the problem's test-case directory, the commit fails,
+rollback deletes the replacement, and the problem is left with **no test-case files at all** while
+its rows still describe the old ones. That is strictly worse than the commit-then-write ordering it
+replaces, so the edit path is a **sibling** of the import path, added alongside it; import behavior
+is unchanged.
+
+`EditArtifactSwap` differs from `ArtifactPromoter` in three ways, and each one is load-bearing:
+
+1. **Quarantine, don't delete.** `QuarantiningPromotion.promote()` renames existing content to a
+   hidden sibling (`.noca-pkg-<token>-prev-<name>`, same filesystem by construction) instead of
+   removing it. `rollback()` renames it back; `finish()` deletes it only after the commit succeeded.
+2. **Journal the quarantine — before promoting, and for every entry.** The quarantine path is
+   deterministic and is written into the journal *ahead of* the first rename, because the window
+   between "target renamed away" and "journal says where it went" is precisely the unrecoverable
+   one. It is recorded even for a target that does not exist yet, because target existence can
+   change in between — the satellite routes still write into the live directory — and recovery must
+   not be told `None` for a target that turned out to have content. What decides at recovery time is
+   therefore **the quarantine's presence on disk**, which cannot be stale; the journaled
+   `target_existed` flag only separates the two remaining cases, "promoted over nothing" (remove the
+   promoted content) from "the displacement never completed" (the target is still the original, so
+   leave it).
+
+   For the same reason, `QuarantiningPromotion.promote()` records the displacement **before** the
+   rename that would strand it. Recording it afterwards leaves a window in which the first rename
+   succeeded, the second failed, and rollback knows nothing about the quarantine — orphaning the
+   author's files in a hidden path while the journal that could have named them is cleared.
+3. **Fence on the generation, not on existence.** The journal records the `artifact_generation` the
+   problem row will hold once the Save commits, and the Save increments it in the same transaction.
+   Recovery compares the stored value: `stored >= expected` means the commit landed (or a later Save
+   superseded it, which calls for the same action), so the new artifacts stay and the quarantine is
+   dropped; a strictly lower value means the commit was lost, so the quarantined originals are
+   renamed back.
+
+A Save materializes the **complete** desired test-case directory in staging —
+`copy_testcase_files_into` seeds it with hardlinks to the problem's current files,
+falling back to a durable streamed copy where links are unavailable. A Save touching
+one case therefore gets one reversible same-filesystem directory swap without copying
+unchanged bytes on the normal path. There is **no size or count exception**: a Standard
+case is two files plus row metadata, so every definition Save and immediate judgment
+action that changes files uses the swap rather than writing into the live directory.
+
+### Promotion journal
 
 Promotion spans multiple roots and mixes files with directories, so a marker written *inside* the
 promoted directory cannot describe it. One guarded journal file per import, under
@@ -575,15 +896,44 @@ transition and deleted on success. The directory name starts with a dot, which
 `get_problem_testcase_dir` forbids in a problem id, so it cannot collide with a problem's files
 and needs no configuration of its own.
 
-Reconciliation runs **at application startup** (the `web` and `arena` lifespans, alongside the
-existing reaper registrations) **and before each import**, not only when another import happens:
-for each journal, look up the problem row — if it exists, the commit won, so clear the journal; if
-it does not, delete the recorded artifacts. Both problem tables live in the shared schema, so one
-query answers this for either domain.
+A journal also records its **kind** and, for an edit, its generation fence and the quarantine path
+of each entry. The format is at **version 2**; version 1 — every journal written before the edit
+swap existed — is still read, as an import journal with no quarantine and no fence, so an attempt
+interrupted by the upgrade itself is still reconciled. Any other version is left in place.
 
-**Every path read from a journal is re-validated against its configured root before anything is
-deleted**, so a corrupted or tampered journal can never direct a delete outside the problem
-storage roots. A journal that cannot be parsed is logged and left in place rather than acted on.
+Reconciliation runs **at application startup** (the `web` and `arena` lifespans, alongside the
+existing reaper registrations) **and before each import**, not only when another import happens.
+Editor Saves journal into the same directory, so both passes already cover them. Journals are
+resolved **newest-first**: two lost Saves on one problem quarantine in sequence and carry the same
+fence, so undoing them in reverse order is what ends at the author's true original. Two things make
+that order dependable: Saves on one problem are serialized by the `artifact_generation` row lock,
+taken at the Save's flush before it journals; and the promotion token leads with a nanosecond
+timestamp, so when a coarse-granularity filesystem reports both journals with the same `mtime`, the
+file-name tiebreak preserves the same order rather than picking one at random. A journal that
+raises is logged and skipped rather than deferring every journal behind it — which at the
+pre-import call site would otherwise abort the import itself. Each journal is resolved by the signal
+its kind names:
+
+- **import** — look up the problem row. If it exists the commit won, so clear the journal; if it
+  does not, delete the recorded artifacts.
+- **edit** — compare the row's `artifact_generation` against the journal's fence, as described
+  above. Existence cannot answer this, because an edited problem exists either way. Recovery takes
+  the same problem-row guard as a Save and resolves the complete same-problem journal chain under
+  that one guard; this prevents both trampling an in-flight Save and letting a new Save start while
+  recovery has restored only an intermediate uncommitted predecessor. An edit journal reached
+  without a generation lookup is left in place rather than resolved on the wrong signal.
+
+Restoration, committed-quarantine deletion, and journal deletion flush the parent
+directories they mutate before the recovery record is cleared. A second host crash
+therefore cannot persist journal removal while losing the filesystem transition the
+journal described.
+
+Both problem tables live in the shared schema, so one query answers either question for either
+domain.
+
+**Every path read from a journal — staged, target, and quarantine — is re-validated against its
+configured root before anything is deleted _or restored_**, so a corrupted or tampered journal can
+never direct either outside the problem storage roots. A journal that cannot be parsed is logged and left in place rather than acted on.
 
 ### Warnings vs. errors
 
@@ -802,19 +1152,29 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
   after a CRUD redirect. Used by web and arena admin list pages.
 - `render-tc-explanation.js`: renders sample test-case explanations as Markdown
   + KaTeX on problem-detail pages.
-- `problem-edit-unsaved-guard.js`: warns before leaving the problem create/edit
-  form with unsaved changes.
+- `problem-edit-unsaved-guard.js`: warns before leaving with unsaved changes --
+  the definition editor's Save form, and each judgment page's typed-rows form,
+  which is the only state on those pages the server has not already seen.
+- `judgment-actions.js`: the three courtesies the judgment-data pages need from
+  the browser -- `data-confirm` on a form, a `data-clears-typed-rows` warning when
+  an upload would discard typed rows, and the per-row replace trigger that opens
+  its row's hidden file input and submits that row's form. Everything on those
+  pages is an ordinary form that posts immediately, so there is no client-side
+  model to maintain.
 - `tc-reorder-sortable.js`: shared drag-to-reorder for the admin test-case list
   (and the Web problem list), driven by `data-reorder-*` attributes and
   `.noca-drag-handle` / `.noca-sortable-*`; posts the move and swaps the refreshed
-  list partial named by `data-reorder-target`.
-- `tc-pending-remove.js`: shared pending-removal + undo for test cases; marks rows
-  client-side and submits the ids in the hidden `tc_remove_ids` input on save.
+  list partial named by `data-reorder-target`. Focused handles also move with the
+  Up/Down arrows, restore focus after the swap, and announce success or failure.
 - `tc-add-row.js`: shared inline "Add test case" rows appended to `#tc-add-rows`
-  and submitted with the problem form (`tc_in_N` / `tc_out_N` / `tc_explanation_N`
-  / `tc_is_sample_N`).
-- `tc-replace-row.js`: per-row offline ZIP replace trigger (opens the hidden file
-  input and submits its form).
+  and submitted by the test-cases page's own Save (`tc_in_N` / `tc_out_N` /
+  `tc_explanation_N` / `tc_is_sample_N`).
+- `problem-edit-validate.js`: cheap pre-submit checks (required fields, positive
+  integers) so the common near-miss never reaches the server with archives
+  attached, which a browser cannot re-attach afterwards. Native `invalid` events
+  are captured too: a control in a hidden pane opens that pane, gets persistent
+  inline feedback, and receives focus. A convenience, never a gate: every rule is
+  enforced again server-side with the same pane/field mapping.
 - `problem-image-preview.js`: client-side FileReader preview for the problem
   illustration field. Self-initializing on any `input[type=file][data-image-preview]`,
   so including `_partials/problem_image_field.html` is enough to get the preview in
@@ -844,10 +1204,9 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
 - `row-href.js`: makes list/table rows navigable through their row link, skipping
   interactive elements, `.arena-favorite-icon`, and any `[data-no-row-link]`
   opt-out inside the row.
-- `si-add-row.js`: shared inline "Add sample interaction" rows for the web and
-  arena admin problem-edit pages on custom-validator problems; appends rows to
-  `#si-add-rows` submitted as `si_transcript_N` / `si_explanation_N` with the
-  enclosing problem form.
+- `si-add-row.js`: shared inline "Add sample interaction" rows for the Web and
+  Arena judgment pages on interactive problems; appends rows to `#si-add-rows`
+  submitted as `si_transcript_N` / `si_explanation_N` with that page's add form.
 - `slugify.js`: URL-slug generation shared by the Contest and Arena modules
   (lowercase, strip diacritics, hyphenate alphanumeric runs); the per-surface
   stop-word policy is passed in, because the modules deliberately disagree.
@@ -1828,6 +2187,43 @@ Notes:
   reaper): Arena `/admin/dashboard/security-events` shows
   `module in (arena, aiassistant)`; Web `/uberadmin/security-events` shows
   `module=web` only, with an event-type filter
+- both viewers offer a "Download as CSV" export served by
+  `security_events_export.py`
+
+---
+
+## `security_events_export.py`
+
+Purpose:
+- stream the whole security-event log of one viewer's module scope as a CSV
+  download
+
+Canonical location:
+- `shared/services/security_events_export.py`
+
+Key types and functions:
+- `stream_security_events_csv(session, module=None, modules=None)` — async
+  iterator of CSV text chunks, newest first, starting with a UTF-8 BOM and the
+  `CSV_HEADER` row
+- `csv_filename(prefix, now=None)` — timestamped attachment filename
+- `CSV_HEADER` — the exported column order (every stored column, with the JSON
+  metadata serialized into a single cell)
+
+Notes:
+- the export intentionally ignores the viewer's on-screen `event_type`/`module`
+  filters: an operator downloading the log wants the complete history. The
+  viewer's module *ownership* scope is kept, because that is an authorization
+  boundary rather than a user filter — Web exports `module=web`, Arena exports
+  `module in (arena, aiassistant)`
+- rows are read in keyset-paginated batches ordered by `(created_at, id)`
+  descending, so neither the service nor the response body materializes the full
+  log
+- cell values are flattened to one line and a leading `=`, `+`, `-`, or `@` is
+  prefixed with an apostrophe, so attacker-influenced fields (user agent,
+  metadata) cannot become spreadsheet formulas
+- the routes open their own session for the stream rather than using the
+  request-scoped dependency, because FastAPI closes `yield` dependencies before
+  a streaming body is consumed
 
 ---
 
@@ -1894,6 +2290,92 @@ Notes:
 
 ---
 
+## `testcase_pending_ops.py`
+
+- `shared/services/testcase_pending_ops.py`
+
+What one test-case action asks for, as data the planner can apply. Every action on the
+judgment-data pages -- replace this case, delete that one, add these, reorder them, replace them
+all -- is a `PendingTestCaseOps` with exactly one field set, applied immediately.
+
+It briefly described something larger: a single Save carrying every mutation at once, with a form
+parser, an uploads reader and rules refusing contradictory combinations. Separate pages retired all
+of that -- with one action per request there is nothing to combine -- and `validator_action_ops.py`
+and `testcase_form_echo.py` went with it.
+
+- `PendingTestCaseOps` — the one-field-per-action description: `removals`, `sample_toggles`,
+  `added`, `replacements`, `bulk_cases`, `order`
+- `CaseContent` — one case's content, plus `states_metadata`: whether the *submitter* stated the
+  case's sample flag and explanation, rather than merely supplying content alongside them. An
+  inline edit form states both (it shows the checkbox and the explanation box, so clearing either
+  is a decision); a single-case ZIP states neither, and a replacement that does not state them
+  keeps what the row holds
+- `parse_inline_added_cases(form, *, interactive)` — the one form parser still needed: the rows an
+  author typed and has not saved. Strategy-aware from the **stored** `ProblemValidatorType`, never
+  from validator presence, so an interactive problem's rows carry input only and are never samples
+- `SubmittedCaseRow` / `submitted_case_rows(form)` — retain the raw text, sparse row index, sample
+  choice and row-level error after a rejected POST; `first_oversized_submitted_case(...)` points the
+  response at the exact input/output field instead of redirecting to an empty page
+- `case_content_from_single_archive(...)` / `case_contents_from_bulk_archive(...)` — shared
+  adapters from the canonical ZIP parsers to `CaseContent`, used by both Web and Arena so strategy
+  handling, explanations, and sample defaults cannot drift
+
+Where the retired parser's refusals live now: an archive is parsed by the route that receives it,
+an action naming a row that no longer exists is refused under the row lock by
+`judgment_case_action.py`, and a validator on a standard problem is refused by the validator
+routes.
+
+## `interaction_pending_ops.py`
+
+- `shared/services/interaction_pending_ops.py`
+
+The shared parser and rejected-form model for sample-interaction rows typed on the Web and Arena
+judgment pages. `SubmittedInteractionRow` retains each raw transcript, explanation, and browser row
+index. `parse_pending_interactions(form)` returns `PendingInteraction` values and raises
+`SubmittedInteractionError` with that same index when a transcript is malformed, so both adapters
+can return HTTP 422, keep every submitted row, and focus the exact invalid transcript before any
+interaction is written.
+
+- `problem_save_errors.py` — `PendingOpsError`, `require_supported_strategy(...)` and
+  `unsupported_strategy_message(...)`: the refusal vocabulary both families share, including the
+  one the retained satellite endpoints use because they reduce the strategy to a boolean
+
+## `testcase_save_plan.py`
+
+- `shared/services/testcase_save_plan.py`
+
+From those operations to a complete staged directory, in two halves so the interesting one needs
+no filesystem.
+
+- `build_desired_cases(current, ops, *, interactive)` — pure: the final ordered list, each entry
+  carried from the current directory, replaced by an upload, or new. Ordinals are renumbered
+  contiguously, so removing case 2 of 3 leaves 1 and 2
+- `materialize(desired, staged_dir, *, interactive)` — applies that decision inside the seeded
+  staging directory, parking every carried file under a temporary name first so a reorder cannot
+  overwrite a file it still needs. Returns the on-disk sizes the rows must record. A carried case
+  with no input, or a carried Standard case with no expected output, raises `MissingCarriedCase`
+  instead of converting storage corruption into committed empty or incomplete judge data
+
+## `problem_editor_save.py`
+
+- `shared/services/problem_editor_save.py`
+
+The ordering every editor Save follows, written once because getting it wrong is the failure the
+whole change exists to prevent.
+
+- `lock_problem_row(session, domain, problem_id)` — `SELECT ... FOR UPDATE` **before** the Save
+  reads a single test case. Two Saves that both snapshot the live directory would each stage a
+  complete replacement, and the loser would silently reinstate what the winner replaced. A create
+  has no row to lock: it inserts and flushes first
+- `open_save_swap(session, *, domain, problem_id, testcase_dir)` — advances the generation fence
+  and opens the swap
+- `stage_test_cases(swap, desired, *, interactive)` — builds the complete directory in staging,
+  with no exception for a single small case
+- `abandon_swap(session, swap)` — the window `commit_with_edit_swap` does not cover: a failure
+  between staging and promotion rolls back and drops the staging paths, with no quarantine to
+  restore because nothing was promoted. The cleanup is cancellation-shielded so both operations
+  complete even when request cancellation caused the failure
+
 ## `testcase_files.py`
 
 Purpose:
@@ -1907,7 +2389,9 @@ Key functions / constants:
 - `get_problem_testcase_dir(problem_id, testcase_dir)` — validate a problem id
   and resolve its guarded storage directory
 - `get_testcase_path(problem_id, ordinal, ext, testcase_dir)` — resolve `<testcase_dir>/<problem_id>/NNN.in|out`
-- `save_testcase_files(problem_id, ordinal, in_bytes, out_bytes, testcase_dir) -> (in_size, out_size | None)` — normalize to LF and write a case, returning on-disk byte sizes
+- `save_testcase_files(problem_id, ordinal, in_bytes, out_bytes, testcase_dir) -> (in_size, out_size | None)` — normalize to LF and write a case **directly in the live directory**, returning on-disk byte sizes. Not atomic and not undoable: this is the satellite routes' historical behavior, and the editor's Save path must not use it
+- `write_testcase_files_into(base, ordinal, in_bytes, out_bytes)`, `delete_testcase_files_in(base, ordinal)`, `reorder_testcase_files_in(base, ordinal_map)` — the same operations against an already-resolved directory, which is how a Save writes into its staging copy
+- `copy_testcase_files_into(problem_id, testcase_dir, destination) -> int` — seed a staging directory with the problem's current files, using hardlinks where supported and durable streamed copies as the fallback, so a Save materializes the complete desired directory without mutating live inodes
 - `read_testcase_preview`, `read_testcase_full`, `read_testcase_sizes`
 - `delete_testcase_files`, `delete_all_testcase_files`, `renumber_testcase_files`, `reorder_testcase_files`
 
@@ -1943,8 +2427,8 @@ Notes:
   no Jinja global
 - both modules add `shared/template` to their Jinja `ChoiceLoader` search path; the shared
   edit-form body (`shared/template/_partials/testcase_edit_form.html`) and the shared TC
-  scripts (`tc-reorder-sortable.js`, `tc-pending-remove.js`, `tc-add-row.js`,
-  `tc-replace-row.js`) complete the unified test-case editing UI
+  scripts (`tc-reorder-sortable.js`, `tc-add-row.js`, `judgment-actions.js`) complete the
+  unified test-case editing UI
 
 ---
 

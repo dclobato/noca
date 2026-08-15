@@ -1,0 +1,85 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  One inline "add test case" row, pre-filled from a rejected submission.
+
+  It is the server-rendered twin of the row `shared/static/js/tc-add-row.js`
+  builds in the browser: same field names, same shape, same strategy rules. It
+  exists because a failed Save used to discard every row the author had typed --
+  no render path echoed `tc_in_N` back -- so a malformed transcript or a blank
+  title quietly took the test cases with it.
+
+  Required context:
+    row          shared.services.testcase_pending_ops.SubmittedCaseRow
+    interactive  bool, the problem's stored strategy
+#}
+{% set form_id = form_id | default("tc-add-form") %}
+{% set row_error_id = "tc_error_" ~ row.index %}
+<div class="noca-inline-entry mb-3 position-relative">
+    <button type="button"
+            class="btn-close position-absolute top-0 end-0 m-2"
+            aria-label="Remove"
+            data-tc-add-remove></button>
+    <div class="row g-2">
+        <div class="{{ 'col-12' if interactive else 'col-12 col-md-6' }}">
+            <label class="form-label" for="tc_in_{{ row.index }}">Input</label>
+            <textarea name="tc_in_{{ row.index }}"
+                      id="tc_in_{{ row.index }}"
+                      rows="6"
+                      form="{{ form_id }}"
+                      maxlength="10240"
+                      {% if row.error %}aria-describedby="{{ row_error_id }}"{% endif %}
+                      {% if row.error_field == "input" %}autofocus{% endif %}
+                      class="form-control form-control-sm font-monospace{% if row.error_field == 'input' %} is-invalid{% endif %}">{{ row.input_text }}</textarea>
+        </div>
+        {% if not interactive %}
+            <div class="col-12 col-md-6">
+                <label class="form-label" for="tc_out_{{ row.index }}">Expected output</label>
+                <textarea name="tc_out_{{ row.index }}"
+                          id="tc_out_{{ row.index }}"
+                          rows="6"
+                          form="{{ form_id }}"
+                          maxlength="10240"
+                          {% if row.error %}aria-describedby="{{ row_error_id }}"{% endif %}
+                          {% if row.error_field == "output" %}autofocus{% endif %}
+                          class="form-control form-control-sm font-monospace{% if row.error_field == 'output' %} is-invalid{% endif %}">{{ row.output_text }}</textarea>
+            </div>
+        {% endif %}
+        <div class="col-12">
+            <label class="form-label" for="tc_explanation_{{ row.index }}">Explanation (optional)</label>
+            <textarea name="tc_explanation_{{ row.index }}"
+                      id="tc_explanation_{{ row.index }}"
+                      rows="2"
+                      form="{{ form_id }}"
+                      class="form-control form-control-sm">{{ row.explanation }}</textarea>
+            <div class="form-text">
+                {% if interactive %}
+                    Notes for judges; interactive cases are never shown to contestants.
+                {% else %}
+                    Shown to contestants below the sample.
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% if row.error %}
+        <div class="invalid-feedback d-block mt-2"
+             id="{{ row_error_id }}"
+             role="alert">{{ row.error }}</div>
+    {% endif %}
+    {% if not interactive %}
+        <div class="form-check mt-2">
+            <input type="checkbox"
+                   name="tc_is_sample_{{ row.index }}"
+                   id="tc_sample_{{ row.index }}"
+                   value="true"
+                   form="{{ form_id }}"
+                   class="form-check-input"
+                   {% if row.is_sample %}checked{% endif %}>
+            <label class="form-check-label" for="tc_sample_{{ row.index }}">Sample — show input/output to contestants</label>
+        </div>
+    {% endif %}
+</div>

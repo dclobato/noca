@@ -25,7 +25,7 @@ from arena.models.arena_submissions import (
 )
 from autojudge.db import open_db
 from autojudge.types import JudgmentOwnershipLost
-from shared.enumerations import JudgmentStatus, Verdict
+from shared.enumerations import JudgmentStatus, ProblemValidatorType, Verdict
 
 
 async def _seed_judgment(
@@ -40,6 +40,7 @@ async def _seed_judgment(
         title="Arena result replay",
         owner_id=user.id,
         problem_statement="<p>Echo.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

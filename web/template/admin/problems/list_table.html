@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% from "_macros.html" import render_icon %}
 <div id="problem-list-panel">
     {% if problem_rows %}
@@ -29,8 +36,11 @@
                                         <span class="btn btn-sm btn-outline-secondary p-1 noca-icon-btn noca-drag-handle {% if not is_edit_allowed %}disabled{% endif %}"
                                               role="button"
                                               tabindex="{% if is_edit_allowed %} 0 {% else %} -1 {% endif %}"
-                                              aria-label="Drag to reorder problem"
-                                              title="{% if is_edit_allowed %} Drag to reorder {% else %} Contest is not editable {% endif %}">{{ render_icon(icon="drag_indicator") }}</span>
+                                              aria-disabled="{{ 'false' if is_edit_allowed else 'true' }}"
+                                              aria-keyshortcuts="ArrowUp ArrowDown"
+                                              data-reorder-label="Problem {{ label }}"
+                                              aria-label="Reorder problem {{ label }}. Drag, or use the Up and Down arrow keys."
+                                              title="{% if is_edit_allowed %}Drag, or use Up and Down arrow keys, to reorder{% else %}Contest is not editable{% endif %}">{{ render_icon(icon="drag_indicator") }}</span>
                                     </td>
                                     <td class="text-center">
                                         <strong>{{ label }}</strong>
@@ -56,6 +66,9 @@
                                             <a href="{{ request.url_for('edit_problem_form', slug=contest.login_slug, problem_id=p.id) }}"
                                                class="btn btn-outline-secondary noca-icon-btn"
                                                title="Edit">{{ render_icon(icon="edit") }}</a>
+                                            <a href="{{ request.url_for('problem_judgment_home', slug=contest.login_slug, problem_id=p.id) }}"
+                                               class="btn btn-outline-secondary noca-icon-btn"
+                                               title="Judgment data (test cases, validator, sample interactions)">{{ render_icon(icon="rule") }}</a>
                                             <a href="{{ request.url_for('export_problem', slug=contest.login_slug, problem_id=p.id) }}"
                                                class="btn btn-outline-secondary noca-icon-btn"
                                                title="Export ZIP">{{ render_icon(icon="download") }}</a>
@@ -89,7 +102,7 @@
     {% else %}
         <div class="text-muted text-center py-5">
             {{ render_icon(icon="inbox", classes=["display-6", "d-block", "mb-2"]) }}
-            No problems yet. <a href="{{ request.url_for('new_problem_form', slug=contest.login_slug) }}">Add the first one</a>.
+            No problems yet. <a href="{{ request.url_for('new_problem_choose', slug=contest.login_slug) }}">Add the first one</a>.
         </div>
     {% endif %}
 </div>

@@ -30,17 +30,27 @@ sys.path.insert(0, str(Path(__file__).parents[2]))
 import arena.models  # noqa: E402, F401
 import web.models  # noqa: E402, F401
 from arena.database import create_engine, create_session_factory  # noqa: E402
-from arena.models.arena_problems import ArenaProblem, ArenaRatingProblem, ArenaTestCase  # noqa: E402
-from arena.models.arena_submissions import ArenaSubmissionJudgment, ArenaSubmissionTestResult  # noqa: E402
+from arena.models.arena_problems import (
+    ArenaProblem,
+    ArenaRatingProblem,
+    ArenaTestCase,  # noqa: E402,
+)
+from arena.models.arena_submissions import (
+    ArenaSubmissionJudgment,
+    ArenaSubmissionTestResult,  # noqa: E402,
+)
 from arena.models.arena_users import ArenaUser  # noqa: E402
 from arena.services.submission_service import create_arena_submission  # noqa: E402
-from arena.services.valkey_service import create_arena_valkey_runtime, enqueue_arena_submission_job  # noqa: E402
+from arena.services.valkey_service import (
+    create_arena_valkey_runtime,
+    enqueue_arena_submission_job,  # noqa: E402,
+)
 from autojudge.config import settings as judge_settings  # noqa: E402
 from autojudge.db import open_db  # noqa: E402
 from autojudge.pool import PoolManager  # noqa: E402
 from autojudge.queue_ops import get_job_kind  # noqa: E402
 from autojudge.worker import _dispatch_job  # noqa: E402
-from shared.enumerations import ArenaRole, JudgmentStatus  # noqa: E402
+from shared.enumerations import ArenaRole, JudgmentStatus, ProblemValidatorType  # noqa: E402
 from shared.language_registry import registry_from_rows  # noqa: E402
 from web.models.language import Language  # noqa: E402
 
@@ -78,6 +88,7 @@ async def _ensure_seed_data(session, language_id: str) -> tuple[ArenaUser, Arena
     if problem is None:
         problem = ArenaProblem(
             title="Arena Smoke Echo",
+            validator_type=ProblemValidatorType.STANDARD,
             owner_id=user.id,
             problem_statement="<p>Echo one line.</p>",
             time_limit_ms=2000,

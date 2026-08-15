@@ -193,10 +193,17 @@ def build_testcase_row_views(
                 download_url=str(
                     request.url_for("download_test_case", slug=slug, problem_id=tc.problem_id, tc_id=tc.id)
                 ),
-                replace_url=str(request.url_for("replace_test_case", slug=slug, problem_id=tc.problem_id, tc_id=tc.id)),
+                replace_url=str(
+                    request.url_for("problem_judgment_case_replace", slug=slug, problem_id=tc.problem_id, tc_id=tc.id)
+                ),
+                delete_url=str(
+                    request.url_for("problem_judgment_case_delete", slug=slug, problem_id=tc.problem_id, tc_id=tc.id)
+                ),
                 move_url=str(request.url_for("move_test_case_route", slug=slug, problem_id=tc.problem_id, tc_id=tc.id)),
                 toggle_sample_url=str(
-                    request.url_for("toggle_test_case_sample", slug=slug, problem_id=tc.problem_id, tc_id=tc.id)
+                    request.url_for(
+                        "problem_judgment_case_toggle_sample", slug=slug, problem_id=tc.problem_id, tc_id=tc.id
+                    )
                 ),
             )
         )

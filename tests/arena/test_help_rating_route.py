@@ -32,7 +32,7 @@ from arena.routes.help import router as arena_help_router
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
 from shared.db_schema import languages
-from shared.enumerations import VERDICT_BADGE_CLASSES
+from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_PRIORITY
 from shared.language_registry import default_language_seed_rows
 from shared.services.arena_difficulty_histogram import BIN_COUNT, persist_difficulty_histogram
 
@@ -121,13 +121,28 @@ def _build_help_app(session: AsyncSession) -> FastAPI:
     return app
 
 
-def test_help_tabs_have_horizontal_css_contract() -> None:
-    """Help tabs remain horizontal independently of profile navigation styles."""
+def test_help_section_index_css_contract() -> None:
+    """The section index is a scrollable strip on narrow screens, a column on wide ones."""
     css = HELP_CSS.read_text(encoding="utf-8")
-    rule = re.search(r"\.arena-help-tabs\s*\{(?P<body>[^}]*)\}", css)
+    rule = re.search(r"\.arena-help-index-list\s*\{(?P<body>[^}]*)\}", css)
 
     assert rule is not None
     assert "flex-direction: row" in rule.group("body")
+    assert "overflow-x: auto" in rule.group("body")
+    # The wide-viewport override turns the same strip into a vertical column.
+    assert re.search(r"@media \(min-width: 62rem\)\s*\{\s*\.arena-help-index-list\s*\{[^}]*column", css)
+
+
+def test_help_tab_pattern_is_retired() -> None:
+    """Tabs are gone from the help surface, styles included.
+
+    They hid two thirds of a documentation page from in-page search, print and
+    deep links; a leftover rule would invite them back.
+    """
+    css = HELP_CSS.read_text(encoding="utf-8")
+
+    assert "arena-help-tabs" not in css
+    assert not (Path(__file__).resolve().parents[2] / "arena" / "static" / "js" / "help-languages-tabs.js").exists()
 
 
 @pytest.mark.asyncio
@@ -144,8 +159,13 @@ async def test_help_rating_renders_for_guest(session: AsyncSession) -> None:
     assert "N_p" in body
     # The blend scale constant is surfaced from the rating service into the page.
     assert "pivot" in body.lower()
-    assert 'class="nav nav-tabs arena-help-tabs px-3 pt-3"' in body
-    assert "arena-profile-tabs" not in body
+    # Every section is present in one document and reachable from the index.
+    assert 'id="difficulty"' in body
+    assert 'id="confidence"' in body
+    assert 'href="#affiliation"' in body
+    # The derivations disclose; the plain answer above them never does.
+    assert "arena-help-detail-summary" in body
+    assert "nav-tabs" not in body
 
 
 @pytest.mark.asyncio
@@ -161,15 +181,51 @@ async def test_help_languages_renders_stdout_flush_hints(session: AsyncSession) 
 
     assert response.status_code == 200
     body = response.text
-    assert "Stdout flush" in body
     assert '<pre class="arena-help-cmd">print(..., flush=True)</pre>' in body
     assert '<pre class="arena-help-cmd">sys.stdout.flush()</pre>' in body
     assert "`print(..., flush=True)`" not in body
-    assert "see the stdout flush detail in the" in body
-    assert "Available languages tab" in body
-    assert "/static/js/help-languages-tabs.js?v=test" in body
-    assert 'class="nav nav-tabs arena-help-tabs px-3 pt-3"' in body
-    assert "arena-profile-tabs" not in body
+    # The interactive warning points at the roster on the same page, not at a tab.
+    assert 'href="#languages"' in body
+    assert 'id="interactive"' in body
+    assert "nav-tabs" not in body
+    assert "/static/js/help-languages-tabs.js" not in body
+
+
+@pytest.mark.asyncio
+async def test_help_languages_anchors_every_verdict(session: AsyncSession) -> None:
+    """Each verdict has its own address so a submission page can link to exactly one."""
+    app = _build_help_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/help/languages", headers={"Accept": "text/html"})
+
+    assert response.status_code == 200
+    body = response.text
+    for verdict_value in VERDICT_BADGE_CLASSES:
+        assert f'id="verdict-{verdict_value}"' in body
+    # The mark carries a semantic tone derived from the shared badge map.
+    assert 'data-verdict-tone="ok"' in body
+    assert 'data-verdict-tone="bad"' in body
+    assert 'data-verdict-tone="limit"' in body
+
+
+@pytest.mark.asyncio
+async def test_help_languages_lists_verdicts_by_judge_severity(session: AsyncSession) -> None:
+    """The key is ordered by the judge's own aggregation precedence, not by hand.
+
+    The page states that the most severe outcome is the one reported, so the list
+    has to read in that order for the claim to be demonstrable -- with Accepted
+    last, because it only survives when nothing else happened.
+    """
+    app = _build_help_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/help/languages", headers={"Accept": "text/html"})
+
+    assert response.status_code == 200
+    body = response.text
+    positions = [body.index(f'id="verdict-{verdict.value}"') for verdict in VERDICT_PRIORITY]
+
+    assert positions == sorted(positions)
+    assert VERDICT_PRIORITY[-1].value == "AC"
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,43 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Custom-validator compile-status badge, shared by both judgment pages and by
+  the HTMX poll that replaces its inner content. The outer live region remains
+  mounted so state changes are announced reliably.
+
+  This describes the *current revision's compile state* only. It is not an answer
+  to "is this problem interactive" -- that is the stored strategy, and a problem
+  whose validator source was removed is still interactive while this badge reads
+  "Not configured".
+
+  Required context:
+    validator_status     the custom-validator status view
+    status_poll_url      URL the pending state polls, pre-built by the caller so
+                         this partial resolves no module-specific url_for name
+#}
+<div id="validator-status-region"
+     role="status"
+     aria-live="polite"
+     aria-atomic="true">
+    <div id="validator-status-content"
+         {% if validator_status.polling %} hx-get="{{ status_poll_url }}" hx-trigger="load delay:2s" hx-target="#validator-status-content" hx-select="#validator-status-content" hx-swap="outerHTML" {% endif %}>
+        {% if validator_status.polling %}
+            <span class="badge text-bg-warning">Validation pending</span>
+        {% elif validator_status.candidate_state and validator_status.candidate_state.value == 'INVALID' %}
+            <span class="badge text-bg-danger">Compilation failed</span>
+            {% if validator_status.candidate_compile_log %}
+                <pre class="small mt-2 mb-0"><code>{{ validator_status.candidate_compile_log }}</code></pre>
+            {% endif %}
+        {% elif validator_status.usable and validator_status.configured %}
+            <span class="badge text-bg-success">Active and validated</span>
+        {% elif validator_status.active_state and validator_status.active_state.value == 'RUNTIME_FAILED' %}
+            <span class="badge text-bg-danger">Disabled after runtime failure</span>
+        {% else %}
+            <span class="badge text-bg-secondary">Not configured</span>
+        {% endif %}
+    </div>
+</div>

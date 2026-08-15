@@ -25,9 +25,9 @@
 {% set table_class = package_table_class | default("table table-sm small mb-0") %}
 {% set pre_class = package_pre_class | default("small mb-3") %}
 {# Field rows: (name, type, required, domains). `domains` is "all", "arena" or "contest".
-   Every version-1 key is parsed and exported by both domains; "arena"/"contest" marks
+   Every version-2 key is parsed and exported by both domains; "arena"/"contest" marks
    which side actually *stores* it. Adding a package field means adding one row here. #}
-{% set package_fields = [("format_version", "integer (1)", false, "all"), ("title", "string (maximum 256 characters)", true, "all"), ("author", "string (maximum 256 characters) or null", false, "all"), ("notes", "string (maximum 512 characters) or null", false, "all"), ("time_limit_ms", "integer ≥ 1 (default 1000)", false, "all"), ("memory_limit_kb", "integer ≥ 1 (default 262144)", false, "all"), ("pids_limit", "integer ≥ 1 (default 64)", false, "all"), ("output_limit_in_bytes", "integer ≥ 1 (default 65536, never null)", false, "all"), ("categories", "array of strings", false, "all"), ("sample_testcases", "array of ascending ordinals", false, "all"), ("image", "filename string or null", false, "all"), ("image_caption", "string (maximum 512 characters) or null", false, "all"), ("custom_validator", "object — see below", false, "all"), ("sha256", "object — see below", false, "all"), ("source", "string (maximum 256 characters) or null", false, "arena"), ("hide_author_show_source", "boolean", false, "arena"), ("license", "string (maximum 256 characters) or null", false, "arena"), ("statement_language", "\"pt\", \"en\" or \"es\"", false, "arena"), ("color", "hex string e.g. #ff0000", false, "contest"), ("language_limits", "object — see below", false, "contest")] %}
+{% set package_fields = [("format_version", "integer (1 or 2; exports write 2)", false, "all"), ("validator_type", "\"standard\" or \"interactive\" (required in version 2)", false, "all"), ("title", "string (maximum 256 characters)", true, "all"), ("author", "string (maximum 256 characters) or null", false, "all"), ("notes", "string (maximum 512 characters) or null", false, "all"), ("time_limit_ms", "integer ≥ 1 (default 1000)", false, "all"), ("memory_limit_kb", "integer ≥ 1 (default 262144)", false, "all"), ("pids_limit", "integer ≥ 1 (default 64)", false, "all"), ("output_limit_in_bytes", "integer ≥ 1 (default 65536, never null)", false, "all"), ("categories", "array of strings", false, "all"), ("sample_testcases", "array of ascending ordinals", false, "all"), ("image", "filename string or null", false, "all"), ("image_caption", "string (maximum 512 characters) or null", false, "all"), ("custom_validator", "object — see below", false, "all"), ("sha256", "object — see below", false, "all"), ("source", "string (maximum 256 characters) or null", false, "arena"), ("hide_author_show_source", "boolean", false, "arena"), ("license", "string (maximum 256 characters) or null", false, "arena"), ("statement_language", "\"pt\", \"en\" or \"es\"", false, "arena"), ("color", "hex string e.g. #ff0000", false, "contest"), ("language_limits", "object — see below", false, "contest")] %}
 {% if package_sample_url %}
 <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
 <a href="{{ package_sample_url }}" class="btn btn-outline-primary btn-sm">Download sample package</a>
@@ -168,6 +168,30 @@ empty for an interactive problem.
   }
 }</pre>
 {% endif %}
+<h3 class="h6 text-uppercase text-muted mb-2">Format version and validation strategy</h3>
+<p class="text-muted small mb-2">
+    Exports write <code>format_version: 2</code>, which states the problem's validation strategy
+    explicitly in <code>validator_type</code> instead of leaving it to be guessed from whether a
+    validator happens to be declared.
+</p>
+<ul class="small mb-3">
+    <li>
+        <strong>Version 1 packages still import.</strong> A missing <code>format_version</code> also
+        means version 1. Such a package carries no strategy, so it is read the only way it can be:
+        one declaring a <code>custom_validator</code> is interactive, and any other is standard. A
+        <code>validator_type</code> key in a version-1 package is ignored.
+    </li>
+    <li>
+        <strong>Version 2 must be self-consistent.</strong> <code>"standard"</code> requires
+        <code>"custom_validator": null</code> and no <code>validator/</code> members;
+        <code>"interactive"</code> requires a <code>custom_validator</code>. A package that
+        contradicts itself is refused before anything is stored.
+    </li>
+    <li>
+        <strong><code>"checker"</code> is reserved and rejected.</strong> Output checker validation is
+        not available in this build, so such a package is refused rather than imported as a draft.
+    </li>
+</ul>
 <h3 class="h6 text-uppercase text-muted mb-2">Interactive problems (custom validator)</h3>
 <p class="text-muted small mb-2">
     A package may ship a custom interactive validator: put its UTF-8 source in

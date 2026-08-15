@@ -1,0 +1,128 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Header and navigation for the judgment-data editor, shared by both modules.
+
+  The nav is made of real links, not tab toggles: judgment data lives on separate
+  pages because a problem can hold many large test cases, and loading them all
+  into one document to hide most of it helps nobody. Each page owns its own forms
+  and its own state, so leaving one cannot silently discard another's.
+
+  Required context:
+    shell  shared.services.judgment_page_view.JudgmentShellView
+#}
+{% from "_macros.html" import render_icon with context %}
+<div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+        <h1 class="h4 mb-0">Judgment data</h1>
+        <span class="text-muted">{{ shell.problem_label }}</span>
+    </div>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+        <a href="{{ shell.definition_url }}"
+           class="btn btn-outline-secondary btn-sm">
+            {{ render_icon(icon="edit", classes="me-1") }}Problem definition
+        </a>
+        <span class="badge text-bg-secondary"
+              title="A problem's validation strategy is chosen once and cannot be changed.">
+            {{ render_icon(icon="lock", classes="me-1") }}{{ shell.strategy_label }}
+        </span>
+    </div>
+</div>
+{% if not shell.is_edit_allowed %}
+    <div class="alert alert-warning d-flex align-items-start gap-2"
+         role="alert">
+        {{ render_icon(icon="lock", classes="flex-shrink-0 mt-1") }}
+        <div>{{ shell.read_only_reason or "Judgment data is read-only for this problem right now." }}</div>
+    </div>
+{% endif %}
+{% set readiness = shell.readiness %}
+{% set readiness_icon = "check_circle" if readiness.state == "ready" else ("hourglass_top" if readiness.state == "pending" else "warning") %}
+<section class="noca-judgment-readiness noca-judgment-readiness--{{ readiness.state }} mb-3"
+         aria-labelledby="judgment-readiness-title">
+    <div class="noca-judgment-readiness-main">
+        <span class="noca-judgment-readiness-icon" aria-hidden="true">{{ render_icon(icon=readiness_icon) }}</span>
+        <div>
+            <h2 class="h6 mb-1" id="judgment-readiness-title">{{ readiness.label }}</h2>
+            <p class="small text-body-secondary mb-0">{{ readiness.detail }}</p>
+        </div>
+    </div>
+    {% if readiness.has_submissions %}
+        <div class="noca-judgment-readiness-followup">
+            {% if readiness.state == "ready" %}
+                <span class="small">You must rejudge all submissions after changing judgment data.</span>
+            {% else %}
+                <span class="small">Complete the judgment data, then rejudge all submissions.</span>
+            {% endif %}
+            {% if shell.is_edit_allowed and readiness.rejudge_url and readiness.state == "ready" %}
+                <button type="button"
+                        class="btn btn-warning btn-sm text-nowrap"
+                        data-bs-toggle="modal"
+                        data-bs-target="#judgment-rejudge-modal">
+                    {{ render_icon(icon="replay", classes="me-1") }}Rejudge all
+                </button>
+            {% endif %}
+        </div>
+    {% endif %}
+</section>
+<ul class="nav nav-tabs mb-3 noca-tab-scroll">
+    {% for page in shell.pages %}
+        <li class="nav-item">
+            <a class="nav-link {% if page.key == shell.active_page %}active{% endif %}"
+               href="{{ page.url }}"
+               {% if page.key == shell.active_page %}aria-current="page"{% endif %}>
+                {{ page.label }}
+                {% if page.badge %}<span class="badge bg-warning text-dark ms-1">{{ page.badge }}</span>{% endif %}
+            </a>
+        </li>
+    {% endfor %}
+</ul>
+{% if shell.is_edit_allowed and readiness.has_submissions and readiness.rejudge_url and readiness.state == "ready" %}
+    <div class="modal fade"
+         id="judgment-rejudge-modal"
+         tabindex="-1"
+         aria-labelledby="judgment-rejudge-modal-title"
+         aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" action="{{ readiness.rejudge_url }}">
+                    <input type="hidden"
+                           name="next_url"
+                           value="{{ readiness.rejudge_return_path }}">
+                    <div class="modal-header">
+                        <h2 class="modal-title fs-5" id="judgment-rejudge-modal-title">Rejudge all submissions</h2>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>
+                            Re-enqueue every submission for <strong>{{ shell.problem_label }}</strong>?
+                        </p>
+                        <p class="text-muted small">
+                            Use this after changing test cases or validator behavior so existing
+                            verdicts are recalculated from the current judgment data.
+                        </p>
+                        <label class="form-label" for="judgment_rejudge_password">Current password</label>
+                        <input type="password"
+                               class="form-control"
+                               id="judgment_rejudge_password"
+                               name="password"
+                               autocomplete="current-password"
+                               required>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-outline-secondary"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-warning">{{ render_icon(icon="replay", classes="me-1") }}Rejudge all</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+{% endif %}

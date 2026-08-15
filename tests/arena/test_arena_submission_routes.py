@@ -60,7 +60,7 @@ from shared.db_schema.arena import (
     arena_submission_judgments,
     arena_submissions,
 )
-from shared.enumerations import ArenaRole, Verdict
+from shared.enumerations import ArenaRole, ProblemValidatorType, Verdict
 from shared.queue_schema import AIBatchTurnaroundStats
 from shared.timing import format_compact_duration
 from web.models.language import Language
@@ -326,6 +326,7 @@ async def _make_problem_with_tc(session: AsyncSession, author: ArenaUser) -> Are
         owner_id=author.id,
         problem_statement="<p>Solve this.</p>",
         enabled=True,
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()
@@ -752,6 +753,39 @@ async def test_submission_detail_shows_help_button(session: AsyncSession) -> Non
     assert 'data-bs-target="#ai-review-confirm-modal"' in resp.text
     assert "Confirm AI review" in resp.text
     assert "confetti-celebrate.js" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_submission_source_download_is_owner_only(session: AsyncSession) -> None:
+    """The owner receives the exact source as a language-named attachment."""
+    app = _build_app(session)
+
+    author = await _make_arena_user(session, email_prefix="author-source-download")
+    problem = await _make_problem_with_tc(session, author)
+    lang = await _make_language(session)
+    owner = await _make_arena_user(session, email_prefix="owner-source-download")
+    unrelated = await _make_arena_user(session, email_prefix="other-source-download")
+    submission_id, _ = await _make_submission_with_judgment(session, owner, problem, lang)
+    source_code = "print('hello')\n"
+    await session.execute(
+        arena_submissions.update().where(arena_submissions.c.id == submission_id).values(source_code=source_code)
+    )
+    await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login_user(client, app, owner)
+        owner_response = await client.get(f"/submissions/{submission_id}/source")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        _login_user(client, app, unrelated)
+        unrelated_response = await client.get(f"/submissions/{submission_id}/source")
+
+    assert owner_response.status_code == 200
+    assert owner_response.content == source_code.encode()
+    assert owner_response.headers["content-disposition"] == (
+        f'attachment; filename="submission-{submission_id[:8]}.txt"'
+    )
+    assert unrelated_response.status_code == 404
 
 
 @pytest.mark.asyncio

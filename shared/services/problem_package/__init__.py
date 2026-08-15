@@ -29,7 +29,9 @@ from shared.services.problem_package.constants import (
 from shared.services.problem_package.errors import PackageError, PackageWarning
 from shared.services.problem_package.journal import (
     ImportJournal,
+    JournalKind,
     PromotionState,
+    build_edit_journal,
     build_journal,
     clear_journal,
     reconcile_journals,
@@ -45,6 +47,12 @@ from shared.services.problem_package.model import (
     StagedPackage,
     ValidatorSpec,
 )
+
+# ``promotion`` and ``edit_swap`` are deliberately NOT re-exported here: both
+# import ``shared.services.testcase_files``, which imports ``shared.tc_zip``,
+# which imports this package — re-exporting them closes that cycle at interpreter
+# start. Import them from their own modules, as their existing callers do.
+from shared.services.problem_package.quarantine import QuarantiningPromotion
 from shared.services.problem_package.reader import open_problem_package, read_problem_package
 from shared.services.problem_package.staging import (
     ArtifactPromotion,
@@ -70,6 +78,7 @@ __all__ = [
     "MAX_UPLOAD_BYTES",
     "ArtifactPromotion",
     "ImportJournal",
+    "JournalKind",
     "PackageError",
     "PackageImage",
     "PackageLanguageLimit",
@@ -82,8 +91,10 @@ __all__ = [
     "PackageWarning",
     "ProblemPackage",
     "PromotionState",
+    "QuarantiningPromotion",
     "StagedPackage",
     "ValidatorSpec",
+    "build_edit_journal",
     "build_journal",
     "build_package",
     "clear_journal",

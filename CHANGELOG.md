@@ -4,6 +4,64 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [17.1.0] - 2026-08-15
+
+### Features
+
+- **problems:** [phase 2] store the validation strategy explicitly
+- **packages:** [phase 3] adopt problem-package format version 2
+- **backup:** [phase 3] adopt contest backup format version 2
+- **problem-package:** [phase 4] add an edit-aware artifact swap with a generation fence
+- **problems:** [phase 5] choose the validation strategy before creating
+- **problems:** [phase 5] make the problem editor tabbed and strategy-aware
+- **problems:** [phase 6] fold every editor mutation into one Save
+- **problems:** Give every test-case row its own delete endpoint
+- **problems:** Give Contest judgment data its own pages
+- **problems:** Give Arena judgment data its own pages
+- **problems:** Narrow both editors to the problem definition
+- **problems:** Collect only the definition when creating a problem
+- **shared:** Strengthen validator choice cards
+- **arena:** Autocomplete problem licenses
+- **arena:** Add enabled/disabled filter to admin problem list
+- **arena:** Give the dashboard a real heading and leaderboard identity
+- **arena:** Polish the public problem list and statistics pages
+- **arena:** Show solved problem count on user ranking
+- **arena:** Allow downloading a submission's source code
+- **security-events:** Add a full-log CSV export to both viewers
+- **arena:** Rebuild the help surface as a verdict board
+
+### Bug Fixes
+
+- **judging:** [phase 2] decide every behavior from the stored strategy
+- **migrations:** [phase 2] restack the validator_type migration onto master
+- **problem-package:** [phase 4] close two data-loss windows in the edit-aware swap
+- **problems:** [phase 5] repair editor interactions the tab rewrite broke
+- **problems:** [phase 5] render the statement and align the explanation column
+- **problems:** Make every per-action test-case route durable
+- **problems:** Restore the Arena chrome on the judgment-data pages
+- **problems:** Close four durability holes in the editor's save path
+- **problems:** Finish the split — races, redirects, warnings, and the dead pipeline
+- **problem-editor:** Harden judgment actions and recovery
+- **problem-editor:** Harden authoring workflows
+- **arena:** Remove underline from dashboard card links on hover
+- **arena:** Match dashboard latest-problems row links to problem list
+- **arena:** Remove underline from remaining quiet shell links
+- **security-events:** Record the actor's login, not just an opaque id
+- **arena:** Preserve problem-list state across the definition/judgment editors
+
+### Refactoring
+
+- **problems:** Delete the client-side pending model
+
+### Documentation
+
+- **problem-editor:** [phase 1] add the tabbed problem editor plan
+- **shared-services:** [phase 5] describe the shared validator status badge
+- **problem-editor:** [phase 5] correct the claim that inline rows survive a failure
+- **problem-editor:** Describe the two editors and what a data root must support
+
+
+
 ## [17.0.1] - 2026-08-12
 
 ### Bug Fixes

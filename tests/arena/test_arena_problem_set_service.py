@@ -34,7 +34,13 @@ from arena.services import arena_student_problem_set_service as student_svc
 from arena.services.pagination_service import PaginationParams
 from shared.db_schema.arena import arena_problem_ratings
 from shared.db_schema.arena.arena_submissions import arena_submissions
-from shared.enumerations import VERDICT_PRIORITY, ArenaClassMembershipStatus, ArenaRole, Verdict
+from shared.enumerations import (
+    VERDICT_PRIORITY,
+    ArenaClassMembershipStatus,
+    ArenaRole,
+    ProblemValidatorType,
+    Verdict,
+)
 from web.models.language import Language
 
 NOW = datetime(2026, 6, 4, 12, 0, tzinfo=UTC)
@@ -88,6 +94,7 @@ async def _make_problem(
         title=title or f"Problem {uuid.uuid4().hex[:8]}",
         owner_id=author.id,
         problem_statement="<p>Echo.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

@@ -31,6 +31,7 @@ from __future__ import annotations
 import io
 import zipfile
 from dataclasses import dataclass
+from typing import Literal
 
 from shared.services.problem_package.testcase_archive import (
     ParsedTestCases,
@@ -45,6 +46,7 @@ __all__ = [
     "ParsedTestCases",
     "SingleTestCase",
     "build_single_testcase_zip",
+    "inline_oversized_side",
     "normalize_testcase_bytes",
     "normalize_testcase_text",
     "parse_single_testcase_zip",
@@ -56,6 +58,20 @@ __all__ = [
 #: edited offline via the single-case ZIP download/replace round-trip. This is
 #: the single source of truth for the inline-edit gate in both Arena and Web.
 MAX_INLINE_TESTCASE_BYTES = 10 * 1024
+
+
+def inline_oversized_side(input_bytes: bytes, output_bytes: bytes | None) -> Literal["input", "output"] | None:
+    """Return the first normalized side that exceeds the inline-edit limit.
+
+    Routes own their row labels and guidance, but normalization and the numerical
+    boundary are shared policy. Keeping the decision here prevents Web and Arena
+    from drifting on whether CRLF bytes count before or after normalization.
+    """
+    if len(normalize_testcase_bytes(input_bytes)) > MAX_INLINE_TESTCASE_BYTES:
+        return "input"
+    if output_bytes is not None and len(normalize_testcase_bytes(output_bytes)) > MAX_INLINE_TESTCASE_BYTES:
+        return "output"
+    return None
 
 
 @dataclass

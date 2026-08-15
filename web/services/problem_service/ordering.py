@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -152,29 +152,6 @@ async def move_problem(
 
     apply_dense_ordinals(problems)
     await bulk_update_ordinals(session, "problems", problems)
-
-
-async def move_test_case(
-    session: AsyncSession,
-    problem: Problem,
-    test_case: ProblemTestCase,
-    new_ordinal: int,
-) -> None:
-    """Move a test case to a new 1-based position inside its problem."""
-    if test_case.problem_id != problem.id:
-        raise ValueError("Test case does not belong to the provided problem.")
-
-    test_cases = await load_problem_test_cases(session, problem.id)
-    current_index = next((index for index, item in enumerate(test_cases) if item.id == test_case.id), None)
-    if current_index is None:
-        raise ValueError("Test case was not found in the provided problem.")
-
-    moving_test_case = test_cases.pop(current_index)
-    destination_index = clamp_ordinal(new_ordinal, size=len(test_cases) + 1) - 1
-    test_cases.insert(destination_index, moving_test_case)
-
-    apply_dense_ordinals(test_cases)
-    await bulk_update_ordinals(session, "test_cases", test_cases)
 
 
 async def remove_problem_and_resequence(

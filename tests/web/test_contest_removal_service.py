@@ -38,6 +38,7 @@ from shared.db_schema import (
 from shared.enumerations import (
     CustomValidatorCandidateState,
     JudgmentStatus,
+    ProblemValidatorType,
     ProfilingStatus,
     RoleEnum,
     TaskType,
@@ -126,6 +127,7 @@ async def _seed_complete_graph(session: AsyncSession, *, contest_id: str, uberad
             title="Removal problem",
             color="#ff0000",
             ordinal=1,
+            validator_type=ProblemValidatorType.STANDARD,
         )
     )
     await session.execute(insert(test_cases).values(id=TEST_CASE_ID, problem_id=PROBLEM_ID, ordinal=1, is_sample=False))

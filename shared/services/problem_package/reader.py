@@ -19,12 +19,14 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from shared.enumerations import ProblemValidatorType
 from shared.services.custom_validator import (
     PackagedValidator,
     ValidatorUploadError,
     packaged_validator_member,
     parse_packaged_validator,
 )
+from shared.services.problem_package.constants import LEGACY_FORMAT_VERSION
 from shared.services.problem_package.content import (
     decode_test_case,
     image_mime_for,
@@ -133,9 +135,13 @@ def _assemble(plan: ArchivePlan, extracted: dict[str, ExtractedMember]) -> Probl
     validator, validator_warnings = _read_validator(metadata, extracted)
     warnings.extend(validator_warnings)
 
-    interactions = _read_interactions(plan, extracted, has_validator=validator is not None, warnings=warnings)
+    # Every downstream decision reads the normalized strategy, never validator
+    # presence: version 2 states it and version 1 has it derived, so the reader
+    # has one answer to "what kind of problem is this" in both cases.
+    interactive = metadata.validator_type is ProblemValidatorType.INTERACTIVE
+    interactions = _read_interactions(plan, extracted, interactive=interactive, warnings=warnings)
     statement = _read_statement(plan, extracted)
-    test_cases, case_warnings = _read_test_cases(plan, extracted, metadata, interactive=validator is not None)
+    test_cases, case_warnings = _read_test_cases(plan, extracted, metadata, interactive=interactive)
     warnings.extend(case_warnings)
     image = _read_image(plan, extracted, metadata)
 
@@ -167,13 +173,23 @@ def _read_validator(
 ) -> tuple[PackagedValidator | None, list[PackageWarning]]:
     """Load the declared validator source, if any.
 
-    Validator members with no ``custom_validator`` metadata are a hard error:
-    shipping a validator that silently does not get configured is exactly the
-    kind of quiet data loss the format must refuse.
+    Validator members that no ``custom_validator`` declaration accounts for are a
+    hard error: shipping a validator that silently does not get configured is
+    exactly the kind of quiet data loss the format must refuse. The same applies
+    to a ``standard`` problem shipping them, which the metadata parser cannot
+    see -- only the reader holds the extracted archive index.
     """
     staged_validators = [name for name in extracted if name.startswith("validator/")]
     if metadata.custom_validator is None:
         if staged_validators:
+            # A version-2 package states its strategy, so name that as the reason;
+            # a version-1 one states nothing, and the missing declaration is all
+            # there is to report.
+            if metadata.format_version > LEGACY_FORMAT_VERSION:
+                raise PackageError(
+                    "The package ships validator/ members but problem.json declares "
+                    f"'validator_type': {metadata.validator_type.value!r}, which uses no validator."
+                )
             raise PackageError("The package ships validator/ members but problem.json declares no 'custom_validator'.")
         return None, []
 
@@ -210,21 +226,21 @@ def _read_interactions(
     plan: ArchivePlan,
     extracted: dict[str, ExtractedMember],
     *,
-    has_validator: bool,
+    interactive: bool,
     warnings: list[PackageWarning],
 ) -> list[PackagedInteraction]:
-    """Read ``interaction/`` members, which only mean anything with a validator."""
+    """Read ``interaction/`` members, which only mean anything for an interactive problem."""
     names = {
         member.name
         for member in plan.members
         if member.kind in (MemberKind.INTERACTION, MemberKind.INTERACTION_EXPLAIN)
     }
-    if not has_validator:
+    if not interactive:
         if names:
             warnings.append(
                 PackageWarning(
                     WARN_INTERACTIONS_DROPPED,
-                    "The package has no custom validator, so its sample interactions were dropped.",
+                    "The problem is not interactive, so its sample interactions were dropped.",
                 )
             )
         return []

@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
 {% block extra_head %}
     <link href="{{ request.url_for('static_vendor', path='katex.min.css') }}"
@@ -23,6 +30,7 @@
         <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
             <div class="d-flex align-items-center gap-3">
                 <img src="{{ request.url_for('balloon', color=problem.color[1:] if problem.color else '888888', letter=label) }}"
+                     width="82"
                      height="96"
                      alt="Problem {{ label }} balloon">
                 <div>
@@ -77,6 +85,9 @@
                                            type="file"
                                            id="source_file"
                                            name="source_file"
+                                           data-language-file-accept
+                                           data-language-select="language_id"
+                                           data-language-extensions="quick-submit-lang-ext"
                                            required>
                                     {% if contest.max_problem_file_size_bytes > 0 %}
                                         <div class="form-text">Max size: {{ contest.max_problem_file_size_bytes }} bytes</div>
@@ -261,7 +272,7 @@
         {% endif %}
         <div class="mt-4">
             <a href="{{ request.url_for('contest_problems', slug=contest.login_slug) }}"
-               class="btn btn-outline-secondary btn-sm">&larr; Back to Problems</a>
+               class="btn btn-outline-secondary btn-sm">← Back to Problems</a>
         </div>
     </div>
     {% if current_user.role == RoleEnum.TEAM.value and contest.is_running %}
@@ -338,7 +349,7 @@
     {% if current_user.role == RoleEnum.TEAM.value and contest.is_running %}
         <script src="{{ request.url_for('static_js', path='runs-submit-confirm.js') }}?v={{ app_version }}"
                 defer></script>
-        <script src="{{ request.url_for('static_js', path='quick-submit-accept.js') }}?v={{ app_version }}"
+        <script src="{{ request.url_for('static_shared_js', path='language-file-accept.js') }}?v={{ app_version }}"
                 defer></script>
     {% endif %}
 {% endblock %}

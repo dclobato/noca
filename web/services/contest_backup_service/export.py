@@ -136,6 +136,13 @@ async def build_contest_backup(
                     package_path,
                     profile="full",
                     language_limits=limits_map,
+                    # A backup must never become impossible because one problem
+                    # lost its validator source. The embedded package is a
+                    # convenience artifact, not the restore source of record --
+                    # restore reads the payload rows and the in/out members, and
+                    # never parses this problem.json -- and the validator row
+                    # itself is preserved verbatim in problems.json.
+                    require_importable=False,
                 )
             )
         await anyio.to_thread.run_sync(_append_problem_folder, dest_path, entry["dir"], package_path)

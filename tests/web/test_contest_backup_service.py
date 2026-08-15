@@ -36,18 +36,27 @@ from shared.db_schema import test_cases as test_cases_t
 from shared.db_schema import users as users_t
 from shared.db_schema import users_media as users_media_t
 from shared.db_schema import verdict_overrides as verdict_overrides_t
-from shared.enumerations import CustomValidatorActiveState, JudgmentStatus, RoleEnum, TaskType, Verdict
+from shared.enumerations import (
+    CustomValidatorActiveState,
+    JudgmentStatus,
+    ProblemValidatorType,
+    RoleEnum,
+    TaskType,
+    Verdict,
+)
 from web.config import settings
 from web.models.contest import Contest
 from web.models.problem import Problem, ProblemTestCase
 from web.models.site import Site
 from web.models.users import UberAdmin, User
 from web.services.contest_backup_service import (
+    FORMAT_VERSION,
     ContestBackupError,
     build_contest_backup,
     import_contest_backup,
 )
 from web.services.contest_backup_service.export import _append_problem_folder
+from web.services.contest_backup_service.models import LEGACY_FORMAT_VERSION
 from web.services.problem_service.files import save_md_statement, save_testcase_files
 
 LANGUAGE_ID = "python3"
@@ -155,6 +164,9 @@ async def _seed_contest(session: AsyncSession, uberadmin: UberAdmin) -> Contest:
         title="Backup Problem",
         ordinal=1,
         color="#123abc",
+        # The seed stages an active validator and input-only cases below, so the
+        # problem really is interactive; its stored strategy must say so.
+        validator_type=ProblemValidatorType.INTERACTIVE,
     )
     session.add(problem)
     await session.flush()
@@ -372,7 +384,8 @@ async def test_round_trip_restores_all_entities(session: AsyncSession, uberadmin
         await session.execute(select(func.count()).select_from(users_t).where(users_t.c.contest_id == restored.id))
     ).scalar_one()
     assert users == 5
-    problems = (await session.execute(select(Problem).where(Problem.contest_id == restored.id))).scalars().all()
+    result = await session.execute(select(Problem).where(Problem.contest_id == restored.id))
+    problems = result.scalars().all()
     assert len(problems) == 1
     assert problems[0].color == "#123abc"
     assert restored.owner_user_id is not None and restored.chief_judge_id is not None
@@ -741,8 +754,10 @@ async def test_solution_test_runs_are_excluded_from_the_archive(
         payload = json.loads(archive.read("manifest.json"))
     assert not any("solution" in name for name in names)
     assert not any("solution" in key for key in payload)
-    # FORMAT_VERSION does not move: the archive simply never contained this data.
-    assert payload["format_version"] == 1
+    # Excluding solution tests did not move FORMAT_VERSION: the archive simply
+    # never contained this data. Assert the constant rather than a literal, so
+    # an unrelated version bump does not fail this test for the wrong reason.
+    assert payload["format_version"] == FORMAT_VERSION
 
     restored = await _restore(session, zip_path, uberadmin)
     restored_problems = (
@@ -787,5 +802,244 @@ async def test_legacy_backup_with_a_null_output_limit_is_still_restorable(
 
     restored = await _restore(session, legacy_path, uberadmin, slug="legacy", name="Legacy")
 
-    problems = (await session.execute(select(Problem).where(Problem.contest_id == restored.id))).scalars().all()
+    result = await session.execute(select(Problem).where(Problem.contest_id == restored.id))
+    problems = result.scalars().all()
     assert [problem.output_limit_in_bytes for problem in problems] == [65536]
+
+
+@pytest.mark.asyncio
+async def test_legacy_backup_without_a_stored_strategy_is_still_restorable(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """An archive captured before ``problems.validator_type`` existed still restores.
+
+    Strict row validation compares each row against the *live* table, so adding a
+    NOT NULL column would otherwise break every existing archive on the day it
+    lands. The v1 branch treats the new columns as optional and fills the strategy
+    by the same inference the archive was captured under -- the last place that
+    inference is still correct, because it is all such an archive carries.
+    """
+    contest = await _seed_contest(session, uberadmin)
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    legacy_path = _downgrade_to_v1(zip_path, tmp_path / "legacy-backup.zip", strip_strategy=True)
+
+    restored = await _restore(session, legacy_path, uberadmin, slug="legacy", name="Legacy")
+
+    result = await session.execute(select(Problem).where(Problem.contest_id == restored.id))
+    problems = result.scalars().all()
+    # The seeded problem carries an active validator, which is the only signal a
+    # pre-strategy archive holds; the fence starts from its server default.
+    assert [problem.validator_type for problem in problems] == [ProblemValidatorType.INTERACTIVE]
+    assert [problem.artifact_generation for problem in problems] == [0]
+
+
+def _downgrade_to_v1(source_path: Path, destination: Path, *, strip_strategy: bool) -> Path:
+    """Rewrite a current archive as a faithful version-1 one.
+
+    Every versioned component is downgraded, not just the one under test: the
+    manifest, the payload rows, and each embedded ``problem.json``. Leaving any
+    of them at version 2 would produce an archive no release ever wrote, so the
+    test would pass or fail for a reason unrelated to v1 compatibility.
+
+    Args:
+        source_path: The current-format archive to downgrade.
+        destination: Where to write the downgraded archive.
+        strip_strategy: Whether to also remove the columns version 1 predates,
+            producing a *pre*-strategy archive rather than an interim one.
+
+    Returns:
+        Path: ``destination``.
+    """
+    with zipfile.ZipFile(source_path) as source, zipfile.ZipFile(destination, "w") as target:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename == "manifest.json":
+                manifest = json.loads(data)
+                manifest["format_version"] = LEGACY_FORMAT_VERSION
+                data = json.dumps(manifest).encode("utf-8")
+            elif info.filename.endswith("problems.json"):
+                payload = json.loads(data)
+                for entry in payload:
+                    if strip_strategy:
+                        entry["problem"].pop("validator_type", None)
+                        entry["problem"].pop("artifact_generation", None)
+                data = json.dumps(payload).encode("utf-8")
+            elif info.filename.endswith("problem.json"):
+                embedded = json.loads(data)
+                embedded["format_version"] = 1
+                embedded.pop("validator_type", None)
+                data = json.dumps(embedded).encode("utf-8")
+            target.writestr(info.filename, data)
+    return destination
+
+
+@pytest.mark.asyncio
+async def test_an_interim_v1_backup_keeps_its_explicit_strategy(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """A v1-labelled archive that *does* carry the strategy is not re-inferred.
+
+    Between the strategy column landing and this format bump, the exporter wrote
+    ``validator_type`` into archives still labelled version 1. Treating "version
+    1" as "infer" would corrupt exactly those archives, so the rule is *explicit
+    wins, infer only on absence*. The standard problem here carries a validator
+    row, which is precisely what inference would get wrong.
+    """
+    contest = await _seed_contest(session, uberadmin)
+    standard = Problem(
+        contest_id=contest.id,
+        title="Standard with a stale validator",
+        ordinal=2,
+        color="#00ff00",
+        validator_type=ProblemValidatorType.STANDARD,
+    )
+    session.add(standard)
+    await session.flush()
+    save_md_statement(standard.id, "# Standard\n", settings.PROBLEM_STATEMENT_DIR)
+    await session.execute(
+        insert(validators_t).values(
+            problem_id=standard.id,
+            active_language_id=LANGUAGE_ID,
+            active_source="print('stale')",
+            active_state=CustomValidatorActiveState.VALID,
+            active_validated_at=datetime.now(UTC),
+        )
+    )
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    interim_path = _downgrade_to_v1(zip_path, tmp_path / "interim-backup.zip", strip_strategy=False)
+
+    restored = await _restore(session, interim_path, uberadmin, slug="interim", name="Interim")
+
+    ordered = select(Problem).where(Problem.contest_id == restored.id).order_by(Problem.ordinal)
+    restored_problems = (await session.execute(ordered)).scalars().all()
+    assert [p.validator_type for p in restored_problems] == [
+        ProblemValidatorType.INTERACTIVE,
+        # Inference would have called this interactive; the stored value wins.
+        ProblemValidatorType.STANDARD,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_v2_backup_omitting_the_strategy_is_refused(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """The legacy tolerance is scoped to version 1, not applied unconditionally."""
+    contest = await _seed_contest(session, uberadmin)
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    broken_path = tmp_path / "broken-v2.zip"
+    with zipfile.ZipFile(zip_path) as source, zipfile.ZipFile(broken_path, "w") as target:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename.endswith("problems.json"):
+                payload = json.loads(data)
+                for entry in payload:
+                    entry["problem"].pop("validator_type", None)
+                data = json.dumps(payload).encode("utf-8")
+            target.writestr(info.filename, data)
+
+    with pytest.raises(ContestBackupError, match="missing columns: validator_type"):
+        await _restore(session, broken_path, uberadmin, slug="broken", name="Broken")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [0, 3, 99])
+async def test_an_unknown_backup_version_is_refused(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path, version: int
+) -> None:
+    contest = await _seed_contest(session, uberadmin)
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    bad_path = tmp_path / f"version-{version}.zip"
+    with zipfile.ZipFile(zip_path) as source, zipfile.ZipFile(bad_path, "w") as target:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename == "manifest.json":
+                manifest = json.loads(data)
+                manifest["format_version"] = version
+                data = json.dumps(manifest).encode("utf-8")
+            target.writestr(info.filename, data)
+
+    with pytest.raises(ContestBackupError, match="Unsupported backup format version"):
+        await _restore(session, bad_path, uberadmin, slug="bad", name="Bad")
+
+
+@pytest.mark.asyncio
+async def test_a_contest_with_a_sourceless_interactive_problem_still_backs_up(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """Losing a validator source must not make a contest un-backupable.
+
+    A full problem package cannot represent an interactive problem with no
+    validator source, but the archive's embedded package is a convenience
+    artifact -- restore reads the payload rows, never that ``problem.json`` --
+    so the backup waives that completeness rule rather than refusing.
+    """
+    contest = await _seed_contest(session, uberadmin)
+    sourceless = Problem(
+        contest_id=contest.id,
+        title="Interactive, source removed",
+        ordinal=2,
+        color="#0000ff",
+        validator_type=ProblemValidatorType.INTERACTIVE,
+    )
+    session.add(sourceless)
+    await session.flush()
+    save_md_statement(sourceless.id, "# Interactive\n", settings.PROBLEM_STATEMENT_DIR)
+    await session.commit()
+
+    zip_path = await _export(session, contest, tmp_path)
+    restored = await _restore(session, zip_path, uberadmin, slug="sourceless", name="Sourceless")
+
+    ordered = select(Problem).where(Problem.contest_id == restored.id).order_by(Problem.ordinal)
+    restored_problems = (await session.execute(ordered)).scalars().all()
+    assert [p.validator_type for p in restored_problems] == [
+        ProblemValidatorType.INTERACTIVE,
+        ProblemValidatorType.INTERACTIVE,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_current_backup_round_trips_the_stored_strategy(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """The strategy survives export and restore rather than being re-inferred.
+
+    This is why the export keeps the column instead of stripping it: a problem
+    whose stored strategy disagrees with its validator rows -- here, an
+    interactive problem that has no validator source at all -- is exactly the case
+    inference gets wrong, and it must survive the round trip intact.
+    """
+    contest = await _seed_contest(session, uberadmin)
+    # A problem whose stored strategy disagrees with its validator rows: standard,
+    # yet carrying none -- inference would call it standard too, so make the
+    # disagreement the other way round by giving it no validator while the seeded
+    # one has an active revision. The pair proves both values survive verbatim.
+    standard = Problem(
+        contest_id=contest.id,
+        title="Standard, no validator",
+        ordinal=2,
+        color="#00ff00",
+        validator_type=ProblemValidatorType.STANDARD,
+    )
+    session.add(standard)
+    await session.flush()
+    save_md_statement(standard.id, "# Standard\n", settings.PROBLEM_STATEMENT_DIR)
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    restored = await _restore(session, zip_path, uberadmin, slug="round-trip", name="Round trip")
+
+    ordered = select(Problem).where(Problem.contest_id == restored.id).order_by(Problem.ordinal)
+    result = await session.execute(ordered)
+    restored_problems = result.scalars().all()
+    assert [p.validator_type for p in restored_problems] == [
+        ProblemValidatorType.INTERACTIVE,
+        ProblemValidatorType.STANDARD,
+    ]

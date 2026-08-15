@@ -331,7 +331,7 @@ Sliding-session notes:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOCA_WEB_PROBLEM_STATEMENT_DIR` | *(required)* | Directory where problem statement PDFs are stored. Must be readable and writable by the web process. |
-| `NOCA_PROBLEM_TESTCASE_DIR` | *(required)* | Root directory shared by Web, Arena, and Autojudge for problem test case files. Domains are namespaced into subdirectories: Web problems under `<root>/contest/<problem_id>/NNN.in\|out`, Arena problems under `<root>/arena/<problem_id>/NNN.in\|out`. The subdirectories are created on demand by the writers. Must be readable and writable by the web and arena processes, and readable by the autojudge worker. Replaces the former `NOCA_WEB_PROBLEM_TESTCASE_DIR` / `NOCA_JUDGE_PROBLEM_TESTCASE_DIR` pair (a one-time manual relocation of existing Web files into `<root>/contest/` is required at rollout). |
+| `NOCA_PROBLEM_TESTCASE_DIR` | *(required)* | Root directory shared by Web, Arena, and Autojudge for problem test case files. Domains are namespaced into subdirectories: Web problems under `<root>/contest/<problem_id>/NNN.in\|out`, Arena problems under `<root>/arena/<problem_id>/NNN.in\|out`. The subdirectories are created on demand by the writers. Must be readable and writable by the web and arena processes, and readable by the autojudge worker. Replaces the former `NOCA_WEB_PROBLEM_TESTCASE_DIR` / `NOCA_JUDGE_PROBLEM_TESTCASE_DIR` pair (a one-time manual relocation of existing Web files into `<root>/contest/` is required at rollout). The directory must support **atomic same-directory renames** (how an editor save promotes its staged files and restores the originals on failure). Hardlinks are used to seed staging when the filesystem supports them; where it does not, the code copies instead and logs one WARNING naming the directory -- slower on large problems, identical otherwise. See [BOOTSTRAP.md](BOOTSTRAP.md). |
 
 ### Clarification Reaper
 
@@ -630,7 +630,7 @@ The autojudge worker also reads the common infrastructure variables above (datab
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NOCA_PROBLEM_TESTCASE_DIR` | *(required)* | Root directory where problem test case files are read by the worker. The same shared volume the web and arena processes write through `NOCA_PROBLEM_TESTCASE_DIR`. The Web job reads `<root>/contest/<problem_id>`; the Arena job reads `<root>/arena/<problem_id>`. |
+| `NOCA_PROBLEM_TESTCASE_DIR` | *(required)* | Root directory where problem test case files are read by the worker. The same shared volume the web and arena processes write through `NOCA_PROBLEM_TESTCASE_DIR`. The Web job reads `<root>/contest/<problem_id>`; the Arena job reads `<root>/arena/<problem_id>`. The worker only reads, so the rename and hardlink requirements the writers have (see the web/arena table) do not apply to it. |
 
 ### Worker
 
@@ -751,6 +751,45 @@ Operational notes:
 - If `NOCA_JUDGE_IMAGE_PULL_POLICY=never` and the canonical images are not already present locally, the subsequent preflight still fails fast with the missing image list.
 
 ---
+
+## Browser UI checks (development only)
+
+Credentials and targets for the Playwright checks in `tests/browser/`. These are
+read by the tests, not by any application config class, so they never affect a
+deployed instance.
+
+The checks exist because a whole class of defect is invisible to the rest of the
+suite: a button that renders but has no listener, an editor that paints blank
+because it was built inside a hidden tab pane. Those only fail in a browser. The
+checks therefore drive a **running development server** and log in as a real
+user.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `NOCA_UI_CHECK_USERNAME` | *(unset)* | Login identifier the checks authenticate with. **Every browser check is skipped unless this and the password are set**, so a normal `uv run pytest` is unaffected. |
+| `NOCA_UI_CHECK_PASSWORD` | *(unset)* | Password for that account. |
+| `NOCA_UI_CHECK_ARENA_URL` | `http://127.0.0.1:8001` | Base URL of the running Arena instance. |
+| `NOCA_UI_CHECK_WEB_URL` | `http://127.0.0.1:8000` | Base URL of the running Web instance. |
+| `NOCA_UI_CHECK_WEB_SLUG` | *(unset)* | Contest slug for the Web checks, whose editor lives under `/c/{slug}/`. The Web checks are skipped without it. |
+| `NOCA_UI_CHECK_WEB_USERNAME` | *(falls back to `NOCA_UI_CHECK_USERNAME`)* | UberAdmin login for the Contest checks. |
+| `NOCA_UI_CHECK_WEB_PASSWORD` | *(falls back to `NOCA_UI_CHECK_PASSWORD`)* | Password for that UberAdmin. |
+
+Web and Arena are **separate identity domains**, so one pair rarely covers both:
+the Contest checks sign in at `/login`, which is the **UberAdmin** login, while
+the Arena checks sign in at `/auth/login`. Set `NOCA_UI_CHECK_WEB_USERNAME` and
+`NOCA_UI_CHECK_WEB_PASSWORD` when the two accounts differ; leave them blank when
+the same login genuinely exists in both.
+
+An UberAdmin administers any contest, so the Contest checks need no per-contest
+membership -- only a contest to open. **They are skipped until
+`NOCA_UI_CHECK_WEB_SLUG` names an existing contest**, which on a fresh database
+means creating one first.
+
+A rejected login fails with an explicit message rather than a selector timeout
+thirty seconds later.
+
+Point these at development only. The account is used interactively, and the
+checks navigate the real admin UI.
 
 ## Docker Compose Only
 

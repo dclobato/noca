@@ -15,8 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from starlette.background import BackgroundTask
 
-from shared.enumerations import RoleEnum
-from shared.services.custom_validator import status_view
+from shared.enumerations import ProblemValidatorType, RoleEnum
 from shared.services.problem_package import PackageError
 from shared.services.problem_package.upload import safe_package_filename, temporary_package_path
 from web.config import settings
@@ -142,7 +141,7 @@ async def _load_problem_view_data(ctx: ContestContext, problem: Problem) -> dict
     return {
         "tc_contents": tc_contents,
         "sample_interactions": sample_interactions,
-        "has_custom_validator": status_view(problem.custom_validator).configured,
+        "has_custom_validator": problem.validator_type is ProblemValidatorType.INTERACTIVE,
         "has_tc_explanation": any(item[3] for item in tc_contents),
         "has_pdf": has_pdf,
         "has_md": has_md,

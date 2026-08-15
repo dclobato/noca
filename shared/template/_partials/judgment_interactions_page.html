@@ -1,0 +1,74 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  The sample-interactions page of the judgment-data editor, shared by both modules.
+
+  A problem with a custom validator cannot show sample *test cases* meaningfully --
+  what a contestant needs to see is the conversation their program will have -- so
+  its public examples are authored transcripts instead.
+
+  Existing transcripts are edited, reordered and deleted immediately, one action
+  each. Only newly typed transcripts wait for this page's Save, because they are
+  the only thing here the server has not seen.
+
+  Required context:
+    shell             shared.services.judgment_page_view.JudgmentShellView
+    page              shared.services.judgment_page_view.InteractionsPageView
+    interaction_rows  list[SampleInteractionRowView] (may be empty)
+    is_edit_allowed   bool
+#}
+{% from "_macros.html" import render_icon with context %}
+{% set submitted_interaction_rows = submitted_interaction_rows | default(()) %}
+{% set pending_error = pending_error | default("") %}
+{% set pending_next_index = pending_next_index | default(0) %}
+<div class="card noca-operational-card mb-4">
+    <h2 class="card-header h6 mb-0 fw-semibold">Sample interactions</h2>
+    <div class="card-body">
+        <p class="text-muted small">
+            This problem is interactive, so contestants are shown example conversations
+            instead of sample test cases. Write each one with one line per message,
+            using the exact prefixes <code>&gt;&nbsp;</code> for a line the validator
+            sends and <code>&lt;&nbsp;</code> for a line the contestant's program
+            sends back. In the example below, the validator sends <code>3</code>, the
+            submission replies <code>5</code>, and the validator ends with
+            <code>!8</code>. Up to {{ page.max_interactions }} interactions; drag to reorder.
+        </p>
+        <pre class="noca-tc-preview-cell mb-3">&gt; 3
+&lt; 5
+&gt; !8</pre>
+        {% include "_partials/sample_interaction_list_table.html" %}
+        {% if is_edit_allowed %}
+            <form method="post"
+                  action="{{ page.add_url }}"
+                  id="si-add-form"
+                  class="mt-3">
+                {% if pending_error %}<div class="alert alert-danger py-2" role="alert">{{ pending_error }}</div>{% endif %}
+                <div id="si-add-rows">
+                    {% for row in submitted_interaction_rows %}
+                        {% with form_id="si-add-form" %}
+                            {% include "_partials/sample_interaction_add_row.html" %}
+                        {% endwith %}
+                    {% endfor %}
+                </div>
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <button type="button"
+                            id="si-add-row-btn"
+                            class="btn btn-outline-primary btn-sm"
+                            data-si-form-id="si-add-form"
+                            data-si-next-index="{{ pending_next_index }}"
+                            data-si-max="{{ page.max_interactions }}">
+                        {{ render_icon(icon="add", classes="me-1") }}Add sample interaction
+                    </button>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        {{ render_icon(icon="check", classes="me-1") }}Save new interactions
+                    </button>
+                </div>
+                <div class="form-text mt-1">Typed transcripts are the only thing on this page that is not saved as you go.</div>
+            </form>
+        {% endif %}
+    </div>
+</div>

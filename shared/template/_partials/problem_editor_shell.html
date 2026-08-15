@@ -1,0 +1,84 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Sticky save bar and pane strip for the problem *definition* editor, shared by
+  both modules.
+
+  Every pane stays mounted and every control attaches to the detached
+  `#edit-form` by `form="edit-form"`, so Bootstrap only toggles visibility --
+  switching panes cannot lose typed input. That is affordable here because these
+  panes are a handful of fields belonging to one transaction; judgment data is
+  neither, and lives on its own pages behind the "Judgment data" link.
+
+  The strategy badge is deliberately read-only markup and never an input: a
+  problem's strategy is immutable after creation, so the editor offers no way to
+  change it.
+
+  It also carries the "re-select these uploads" notice, because that is a property
+  of the whole save rather than of any one pane, and the archive an author lost may
+  belong to a tab they are not currently looking at.
+
+  Required context:
+    view             shared.services.problem_definition_view.ProblemDefinitionView
+    save_label       text for the submit button
+    save_disabled    bool
+    cancel_label     text for the cancel/back link
+#}
+{% from "_macros.html" import render_icon with context %}
+{# A browser cannot repopulate a file input, so a rejected save loses every
+   archive that was attached. Naming them is the mitigation: the alternative is an
+   author who saves again and silently ships without the upload. #}
+{% if view.reselect_uploads %}
+    <div class="alert alert-warning d-flex align-items-start gap-2"
+         role="alert">
+        {{ render_icon(icon="warning", classes="flex-shrink-0 mt-1") }}
+        <div>
+            Your browser cannot re-attach files after a rejected save. Please select again:
+            <strong>{{ view.reselect_uploads | join(", ") }}</strong>.
+        </div>
+    </div>
+{% endif %}
+{% set tab_labels = {"metadata": "Metadata", "statement": "Statement", "limits": "Limits"} %}
+<div class="noca-problem-save-bar">
+    <button type="submit"
+            class="btn btn-primary"
+            form="edit-form"
+            {% if save_disabled %}disabled{% endif %}>
+        {{ render_icon(icon="check", classes="me-1") }}{{ save_label }}
+    </button>
+    <a href="{{ view.cancel_url }}" class="btn btn-outline-secondary">{{ cancel_label | default("Cancel") }}</a>
+    <span class="noca-problem-save-bar-spacer"></span>
+    {% if view.judgment_url %}
+        {# The other door. Test cases, the validator and the sample interactions
+           are edited there, one immediate action at a time. #}
+        <a href="{{ view.judgment_url }}" class="btn btn-outline-secondary">
+            {{ render_icon(icon="rule", classes="me-1") }}Judgment data
+        </a>
+    {% endif %}
+    <span class="badge text-bg-secondary"
+          title="A problem's validation strategy is chosen once and cannot be changed.">
+        {{ render_icon(icon="lock", classes="me-1") }}{{ view.strategy_label }}
+    </span>
+</div>
+<ul class="nav nav-tabs mb-0 noca-tab-scroll"
+    id="problem-edit-tabs"
+    role="tablist"
+    data-active-tab="{{ view.active_tab }}">
+    {% for tab in view.tabs %}
+        <li class="nav-item" role="presentation">
+            <button class="nav-link {% if view.active_tab == tab %}active{% endif %}"
+                    id="tab-{{ tab }}-btn"
+                    data-tab-value="{{ tab }}"
+                    data-bs-toggle="tab"
+                    data-bs-target="#tab-{{ tab }}"
+                    type="button"
+                    role="tab"
+                    aria-controls="tab-{{ tab }}"
+                    aria-selected="{{ 'true' if view.active_tab == tab else 'false' }}">{{ tab_labels[tab] }}</button>
+        </li>
+    {% endfor %}
+</ul>

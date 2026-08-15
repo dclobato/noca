@@ -1,23 +1,39 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-  Shared test-case list table, rendered by both the Web (contest admin) and
-  Arena modules. Required context:
+  Shared test-case list table, rendered by both the Web (contest admin) and Arena
+  modules.
+
+  Every row action is its own form and applies immediately: replacing a case,
+  flipping it between sample and secret, and deleting it are each one POST that
+  redirects back to this row. They were briefly client-side pending state applied
+  by a single Save, which meant the page held decisions the server had not seen and
+  every combination of them had to be reconciled. A row now shows what the problem
+  *is*, not what it would become.
+
+  Required context:
     rows                    list[shared.services.testcase_view.TestCaseRowView]
     is_edit_allowed         bool
     reorder_target          DOM id the move endpoint re-renders (defaults to "tc-list")
-    sample_toggle_disabled  bool, true on interactive problems, whose cases are all
-                            secret (they present sample interactions instead)
+    interactive             bool, the problem's stored strategy. An interactive
+                            problem's cases carry input only -- the input
+                            parametrizes the validator, which decides the verdict --
+                            so the Output column, its sizes, and the sample toggle
+                            all disappear and every case shows as secret.
+    sample_toggle_disabled  bool, kept for callers that suppress the toggle for a
+                            reason other than the strategy; `interactive` implies it
   All per-row URLs are pre-built in the view model so this partial never resolves
   module-specific url_for names. render_icon is called without `title=` so it
   resolves under either module's _macros.html.
 #}
 {% from "_macros.html" import render_icon with context %}
 {% set reorder_target = reorder_target | default("tc-list") %}
+{% set interactive = interactive | default(false) %}
+{% set sample_toggle_disabled = interactive or (sample_toggle_disabled | default(false)) %}
 <div id="tc-list">
     {% if rows %}
         <div class="table-responsive mb-3">
@@ -27,9 +43,9 @@
                         <th class="noca-tc-order-col">Order</th>
                         <th>#</th>
                         <th>Input (preview)</th>
-                        <th>Output (preview)</th>
+                        {% if not interactive %}<th>Output (preview)</th>{% endif %}
                         <th>Type</th>
-                        <th>Explanation?</th>
+                        <th class="text-center">Explanation?</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -46,20 +62,25 @@
                                 <span class="btn btn-sm btn-outline-secondary p-1 noca-icon-btn noca-drag-handle {% if not is_edit_allowed %}disabled{% endif %}"
                                       role="button"
                                       tabindex="{% if is_edit_allowed %} 0 {% else %} -1 {% endif %}"
-                                      aria-label="Drag to reorder test case"
-                                      title="{% if is_edit_allowed %} Drag to reorder {% else %} Not editable {% endif %}">{{ render_icon(icon="drag_indicator") }}</span>
+                                      aria-disabled="{{ 'false' if is_edit_allowed else 'true' }}"
+                                      aria-keyshortcuts="ArrowUp ArrowDown"
+                                      data-reorder-label="Test case {{ tc.ordinal }}"
+                                      aria-label="Reorder test case {{ tc.ordinal }}. Drag, or use the Up and Down arrow keys."
+                                      title="{% if is_edit_allowed %}Drag, or use Up and Down arrow keys, to reorder{% else %}Not editable{% endif %}">{{ render_icon(icon="drag_indicator") }}</span>
                             </td>
                             <td>{{ tc.ordinal }}</td>
                             <td>
                                 <pre class="tc-preview noca-tc-preview-cell">{{ tc.input_preview }}</pre>
                                 <span class="badge bg-light text-dark border">{{ tc.input_size_bytes | filesizeformat(true) }}</span>
                             </td>
+                            {% if not interactive %}
+                                <td>
+                                    <pre class="tc-preview noca-tc-preview-cell">{{ tc.output_preview }}</pre>
+                                    <span class="badge bg-light text-dark border">{{ tc.output_size_bytes | filesizeformat(true) }}</span>
+                                </td>
+                            {% endif %}
                             <td>
-                                <pre class="tc-preview noca-tc-preview-cell">{{ tc.output_preview }}</pre>
-                                <span class="badge bg-light text-dark border">{{ tc.output_size_bytes | filesizeformat(true) }}</span>
-                            </td>
-                            <td>
-                                {% if tc.is_sample %}
+                                {% if tc.is_sample and not interactive %}
                                     <span class="badge bg-success">sample</span>
                                 {% else %}
                                     <span class="badge bg-secondary">secret</span>
@@ -75,55 +96,68 @@
                                 {% if tc.has_explanation %}{{ render_icon(icon="check") }}{% endif %}
                             </td>
                             <td>
-                                <div class="btn-group btn-group-sm noca-icon-btn-group"
-                                     role="group"
-                                     aria-label="Test case actions">
+                                <div class="noca-row-actions">
                                     <a href="{{ tc.edit_url }}"
-                                       class="btn btn-outline-secondary noca-icon-btn"
-                                       title="{{ 'Edit' if is_edit_allowed else 'View' }}">
-                                        {{ render_icon(icon="edit" if is_edit_allowed else "visibility") }}
+                                       class="btn btn-outline-primary btn-sm text-nowrap">
+                                        {{ render_icon(icon="edit" if is_edit_allowed else "visibility", classes="me-1") }}
+                                        {{ 'Edit' if is_edit_allowed else 'View' }}
                                     </a>
-                                    <a href="{{ tc.download_url }}"
-                                       class="btn btn-outline-secondary noca-icon-btn"
-                                       title="Download (ZIP)">{{ render_icon(icon="download") }}</a>
-                                    {% if is_edit_allowed %}
-                                        <form method="post"
-                                              action="{{ tc.replace_url }}"
-                                              enctype="multipart/form-data"
-                                              class="noca-icon-btn-wrap">
-                                            <input type="file"
-                                                   name="zip_file"
-                                                   accept=".zip"
-                                                   class="d-none"
-                                                   data-tc-replace-input>
-                                            <button type="button"
-                                                    class="btn btn-outline-secondary noca-icon-btn"
-                                                    title="Replace from ZIP"
-                                                    data-tc-replace-trigger>{{ render_icon(icon="upload") }}</button>
-                                        </form>
-                                        {% if not sample_toggle_disabled %}
-                                            <form method="post"
-                                                  action="{{ tc.toggle_sample_url }}"
-                                                  class="noca-icon-btn-wrap">
-                                                <button type="submit"
-                                                        class="btn btn-outline-secondary noca-icon-btn"
-                                                        title="{{ 'Make secret' if tc.is_sample else 'Make sample' }}">
-                                                    {{ render_icon(icon="swap_horiz") }}
-                                                </button>
-                                            </form>
-                                        {% endif %}
+                                    <div class="dropdown">
                                         <button type="button"
-                                                class="btn btn-outline-danger noca-icon-btn tc-remove-btn"
-                                                title="Remove"
-                                                data-row-id="{{ tc.id }}"
-                                                data-row-ordinal="{{ tc.ordinal }}">
-                                            {{ render_icon(icon="delete") }}
+                                                class="btn btn-outline-secondary btn-sm dropdown-toggle text-nowrap"
+                                                data-bs-toggle="dropdown"
+                                                aria-expanded="false"
+                                                aria-label="More actions for test case {{ tc.ordinal }}">
+                                            {{ render_icon(icon="more_horiz", classes="me-1") }}More
                                         </button>
-                                        <button type="button"
-                                                class="btn btn-outline-secondary noca-icon-btn tc-undo-btn d-none"
-                                                title="Undo removal"
-                                                data-row-id="{{ tc.id }}">{{ render_icon(icon="undo") }}</button>
-                                    {% endif %}
+                                        <ul class="dropdown-menu dropdown-menu-end">
+                                            <li>
+                                                <a href="{{ tc.download_url }}" class="dropdown-item">
+                                                    {{ render_icon(icon="download", classes="me-2") }}Download ZIP
+                                                </a>
+                                            </li>
+                                            {% if is_edit_allowed %}
+                                                <li>
+                                                    {# Choosing the file submits the form: an offline replacement is
+                                                       one decision, so it should not need a second click. #}
+                                                    <form method="post"
+                                                          action="{{ tc.replace_url }}"
+                                                          enctype="multipart/form-data">
+                                                        <input type="file"
+                                                               name="zip_file"
+                                                               accept=".zip"
+                                                               class="d-none"
+                                                               data-tc-replace-input>
+                                                        <button type="button" class="dropdown-item" data-tc-replace-trigger>
+                                                            {{ render_icon(icon="upload", classes="me-2") }}Replace from ZIP
+                                                        </button>
+                                                    </form>
+                                                </li>
+                                                {% if not sample_toggle_disabled %}
+                                                    <li>
+                                                        <form method="post" action="{{ tc.toggle_sample_url }}">
+                                                            <button type="submit" class="dropdown-item">
+                                                                {{ render_icon(icon="swap_horiz", classes="me-2") }}
+                                                                {{ 'Make secret' if tc.is_sample else 'Make sample' }}
+                                                            </button>
+                                                        </form>
+                                                    </li>
+                                                {% endif %}
+                                                <li>
+                                                    <hr class="dropdown-divider">
+                                                </li>
+                                                <li>
+                                                    <form method="post"
+                                                          action="{{ tc.delete_url }}"
+                                                          data-confirm="Remove test case {{ tc.ordinal }}? This cannot be undone.">
+                                                        <button type="submit" class="dropdown-item text-danger">
+                                                            {{ render_icon(icon="delete", classes="me-2") }}Remove test case
+                                                        </button>
+                                                    </form>
+                                                </li>
+                                            {% endif %}
+                                        </ul>
+                                    </div>
                                 </div>
                             </td>
                         </tr>
@@ -131,8 +165,17 @@
                 </tbody>
             </table>
         </div>
-        <div id="tc-remove-warning" class="alert alert-warning d-none mt-2 small"></div>
     {% else %}
-        <p class="text-muted small">No test cases yet.</p>
+        <div class="py-3">
+            <p class="fw-semibold mb-1">No test cases yet</p>
+            <p class="text-body-secondary small mb-0">
+                {% if is_edit_allowed %}
+                    Choose <strong>Add test case</strong> below to create the first
+                    input and output pair.
+                {% else %}
+                    This problem does not have any test cases to display.
+                {% endif %}
+            </p>
+        </div>
     {% endif %}
 </div>

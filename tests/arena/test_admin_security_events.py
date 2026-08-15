@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -17,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.db_schema import security_events
 from shared.services.security_events import record_security_event
+from shared.services.security_events_export import CSV_HEADER
 from tests.arena.test_admin_login_history_global import _build_app
 
 
@@ -160,3 +163,64 @@ def _event_rows(html: str) -> str:
     """Return only the table-body portion of the rendered page."""
     _, _, body = html.partition("<tbody>")
     return body
+
+
+@pytest.mark.asyncio
+async def test_security_events_csv_exports_all_rows_ignoring_filters(session: AsyncSession) -> None:
+    """The CSV download returns every Arena-scoped row, not the filtered page."""
+    for i in range(3):
+        await record_security_event(session, module="arena", event_type=f"arena_csv_event_{i}")
+    await record_security_event(session, module="aiassistant", event_type="ai_csv_event")
+    await record_security_event(session, module="web", event_type="web_csv_event")
+    await session.commit()
+
+    app = _build_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            "/admin/dashboard/security-events.csv",
+            params={"module": "arena", "event_type": "arena_csv_event_0", "per_page": "10"},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=" in response.headers["content-disposition"]
+    body = response.text
+    assert body.startswith("﻿")
+    rows = list(csv.reader(io.StringIO(body.lstrip("﻿"))))
+    assert rows[0] == list(CSV_HEADER)
+    exported = {row[2] for row in rows[1:]}
+    assert {"arena_csv_event_0", "arena_csv_event_1", "arena_csv_event_2", "ai_csv_event"} <= exported
+    assert "web_csv_event" not in exported
+
+
+@pytest.mark.asyncio
+async def test_security_events_csv_requires_admin(session: AsyncSession) -> None:
+    """A non-admin cannot download the Arena security-event export."""
+    app = _build_app(session, authorized=False)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/admin/dashboard/security-events.csv")
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_security_events_csv_neutralizes_formula_cells(session: AsyncSession) -> None:
+    """A user agent that looks like a formula is escaped as text."""
+    await record_security_event(
+        session,
+        module="arena",
+        event_type="arena_csv_formula",
+        user_agent="=cmd|'/c calc'!A1",
+        metadata={"note": "line one\nline two"},
+    )
+    await session.commit()
+
+    app = _build_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/admin/dashboard/security-events.csv")
+
+    rows = list(csv.reader(io.StringIO(response.text.lstrip("﻿"))))
+    row = next(row for row in rows[1:] if row[2] == "arena_csv_formula")
+    assert row[10].startswith("'=")
+    assert "\n" not in row[11]
+    assert "line one" in row[11]

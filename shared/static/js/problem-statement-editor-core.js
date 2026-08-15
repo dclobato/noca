@@ -164,6 +164,19 @@
     if (ta) ta.value = this.mde.value();
   };
 
+  /**
+   * Re-measure the editor after it becomes visible.
+   *
+   * CodeMirror computes its layout from the element's box, and a `display:none`
+   * tab pane has none -- so an editor built while its pane is hidden renders
+   * blank until something forces a reflow (which is why clicking into it used to
+   * make the statement "appear"). The text was never lost: the document is read
+   * from the textarea at construction, so `value()` was correct all along.
+   */
+  StatementEditor.prototype.refresh = function () {
+    if (this.mde && this.mde.codemirror) this.mde.codemirror.refresh();
+  };
+
   StatementEditor.prototype.setEnabled = function (enabled) {
     if (!this.mde) return;
     var cm = this.mde.codemirror;
@@ -184,6 +197,7 @@
     var mde = new EasyMDE({
       element: textarea,
       autoDownloadFontAwesome: false,
+      forceSync: true,
       indentWithTabs: false,
       toolbar: [
         'bold', 'italic', 'heading', '|',
@@ -208,7 +222,24 @@
     });
 
     var editor = new StatementEditor(mde);
-    mde.codemirror.on('change', function () { editor.notifyChanged(); });
+    mde.codemirror.on('change', function () {
+      // `forceSync` updates the hidden form control before this later listener.
+      // Surface the change so required-field validity does not retain its
+      // page-load state while the author is typing in CodeMirror.
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      editor.notifyChanged();
+    });
+
+    // The problem editor mounts every tab pane at once and lets Bootstrap toggle
+    // visibility, so this editor is usually built inside a hidden pane. Re-measure
+    // when its pane is shown; harmless on pages that have no tab strip.
+    var tabs = document.getElementById('problem-edit-tabs');
+    if (tabs) {
+      tabs.addEventListener('shown.bs.tab', function () { editor.refresh(); });
+    }
+    // Also re-measure once after layout settles, for the case where the editor's
+    // own pane is the one open on load.
+    window.setTimeout(function () { editor.refresh(); }, 0);
     return editor;
   }
 

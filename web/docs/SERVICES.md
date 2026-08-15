@@ -264,7 +264,8 @@ Purpose:
 Main entrypoints:
 
 - `remove_inactive_contest(session, *, contest_id, actor_uberadmin_id,
-  valkey_runtime, statement_dir, testcase_dir) -> ContestRemovalResult` locks
+  actor_uberadmin_label=None, valkey_runtime, statement_dir, testcase_dir) ->
+  ContestRemovalResult` locks
   and rechecks the contest, strictly purges its runtime state, quarantines its
   files, deletes its database graph, writes one sanitized warning audit event,
   and commits
@@ -286,7 +287,9 @@ Notes:
 - failures before commit roll back PostgreSQL and restore every quarantined
   artifact; successful commits erase the quarantine
 - the retained `contest_deleted` security event stores only the acting
-  UberAdmin ID and deleted contest ID
+  UberAdmin ID, that UberAdmin's username as the event `actor_label` (so the
+  viewers name the actor instead of showing an opaque id), and the deleted
+  contest ID
 
 ---
 
@@ -560,6 +563,11 @@ third enum: the status machine mirrors submissions so the autojudge state machin
 verbatim. This deliberately couples staff tooling to submission status semantics; revisit only
 if the reuse becomes painful.
 
+The judgeability gate is the same shared contract contestant submissions use
+(`shared.services.problem_judgeability`), fed by
+`problem_service.load_contest_problem_judgeability_facts`, so a staff test run
+and a real submission agree on whether a problem is ready.
+
 Main types:
 - `SolutionTestRateLimitError(next_allowed_at)` — the actor exceeded their independent budget
 - `RUNS_PER_PAGE = 50`
@@ -595,7 +603,7 @@ Main types:
 Main entrypoints:
 - `list_submissions(session, contest, actor, sort_by="time_desc", *, filters=None) -> list[Submission]` — applies role visibility, optional `SubmissionFilters`, and Time or Problem SQL ordering, with eager-loaded team, team site, judgments, judge confirmations, judge sites, overrides, and reviewer site
 - `list_submission_teams(session, contest) -> list[User]` — returns teams that have contest submissions for an independently populated Team filter
-- `create_submission(session, actor, contest, problem_id, language_id, source_code, source_hash, source_size, *, rate_limit_window_seconds=60, rate_limit_max_submissions=3) -> tuple[Submission, SubmissionJudgment]` — checks the per-team rate limit (raises `SubmissionRateLimitError` if exceeded), refuses the submission with a `ValueError` when the problem cannot be judged (a configured custom validator that has not compiled, or **no test cases at all** — every problem needs at least one, interactive or not), creates `Submission` plus initial `SubmissionJudgment(status=QUEUED)`, and inserts the explicit WEB audit row
+- `create_submission(session, actor, contest, problem_id, language_id, source_code, source_hash, source_size, *, rate_limit_window_seconds=60, rate_limit_max_submissions=3) -> tuple[Submission, SubmissionJudgment]` — checks the per-team rate limit (raises `SubmissionRateLimitError` if exceeded), refuses the submission with a `ValueError` when the problem cannot be judged, via the shared `shared.services.problem_judgeability` contract decided from the problem's **stored strategy** (a standard problem needs cases that all carry an expected output; an interactive one needs an active `VALID` validator and at least one secret case; the reserved output checker is never judgeable), creates `Submission` plus initial `SubmissionJudgment(status=QUEUED)`, and inserts the explicit WEB audit row
 - `build_team_submissions_zip(session, contest, team, *, statement_dir) -> tuple[str, bytes]` — builds a ZIP archive of a team's submissions organized by problem with statement PDFs/MDs, AC/PE solutions in an `AC/` folder, and other submissions in `Other/`; ZIP assembly runs via `anyio.to_thread.run_sync` for request safety
 
 Reuse this module when:
@@ -725,6 +733,9 @@ Internal structure:
 - `integrity.py` — composes the primitives into contest-scope, foreign-key, and
   manifest-to-payload checks across the whole archive graph before restore
 - `restore.py` — coordinates the one-transaction Core restore and rollback cleanup
+- `strategy.py` — the one predicate answering "what kind of problem is this" for
+  an archived row, shared by `integrity.py` and `restore_problems.py` so an
+  archive cannot validate under one strategy and restore under another
 - `restore_problems.py` — restores problem rows and lazily reads their files
 - `restore_history.py` — restores submissions, judgments, clarifications, and tasks
 - `importing.py` — coordinates validation and restoration, and normalizes a
@@ -733,8 +744,21 @@ Internal structure:
 
 Main entrypoints:
 
-- `build_contest_backup(...)` — writes a temporary archive off the event loop
+- `build_contest_backup(...)` — writes a temporary archive off the event loop at
+  `FORMAT_VERSION` 2, carrying each problem's `validator_type` and
+  `artifact_generation` in the payload rows and embedding version-2 problem
+  packages. It builds those packages with `require_importable=False`, so a
+  contest holding an interactive problem whose validator source was removed stays
+  backupable; restore never parses the embedded `problem.json`, and the validator
+  row is preserved verbatim in `problems.json`
 - `import_contest_backup(...) -> ContestImportResult` — validates, then restores
+  versions **1 and 2**, refusing anything else. Version 2 requires
+  `validator_type` and `artifact_generation`; version 1 treats them as optional
+  and applies *explicit wins, infer only on absence*, because archives written
+  between the column landing and the format bump carry the strategy while still
+  being labelled version 1. The same predicate decides whether an `out/NNN.out`
+  payload member is required, so expected output follows the strategy rather than
+  whether a validator row holds active source
 
 Reuse this module when:
 
@@ -1033,6 +1057,23 @@ Do not reimplement:
 
 ---
 
+## `problem_edit_save.py`
+
+The Contest half of joining a Save's test-case plan to rows. The plan itself is decided in
+`shared.services.testcase_save_plan`, which knows nothing about either module's models;
+`arena.services.admin_problem_tc_pending` is the Arena half.
+
+Nothing here touches the filesystem: by the time these rows are written the Save's complete desired
+directory already exists in staging, and the swap renames it in as part of the commit. That is the
+point — no row is ever committed ahead of a file write that could still fail.
+
+| Function | Purpose |
+|----------|---------|
+| `current_cases(test_cases)` | The planner's view of the problem's rows. |
+| `apply_materialized_cases(session, problem, materialized)` | Make the rows describe the staged directory exactly. Every row is first pushed into a disjoint high range, then the dropped ones are deleted, and only then do survivors and added rows take their final 1..n positions in one flush — because `(problem_id, ordinal)` is unique, a flush emits UPDATEs before DELETEs, and `web.models.problem` maintains dense ordinals on every flush, so a naive delete-then-renumber collides with the row it is deleting. |
+
+---
+
 ## `problem_service/`
 
 Purpose:
@@ -1082,14 +1123,16 @@ live in `shared/services/sample_interactions.py`; this module owns only the SQL:
 
 Additional entrypoints (query helpers):
 - `get_contest_problems(session, contest) -> list[Problem]` — eager-loads categories + test_cases, ordered by ordinal
-- `get_problem_in_contest(session, contest, problem_id) -> Problem | None` — eager-loads categories + test_cases + language_limits + profiling_runs
+- `load_contest_problem_judgeability_facts(session, problem_id) -> ProblemJudgeabilityFacts` — gathers the facts the shared judgeability gate needs (stored strategy, case counts, missing expected-output files, active `VALID` validator) in one query pass; used by both the submission and solution-test gates
+- `get_problem_in_contest(session, contest, problem_id) -> Problem | None` — full export/judgment profile with categories, test cases, validator, interactions, language limits, and profiling runs
+- `get_problem_definition_in_contest(session, contest, problem_id) -> Problem | None` — definition-editor profile with categories, language limits, and profiling runs; deliberately excludes test cases, validator, and sample interactions
 - `get_profiling_runs_for_problem(session, problem) -> list[ProfilingRun]`
 - `get_active_profiling_run_for_problem(session, problem) -> ProfilingRun | None`
 
 Additional entrypoints (language helpers):
 - `get_active_languages(session) -> list[Language]` — all active languages globally; used for contest creation form and uberadmin screens
 - `get_contest_languages(session, contest) -> list[Language]` — languages allowed for the given contest, ordered by name; use this instead of `get_active_languages` for all contest-scoped callers
-- `import_problem_package(session, contest, package, testcase_dir, statement_dir, image_service) -> ProblemImportResult` — persists an already-validated `ProblemPackage` (the shared reader having handled every format decision); supports PDF and Markdown statements; picks an unused balloon color when the package states none; filters `language_limits` to the contest's currently allowed languages, reporting the skipped ones as structured warnings; validates a staged illustration image through `shared.services.problem_image.load_staged_image`. Test-case and statement files are **promoted before** the commit and deleted again if it fails, and stale import journals are reconciled first
+- `import_problem_package(session, contest, package, testcase_dir, statement_dir, image_service) -> ProblemImportResult` — persists an already-validated `ProblemPackage`, setting the new problem's immutable `validator_type` from the package's normalized strategy — stated explicitly by a version-2 package, derived from `custom_validator` presence by the shared parser for a version-1 one (the shared reader having handled every format decision); supports PDF and Markdown statements; picks an unused balloon color when the package states none; filters `language_limits` to the contest's currently allowed languages, reporting the skipped ones as structured warnings; validates a staged illustration image through `shared.services.problem_image.load_staged_image`. Test-case and statement files are **promoted before** the commit and deleted again if it fails, and stale import journals are reconciled first
 - `get_language_limits_map(session, problem) -> dict[str, ProblemLanguageLimit]`
 - `problem_fallback_limits(problem) -> EffectiveProblemLimits` — normalized fallback limits snapshot with `repetitions=1`
 - `submitted_language_limits(languages, submitted_form, existing_limits) -> dict[str, LanguageLimitInput]` — extracts posted per-language limits and preserves repetitions for unchanged rows
@@ -1126,8 +1169,8 @@ Additional entrypoints (ZIP):
   from optional `explanation/NNN.txt`). It rejects mixed layouts, duplicate
   logical members, invalid ordinals, incomplete pairs, and invalid UTF-8
   explanations.
-- `problem_to_package(problem, testcase_dir, statement_dir, language_limits) -> ProblemPackage` — projects a contest problem onto the shared package contract; raises `PackageError` when no statement file is stored
-- `build_problem_export(problem, testcase_dir, statement_dir, destination, *, profile, language_limits=None) -> Path` — writes the package ZIP to `destination` through the shared writer. `profile="full"` produces the importable package (every version-1 key, all test cases, `sha256` manifest, validator source) and requires `language_limits`; `profile="public"` produces the contestant statement bundle (statement, image, public cases with explanations, sample interactions) with no `problem.json`, so it is deliberately not importable. Raises `PackageError` when a stored file is missing — both exporters previously wrote `b""` instead, producing packages that re-imported with silently different semantics
+- `problem_to_package(problem, testcase_dir, statement_dir, language_limits) -> ProblemPackage` — projects a contest problem onto the shared package contract, carrying its stored `validator_type` and attaching validator source **only** when that strategy is interactive, so a standard problem holding a stale validator row cannot produce a self-contradictory version-2 package; raises `PackageError` when no statement file is stored
+- `build_problem_export(problem, testcase_dir, statement_dir, destination, *, profile, language_limits=None, require_importable=True) -> Path` — writes the package ZIP to `destination` through the shared writer. `profile="full"` produces the importable package (every version-2 key including `validator_type`, all test cases, `sha256` manifest, validator source) and requires `language_limits`; it refuses an interactive problem with no validator source, which version 2 cannot express, unless the caller passes `require_importable=False` (only the contest backup exporter does); `profile="public"` produces the contestant statement bundle (statement, image, public cases with explanations, sample interactions) with no `problem.json`, so it is deliberately not importable. Raises `PackageError` when a stored file is missing — both exporters previously wrote `b""` instead, producing packages that re-imported with silently different semantics
 
 Reuse this module when:
 - adding contest-problem management features

@@ -1,0 +1,126 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  The test-cases page of the judgment-data editor, shared by both modules.
+
+  Every control here is its own form posting its own action, applied immediately.
+  Only the inline rows wait for a Save, and they are the one thing on the page the
+  server has not seen -- which is why choosing an archive warns before discarding
+  them.
+
+  Required context:
+    shell            shared.services.judgment_page_view.JudgmentShellView
+    page             shared.services.judgment_page_view.TestCasesPageView
+    rows             list[TestCaseRowView] (may be empty)
+    is_edit_allowed  bool
+#}
+{% from "_macros.html" import render_icon with context %}
+{% set submitted_case_rows = submitted_case_rows | default(()) %}
+{% set pending_error = pending_error | default("") %}
+{% set pending_next_index = pending_next_index | default(0) %}
+<div class="card noca-operational-card mb-4">
+    <h2 class="card-header h6 mb-0 fw-semibold">Test cases</h2>
+    <div class="card-body">
+        {% include "_partials/testcase_list_table.html" %}
+        {% if is_edit_allowed %}
+            <form method="post"
+                  action="{{ page.add_url }}"
+                  id="tc-add-form"
+                  class="mt-3">
+                {% if pending_error %}<div class="alert alert-danger py-2" role="alert">{{ pending_error }}</div>{% endif %}
+                <div id="tc-add-rows">
+                    {% for row in submitted_case_rows %}
+                        {% with form_id="tc-add-form" %}
+                            {% include "_partials/testcase_add_row.html" %}
+                        {% endwith %}
+                    {% endfor %}
+                </div>
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <button type="button"
+                            class="btn btn-outline-primary btn-sm"
+                            id="tc-add-row-btn"
+                            data-tc-form-id="tc-add-form"
+                            data-tc-next-index="{{ pending_next_index }}"
+                            data-tc-interactive="{{ 'true' if shell.is_interactive else 'false' }}">
+                        {{ render_icon(icon="add", classes="me-1") }}Add test case
+                    </button>
+                    <button type="submit" class="btn btn-primary btn-sm" id="tc-add-save">
+                        {{ render_icon(icon="check", classes="me-1") }}Save new test cases
+                    </button>
+                </div>
+                <div class="form-text mt-1">
+                    Typed rows are the only thing on this page that is not saved as you go.
+                    Everything else -- uploads, replacements, the sample toggle, removal, reordering --
+                    applies immediately.
+                </div>
+            </form>
+        {% endif %}
+    </div>
+</div>
+{% if is_edit_allowed %}
+    <div class="card noca-operational-card mb-4">
+        <h2 class="card-header h6 mb-0 fw-semibold">Upload test cases</h2>
+        <div class="card-body">
+            <form method="post"
+                  action="{{ page.upload_url }}"
+                  enctype="multipart/form-data"
+                  class="mb-4">
+                <label class="form-label small" for="tc_add_zip">Add cases from single-case ZIPs</label>
+                <div class="d-flex flex-wrap gap-2 align-items-start">
+                    <input type="file"
+                           class="form-control form-control-sm noca-judgment-file"
+                           id="tc_add_zip"
+                           name="tc_add_zip"
+                           accept=".zip"
+                           multiple
+                           required
+                           data-clears-typed-rows>
+                    <button type="submit" class="btn btn-outline-secondary btn-sm text-nowrap">
+                        {{ render_icon(icon="upload", classes="me-1") }}Add cases
+                    </button>
+                </div>
+                <div class="form-text">
+                    Each ZIP holds <code>input.txt</code>
+                    {% if not shell.is_interactive %}and <code>output.txt</code>{% endif %}
+                    (optionally <code>explanation.txt</code>). Added cases are secret; use the row
+                    actions to make one a sample.
+                </div>
+            </form>
+            <form method="post"
+                  action="{{ page.bulk_url }}"
+                  enctype="multipart/form-data"
+                  data-confirm="Replace all {{ page.case_count }} existing test case(s) with this archive?">
+                <label class="form-label small" for="tc_bulk_zip">Replace every test case from one ZIP</label>
+                <div class="d-flex flex-wrap gap-2 align-items-start">
+                    <input type="file"
+                           class="form-control form-control-sm noca-judgment-file"
+                           id="tc_bulk_zip"
+                           name="tc_bulk_zip"
+                           accept=".zip"
+                           required
+                           data-clears-typed-rows>
+                    <button type="submit" class="btn btn-outline-danger btn-sm text-nowrap">
+                        {{ render_icon(icon="upload", classes="me-1") }}Replace all
+                    </button>
+                </div>
+                <div class="form-text">
+                    Directory layout (<code>in/001.in</code>
+                    {% if not shell.is_interactive %}/ <code>out/001.out</code>{% endif %}
+                    ) or flat
+                    (<code>001.in</code>
+                    {% if not shell.is_interactive %}/ <code>001.out</code>{% endif %}
+                    ).
+                    <strong>This removes every case the problem has now.</strong>
+                    {% if shell.is_interactive %}
+                        An interactive problem's cases carry <strong>input only</strong>: the input
+                        parametrizes the validator, which decides the verdict.
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+{% endif %}

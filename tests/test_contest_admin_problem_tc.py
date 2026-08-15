@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -24,6 +24,10 @@ def _build_request() -> Request:
     async def edit_problem_form() -> None:
         """Placeholder route used only by url_for in this test."""
 
+    @app.get("/c/{slug}/admin/problems/{problem_id}/judgment/test-cases", name="problem_judgment_cases")
+    async def problem_judgment_cases() -> None:
+        """Placeholder route used only by url_for in this test."""
+
     scope = {
         "type": "http",
         "method": "GET",
@@ -44,12 +48,13 @@ def test_testcase_edit_return_url_targets_edited_row() -> None:
 
     url = _testcase_edit_return_url(request, "contest", "problem-123", "case-456")
 
-    assert url == "http://testserver/c/contest/admin/problems/problem-123/edit?tab=content#tc-case-456"
+    # The satellite routes return to the pane that owns them, and to the row.
+    assert url == "http://testserver/c/contest/admin/problems/problem-123/judgment/test-cases#tc-case-456"
 
 
-def test_problem_edit_template_loads_highlight_row_script() -> None:
-    """The problem edit page needs the shared hash highlighter for test-case rows."""
-    template = Path("web/template/admin/problems/edit.html").read_text(encoding="utf-8")
+def test_judgment_cases_template_loads_highlight_row_script() -> None:
+    """The judgment page owns case rows and therefore the hash highlighter."""
+    template = Path("web/template/admin/problems/judgment_cases.html").read_text(encoding="utf-8")
 
     assert "highlight-row.js" in template
 
@@ -57,12 +62,15 @@ def test_problem_edit_template_loads_highlight_row_script() -> None:
 def test_reorder_templates_load_sortable_assets() -> None:
     """Problem admin pages should load local SortableJS and reorder glue."""
     list_template = Path("web/template/admin/problems/list.html").read_text(encoding="utf-8")
-    edit_template = Path("web/template/admin/problems/edit.html").read_text(encoding="utf-8")
+    judgment_template = Path("web/template/admin/problems/judgment_cases.html").read_text(encoding="utf-8")
+    definition_template = Path("web/template/admin/problems/edit.html").read_text(encoding="utf-8")
 
     assert "Sortable.min.js" in list_template
     assert "tc-reorder-sortable.js" in list_template
-    assert "Sortable.min.js" in edit_template
-    assert "tc-reorder-sortable.js" in edit_template
+    assert "Sortable.min.js" in judgment_template
+    assert "tc-reorder-sortable.js" in judgment_template
+    assert "Sortable.min.js" not in definition_template
+    assert "tc-reorder-sortable.js" not in definition_template
 
 
 def test_problem_list_template_renders_drag_metadata() -> None:

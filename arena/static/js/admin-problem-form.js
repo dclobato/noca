@@ -30,7 +30,7 @@
     syncAuthorField();
   }
 
-  // ── Source and free-text author suggestions ────────────────────────────────
+  // ── Problem metadata suggestions ───────────────────────────────────────────
 
   document.querySelectorAll("input[data-suggestions-url][data-suggestions-field]").forEach((input) => {
     const suggestionsUrl = input.getAttribute("data-suggestions-url") || "";
@@ -109,6 +109,7 @@
     const hiddenEl = document.getElementById("cat-hidden");
     const inputEl = document.getElementById("cat-input");
     const dropdownEl = document.getElementById("cat-dropdown");
+    const statusEl = document.getElementById("cat-picker-status");
 
     /** @type {Map<string, {id: string, name: string, color: string, foreground_color: string}>} */
     const selected = new Map();
@@ -154,6 +155,7 @@
         removeBtn.addEventListener("click", () => {
           selected.delete(cat.id);
           renderPills();
+          announcePicker(`${cat.name} removed.`);
           if (inputEl) inputEl.focus();
         });
 
@@ -166,11 +168,73 @@
 
     // ── Dropdown helpers ──────────────────────────────────────────────────────
 
+    let activeOptionIndex = -1;
+
+    function announcePicker(message) {
+      if (!statusEl) return;
+      statusEl.textContent = "";
+      window.setTimeout(() => {
+        statusEl.textContent = message;
+      }, 0);
+    }
+
+    function setExpanded(expanded) {
+      if (inputEl) inputEl.setAttribute("aria-expanded", expanded ? "true" : "false");
+    }
+
     function closeDropdown() {
-      if (dropdownEl) {
-        dropdownEl.classList.remove("open");
-        dropdownEl.innerHTML = "";
+      if (!dropdownEl) return;
+      dropdownEl.classList.remove("open");
+      dropdownEl.replaceChildren();
+      activeOptionIndex = -1;
+      setExpanded(false);
+      if (inputEl) inputEl.setAttribute("aria-activedescendant", "");
+    }
+
+    function optionItems() {
+      if (!dropdownEl) return [];
+      return Array.from(dropdownEl.querySelectorAll("[role='option']:not([aria-disabled='true'])"));
+    }
+
+    function setActiveOption(index) {
+      const items = optionItems();
+      if (!items.length || !inputEl) return;
+      activeOptionIndex = Math.max(0, Math.min(index, items.length - 1));
+      items.forEach((item, itemIndex) => {
+        const active = itemIndex === activeOptionIndex;
+        item.classList.toggle("is-active", active);
+        item.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      const activeItem = items[activeOptionIndex];
+      inputEl.setAttribute("aria-activedescendant", activeItem.id);
+      activeItem.scrollIntoView({ block: "nearest" });
+    }
+
+    function showDropdownMessage(message, options) {
+      if (!dropdownEl) return;
+      dropdownEl.replaceChildren();
+      const item = document.createElement("div");
+      item.className = "arena-cat-dropdown-empty";
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-disabled", "true");
+      item.textContent = message;
+      dropdownEl.appendChild(item);
+      dropdownEl.classList.add("open");
+      activeOptionIndex = -1;
+      setExpanded(true);
+      if (inputEl) inputEl.setAttribute("aria-activedescendant", "");
+      if (!options || options.announce !== false) announcePicker(message);
+    }
+
+    function chooseCategory(cat) {
+      selected.set(cat.id, cat);
+      renderPills();
+      if (inputEl) {
+        inputEl.value = "";
+        inputEl.focus();
       }
+      closeDropdown();
+      announcePicker(`${cat.name} added.`);
     }
 
     /**
@@ -178,20 +242,22 @@
      */
     function renderDropdown(cats) {
       if (!dropdownEl) return;
-      dropdownEl.innerHTML = "";
+      dropdownEl.replaceChildren();
 
       const unselected = cats.filter((c) => !selected.has(c.id));
 
       if (!unselected.length) {
-        const empty = document.createElement("div");
-        empty.className = "arena-cat-dropdown-empty";
-        empty.textContent = cats.length ? "All matching categories already added." : "No categories found.";
-        dropdownEl.appendChild(empty);
+        showDropdownMessage(cats.length ? "All matching categories already added." : "No categories found.");
+        return;
       } else {
-        unselected.forEach((cat) => {
+        unselected.forEach((cat, index) => {
           const item = document.createElement("button");
           item.type = "button";
           item.className = "arena-cat-dropdown-item";
+          item.id = `cat-option-${index}`;
+          item.tabIndex = -1;
+          item.setAttribute("role", "option");
+          item.setAttribute("aria-selected", "false");
 
           const badge = document.createElement("span");
           badge.className = "badge rounded-pill";
@@ -200,42 +266,55 @@
           badge.textContent = cat.name;
 
           item.appendChild(badge);
-          item.addEventListener("click", () => {
-            selected.set(cat.id, cat);
-            renderPills();
-            if (inputEl) {
-              inputEl.value = "";
-              inputEl.focus();
-            }
-            closeDropdown();
-          });
+          item.addEventListener("pointerdown", (event) => event.preventDefault());
+          item.addEventListener("click", () => chooseCategory(cat));
 
           dropdownEl.appendChild(item);
         });
       }
 
       dropdownEl.classList.add("open");
+      activeOptionIndex = -1;
+      setExpanded(true);
+      if (inputEl) inputEl.setAttribute("aria-activedescendant", "");
+      announcePicker(`${unselected.length} categor${unselected.length === 1 ? "y" : "ies"} available.`);
     }
 
     // ── Search with debounce ──────────────────────────────────────────────────
 
     let searchTimer = null;
+    let searchController = null;
 
     async function doSearch(q) {
       if (!searchUrl) return;
+      if (searchController) searchController.abort();
+      searchController = new AbortController();
+      const requestController = searchController;
+      showDropdownMessage("Loading categories…", { announce: false });
+      announcePicker("Loading categories.");
       try {
-        const resp = await fetch(`${searchUrl}?q=${encodeURIComponent(q)}`);
-        if (!resp.ok) return;
+        const resp = await fetch(`${searchUrl}?q=${encodeURIComponent(q)}`, {
+          signal: requestController.signal
+        });
+        if (!resp.ok) throw new Error("Category search failed");
         const data = await resp.json();
+        if (requestController !== searchController) return;
         renderDropdown(data.categories || []);
-      } catch {
-        // Network error — silently ignore
+      } catch (error) {
+        if (error && typeof error === "object" && error.name === "AbortError") return;
+        if (requestController === searchController) {
+          showDropdownMessage("Could not load categories. Try again.");
+        }
       }
     }
 
     if (inputEl) {
       inputEl.addEventListener("input", () => {
         clearTimeout(searchTimer);
+        if (searchController) {
+          searchController.abort();
+          searchController = null;
+        }
         const q = inputEl.value.trim();
         if (!q) {
           closeDropdown();
@@ -246,37 +325,19 @@
 
       inputEl.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
+          e.preventDefault();
           closeDropdown();
           return;
         }
-        if (e.key === "ArrowDown" && dropdownEl && dropdownEl.classList.contains("open")) {
-          const first = dropdownEl.querySelector(".arena-cat-dropdown-item");
-          if (first) {
-            e.preventDefault();
-            first.focus();
-          }
-        }
-      });
-    }
-
-    // Keyboard navigation within the dropdown
-    if (dropdownEl) {
-      dropdownEl.addEventListener("keydown", (e) => {
-        const items = Array.from(dropdownEl.querySelectorAll(".arena-cat-dropdown-item"));
-        const idx = items.indexOf(document.activeElement);
-        if (e.key === "ArrowDown" && idx < items.length - 1) {
+        const items = optionItems();
+        if ((e.key === "ArrowDown" || e.key === "ArrowUp") && items.length) {
           e.preventDefault();
-          items[idx + 1].focus();
-        } else if (e.key === "ArrowUp") {
+          const step = e.key === "ArrowDown" ? 1 : -1;
+          const start = activeOptionIndex < 0 ? (step > 0 ? 0 : items.length - 1) : activeOptionIndex + step;
+          setActiveOption(start);
+        } else if (e.key === "Enter" && activeOptionIndex >= 0 && items[activeOptionIndex]) {
           e.preventDefault();
-          if (idx <= 0) {
-            if (inputEl) inputEl.focus();
-          } else {
-            items[idx - 1].focus();
-          }
-        } else if (e.key === "Escape") {
-          closeDropdown();
-          if (inputEl) inputEl.focus();
+          items[activeOptionIndex].click();
         }
       });
     }

@@ -77,8 +77,13 @@ from web.routes.contest_admin_problem_categories import router as contest_admin_
 from web.routes.contest_admin_problem_edit import router as contest_admin_problem_edit_router
 from web.routes.contest_admin_problem_interactions import router as contest_admin_problem_interactions_router
 from web.routes.contest_admin_problem_io import router as contest_admin_problem_io_router
+from web.routes.contest_admin_problem_judgment_pages import router as contest_admin_problem_judgment_pages_router
+from web.routes.contest_admin_problem_judgment_tc import router as contest_admin_problem_judgment_tc_router
 from web.routes.contest_admin_problem_limits import router as contest_admin_problem_limits_router
+from web.routes.contest_admin_problem_new import router as contest_admin_problem_new_router
 from web.routes.contest_admin_problem_tc import router as contest_admin_problem_tc_router
+from web.routes.contest_admin_problem_tc_pages import router as contest_admin_problem_tc_pages_router
+from web.routes.contest_admin_problem_validator import router as contest_admin_problem_validator_router
 from web.routes.contest_admin_reports import router as contest_admin_reports_router
 from web.routes.contest_admin_user import router as contest_admin_user_router
 from web.routes.contest_admin_user_batch import router as contest_admin_user_batch_router
@@ -540,12 +545,17 @@ app.include_router(contest_tasks_router)
 app.include_router(contest_tasks_staff_router)
 app.include_router(contest_reports_router)
 app.include_router(contest_solution_tests_router)
+app.include_router(contest_admin_problem_new_router)
 app.include_router(contest_admin_problem_router)
 app.include_router(contest_admin_problem_edit_router)
+app.include_router(contest_admin_problem_judgment_tc_router)
+app.include_router(contest_admin_problem_judgment_pages_router)
+app.include_router(contest_admin_problem_validator_router)
 app.include_router(contest_admin_problem_limits_router)
 app.include_router(contest_admin_problem_categories_router)
 app.include_router(contest_admin_problem_io_router)
 app.include_router(contest_admin_problem_tc_router)
+app.include_router(contest_admin_problem_tc_pages_router)
 app.include_router(contest_admin_problem_interactions_router)
 app.include_router(contest_admin_user_router)
 app.include_router(contest_admin_user_batch_router)

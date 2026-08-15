@@ -33,7 +33,12 @@ from shared.db_schema import (
     arena_users,
     languages,
 )
-from shared.enumerations import ArenaAIBatchJobStatus, ArenaNotificationKind, ArenaRole
+from shared.enumerations import (
+    ArenaAIBatchJobStatus,
+    ArenaNotificationKind,
+    ArenaRole,
+    ProblemValidatorType,
+)
 
 _LANGUAGE_ID = "python3"
 _LOG = logging.getLogger("test_stale_batch_expiry")
@@ -100,6 +105,7 @@ async def _seed_submission(
                 problem_image_base64=None,
                 problem_image_mime=None,
                 problem_image_caption=None,
+                validator_type=ProblemValidatorType.STANDARD,
             )
         )
         await conn.execute(

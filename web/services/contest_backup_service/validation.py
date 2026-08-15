@@ -23,13 +23,13 @@ from shared.db_schema import languages as languages_t
 from web.services.contest_service import slug_format_is_valid
 
 from .models import (
-    FORMAT_VERSION,
     MAX_ARCHIVE_MEMBERS,
     MAX_JSON_MEMBER_BYTES,
     MAX_JSON_TOTAL_BYTES,
     MAX_MEMBER_BYTES,
     MAX_TOTAL_BYTES,
     REQUIRED_MEMBERS,
+    SUPPORTED_FORMAT_VERSIONS,
     ContestBackupError,
 )
 
@@ -57,7 +57,7 @@ class _ProblemReferenceModel(BaseModel):
 
 
 class _ManifestModel(BaseModel):
-    """Strict v1 manifest shape."""
+    """Strict manifest shape, identical across both supported versions."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -168,10 +168,11 @@ def validate_manifest(manifest: Any, index: ArchiveIndex) -> dict[str, Any]:
     """Validate the strict manifest shape and required member presence."""
     if not isinstance(manifest, dict):
         raise ContestBackupError("manifest.json must be a JSON object.")
-    if manifest.get("format_version") != FORMAT_VERSION:
+    if manifest.get("format_version") not in SUPPORTED_FORMAT_VERSIONS:
+        supported = ", ".join(str(version) for version in SUPPORTED_FORMAT_VERSIONS)
         raise ContestBackupError(
             f"Unsupported backup format version {manifest.get('format_version')!r}; "
-            f"this server restores version {FORMAT_VERSION}."
+            f"this server restores versions {supported}."
         )
     try:
         validated = _ManifestModel.model_validate(manifest, strict=True)

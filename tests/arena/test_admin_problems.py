@@ -30,7 +30,7 @@ import arena.models.arena_users  # noqa: F401
 from arena.config import settings as arena_settings
 from arena.models.arena_problems import ArenaCategory, ArenaProblemCustomValidator
 from arena.services import admin_problem_service, admin_problem_tc_service
-from shared.enumerations import ArenaRole, CustomValidatorActiveState
+from shared.enumerations import ArenaRole, CustomValidatorActiveState, ProblemValidatorType
 
 # ── Authorization tests ───────────────────────────────────────────────────────
 
@@ -132,6 +132,7 @@ async def test_problem_search_defaults_to_relevance_and_offers_relevance_reset(
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.commit()
     token = _login_token(app, judge)
@@ -152,6 +153,74 @@ async def test_problem_search_defaults_to_relevance_and_offers_relevance_reset(
     assert title_response.status_code == 200
     assert "Sort by relevance" in title_response.text
     assert "sort_by=relevance" in title_response.text
+
+
+@pytest.mark.asyncio
+async def test_problem_list_filters_by_enabled_status(session: AsyncSession) -> None:
+    app = _build_admin_app(session)
+    judge = await _create_user(
+        session,
+        email="jenabled@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+        can_edit=True,
+    )
+    enabled_problem = await admin_problem_service.create_problem(
+        session,
+        caller_id=judge.id,
+        title="Visible Problem",
+        validator_type=ProblemValidatorType.STANDARD,
+        source=None,
+        hide_author_show_source=False,
+        time_limit_ms=1000,
+        memory_limit_kb=262144,
+        pids_limit=64,
+        output_limit_in_bytes=65536,
+        problem_statement="Statement",
+        image_b64=None,
+        image_mime=None,
+        image_caption=None,
+        notes=None,
+        category_ids=[],
+    )
+    await admin_problem_service.create_problem(
+        session,
+        caller_id=judge.id,
+        title="Hidden Problem",
+        validator_type=ProblemValidatorType.STANDARD,
+        source=None,
+        hide_author_show_source=False,
+        time_limit_ms=1000,
+        memory_limit_kb=262144,
+        pids_limit=64,
+        output_limit_in_bytes=65536,
+        problem_statement="Statement",
+        image_b64=None,
+        image_mime=None,
+        image_caption=None,
+        notes=None,
+        category_ids=[],
+    )
+    enabled_problem.enabled = True
+    await session.commit()
+    token = _login_token(app, judge)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        enabled_response = await client.get("/admin/problems", params={"enabled": "1"})
+        disabled_response = await client.get("/admin/problems", params={"enabled": "0"})
+        all_response = await client.get("/admin/problems")
+
+    assert "Visible Problem" in enabled_response.text
+    assert "Hidden Problem" not in enabled_response.text
+
+    assert "Hidden Problem" in disabled_response.text
+    assert "Visible Problem" not in disabled_response.text
+
+    assert "Visible Problem" in all_response.text
+    assert "Hidden Problem" in all_response.text
 
 
 @pytest.mark.asyncio
@@ -180,6 +249,7 @@ async def test_problem_list_renders_custom_validator_marker(session: AsyncSessio
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.INTERACTIVE,
     )
     session.add(
         ArenaProblemCustomValidator(
@@ -227,6 +297,7 @@ async def test_problem_list_filters_categories_by_slug(session: AsyncSession) ->
         image_caption=None,
         notes=None,
         category_ids=[category.id],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await admin_problem_service.create_problem(
         session,
@@ -244,6 +315,7 @@ async def test_problem_list_filters_categories_by_slug(session: AsyncSession) ->
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.commit()
 
@@ -271,7 +343,7 @@ async def test_problem_create_renders_form(session: AsyncSession) -> None:
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
     ) as client:
-        response = await client.get("/admin/problems/new")
+        response = await client.get("/admin/problems/new/standard")
     assert response.status_code == 200
     assert "New Problem" in response.text
     assert 'id="author_is_owner"' in response.text
@@ -285,7 +357,14 @@ async def test_problem_create_renders_form(session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
-async def test_problem_create_success_redirects_to_list_with_highlight(session: AsyncSession) -> None:
+async def test_problem_create_success_lands_on_the_judgment_pages(session: AsyncSession) -> None:
+    """Creation collects the definition, then hands the author the next job.
+
+    It used to return to the problem list, which said nothing about the problem
+    being unjudgeable until it has test cases. A standard problem lands on its
+    test cases; an interactive one lands on its validator page (covered by
+    ``tests/arena/test_admin_problem_chooser.py``).
+    """
     app = _build_admin_app(session)
     judge = await _create_user(session, email="j3@test.example", role=ArenaRole.ARENA_JUDGE, can_edit=True)
     token = _login_token(app, judge)
@@ -296,7 +375,7 @@ async def test_problem_create_success_redirects_to_list_with_highlight(session: 
         cookies={"arena_access_token": token},
     ) as client:
         response = await client.post(
-            "/admin/problems/new",
+            "/admin/problems/new/standard",
             data={
                 "title": "My First Problem",
                 "author_is_owner": "true",
@@ -309,7 +388,7 @@ async def test_problem_create_success_redirects_to_list_with_highlight(session: 
             },
         )
     assert response.status_code == 303
-    assert response.headers["location"].startswith("http://testserver/admin/problems#")
+    assert response.headers["location"].endswith("/judgment/test-cases")
 
 
 @pytest.mark.asyncio
@@ -321,7 +400,7 @@ async def test_problem_create_blank_title_returns_400(session: AsyncSession) -> 
         transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
     ) as client:
         response = await client.post(
-            "/admin/problems/new",
+            "/admin/problems/new/standard",
             data={
                 "title": "   ",
                 "author_is_owner": "true",
@@ -332,7 +411,7 @@ async def test_problem_create_blank_title_returns_400(session: AsyncSession) -> 
                 "problem_statement": "x",
             },
         )
-    assert response.status_code == 400
+    assert response.status_code == 422
 
 
 # ── Edit problem ──────────────────────────────────────────────────────────────
@@ -370,6 +449,7 @@ async def test_problem_edit_shows_owner_link_to_admin(session: AsyncSession) -> 
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.commit()
 
@@ -415,6 +495,7 @@ async def test_problem_edit_hides_owner_link_from_judge(session: AsyncSession) -
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.commit()
 
@@ -455,6 +536,7 @@ async def test_judge_cannot_edit_other_judges_problem(session: AsyncSession) -> 
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.commit()
 
@@ -492,6 +574,7 @@ async def test_problem_update_redirects_to_list(session: AsyncSession) -> None:
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.commit()
 
@@ -559,6 +642,7 @@ async def test_toggle_enabled_redirects_to_list(session: AsyncSession) -> None:
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     # Every problem needs a test case before it can judge, so before it can be enabled.
     _tc, write_files = await admin_problem_tc_service.create_testcase(
@@ -613,6 +697,7 @@ async def test_toggle_enabled_is_refused_without_a_test_case(session: AsyncSessi
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.commit()
 
@@ -632,16 +717,16 @@ async def test_toggle_enabled_is_refused_without_a_test_case(session: AsyncSessi
 
 
 @pytest.mark.asyncio
-async def test_toggle_enabled_is_refused_after_removing_the_validator_of_an_output_less_case(
+async def test_toggle_enabled_is_refused_after_removing_the_validator(
     session: AsyncSession,
 ) -> None:
-    """A case that only ever carried input cannot judge a plain problem.
+    """An interactive problem stripped of its validator cannot be enabled.
 
-    While interactive, an output-less case is exactly what the model expects: it
-    parametrizes the validator. Once the validator is removed through the real
-    route, the problem is a plain token-compare problem again, and that same
-    case has nothing to compare the contestant's output against — enabling must
-    stay blocked until the case gets a real expected output.
+    It also does not become a plain problem: the strategy is immutable, so the
+    problem stays interactive and its output-less cases stay exactly what they
+    were meant to be. Enabling is blocked until a validator compiles again,
+    rather than the problem silently becoming token-compared against cases that
+    have nothing to compare.
     """
     app = _build_admin_app(session)
     judge = await _create_user(session, email="j7@test.example", role=ArenaRole.ARENA_JUDGE, can_edit=True)
@@ -662,6 +747,7 @@ async def test_toggle_enabled_is_refused_after_removing_the_validator_of_an_outp
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.INTERACTIVE,
     )
     session.add(
         ArenaProblemCustomValidator(
@@ -703,6 +789,7 @@ async def test_toggle_enabled_is_refused_after_removing_the_validator_of_an_outp
     assert enable_response.headers["location"].endswith(f"/admin/problems/{problem.id}/edit")
     await session.refresh(problem)
     assert problem.enabled is False
+    assert problem.validator_type is ProblemValidatorType.INTERACTIVE
     assert await session.get(ArenaProblemCustomValidator, problem.id) is None
 
 
@@ -727,6 +814,7 @@ async def _make_problem_with_tc(session: AsyncSession, owner_id: str, *, is_samp
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     tc, write_files = await admin_problem_tc_service.create_testcase(
         session,
@@ -742,7 +830,7 @@ async def _make_problem_with_tc(session: AsyncSession, owner_id: str, *, is_samp
 
 
 @pytest.mark.asyncio
-async def test_edit_page_renders_toggle_button_and_guard_scripts(session: AsyncSession) -> None:
+async def test_judgment_page_renders_toggle_button_and_guard_scripts(session: AsyncSession) -> None:
     app = _build_admin_app(session)
     judge = await _create_user(session, email="tctoggle-render@test.example", role=ArenaRole.ARENA_JUDGE, can_edit=True)
     problem_id, tc_id = await _make_problem_with_tc(session, judge.id)
@@ -751,23 +839,27 @@ async def test_edit_page_renders_toggle_button_and_guard_scripts(session: AsyncS
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
     ) as client:
-        response = await client.get(f"/admin/problems/{problem_id}/edit")
+        response = await client.get(f"/admin/problems/{problem_id}/judgment/test-cases")
 
     assert response.status_code == 200
     body = response.text
     # Row anchor for the highlight pattern
     assert f'id="tc-{tc_id}"' in body
-    # Toggle control posts to the new route
-    assert f"/testcases/{tc_id}/toggle-sample" in body
+    # The toggle posts to the judgment endpoint and applies immediately; the
+    # editor's own pane no longer carries pending state for it.
+    assert f"/judgment/test-cases/{tc_id}/toggle-sample" in body
     assert "swap_horiz" in body
-    # UI warning + row highlight assets are wired on the edit page
+    # UI warning + row highlight assets are wired on the page that owns the rows
     assert "problem-edit-unsaved-guard.js" in body
     assert "highlight-row.js" in body
-    # Actions use the shared icon btn-group pattern, not loose text buttons
-    assert "noca-icon-btn-group" in body
-    assert "noca-icon-btn-wrap" in body
-    assert ">Edit<" not in body
-    assert ">Remove<" not in body
+    # The row keeps one obvious Edit action and discloses the rest behind More,
+    # which replaced the older icon btn-group (see the Contest-side counterpart
+    # in tests/web/test_contest_admin_problem_tc.py).
+    assert "noca-row-actions" in body
+    assert "dropdown-menu dropdown-menu-end" in body
+    assert "More actions for test case" in body
+    assert "Remove test case" in body
+    assert "noca-icon-btn-group" not in body
 
 
 @pytest.mark.asyncio
@@ -783,10 +875,13 @@ async def test_toggle_sample_flips_and_redirects_to_row_anchor(session: AsyncSes
         follow_redirects=False,
         cookies={"arena_access_token": token},
     ) as client:
-        response = await client.post(f"/admin/problems/{problem_id}/testcases/{tc_id}/toggle-sample")
+        response = await client.post(f"/admin/problems/{problem_id}/judgment/test-cases/{tc_id}/toggle-sample")
 
     assert response.status_code == 303
-    assert response.headers["location"] == (f"http://testserver/admin/problems/{problem_id}/edit#tc-{tc_id}")
+    # The action returns to the page that owns it, and to the row it changed.
+    assert response.headers["location"] == (
+        f"http://testserver/admin/problems/{problem_id}/judgment/test-cases#tc-{tc_id}"
+    )
 
     tc = await admin_problem_tc_service.get_testcase(session, tc_id, problem_id=problem_id)
     assert tc is not None
@@ -807,7 +902,7 @@ async def test_judge_cannot_toggle_other_judges_testcase(session: AsyncSession) 
         follow_redirects=False,
         cookies={"arena_access_token": token_b},
     ) as client:
-        response = await client.post(f"/admin/problems/{problem_id}/testcases/{tc_id}/toggle-sample")
+        response = await client.post(f"/admin/problems/{problem_id}/judgment/test-cases/{tc_id}/toggle-sample")
 
     assert response.status_code == 404
     # Flag must remain unchanged
@@ -841,6 +936,7 @@ async def test_admin_list_shows_all_problems(session: AsyncSession) -> None:
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.commit()
 

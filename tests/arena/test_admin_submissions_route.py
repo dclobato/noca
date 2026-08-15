@@ -35,6 +35,7 @@ from arena.dependencies.admin import require_arena_admin
 from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_dashboard_history import router
+from arena.routes.admin_dashboard_security import router as security_events_router
 from arena.routes.legal import router as arena_legal_router
 from arena.services import admin_submission_service
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
@@ -43,7 +44,13 @@ from shared.db_schema.arena.arena_submissions import (
     arena_submission_judgments,
     arena_submissions,
 )
-from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_LABELS, ArenaRole, JudgmentStatus
+from shared.enumerations import (
+    VERDICT_BADGE_CLASSES,
+    VERDICT_LABELS,
+    ArenaRole,
+    JudgmentStatus,
+    ProblemValidatorType,
+)
 from web.models.language import Language
 
 # ---------------------------------------------------------------------------
@@ -103,6 +110,7 @@ async def _make_problem(session: AsyncSession, owner_id: str, *, arena_number: i
         title=f"Test Problem {uuid.uuid4().hex[:6]}",
         owner_id=owner_id,
         problem_statement="<p>Test.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     if arena_number is not None:
         problem.arena_number = arena_number
@@ -677,6 +685,7 @@ def _build_app(session: Any, *, authorized: bool = True) -> FastAPI:
         return Response("[]", media_type="application/json")
 
     app.include_router(router)
+    app.include_router(security_events_router)
     app.include_router(arena_legal_router)
 
     async def _get_db_override() -> Any:

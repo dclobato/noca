@@ -63,6 +63,9 @@ class SampleInteractionRowView:
         has_explanation: Whether an author explanation is present.
         edit_url: Per-row edit URL.
         move_url: Per-row reorder POST URL.
+        delete_url: Per-row deletion POST URL. Deletion used to be client-side
+            pending state applied by the problem Save; on the judgment page it is
+            one immediate action like every other.
     """
 
     id: str
@@ -72,6 +75,7 @@ class SampleInteractionRowView:
     has_explanation: bool
     edit_url: str
     move_url: str
+    delete_url: str = ""
 
 
 def parse_interaction_text(text: str) -> dict[str, object]:

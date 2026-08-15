@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,9 +8,16 @@
   Shared confirmation modal for removing a problem's custom validator, used by the
   Web and Arena problem-edit pages. Without its validator a problem's sample
   interactions have nothing to illustrate, so the admin must choose what happens
-  to them: the two submit buttons carry `keep_interactions=true|false`, the exact
-  values the remove endpoints accept. Context:
-    validator_remove_url  str  POST target
+  to them: the two confirm buttons carry `keep_interactions=true|false`, the exact
+  strings both Save routes accept -- a `bool` would let FastAPI coerce `1`, `on`
+  and `yes` into a choice between hiding data and destroying it.
+
+  The modal is its own form posting straight to the removal endpoint, like every
+  other action on the judgment-data pages. It briefly submitted the editor's
+  single Save instead (`form="edit-form"`), which is why the buttons must carry
+  their own action now -- that form does not exist on these pages, so confirming
+  did nothing at all. Context:
+    validator_remove_url  str  where the confirmation posts
     interaction_count     int  non-hidden interactions the problem currently has
 #}
 <div class="modal fade"
@@ -30,9 +37,10 @@
             <form method="post" action="{{ validator_remove_url }}">
                 <div class="modal-body">
                     <p>
-                        Removing the validator makes this problem non-interactive again. Its
-                        test cases stay as they are, but they carry no expected output, so the
-                        problem cannot be judged until you add one to each case.
+                        This problem stays interactive: a problem's validation strategy is
+                        chosen when it is created and cannot be changed. Removing the validator
+                        leaves it with no way to judge, so it stops accepting submissions until
+                        you upload a replacement validator and it compiles successfully.
                     </p>
                     {% if interaction_count %}
                         <p class="mb-0">
@@ -51,16 +59,19 @@
                         <button type="submit"
                                 name="keep_interactions"
                                 value="true"
-                                class="btn btn-outline-primary">Keep them (hidden)</button>
+                                class="btn btn-outline-primary"
+                                data-validator-remove-confirm>Keep them (hidden)</button>
                         <button type="submit"
                                 name="keep_interactions"
                                 value="false"
-                                class="btn btn-danger">Delete them permanently</button>
+                                class="btn btn-danger"
+                                data-validator-remove-confirm>Delete them permanently</button>
                     {% else %}
                         <button type="submit"
                                 name="keep_interactions"
                                 value="true"
-                                class="btn btn-danger">Remove validator</button>
+                                class="btn btn-danger"
+                                data-validator-remove-confirm>Remove validator</button>
                     {% endif %}
                 </div>
             </form>

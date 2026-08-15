@@ -23,7 +23,7 @@ from autojudge.types import (
     CustomValidatorDispatchState,
     ProblemLimits,
 )
-from shared.enumerations import CustomValidatorCrashReason, Verdict
+from shared.enumerations import CustomValidatorCrashReason, ProblemValidatorType, Verdict
 from shared.language_registry import default_language_registry
 
 
@@ -160,9 +160,16 @@ def test_build_validator_environment_includes_web_per_language_limits() -> None:
 
 
 @pytest.mark.asyncio
-async def test_prepare_rejects_configured_validator_without_active_revision() -> None:
+async def test_prepare_rejects_interactive_problem_without_active_revision() -> None:
+    """An interactive problem with no valid revision fails closed.
+
+    It is never allowed to fall through to the token comparator, which would
+    judge it against test cases that carry no expected output.
+    """
     db = AsyncMock()
-    db.get_custom_validator_dispatch_state.return_value = CustomValidatorDispatchState(True, None)
+    db.get_custom_validator_dispatch_state.return_value = CustomValidatorDispatchState(
+        ProblemValidatorType.INTERACTIVE, None
+    )
     with pytest.raises(CustomValidatorUnavailableError):
         await service.prepare_custom_validator(
             domain="contest",
@@ -179,7 +186,7 @@ async def test_prepare_rejects_configured_validator_without_active_revision() ->
 async def test_prepare_compiles_active_revision_for_each_submission(monkeypatch) -> None:
     db = AsyncMock()
     db.get_custom_validator_dispatch_state.return_value = CustomValidatorDispatchState(
-        True,
+        ProblemValidatorType.INTERACTIVE,
         ActiveCustomValidator("python3", "print('validator')"),
     )
     compile_submission = AsyncMock(return_value=CompileResult(True, 0, "", b"artifact"))
@@ -399,3 +406,51 @@ async def test_attempt_target_is_threaded_through_the_real_replay_loop(monkeypat
     assert all(call.kwargs["attempt_target"] == "solution_test" for call in calls)
     assert all(call.kwargs["domain"] == "contest" for call in calls)
     assert all(call.kwargs["owner_id"] == "judgment" for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_prepare_returns_none_for_a_standard_problem_carrying_a_stale_validator() -> None:
+    """A standard problem dispatches as standard whatever the validator table holds.
+
+    ``None`` is what routes the submission to the token comparator, which is
+    correct here and is decided by the stored strategy alone.
+    """
+    db = AsyncMock()
+    db.get_custom_validator_dispatch_state.return_value = CustomValidatorDispatchState(
+        ProblemValidatorType.STANDARD,
+        ActiveCustomValidator("python3", "print('stale')"),
+    )
+
+    prepared = await service.prepare_custom_validator(
+        domain="contest",
+        judgment_id="judgment",
+        problem_id="problem",
+        db=db,
+        language_registry=default_language_registry(),
+        docker_client=Mock(),
+        executor=Mock(),
+    )
+
+    assert prepared is None
+
+
+@pytest.mark.asyncio
+async def test_prepare_refuses_an_unsupported_strategy_instead_of_falling_back() -> None:
+    """A reserved output-checker problem fails; it never reaches the comparator."""
+    db = AsyncMock()
+    db.get_custom_validator_dispatch_state.return_value = CustomValidatorDispatchState(
+        ProblemValidatorType.OUTPUT_CHECKER,
+        None,
+        unsupported_reason="Output checker validation is not available in this build.",
+    )
+
+    with pytest.raises(CustomValidatorUnavailableError, match="not available in this build"):
+        await service.prepare_custom_validator(
+            domain="contest",
+            judgment_id="judgment",
+            problem_id="problem",
+            db=db,
+            language_registry=default_language_registry(),
+            docker_client=Mock(),
+            executor=Mock(),
+        )

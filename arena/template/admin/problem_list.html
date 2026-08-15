@@ -23,7 +23,7 @@
                         {{ render_icon(icon="upload") }}
                         Import problem
                     </a>
-                    <a href="{{ request.url_for("arena_admin_problem_new") }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"
+                    <a href="{{ request.url_for("arena_admin_problem_new_choose") }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"
                        class="btn btn-primary btn-sm">
                         {{ render_icon(icon="add") }}
                         Add new problem
@@ -108,6 +108,16 @@
                     </select>
                 </div>
                 <div>
+                    <label class="form-label form-label-sm mb-1" for="enabled">Status</label>
+                    <select class="form-select form-select-sm arena-filter-narrow"
+                            id="enabled"
+                            name="enabled">
+                        <option value="">All statuses</option>
+                        <option value="1" {% if selected_enabled == "1" %}selected{% endif %}>Enabled</option>
+                        <option value="0" {% if selected_enabled == "0" %}selected{% endif %}>Disabled</option>
+                    </select>
+                </div>
+                <div>
                     <label class="form-label form-label-sm mb-1" for="per_page">Per page</label>
                     <select class="form-select form-select-sm" id="per_page" name="per_page">
                         {% for n in [10, 25, 50, 100] %}
@@ -117,7 +127,7 @@
                 </div>
                 {% if sort_was_explicit %}<input type="hidden" name="sort_by" value="{{ sort_by }}">{% endif %}
                 {% include "_partials/filter_submit_button.html" %}
-                {% set _filters_active = search or language or selected_owner_id or (selected_category_slugs | length > 0) or per_page != 25 or sort_by != 'number_asc' %}
+                {% set _filters_active = search or language or selected_enabled or selected_owner_id or (selected_category_slugs | length > 0) or per_page != 25 or sort_by != 'number_asc' %}
                 {% with clear_url=request.url_for("arena_admin_problem_list"), filters_active=_filters_active %}
                     {% include "_partials/filter_clear_link.html" %}
                 {% endwith %}
@@ -217,6 +227,14 @@
                                        data-bs-container="body"
                                        title="Edit problem"
                                        aria-label="Edit problem">{{ render_icon(icon="edit") }}</a>
+                                    <a href="{{ request.url_for('arena_admin_problem_judgment', problem_id=row.id) }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"
+                                       class="btn arena-icon-button btn-sm"
+                                       data-bs-toggle="tooltip"
+                                       data-bs-container="body"
+                                       title="Judgment data"
+                                       aria-label="Judgment data for problem {{ row.arena_number }}">
+                                        {{ render_icon(icon="rule") }}
+                                    </a>
                                     <a href="{{ request.url_for('arena_admin_problem_export', problem_id=row.id) }}"
                                        class="btn arena-icon-button btn-sm"
                                        data-bs-toggle="tooltip"

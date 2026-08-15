@@ -65,6 +65,7 @@ All routes in this group require a valid UberAdmin JWT (`noca_access_token` cook
 |--------|-----|-------------|
 | `GET` | `/uberadmin` | Renders the UberAdmin dashboard. Displays three columns — Past, Live, and Upcoming contests — sourced from active contests in the database. Past contest cards include a Make inactive action. Also shows action buttons for creating contests, accessing the problem bank, viewing inactive contests, and managing UberAdmins. |
 | `GET` | `/uberadmin/security-events` | Renders the Web security-event log (auth failures, lockouts, existing-account signups, admin actions). Accepts optional `?event_type=`, `?per_page=` (10/25/50/100/500), and `?page=` filters; shows all retained matching Web rows through pagination. Route lives in `web/routes/uberadmin_security.py`. |
+| `GET` | `/uberadmin/security-events.csv` | Downloads the **complete** Web security-event log as a CSV attachment (UTF-8 BOM, newest first, one row per event with the JSON metadata in a single cell). Takes no query parameters: the export deliberately ignores the page's filters and pagination, and is scoped to `module=web` only. Route lives in `web/routes/uberadmin_security.py`. |
 | `GET` | `/uberadmin/uberadmins` | Lists UberAdmins. Accepts optional `?q=` search over full name and email. |
 | `GET` | `/uberadmin/uberadmins/new` | Renders the Add UberAdmin form (fields: full name, email, username). |
 | `POST` | `/uberadmin/uberadmins/new` | Creates a new UberAdmin. Validates form fields, checks for duplicate username/email, generates a diceware password, persists the record, and re-renders the page with the generated credentials on success or an error message on failure. |
@@ -302,7 +303,7 @@ diagnostics are shown without redaction.
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
 | `GET` | `/c/{slug}/solution-tests/` | ua, a, j | Full page: upload form plus paginated run history (50/page). `problem_id` filters the history and preselects the form's problem; `page` paginates. |
-| `POST` | `/c/{slug}/solution-tests/submit` | ua, a, j | Queue one run. Form fields: `problem_id`, `language_id`, `source_file` (multipart). Validates in order: problem belongs to contest → language available for contest → non-empty file → size within `contest.max_problem_file_size_bytes` (0 = unlimited) → no NUL bytes → judgeability (validator available, test cases exist). Enforces an independent per-actor rate limit (see `rate_limit_service.py`). On success commits and enqueues a `SolutionTestJob` with `priority=contest.is_running`. Publishes **no** `SubmissionEvent` and **no** `VerdictEvent`. Redirects (303) to the run detail page. |
+| `POST` | `/c/{slug}/solution-tests/submit` | ua, a, j | Queue one run. Form fields: `problem_id`, `language_id`, `source_file` (multipart). Validates in order: problem belongs to contest → language available for contest → non-empty file → size within `contest.max_problem_file_size_bytes` (0 = unlimited) → no NUL bytes → judgeability (the shared contract read from the problem's stored strategy: an interactive problem needs an active `VALID` validator and a secret case, a standard one needs cases that all carry an expected output). Enforces an independent per-actor rate limit (see `rate_limit_service.py`). On success commits and enqueues a `SolutionTestJob` with `priority=contest.is_running`. Publishes **no** `SubmissionEvent` and **no** `VerdictEvent`. Redirects (303) to the run detail page. |
 | `GET` | `/c/{slug}/solution-tests/{run_id}` | ua, a, j | Run detail: status panel, per-case results (with interactive transcripts), and the submitted source. |
 | `GET` | `/c/{slug}/solution-tests/{run_id}/status` | ua, a, j | HTMX partial `#solution-test-status`. Self-terminating poll: the `hx-*` attributes are emitted only while the run is non-terminal, so the swap rendering the terminal state stops the poll. |
 
@@ -413,8 +414,9 @@ Split across five files; shared helpers in
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/c/{slug}/admin/problems` | Browse contest problems. Lists all problems with labels, balloons, test case counts, reorder buttons (HTMX), edit/export/remove actions. |
-| `GET` | `/c/{slug}/admin/problems/new` | Render create-problem form (single-screen: basic info, fallback limits, statement, categories, per-language limits, test cases). Fallback limits always judge with 1 repetition. |
-| `POST` | `/c/{slug}/admin/problems/new` | Create a new problem. Requires title, `time_limit_ms`, `memory_limit_kb`, `pids_limit`, a statement, and at least 1 test case. Collects all errors before returning 422. |
+| `GET` | `/c/{slug}/admin/problems/new` | Render the validation-strategy chooser (`new_problem_choose`, in `contest_admin_problem_new.py`). Offers Standard, Interactive, a disabled **Output checker** card, and the existing import flow. The strategy is stored on the problem and is immutable afterwards, so this is the only place it is chosen. |
+| `GET` | `/c/{slug}/admin/problems/new/{validator_type}` | Render the creation editor for one strategy (basic info, fallback limits, statement, categories, per-language limits). It collects the problem **definition** only: test cases, the custom validator and sample interactions are authored on the judgment-data pages afterwards. Fallback limits always judge with 1 repetition. `{validator_type}` is taken as a string and resolved in the handler: `standard`/`interactive` render, `checker` redirects (303) to the chooser with an explanatory flash, and anything else is **404** (not 422, which the framework would render as neutral JSON). |
+| `POST` | `/c/{slug}/admin/problems/new/{validator_type}` | Create a new problem under the strategy named by the route parameter, which is the sole authority: a `validator_type` field in the request body is never read, so form tampering cannot select or change one. Requires title, `time_limit_ms`, `memory_limit_kb`, `pids_limit`, and a statement; the new problem starts with no test cases and judgeability is enforced at the execution gates. Validator and test-case fields in the body are never read. Collects all errors before returning the HTML editor with 422, retained values, and the pane/field owning the first error; on success redirects to the new problem's judgment-data pages -- the validator page for an interactive problem, the test-cases page otherwise. |
 | `POST` | `/c/{slug}/admin/problems/{problem_id}/move` | HTMX/drag endpoint. Moves a problem to `?new_ordinal=N`; still accepts legacy adjacent moves via `?direction=up\|down`. Returns `problems_list_table.html` partial. |
 | `POST` | `/c/{slug}/admin/problems/{problem_id}/remove` | Remove a problem. Only allowed when `contest.upcoming and contest.active`. Redirects with reason if blocked. |
 
@@ -422,8 +424,37 @@ Split across five files; shared helpers in
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `GET` | `/c/{slug}/admin/problems/{problem_id}/edit` | Edit problem form (basic info, fallback limits, profiling actions, statement, categories, per-language limits, read-only per-language repetitions, test case list, latest profiling result). |
-| `POST` | `/c/{slug}/admin/problems/{problem_id}/edit` | Save problem changes. Before the contest starts, this covers title, limits, statement, categories, and test cases, including pending test-case removals (`tc_remove_ids`) and inline add-rows (`tc_in_N` / `tc_out_N` / `tc_explanation_N` / `tc_is_sample_N`) applied on save. While the contest is running, only the Limits tab is accepted; successful running-contest limit saves may redirect to an affected-submissions review batch. |
+| `GET` | `/c/{slug}/admin/problems/{problem_id}/edit` | Tabbed definition form. Panes: **Metadata** (title, balloon colour, author, notes, categories), **Statement** (PDF or Markdown plus the illustration), and **Limits** (failover limits, profiling actions, per-language limits and repetitions). Judgment data uses separate pages. Every pane stays mounted and every control binds to one detached `#edit-form`, so switching tabs cannot lose input. Optional `?tab=` selects the opening pane; an unknown, retired (`content`), or strategy-inappropriate value falls back to Metadata rather than erroring. |
+| `POST` | `/c/{slug}/admin/problems/{problem_id}/edit` | Save the problem **definition** in one transaction: the scalar fields, the statement, the illustration and the categories. Test cases, the custom validator and sample interactions are not part of it -- they are authored on the judgment-data pages, and a field naming one is never read. The statement file is staged and swapped in as part of the commit, so a rejected save changes neither rows nor files. Validation failures return the HTML editor with 422, retain submitted values, open the pane that owns the first error, and associate scalar messages with the exact field. While the contest is running, only the Limits pane is accepted; successful running-contest limit saves may redirect to an affected-submissions review batch. |
+
+### Judgment data (`web/routes/contest_admin_problem_judgment_tc.py`, `..._judgment_pages.py`)
+
+Test cases, the custom validator and the sample interactions are edited on their
+own **pages**, reached from the problem list's *Judgment data* action, because a
+problem can hold many large test cases and carrying them inside the form that
+edits its statement is what made that form unwieldy. Every action below applies
+immediately through the staged swap; only the rows an author types inline wait for
+that page's own Save, since typed text is the only state the browser holds that the
+server has not seen. A standard problem is offered the test-cases page alone.
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| `GET` | `/c/{slug}/admin/problems/{problem_id}/judgment` | Open the page the author most likely wants: test cases, or the validator for an interactive problem that has none (it cannot judge anything until one compiles). |
+| `GET` | `/c/{slug}/admin/problems/{problem_id}/judgment/test-cases` | The test-case list, the inline add rows, and the upload controls. |
+| `POST` | `/c/{slug}/admin/problems/{problem_id}/judgment/test-cases` | Add the rows typed inline (`tc_in_N` / `tc_out_N` / `tc_explanation_N` / `tc_is_sample_N`). Rows above the 10 KB inline gate return 422 on this page with every submitted row retained, the exact field marked/focused, and a pointer to the uncapped ZIP path. |
+| `POST` | `/c/{slug}/admin/problems/{problem_id}/judgment/test-cases/upload` | Append one or more cases from single-case ZIPs (`tc_add_zip`, repeatable). |
+| `POST` | `/c/{slug}/admin/problems/{problem_id}/judgment/test-cases/bulk` | Replace every case from one ZIP (`tc_bulk_zip`). Staging is not seeded, since the plan claims nothing from the current files. |
+| `POST` | `/c/{slug}/admin/problems/{problem_id}/judgment/test-cases/{tc_id}/toggle-sample` | Flip one case between sample and secret. Commits directly under the row lock: it changes no file, and staging a whole directory for a boolean would copy the problem's entire test data. Refused for an interactive problem, whose cases are always secret. |
+| `POST` | `/c/{slug}/admin/problems/{problem_id}/judgment/test-cases/{tc_id}/replace` | Replace one case from a single-case ZIP (no size cap). An archive with no `explanation.txt` leaves the stored text alone. |
+| `POST` | `/c/{slug}/admin/problems/{problem_id}/judgment/test-cases/{tc_id}/delete` | Delete one case; the survivors are renumbered inside staging and promoted with the commit. |
+| `GET` | `/c/{slug}/admin/problems/{problem_id}/judgment/validator` | The custom-validator page (interactive only; a standard problem is redirected to its test cases). |
+| `GET` | `/c/{slug}/admin/problems/{problem_id}/judgment/interactions` | The sample-interactions page (interactive only). |
+| `POST` | `/c/{slug}/admin/problems/{problem_id}/judgment/interactions` | Add the transcripts typed inline, subject to the five-interaction cap. A malformed/capped submission returns 422 with every row retained and the exact transcript marked/focused. |
+| `POST` | `/c/{slug}/admin/problems/{problem_id}/judgment/interactions/{si_id}/delete` | Delete one sample interaction. |
+
+Every mutating route above refuses a stored `checker` strategy explicitly, and all
+of them gate on `_is_edit_allowed` alone: a running contest may still change its
+**limits** (see below), but not the data judging runs against.
 
 ### Limits (`web/routes/contest_admin_problem_limits.py`)
 
@@ -446,18 +477,18 @@ Split across five files; shared helpers in
 | `GET` | `/c/{slug}/admin/problems/{problem_id}/statement` | Serve problem statement PDF. `?download=1` for attachment. |
 | `GET` | `/c/{slug}/admin/problems/{problem_id}/export` | Export problem as ZIP (Layout A: `in/001.in`, `out/001.out`, `statement.pdf`, `problem.json`). |
 
-### Test Cases (`web/routes/contest_admin_problem_tc.py`)
+### Test Cases (`web/routes/contest_admin_problem_tc.py`; the two per-case pages live in `contest_admin_problem_tc_pages.py`)
+
+What is left here concerns **one** test case, which gets a page of its own because
+a case can be far too large to edit in a row. The list-level actions -- add,
+upload, replace-all, delete, sample toggle -- live on the judgment-data test-cases
+page above; the endpoints that used to duplicate them here are gone, as is the
+standalone "new test case" page, since new cases are typed as rows on that page.
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `POST` | `/c/{slug}/admin/problems/{problem_id}/test-cases/zip` | Upload test case ZIP; **replaces all existing test cases**. Supports Layout A (directory) and Layout B (flat). |
-| `GET` | `/c/{slug}/admin/problems/{problem_id}/test-cases/new` | Render the new test case form (dedicated page). |
-| `POST` | `/c/{slug}/admin/problems/{problem_id}/test-cases/add` | Add a single test case. On success, redirects back to the problem edit page. |
-| `POST` | `/c/{slug}/admin/problems/{problem_id}/test-cases/add-zip` | Add a single new test case from an uploaded single-case ZIP (`input.txt` / `output.txt`, optional `explanation.txt`). Redirects back to the problem edit page. |
-| `GET` | `/c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/edit` | Render the edit test case form (dedicated page, pre-filled with file content). |
-| `POST` | `/c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/edit` | Update test case `is_sample` and overwrite file content. On success, redirects back to the problem edit page with `?tab=content#tc-{tc_id}` so the edited row is scrolled into view and highlighted. |
-| `POST` | `/c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/toggle-sample` | Flip a test case between sample and secret without opening the edit form. On success, redirects back with `?tab=content#tc-{tc_id}` so the affected row is scrolled into view and highlighted. |
-| `POST` | `/c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/remove` | Remove a test case and resequence ordinals + filesystem files. |
+| `GET` | `/c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/edit` | Render the edit test case form (dedicated page, pre-filled with file content). The breadcrumb includes Judgment data, and Cancel returns to the test-case list anchored to `#tc-{tc_id}`. |
+| `POST` | `/c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/edit` | Update test case `is_sample` and overwrite file content. On success, redirects back to the judgment-data test-cases page anchored to `#tc-{tc_id}` so the edited row is scrolled into view and highlighted. |
 | `POST` | `/c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/move` | HTMX/drag endpoint. Moves a test case to `?new_ordinal=N`; still accepts legacy adjacent moves via `?direction=up\|down`. Returns `testcases_table.html` partial and preserves matching testcase files. |
 | `GET` | `/c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/download` | Download one test case as a single-case ZIP (`input.txt` / `output.txt`, optional `explanation.txt`); used for the offline edit round-trip of cases larger than 10 KB. |
 | `POST` | `/c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/replace` | Replace one test case from an uploaded single-case ZIP (no size cap). Respects the contest-state edit gate. |
@@ -530,28 +561,36 @@ routes live in `web/routes/user_media.py`.
 
 Site note:
 - contest users cannot self-edit their assigned site from `/profile`; the page displays it as administrator-managed read-only information.
-## Custom validator routes
+## Custom validator routes (`web/routes/contest_admin_problem_validator.py`)
 
-Contest administrators manage a problem's staged interactive validator through
-dedicated forms. These routes never save unrelated problem-form fields.
+Uploading and removing a validator are actions of the judgment-data **validator
+page**, which posts them to the two mutating endpoints below and applies them
+immediately. The three read-only endpoints are how that page shows the current
+revision.
 
-- `POST /c/{slug}/admin/problems/{problem_id}/validator` stages and enqueues a
-  candidate. The upload form is only offered while no validator is configured;
-  replacing one means removing it first.
+- `POST /c/{slug}/admin/problems/{problem_id}/validator` stages and
+  enqueues a candidate. Two independent conditions apply: the problem's **stored strategy**
+  must be interactive (a standard problem has nowhere to put a validator and is
+  refused), and no validator source may currently be configured — replacing one
+  means removing it first. An interactive problem whose source was removed stays
+  interactive and may upload a replacement, which is the documented recovery
+  path.
 - `GET /c/{slug}/admin/problems/{problem_id}/validator/status` renders the HTMX
   status partial.
 - `GET /c/{slug}/admin/problems/{problem_id}/validator/source` downloads the
   current source (active revision, falling back to a staged candidate).
 - `GET /c/{slug}/admin/problems/{problem_id}/validator/source/view` renders the
   current source with syntax highlighting and line numbers.
-- `POST /c/{slug}/admin/problems/{problem_id}/validator/remove` removes active
-  and candidate revisions. It requires a `keep_interactions` form field whose
-  value is exactly `"true"` or `"false"` — the edit page posts it from a
+- `POST /c/{slug}/admin/problems/{problem_id}/validator/remove`
+  removes active and candidate revisions. It requires a `keep_interactions` form field whose
+  value is exactly `"true"` or `"false"` — the validator page posts it from a
   confirmation modal. `"true"` hides the problem's sample interactions (they
   resurface if a validator is added again); `"false"` deletes them permanently.
   The field is a strict string rather than a `bool` on purpose: FastAPI would
   coerce `1`, `on` and `yes` too, and the choice between hiding data and
   destroying it must not hinge on a spelling. Any other value, or none, is a 422.
+  Removal never changes the problem's validation strategy: it stays interactive
+  and simply stops being judgeable until a replacement validator compiles.
 
 ### Sample interactions
 
@@ -566,9 +605,9 @@ page with the same transcript UI that shows a submission's recorded attempts.
   reorders one interaction (`new_ordinal` query param) and returns the refreshed
   list partial for the drag-and-drop handler.
 
-Additions and removals are deferred to the problem form's single Save, exactly
-like test cases (`si_transcript_N` / `si_explanation_N` add-rows and a hidden
-`si_remove_ids` field).
+Deletion and reordering apply immediately, exactly like test cases. Only the
+transcripts an author types inline (`si_transcript_N` / `si_explanation_N`
+add-rows) wait, and they are applied by the interactions page's own Save.
 
 A problem with a configured validator must have **zero public test cases and at
 least one secret one**. Staging a validator demotes any existing public case to

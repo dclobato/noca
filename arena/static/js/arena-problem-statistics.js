@@ -107,20 +107,27 @@ var ArenaProblemStatistics = (function () {
         };
     }
 
-    function _fillTable(tbodySelector, rows, avgKey, stddevKey) {
+    function _messageRow(tbodySelector, message, className) {
         var tbody = document.querySelector(tbodySelector);
         if (!tbody) return;
         tbody.innerHTML = "";
+        var tr = document.createElement("tr");
+        var cell = document.createElement("td");
+        cell.colSpan = 4;
+        cell.className = className;
+        cell.textContent = message;
+        tr.appendChild(cell);
+        tbody.appendChild(tr);
+    }
+
+    function _fillTable(tbodySelector, rows, avgKey, stddevKey) {
         if (!rows || rows.length === 0) {
-            var empty = document.createElement("tr");
-            var cell = document.createElement("td");
-            cell.colSpan = 4;
-            cell.className = "text-muted text-center";
-            cell.textContent = "No accepted solutions yet.";
-            empty.appendChild(cell);
-            tbody.appendChild(empty);
+            _messageRow(tbodySelector, "No accepted solutions yet.", "text-muted text-center");
             return;
         }
+        var tbody = document.querySelector(tbodySelector);
+        if (!tbody) return;
+        tbody.innerHTML = "";
         rows.forEach(function (row) {
             var tr = document.createElement("tr");
             tr.appendChild(_td(row.name, ""));
@@ -138,7 +145,7 @@ var ArenaProblemStatistics = (function () {
         return td;
     }
 
-    function _render(payload) {
+    function _render(payload, verdictChart, languageChart, histogramChart) {
         var hasData = payload && payload.total_submissions > 0;
 
         var computedEl = document.querySelector("[data-stats-computed-at]");
@@ -147,9 +154,9 @@ var ArenaProblemStatistics = (function () {
                 "Updated " + (payload.computed_at_display || new Date(payload.computed_at).toLocaleString());
         }
 
-        var verdictChart = _initChart("problem-stats-verdicts");
-        var languageChart = _initChart("problem-stats-languages");
-        var histogramChart = _initChart("problem-stats-histogram");
+        if (verdictChart) verdictChart.hideLoading();
+        if (languageChart) languageChart.hideLoading();
+        if (histogramChart) histogramChart.hideLoading();
 
         if (!hasData) {
             if (verdictChart) verdictChart.render(function (chart) { chart.setOption(_emptyOption("No submissions yet."), true); });
@@ -192,6 +199,17 @@ var ArenaProblemStatistics = (function () {
         _fillTable("[data-stats-memory-table]", payload.memory_stats, "avg_kb", "stddev_kb");
     }
 
+    function _renderError(verdictChart, languageChart, histogramChart) {
+        var message = "Failed to load statistics.";
+        [verdictChart, languageChart, histogramChart].forEach(function (mgr) {
+            if (!mgr) return;
+            mgr.hideLoading();
+            mgr.render(function (chart) { chart.setOption(_emptyOption(message), true); });
+        });
+        _messageRow("[data-stats-time-table]", message, "text-danger text-center");
+        _messageRow("[data-stats-memory-table]", message, "text-danger text-center");
+    }
+
     function init() {
         if (typeof echarts === "undefined") {
             console.error("ArenaProblemStatistics: echarts is not loaded.");
@@ -201,17 +219,26 @@ var ArenaProblemStatistics = (function () {
         if (!root) return;
         var url = root.dataset.statsUrl;
 
+        var verdictChart = _initChart("problem-stats-verdicts");
+        var languageChart = _initChart("problem-stats-languages");
+        var histogramChart = _initChart("problem-stats-histogram");
+        [verdictChart, languageChart, histogramChart].forEach(function (mgr) {
+            if (mgr) mgr.showLoading();
+        });
+        _messageRow("[data-stats-time-table]", "Loading…", "text-muted text-center");
+        _messageRow("[data-stats-memory-table]", "Loading…", "text-muted text-center");
+
         fetch(url)
             .then(function (response) {
                 if (!response.ok) throw new Error("HTTP " + response.status);
                 return response.json();
             })
             .then(function (payload) {
-                _render(payload || {});
+                _render(payload || {}, verdictChart, languageChart, histogramChart);
             })
             .catch(function (err) {
                 console.error("ArenaProblemStatistics: failed to load data.", err);
-                _render({});
+                _renderError(verdictChart, languageChart, histogramChart);
             });
     }
 

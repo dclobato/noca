@@ -123,7 +123,7 @@ aiosqlite.core.Connection.close = _patched_aiosqlite_close
 # Import all models to ensure SQLAlchemy mapper registry is populated
 # before Base.metadata.create_all is called.
 import web.models  # noqa: E402, F401
-from shared.enumerations import RoleEnum  # noqa: E402
+from shared.enumerations import ProblemValidatorType, RoleEnum  # noqa: E402
 from web.config import settings  # noqa: E402
 from web.database import Base  # noqa: E402
 
@@ -336,6 +336,7 @@ async def contest_problem(session: AsyncSession, running_contest: Contest) -> Pr
         title="Test Problem A",
         ordinal=1,
         color="#ff0000",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

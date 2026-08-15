@@ -31,7 +31,7 @@ from arena.models.arena_problems import ArenaTestCase
 from arena.models.arena_users import ArenaUser
 from arena.routes import problems as problems_routes
 from arena.services import admin_problem_service
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, ProblemValidatorType
 from shared.services.problem_package.staging import STAGING_PREFIX
 from shared.services.testcase_files import save_testcase_files
 
@@ -89,6 +89,7 @@ async def _make_problem(session: AsyncSession, owner: ArenaUser, *, enabled: boo
         image_caption=None,
         notes="internal only",
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     for ordinal, is_sample in ((1, True), (2, False)):
         session.add(

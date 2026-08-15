@@ -681,11 +681,62 @@ await svc.replace_problem_categories(db, actor, problem_id, category_ids=[c.id f
 - **Route web submit:** `web/router.py` (`admin_problems_edit_submit`)
 - **Service query:** `api/services/problem.py` (`list_categories(query, limit)`)
 
-**Estado pendente para remoção de test cases:**
-- **Template:** `web/template/user/testcases_table.html` (botões Remove/Undo com `data-tc-id`; hidden input `tc_remove_ids` fora da tabela mas dentro do `#edit-form` em `problem_edit.html`)
-- **JavaScript:** `web/static/js/problem-edit-tc-pending.js` (Set em memória, hidden input `tc_remove_ids`, bloqueio de submit se todos pendentes)
-- **Route de save:** `web/routes/contest_admin_problem.py` (`edit_problem_submit`) — aplica remoções atomicamente junto com o restante do formulário
-- **Safety net:** `web/routes/contest_admin_problem_tc.py` (`remove_test_case_route`) — bloqueia remoção do último test case via chamada direta à rota
+## Editor de problema: duas portas
+
+O problema é editado por **dois** editores, alcançados a partir da lista de problemas:
+
+- **Definição** (ação de lápis) — metadados, enunciado, ilustração, categorias e (só no
+  Contest) limites. Um único formulário, um único **Salvar**, painéis client-side: são
+  campos de uma mesma transação, então trocar de painel não pode perder o que foi digitado.
+- **Dados de julgamento** (ação `rule`, "Judgment data") — casos de teste, validador
+  interativo e interações de exemplo. Cada aba é uma **página** própria, porque um problema
+  pode ter muitos casos e um caso pode ser grande.
+
+Regras de UX das páginas de julgamento:
+
+- Toda ação sobre dado **existente** faz POST e é aplicada na hora (substituir, alternar
+  amostra/secreto, remover, reordenar, enviar ZIP). Não há estado pendente no cliente.
+- O **único** estado não visto pelo servidor são as linhas digitadas inline, salvas pelo
+  botão "Salvar novos casos de teste" daquela página. Sair da página sem salvar avisa
+  (`problem-edit-unsaved-guard.js`).
+- Uma rejeição dessas linhas retorna **422 na mesma página**, preserva todos os valores e
+  marca/focaliza a linha exata; nunca redireciona para um GET vazio.
+- Um upload que descartaria linhas digitadas pede confirmação nomeando quantas
+  (`data-clears-typed-rows`); a substituição em massa confirma quantos casos serão
+  substituídos (`data-confirm`).
+- Cada ação volta ancorada na própria linha (`#tc-{id}` / `#si-{id}`), destacada por
+  `highlight-row.js`. Remoção e substituição em massa voltam sem âncora.
+- A navegação entre páginas usa `<a>` reais com `aria-current="page"`. Um problema
+  standard mostra apenas "Casos de teste"; um interativo mostra as três páginas.
+- Antes das páginas, um resumo único informa se os dados estão prontos, incompletos ou
+  aguardando compilação. Quando há submissões no Arena, o mesmo resumo oferece **Rejudge
+  all** com confirmação de senha e retorna à página que iniciou a ação.
+- Em cada caso de teste, **Edit** permanece visível. Download, substituição, troca entre
+  amostra e secreto e remoção ficam no menu nomeado **More**; a remoção fica separada das
+  ações não destrutivas.
+- A página de um caso usa breadcrumb explícito e Back/Cancel retorna à lista de casos na
+  âncora `#tc-{id}`.
+- Alças de reordenação aceitam arrastar **e** setas Cima/Baixo quando focadas, mantêm o
+  foco depois da resposta e anunciam o resultado em `aria-live`. Estados assíncronos do
+  validador também ficam em uma região de status.
+- No editor de definição, validação nativa ou do servidor abre o painel que contém o
+  primeiro erro, associa texto persistente ao campo e leva o foco até ele.
+- No Arena, Metadata divide campos em **Identity and attribution**, **Execution limits** e
+  **Publication details**. Campos raros de notas e licença ficam em disclosure explícito,
+  aberto automaticamente quando já possui algum valor.
+
+**Arquivos:**
+- **Templates compartilhados:** `shared/template/_partials/judgment_shell.html`,
+  `judgment_testcases_page.html`, `judgment_validator_page.html`,
+  `judgment_interactions_page.html`, `testcase_list_table.html`,
+  `sample_interaction_list_table.html`
+- **JavaScript:** `shared/static/js/judgment-actions.js` (confirmações, aviso de descarte,
+  gatilho de substituição por linha), `tc-add-row.js`, `si-add-row.js`,
+  `tc-reorder-sortable.js`, `problem-edit-unsaved-guard.js`
+- **Rotas:** `web/routes/contest_admin_problem_judgment_tc.py` e
+  `contest_admin_problem_judgment_pages.py`; `arena/routes/admin_problem_judgment.py`
+- **View models:** `shared/services/problem_definition_view.py` (definição) e
+  `shared/services/judgment_page_view.py` (julgamento)
 
 ---
 ## Checklist de Implementação

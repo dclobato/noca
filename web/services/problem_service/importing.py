@@ -110,6 +110,9 @@ async def import_problem_package(
 
     problem = Problem(
         title=metadata.title,
+        # The package's normalized strategy: version 2 states it, version 1 has it
+        # derived by the shared parser. Never re-derived from validator presence.
+        validator_type=package.metadata.validator_type,
         author=metadata.author,
         notes=metadata.notes,
         color=color,

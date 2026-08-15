@@ -32,12 +32,12 @@
             <tbody>
                 {% for problem in latest_problems %}
                     {% set problem_url = request.url_for('arena_problem_detail', arena_number=problem.arena_number) %}
-                    <tr data-href="{{ problem_url }}">
+                    <tr class="arena-clickable-row" data-href="{{ problem_url }}">
                         <td class="arena-problem-number">
-                            <a href="{{ problem_url }}">{{ problem.arena_number }}</a>
+                            <a href="{{ problem_url }}" class="arena-link-no-underline">{{ problem.arena_number }}</a>
                         </td>
                         <td>
-                            <a href="{{ problem_url }}" class="fw-medium">{{ problem.title }}</a>
+                            <a href="{{ problem_url }}" class="fw-medium arena-link-no-underline">{{ problem.title }}</a>
                         </td>
                         <td class="text-muted arena-dashboard-updated-column">{{ arena_format_relative_datetime(problem.updated_at) }}</td>
                     </tr>

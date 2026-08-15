@@ -532,14 +532,15 @@ exception: it can reuse values from any enabled problem and from the caller's ow
 | `ProblemListItem` | Immutable list projection containing only the problem ID, public number, title, enabled state, public/private test-case counts, rating, rendered categories, and custom-validator marker. |
 | `list_problems_paginated(session, *, page, per_page, search, category_ids, category_slugs, owner_id, language, sort_by, caller_id, is_admin)` | Paginated problem list with shared weighted PostgreSQL full-text search over title/source/statement/free-text author, trigram substring fallback over every text field, fuzzy trigram matching over title/source/resolved author, and compatible number matching. Owner-backed author names use the separately indexed `arena_users.nome` trigram path because they cannot participate in the problem-row FTS expression index. Search defaults to deterministic relevance order; callers can select another sort. Optional filters cover admin-only owner, AND category IDs or slugs, and `StatementLanguage`. The count remains filter-only; categories, test-case counts, and validator markers are loaded with bounded page-ID queries. |
 | `get_problem(session, problem_id, *, caller_id, is_admin)` | Fetch one problem with categories and test cases, applying owner scoping for non-admin editors. |
-| `create_problem(session, *, caller_id, author, author_is_owner, license, statement_language, ...)` | Validate and create a disabled problem owned by `caller_id`. Stores either a free-text author of at most 80 characters or owner-backed authorship, an optional license of at most 256 characters, an optional `StatementLanguage`, and category links. |
-| `update_problem(session, problem, *, author, author_is_owner, license, statement_language, ...)` | Validate and update mutable fields without transferring ownership. Owner-backed authorship clears the free-text author; a blank license becomes `None`; `statement_language` is stored as given (already resolved by `statement_language_service`). |
+| `get_problem_definition(session, problem_id, *, caller_id, is_admin)` | Fetch the definition-editor profile with categories only, applying the same owner scope while deliberately excluding test cases, validator, and sample interactions. |
+| `create_problem(session, *, caller_id, author, author_is_owner, license, statement_language, validator_type, ...)` | Validate and create a disabled problem owned by `caller_id`. Stores either a free-text author of at most 80 characters or owner-backed authorship, an optional license of at most 256 characters, an optional `StatementLanguage`, and category links. `validator_type` is **required**: the validation strategy is stated here and is immutable afterwards, so a caller that forgets it fails loudly rather than silently becoming standard. |
+| `update_problem(session, problem, *, author, author_is_owner, license, statement_language, validator_type=None, ...)` | Validate and update mutable fields without transferring ownership. Owner-backed authorship clears the free-text author; a blank license becomes `None`; `statement_language` is stored as given (already resolved by `statement_language_service`). `validator_type` is accepted only to be checked: a value differing from the stored one raises, since the strategy is immutable. |
 | `toggle_enabled(session, problem)` | Flip the problem `enabled` flag and refresh `updated_at`. |
 | `delete_problem(session, problem)` | Delete a problem and all its dependent data. Deletes submissions first (cascading to judgments, test results, AI reviews, batch jobs) then the problem itself (cascading to test cases, category map, ratings, solvers, tried, favourites, rating history). Returns the `arena_number` for flash messages. Caller commits. |
 | `build_rejudge_jobs(session, problem_id)` | Create new `QUEUED` `ArenaSubmissionJudgment` rows for every existing submission for the problem and return the corresponding list of `ArenaSubmissionJob` objects ready to enqueue. Caller commits then enqueues. |
 | `list_owners(session)` | Return administrators and users with `can_edit=True`, ordered by display name, for the owner filter. |
 | `search_categories(session, *, query, limit=15)` | Case-insensitive category search; consumed by both the JSON autocomplete API (`GET /admin/problems/categories/search`) and server-side `selected_cats_data` pre-population. |
-| `search_problem_suggestions(session, *, field, query, caller_id, is_admin)` | Return at most 15 distinct, trimmed source or free-text-author strings for the create and edit problem forms, in field-specific relevance/name order. Admins search all enabled and disabled problems; other editors search all enabled problems plus caller-owned disabled drafts. Null and blank values are omitted, owner-backed authors never appear, and the service always caps results at 15. |
+| `search_problem_suggestions(session, *, field, query, caller_id, is_admin)` | Return at most 15 distinct, trimmed source, free-text-author, or license strings for the create and edit problem forms, in field-specific relevance/name order. Admins search all enabled and disabled problems; other editors search all enabled problems plus caller-owned disabled drafts. Null and blank values are omitted, owner-backed authors never appear, and the service always caps results at 15. |
 
 ---
 
@@ -567,7 +568,7 @@ search through `text_search_primitives.py`.
 |---|---|
 | `prepare_problem_search(session, query)` | Return hybrid full-text, literal substring, fuzzy name, exact-number, and ranking expressions for a normalized query. PostgreSQL uses one weighted FTS expression index plus trigram indexes (including the Arena-number text expression), parses the query with each row's statement-language configuration, and combines independently indexable candidate branches with `UNION`. Queries containing negation, quoted phrases, or `OR` disable raw fallback matching so web-search operators remain authoritative. SQLite uses a portable substring predicate and resolves relevance ties by Arena number for unit tests. Submission-history filters remain deliberately narrower. |
 | `ProblemPickerSearchExpressions` / `prepare_problem_picker_search(session, query)` | Return the narrow number-and-title predicate and ranking expressions used by problem-set autocomplete. PostgreSQL narrows each language-specific weighted FTS index branch to title matches, adds escaped number/title substring branches and a 3+-character title-trigram branch, and suppresses fallback branches for web-search operators. Number matching is intentionally substring-based for every query, so `42` includes `142` and `420`, but exact Arena number `42` ranks first. Remaining ordering uses FTS match, FTS rank, title similarity, and Arena number. The call site must wrap `exact_number_match` in an integer `CASE` before descending ordering: for nonnumeric queries the expression is a constant `false`, which PostgreSQL and SQLite reject as a bare `ORDER BY` term. SQLite keeps the same escaped title/number substring scope with exact-number-first ordering. |
-| `ProblemSuggestionField` / `prepare_problem_suggestion_search(session, field, query)` | Typed author/source autocomplete expressions. PostgreSQL treats `query` as literal text with `plainto_tsquery`, first narrows through the same weighted composite FTS-index candidate expression used by problem search, then confirms the requested field. Separate `UNION` branches provide literal substring and 3+-character fuzzy matching through that field's existing trigram index. SQLite uses field-only escaped-substring matching. |
+| `ProblemSuggestionField` / `prepare_problem_suggestion_search(session, field, query)` | Typed author, license, and source autocomplete expressions. PostgreSQL treats `query` as literal text with `plainto_tsquery`. Author and source searches narrow through the weighted composite problem-search FTS index and then confirm the requested field; license searches use a dedicated `simple`-configuration FTS expression index so licenses don't become part of general problem search. Separate `UNION` branches provide literal substring and 3+-character fuzzy matching through each field's trigram index. SQLite uses field-only escaped-substring matching. |
 
 ---
 
@@ -593,12 +594,9 @@ format rules come from `shared.services.sample_interactions`; this module owns o
 | `convert_sample_testcases_to_secret(session, problem_id)` | Demote the problem's public test cases to secret. Called whenever a validator is staged. |
 | `interactive_testcase_error(session, problem_id)` | Why an interactive problem's test cases are invalid (a public case, or no secret case at all), else `None`. Used by the enable gate. |
 
-### `admin_problem_interaction_pending.py`
-
-Turns the problem edit form's deferred sample-interaction edits into service calls, mirroring
-`admin_problem_tc_pending.py`. `parse_pending_interactions(form_data)` is split from
-`apply_pending_interactions(...)` so a malformed transcript is rejected **before** the save
-mutates anything.
+Inline transcript parsing and rejected-row retention are shared with Contest in
+`shared.services.interaction_pending_ops`; see `docs/SHARED_SERVICES.md`. Parsing remains a separate
+step so a malformed transcript is returned beside its original row **before** anything is written.
 
 ### `admin_problem_tc_service.py`
 
@@ -614,7 +612,7 @@ take a `testcase_dir` (the Arena root, `settings.PROBLEM_TESTCASE_DIR`).
 - ZIP replace deletes all existing rows and files and rebuilds the set from the parsed archive (no cap)
 - on an **interactive** (custom-validator) problem a case carries **input only**: any submitted
   expected output is discarded, no `.out` file is written, and `output_size_bytes` is stored null.
-  The service decides this itself from `has_custom_validator()`, so routes never have to
+  The service decides this itself from `is_interactive()`, so routes never have to
 - file helpers delegate to `shared.services.testcase_files`, which validates
   UUID/slug-like problem ids and verifies resolved paths stay under the Arena
   test-case root
@@ -626,8 +624,9 @@ take a `testcase_dir` (the Arena root, `settings.PROBLEM_TESTCASE_DIR`).
 | `list_testcases(session, problem_id)` | Return all test cases for one problem ordered by `ordinal`. |
 | `list_testcase_views(session, problem_id, testcase_dir)` | Lightweight per-case views (`id`, `ordinal`, `is_sample`, `has_explanation`, `input_preview`, `output_preview`, `input_size_bytes`, `output_size_bytes`, `is_large`) — previews read from disk, no full-content load. |
 | `get_testcase(session, tc_id, *, problem_id)` | Fetch one test case scoped to its parent problem. |
-| `has_custom_validator(session, problem_id)` | Whether the problem is interactive, so its cases carry no expected output. |
-| `testcase_readiness_error(session, problem_id)` | Why the problem's test cases cannot judge yet (no cases at all; or a plain problem whose case lost its expected output), else `None`. Used by the enable gate. |
+| `is_interactive(session, problem_id)` | Whether the problem's **stored strategy** is interactive, so its cases carry no expected output. Never derived from validator source presence: a problem that lost its source stays interactive, and a stale validator row never makes a standard problem interactive. |
+| `judgeability_facts_for(session, problem)` | Gather the shared strategy, case, expected-output, secrecy, and active-validator facts used by execution gates and by the judgment editor's readiness summary. |
+| `judgeability_error_for(session, problem)` | Why the problem cannot judge submissions yet, else `None`, via the shared cross-domain contract in `shared/services/problem_judgeability.py`. Used by the enable gate, so enablement, submission creation, and the worker cannot disagree about what "ready" means. |
 | `create_testcase(session, problem, *, input_content, output_content, is_sample, explanation=None, testcase_dir)` | Append a new test case (next ordinal); write files + sizes. On an interactive problem the output is discarded **and `is_sample` is forced false**. Raises `ValueError` if a normalized side exceeds `MAX_INLINE_TESTCASE_BYTES`. |
 | `update_testcase(session, tc, *, input_content, output_content, is_sample, explanation=None, testcase_dir)` | Overwrite files + sizes, sample flag, explanation. Same interactive rule and inline size gate. |
 | `replace_single_testcase(session, tc, *, input_bytes, output_bytes, explanation, testcase_dir)` | Replace one case's content from an offline upload (no size cap). `output_bytes=None` for an interactive problem. |
@@ -640,29 +639,32 @@ take a `testcase_dir` (the Arena root, `settings.PROBLEM_TESTCASE_DIR`).
 
 ### `admin_problem_tc_pending.py`
 
-Turns the problem edit form's deferred test-case edits into service calls. The page marks removals
-in a hidden `tc_remove_ids` field and collects new rows as `tc_in_N` / `tc_out_N` groups; nothing is
-applied until Save. Filesystem work is returned as callables the caller runs only after the commit,
-so a rolled-back save never deletes a live test-case file nor orphans a new one.
+The Arena half of joining a Save's test-case plan to rows. The plan itself is decided in
+`shared.services.testcase_save_plan`, which knows nothing about either module's models;
+`web.services.problem_edit_save` is the Contest half.
+
+Filesystem work is no longer deferred to post-commit callbacks. Every case the Save wants already
+exists in a staging directory by the time these rows are written, and the artifact swap renames
+that directory in as part of the commit — so a rolled-back Save cannot leave rows describing files
+that were never written, nor files describing rows that were never committed.
 
 | Function | Purpose |
 |----------|---------|
-| `removal_ids(form_data)` | The test-case ids the user marked for removal. |
-| `apply_pending_testcases(session, problem, form_data, *, testcase_dir)` | Apply removals (descending ordinal, so renumbering churns fewest files) then the inline add-rows. Returns `(file_cleanups, file_writes)` to run post-commit. Raises `ValueError` if the save would leave the problem with no test cases — every problem needs one, interactive or not — or if a row fails validation. |
+| `load_current_cases(session, problem_id)` | The planner's view of the problem's rows, in ordinal order. |
+| `apply_materialized_cases(session, problem, materialized)` | Make the rows describe the staged directory exactly: delete the dropped ones, push survivors through a disjoint temporary range (`(problem_id, ordinal)` is unique, so a direct renumbering collides midway), then take the final 1..n positions and append the added rows. |
 
 ---
 
 ### `admin_problem_validator_service.py`
 
-Stages custom-validator candidates for both the standalone upload route and the problem form, whose
-single Save carries the validator alongside everything else. Split so a bad upload can be rejected
-before any database write. The caller owns the transaction: staging returns the queue payload to
+Stages custom-validator candidates for the judgment-data validator page, which applies an upload
+immediately. Split so a bad upload can be rejected before any database write. The caller owns the transaction: staging returns the queue payload to
 enqueue *after* the commit, so a delayed worker never sees a token that was rolled back.
 
 | Function | Purpose |
 |----------|---------|
 | `parse_validator_upload(session, *, language_id, source_file)` | Read and check the upload without touching the database. Returns a `ValidatorUpload`, or `None` when neither field was supplied. Raises `ValueError` if only one of language/file is given, the language is not globally active, or the source is not valid UTF-8. |
-| `stage_candidate_revision(session, problem, upload)` | Stage the parsed upload as the problem's candidate revision and return its `CustomValidatorValidationJob`. Raises `ValueError` if a validator is already configured. A validator's test cases parametrize it, so they may be secret like any other problem's — there is no all-samples rule. |
+| `stage_candidate_revision(session, problem, upload)` | Stage the parsed upload as the problem's candidate revision and return its `CustomValidatorValidationJob`. Raises `ValueError` if the problem's stored `validator_type` is not `INTERACTIVE`, or if a validator is already configured — two independent axes, so an interactive problem whose source was removed may still upload a replacement. A validator's test cases parametrize it, so they may be secret like any other problem's — there is no all-samples rule. |
 | `stage_validator_source(session, problem, *, language_id, source_file)` | Parse and stage in one step, for callers that have a persisted problem already. |
 
 ---
@@ -701,8 +703,8 @@ is what only Arena knows.
 
 | Function | Description |
 |---|---|
-| `export_problem_package(problem, owner_name, testcase_dir, destination, *, profile="full")` | Write the package ZIP to `destination`, reading test-case content from `<testcase_dir>/<problem_id>/NNN.in\|out` and resolving its plain-text author from the problem's authorship mode. `profile="public"` produces the contestant statement bundle. Raises `PackageError` when a stored file is missing. |
-| `import_problem_package(session, package, *, caller_id, image_service, testcase_dir)` | Persist a validated `ProblemPackage`; promotes test-case files under `testcase_dir` before committing; resolves the statement language from the package or by detection; returns an `ArenaProblemImportResult` holding the committed `ArenaProblem`, the resolved `statement_language`, its `language_source`, and the structured `warnings` the route flashes. |
+| `export_problem_package(problem, owner_name, testcase_dir, destination, *, profile="full")` | Write the package ZIP to `destination`, reading test-case content from `<testcase_dir>/<problem_id>/NNN.in\|out` and resolving its plain-text author from the problem's authorship mode. Writes format version 2, carrying the problem's stored `validator_type` and attaching validator source only when that strategy is interactive. `profile="public"` produces the contestant statement bundle. Raises `PackageError` when a stored file is missing, and when a `full` export would describe an interactive problem with no validator source. |
+| `import_problem_package(session, package, *, caller_id, image_service, testcase_dir)` | Persist a validated `ProblemPackage`; promotes test-case files under `testcase_dir` before committing; resolves the statement language from the package or by detection; sets the new problem's `validator_type` from the package's normalized strategy — stated explicitly by a version-2 package, derived from `custom_validator` presence by the shared parser for a version-1 one; returns an `ArenaProblemImportResult` holding the committed `ArenaProblem`, the resolved `statement_language`, its `language_source`, `is_interactive` (read from the stored strategy, not the package), and the structured `warnings` the route flashes. |
 
 ---
 
@@ -778,6 +780,17 @@ Uses the following services:
 - **`admin_user_service.list_users_paginated()`** — Paginated user list for `GET /admin/users`
 - **`admin_user_service.get_credit_transactions_paginated()`** — Credits tab for `GET /admin/users/{id}`
 - **`admin_login_history_service.list_login_history_paginated()`** — Filtered Login History tab for `GET /admin/users/{id}`
+
+### `arena/routes/admin_dashboard_security.py`
+
+Uses the following services:
+
+- **`shared.services.security_events`** — `list_security_events_paginated()` and
+  `list_security_event_filter_values()` for the paginated viewer, scoped to
+  `module in (arena, aiassistant)`
+- **`shared.services.security_events_export`** — `stream_security_events_csv()`
+  and `csv_filename()` for the "Download as CSV" export, which covers the whole
+  Arena-scoped log and ignores the page's filters
 
 ### `arena/routes/admin_dashboard.py`
 
@@ -876,7 +889,8 @@ Uses the following services:
 - **`admin_problem_service.list_problems_paginated()`** — Paginated problem list for `GET /admin/problems`
 - **`admin_problem_service.list_owners()`** — Admin-only owner filter options for the problem list
 - **`admin_problem_service.search_categories()`** — Builds `selected_cats_data` for JS tag-picker pre-population on edit/error re-renders
-- **`admin_problem_service.get_problem()`** — Shared fetch + judge ownership enforcement helper for edit/toggle routes
+- **`admin_problem_service.get_problem_definition()`** — Narrow definition-editor fetch + judge ownership enforcement without loading judgment relationships
+- **`admin_problem_service.get_problem()`** — Full fetch + judge ownership enforcement helper for judgment, toggle, and export routes
 - **`admin_problem_service.create_problem()`** — Problem creation via `POST /admin/problems/new`
 - **`admin_problem_service.update_problem()`** — Problem update via `POST /admin/problems/{id}/edit`
 - **`admin_problem_service.toggle_enabled()`** — Enable/disable action via `POST /admin/problems/{id}/toggle-enabled`
@@ -910,7 +924,7 @@ Uses the following services:
 Uses the following services:
 
 - **`admin_problem_service.search_categories()`** — Category autocomplete JSON endpoint at `GET /admin/problems/categories/search`
-- **`admin_problem_service.search_problem_suggestions()`** — Field-specific Source/free-text Author suggestions at `GET /admin/problems/suggestions`: admins see all problems; editors see enabled problems plus their own disabled drafts
+- **`admin_problem_service.search_problem_suggestions()`** — Field-specific Source, free-text Author, and License suggestions at `GET /admin/problems/suggestions`: admins see all problems; editors see enabled problems plus their own disabled drafts
 - **`admin_problem_service.get_problem()`** — Judge/admin access control before returning problem rating-history JSON
 - **`statement_language_service.detect_statement_language_async()`** — Statement-language detection JSON endpoint at `POST /admin/problems/detect-language`
 
@@ -1360,7 +1374,7 @@ detail pages at `/problems` and `/problems/{arena_number}`.
 | `ac_rate` | `float \| None` | Fraction from rating stats that count every non-owner, regardless of role |
 | `is_solved` | `bool` | Personal solved status for the viewing user, including staff users |
 | `solved` | `int \| None` | Count of distinct non-owner solvers for the aggregate problem list column |
-| `has_custom_validator` | `bool` | `True` when the problem has an active or candidate custom validator source configured |
+| `has_custom_validator` | `bool` | `True` when the problem's stored strategy is interactive |
 
 **Functions:**
 
@@ -1483,7 +1497,7 @@ dialog). Worker-side producers currently emit:
 Public-facing ranking queries for the Arena Ranking section.
 
 **Dataclasses:**
-- `RankedUser` — flat presentation DTO with `id`, `rank`, `name`, `email_mascarado`, `affiliation_name`, `country_code`, `country_name`, `subdivision_name`, `rating`, `public_profile` (True when the user has opted in to a public profile page; the CTE only emits users with `ranking_visible=True`, so a public profile link is safe whenever this is True).
+- `RankedUser` — flat presentation DTO with `id`, `rank`, `name`, `email_mascarado`, `affiliation_name`, `country_code`, `country_name`, `subdivision_name`, `rating`, `solved`, `public_profile` (True when the user has opted in to a public profile page; the CTE only emits users with `ranking_visible=True`, so a public profile link is safe whenever this is True).
 - `RankedAffiliation` — flat presentation DTO with `id`, `rank`, `name`, `has_logo`, `country_code`, `country_name`, `subdivision_name`, `rating`
 
 | Function | Description |

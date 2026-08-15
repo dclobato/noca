@@ -47,7 +47,7 @@ from arena.services.user_timezone_service import (
     timezone_name_for_user,
 )
 from shared.db_schema.arena import arena_problem_set_user_snapshots
-from shared.enumerations import ArenaClassMembershipStatus, ArenaRole, Verdict
+from shared.enumerations import ArenaClassMembershipStatus, ArenaRole, ProblemValidatorType, Verdict
 
 TEST_JWT_SECRET = "test-secret-key-for-student-ps-route-tests-32b!"
 TODAY = date.today()
@@ -253,6 +253,7 @@ async def _create_problem(session: AsyncSession, author: ArenaUser, *, title: st
         owner_id=author.id,
         enabled=True,
         problem_statement="<p>Statement</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

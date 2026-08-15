@@ -19,7 +19,7 @@ from uuid import NAMESPACE_URL, uuid5
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.enumerations import JudgmentStatus, RoleEnum, Verdict
+from shared.enumerations import JudgmentStatus, ProblemValidatorType, RoleEnum, Verdict
 from shared.language_registry import default_language_seed_rows
 from web.models.contest import Contest
 from web.models.language import Language
@@ -230,6 +230,7 @@ async def load_interif_2026_contest(
             title=f"Problem {letter}",
             ordinal=ordinal,
             color=_PROBLEM_COLORS[ordinal - 1],
+            validator_type=ProblemValidatorType.STANDARD,
         )
         for ordinal, letter in enumerate("ABCDEFGHIJ", start=1)
     )

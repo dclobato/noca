@@ -1,10 +1,12 @@
 // NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+// Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 document.addEventListener('DOMContentLoaded', function () {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
     function highlightTarget() {
         if (!window.location.hash) return;
 
@@ -44,25 +46,23 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!scrollTarget || highlightElements.length === 0) return;
 
         highlightElements.forEach(element => {
-            element.style.setProperty('background-color', '#ffeb3b', 'important');
-            element.style.setProperty('transition', 'none', 'important');
+            element.classList.remove('noca-row-highlight-fade');
+            element.classList.add('noca-row-highlight');
         });
 
-        scrollTarget.scrollIntoView({behavior: 'smooth', block: 'center'});
+        scrollTarget.scrollIntoView({behavior: reduceMotion ? 'auto' : 'smooth', block: 'center'});
 
         setTimeout(function () {
             highlightElements.forEach(element => {
-                element.style.setProperty('transition', 'background-color 2s ease-out', 'important');
-                element.style.setProperty('background-color', 'transparent', 'important');
+                element.classList.add('noca-row-highlight-fade');
             });
 
             setTimeout(function () {
                 highlightElements.forEach(element => {
-                    element.style.backgroundColor = '';
-                    element.style.transition = '';
+                    element.classList.remove('noca-row-highlight', 'noca-row-highlight-fade');
                 });
-            }, 2100);
-        }, 500);
+            }, reduceMotion ? 0 : 2100);
+        }, reduceMotion ? 1500 : 500);
     }
 
     // Executa no carregamento inicial

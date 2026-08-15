@@ -13,6 +13,32 @@
     width: 100%;
 }
 
+.arena-dashboard-heading {
+    margin-bottom: var(--arena-space-md);
+}
+
+.arena-dashboard-heading h1 {
+    display: flex;
+    align-items: center;
+    gap: var(--arena-space-sm);
+    margin: 0;
+    color: var(--arena-on-surface);
+    font-size: 2rem;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+}
+
+.arena-dashboard-heading h1 .material-symbols-outlined {
+    color: var(--arena-primary);
+    font-size: 1.2em;
+}
+
+.arena-dashboard-heading p {
+    margin: 0.25rem 0 0;
+    color: var(--arena-on-surface-variant);
+}
+
 .arena-dashboard .arena-card {
     padding: 0;
     overflow: hidden;
@@ -45,6 +71,15 @@
     padding: 0.5rem 0;
     font-size: 0.875rem;
     font-weight: 600;
+    color: var(--arena-primary);
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+.arena-dashboard-card-link:hover,
+.arena-dashboard-card-link:focus-visible {
+    color: var(--arena-primary-container);
+    text-decoration: none;
 }
 
 .arena-dashboard-card-link .material-symbols-outlined {
@@ -115,7 +150,15 @@
     white-space: nowrap;
 }
 
+.arena-dashboard-user-identity {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-width: 0;
+}
+
 .arena-dashboard-user-name {
+    min-width: 0;
     max-width: 12rem;
     overflow: hidden;
     text-overflow: ellipsis;

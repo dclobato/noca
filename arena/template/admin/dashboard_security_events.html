@@ -18,6 +18,12 @@
                     {{ render_icon(icon="security") }}
                     Security Events
                 </h1>
+                <a href="{{ request.url_for("arena_admin_dashboard_security_events_csv") }}"
+                   class="btn btn-secondary btn-sm"
+                   title="Download the complete Arena security-event log, ignoring the filters below">
+                    {{ render_icon(icon="download") }}
+                    Download as CSV
+                </a>
             </div>
             <form method="get"
                   class="d-flex flex-wrap gap-2 align-items-end mb-3"

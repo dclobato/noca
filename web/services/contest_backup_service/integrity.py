@@ -37,9 +37,9 @@ from shared.db_schema import (
     users_media,
     verdict_overrides,
 )
-from shared.enumerations import ALL_CONTEST_ROLES
+from shared.enumerations import ALL_CONTEST_ROLES, ProblemValidatorType
 
-from .models import ContestBackupError
+from .models import LEGACY_FORMAT_VERSION, ContestBackupError
 from .row_validation import (
     as_mapping,
     index_rows,
@@ -55,6 +55,7 @@ from .row_validation import (
     validate_optional_user_reference,
     validate_row,
 )
+from .strategy import strategy_for_backup_problem
 from .validation import ArchiveIndex
 
 _PROBLEM_ENTRY_KEYS = {
@@ -105,6 +106,7 @@ def validate_backup_integrity(
         manifest["problems"],
         contest_id,
         archive_index,
+        manifest["format_version"],
     )
     submission_by_id = index_rows(submissions, submission_rows, "submission")
 
@@ -141,11 +143,20 @@ def validate_backup_integrity(
     _validate_tasks(task_rows, problem_by_id, user_by_id)
 
 
+# Columns that version 1 predates. Strict row validation compares against the
+# *live* table, so a column added after an archive was captured would make that
+# archive unrestorable unless it is optional on the legacy branch. Version 2
+# requires them, so a v2 archive omitting one is refused as malformed rather than
+# quietly filled in.
+_LEGACY_OPTIONAL_PROBLEM_COLUMNS = {"validator_type", "artifact_generation"}
+
+
 def _validate_problems(
     entries: list[dict[str, Any]],
     references: list[dict[str, Any]],
     contest_id: str,
     archive_index: ArchiveIndex,
+    format_version: int,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, tuple[dict[str, Any], str]]]:
     problem_by_id: dict[str, dict[str, Any]] = {}
     test_case_by_id: dict[str, tuple[dict[str, Any], str]] = {}
@@ -154,7 +165,12 @@ def _validate_problems(
 
     for position, entry in enumerate(entries):
         require_exact_keys(entry, _PROBLEM_ENTRY_KEYS, f"problem entry {position}")
-        problem = validate_row(problems, as_mapping(entry["problem"], "problem row"), "problem")
+        problem = validate_row(
+            problems,
+            as_mapping(entry["problem"], "problem row"),
+            "problem",
+            optional_columns=(_LEGACY_OPTIONAL_PROBLEM_COLUMNS if format_version == LEGACY_FORMAT_VERSION else set()),
+        )
         problem_id = required_id(problem, "problem")
         if problem_id in problem_by_id:
             raise ContestBackupError(f"Duplicate problem id: {problem_id!r}.")
@@ -179,7 +195,8 @@ def _validate_problems(
             if validated_validator.get("problem_id") != problem_id:
                 raise ContestBackupError(f"Custom validator for {problem_id!r} has a mismatched problem id.")
 
-        _validate_problem_children(entry, problem_id, directory, validated_validator, archive_index, test_case_by_id)
+        strategy = strategy_for_backup_problem(problem, validated_validator)
+        _validate_problem_children(entry, problem_id, directory, strategy, archive_index, test_case_by_id)
         problem_by_id[problem_id] = problem
         seen_ordinals.add(ordinal)
         actual_references.add((problem_id, ordinal, directory))
@@ -196,7 +213,7 @@ def _validate_problem_children(
     entry: dict[str, Any],
     problem_id: str,
     directory: str,
-    validator: dict[str, Any] | None,
+    strategy: ProblemValidatorType,
     archive_index: ArchiveIndex,
     test_case_by_id: dict[str, tuple[dict[str, Any], str]],
 ) -> None:
@@ -218,7 +235,10 @@ def _validate_problem_children(
         if ordinal in test_case_ordinals:
             raise ContestBackupError(f"Duplicate test-case ordinal {ordinal} for problem {problem_id!r}.")
         require_member(archive_index, f"{directory}/in/{ordinal:03d}.in")
-        if validator is None or validator.get("active_source") is None:
+        # Expected output is required by the *strategy*, not by whether a
+        # validator row happens to hold active source: an interactive problem
+        # whose source was removed still has input-only cases.
+        if strategy is ProblemValidatorType.STANDARD:
             require_member(archive_index, f"{directory}/out/{ordinal:03d}.out")
         test_case_by_id[test_case_id] = (test_case, problem_id)
         test_case_ordinals.add(ordinal)

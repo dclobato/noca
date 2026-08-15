@@ -1,0 +1,24 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Arena judgment data: the test cases page.
+#}
+{% extends "_base.html" %}
+{% block title_suffix %}&mdash; Problem #{{ problem.arena_number }} test cases{% endblock %}
+{% block nav_admin_problems %}active{% endblock %}
+{% block content %}
+    {% include "_partials/judgment_shell.html" %}
+    {% include "_partials/judgment_testcases_page.html" %}
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for("static_vendor", path="Sortable.min.js") }}"></script>
+    <script src="{{ request.url_for("static_shared_js", path="tc-reorder-sortable.js") }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for("static_shared_js", path="tc-add-row.js") }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for("static_shared_js", path="judgment-actions.js") }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for("static_shared_js", path="highlight-row.js") }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for("static_shared_js", path="problem-edit-unsaved-guard.js") }}?v={{ app_version }}"></script>
+{% endblock %}

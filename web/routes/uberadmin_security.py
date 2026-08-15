@@ -8,8 +8,10 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from shared.services.pagination_service import effective_per_page, parse_page
@@ -17,6 +19,7 @@ from shared.services.security_events import (
     list_security_event_filter_values,
     list_security_events_paginated,
 )
+from shared.services.security_events_export import csv_filename, stream_security_events_csv
 from web.dependencies import get_uberadmin
 from web.models.users import UberAdmin
 
@@ -70,4 +73,28 @@ async def security_events(
             "per_page": resolved_per_page,
             "filters_active": bool(event_type_filter) or resolved_per_page != _DEFAULT_PER_PAGE,
         },
+    )
+
+
+@router.get(
+    "/security-events.csv",
+    response_class=StreamingResponse,
+    name="uberadmin_security_events_csv",
+)
+async def security_events_csv(
+    request: Request,
+    uberadmin: UberAdmin = Depends(get_uberadmin),
+) -> StreamingResponse:
+    """Download every Web security event as CSV, ignoring the on-screen filters."""
+
+    async def _stream() -> AsyncIterator[str]:
+        async with request.app.state.db_session() as session:
+            async for chunk in stream_security_events_csv(session, module=_VIEWER_MODULE):
+                yield chunk
+
+    filename = csv_filename("web-security-events")
+    return StreamingResponse(
+        _stream(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

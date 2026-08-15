@@ -44,7 +44,12 @@ from shared.db_schema.arena.arena_submissions import (
     arena_submission_teacher_feedback,
     arena_submissions,
 )
-from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_LABELS, ArenaRole
+from shared.enumerations import (
+    VERDICT_BADGE_CLASSES,
+    VERDICT_LABELS,
+    ArenaRole,
+    ProblemValidatorType,
+)
 from web.models.language import Language
 
 # ---------------------------------------------------------------------------
@@ -109,6 +114,7 @@ async def _make_problem(session: AsyncSession, owner_id: str) -> ArenaProblem:
         title=f"Detail Test Problem {uuid.uuid4().hex[:6]}",
         owner_id=owner_id,
         problem_statement="<p>Test.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

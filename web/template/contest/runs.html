@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
 {% from "_macros.html" import render_flash_messages, render_icon with context %}
 {% set queued_submission_id = request.query_params.get("queued_submission") %}
@@ -77,6 +84,9 @@
                                            type="file"
                                            id="source_file"
                                            name="source_file"
+                                           data-language-file-accept
+                                           data-language-select="language_id"
+                                           data-language-extensions="quick-submit-lang-ext"
                                            required>
                                     {% if contest.max_problem_file_size_bytes > 0 %}
                                         <div class="form-text">Max size: {{ contest.max_problem_file_size_bytes }} bytes</div>
@@ -175,7 +185,7 @@
     {% if current_user.role == RoleEnum.TEAM.value and contest.is_running %}
         <script src="{{ request.url_for('static_js', path='runs-submit-confirm.js') }}?v={{ app_version }}"
                 defer></script>
-        <script src="{{ request.url_for('static_js', path='quick-submit-accept.js') }}?v={{ app_version }}"
+        <script src="{{ request.url_for('static_shared_js', path='language-file-accept.js') }}?v={{ app_version }}"
                 defer></script>
         <script src="{{ request.url_for('static_vendor', path='tsparticles.confetti.bundle.min.js') }}"
                 defer></script>

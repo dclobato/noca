@@ -14,22 +14,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import anyio
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from shared.db_schema import problem_custom_validators
-from shared.enumerations import CustomValidatorActiveState, JudgmentStatus, RoleEnum, Verdict
+from shared.enumerations import JudgmentStatus, RoleEnum, Verdict
+from shared.services.problem_judgeability import judgeability_error
 from shared.timing import compute_timestamp_seconds, display_minutes_from_seconds
 from web.models._base import _new_uuid
 from web.models.contest import Contest
-from web.models.problem import Problem, ProblemTestCase
+from web.models.problem import Problem
 from web.models.submission import HumanSubmissionConfirmation, Submission, SubmissionJudgment, SubmissionJudgmentAudit
 from web.models.users import User
 from web.routes.contest_admin_problem_helpers import _label
 from web.services.judgment_utils import get_active_judgment
-from web.services.problem_service import get_active_statement_path
+from web.services.problem_service import get_active_statement_path, load_contest_problem_judgeability_facts
 from web.services.rate_limit_service import check_submission_rate_limit
 
 if TYPE_CHECKING:
@@ -350,51 +350,15 @@ async def create_submission(
         assert next_allowed_at is not None
         raise SubmissionRateLimitError(next_allowed_at)
 
-    validator = (
-        await session.execute(
-            select(
-                problem_custom_validators.c.active_state,
-                problem_custom_validators.c.active_source,
-                problem_custom_validators.c.candidate_source,
-            ).where(problem_custom_validators.c.problem_id == problem_id)
-        )
-    ).one_or_none()
-    if (
-        validator is not None
-        and (validator.active_source is not None or validator.candidate_source is not None)
-        and validator.active_state != CustomValidatorActiveState.VALID
-    ):
-        raise ValueError("The custom validator is not available.")
-
-    validator_configured = validator is not None and (
-        validator.active_source is not None or validator.candidate_source is not None
-    )
-
-    # Every problem needs at least one test case: a plain problem compares each
-    # case's expected output, an interactive one replays its validator once per
-    # case with that case's input. An interactive problem judges only against
-    # secret cases — its public samples are sample interactions — so count those.
-    test_case_count = await session.scalar(
-        select(func.count())
-        .select_from(ProblemTestCase)
-        .where(
-            ProblemTestCase.problem_id == problem_id,
-            *([ProblemTestCase.is_sample.is_(False)] if validator_configured else []),
-        )
-    )
-    if not test_case_count:
-        raise ValueError("This problem has no test cases and cannot be judged yet.")
-    if not validator_configured:
-        missing_output_count = await session.scalar(
-            select(func.count())
-            .select_from(ProblemTestCase)
-            .where(
-                ProblemTestCase.problem_id == problem_id,
-                ProblemTestCase.output_size_bytes.is_(None),
-            )
-        )
-        if missing_output_count:
-            raise ValueError("This problem has test cases with no expected output.")
+    # One shared contract, decided from the problem's stored strategy. An
+    # interactive problem needs an active valid validator and secret input-only
+    # cases; a standard one needs cases that all carry an expected output. A
+    # problem that lost its validator is refused here rather than judged by the
+    # token comparator against cases that have no expected output.
+    facts = await load_contest_problem_judgeability_facts(session, problem_id)
+    reason = judgeability_error(facts)
+    if reason is not None:
+        raise ValueError(reason)
 
     # Pre-flight duplicate check (fast path; race covered by DB constraint below)
     duplicate = (

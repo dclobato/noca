@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.models.arena_problems import ArenaProblem
 from arena.services import admin_problem_service
 from arena.services.problem_search_service import ProblemSuggestionField
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, ProblemValidatorType
 
 _ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT = _ROOT / "arena" / "static" / "js" / "admin-problem-form.js"
@@ -33,6 +33,7 @@ async def _create_problem(
     title: str,
     source: str | None = None,
     author: str | None = None,
+    license: str | None = None,
 ) -> ArenaProblem:
     """Create a disabled problem with only fields relevant to suggestion tests."""
     return await admin_problem_service.create_problem(
@@ -42,6 +43,7 @@ async def _create_problem(
         source=source,
         author=author,
         author_is_owner=author is None,
+        license=license,
         hide_author_show_source=False,
         time_limit_ms=1000,
         memory_limit_kb=262144,
@@ -53,6 +55,7 @@ async def _create_problem(
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
 
 
@@ -106,6 +109,7 @@ async def test_suggestions_endpoint_requires_an_editor_and_validates_queries(
     ) as client:
         assert (await client.get("/admin/problems/suggestions?q=ab")).status_code == 422
         assert (await client.get("/admin/problems/suggestions?field=title&q=ab")).status_code == 422
+        assert (await client.get("/admin/problems/suggestions?field=license&q=ab")).status_code == 200
         assert (await client.get("/admin/problems/suggestions?field=source&q=a")).status_code == 422
         assert (
             await client.get("/admin/problems/suggestions", params={"field": "source", "q": "x" * 257})
@@ -147,23 +151,29 @@ async def test_suggestions_endpoint_caps_string_payload_and_scopes_visibility(
         owner_id=other_editor.id,
         title="Other editor archive",
         source="Archive external",
+        license="Closed external license",
     )
     shared_problem = await _create_problem(
         session,
         owner_id=other_editor.id,
         title="Other editor published archive",
         source="Shared catalog",
+        license="Shared license",
     )
     shared_problem.enabled = True
     await session.commit()
 
-    async def get_for(token: str, query: str = "Archive") -> list[str]:
+    async def get_for(
+        token: str,
+        query: str = "Archive",
+        field: ProblemSuggestionField = "source",
+    ) -> list[str]:
         async with AsyncClient(
             transport=ASGITransport(app=app),
             base_url="http://testserver",
             cookies={"arena_access_token": token},
         ) as client:
-            response = await client.get("/admin/problems/suggestions", params={"field": "source", "q": query})
+            response = await client.get("/admin/problems/suggestions", params={"field": field, "q": query})
         assert response.status_code == 200
         payload = response.json()
         assert set(payload) == {"suggestions"}
@@ -181,6 +191,11 @@ async def test_suggestions_endpoint_caps_string_payload_and_scopes_visibility(
     assert await get_for(_login_token(app, admin), "shared") == ["Shared catalog"]
     assert await get_for(_login_token(app, editor), "external") == []
     assert await get_for(_login_token(app, admin), "external") == ["Archive external"]
+    assert await get_for(_login_token(app, editor), "license", "license") == ["Shared license"]
+    assert await get_for(_login_token(app, admin), "license", "license") == [
+        "Closed external license",
+        "Shared license",
+    ]
 
 
 @pytest.mark.asyncio
@@ -206,10 +221,30 @@ async def test_sqlite_suggestions_filter_trim_deduplicate_and_treat_wildcards_li
         title="Free-text author",
         author="Owner-backed Name Studio",
     )
+    license_duplicate = await _create_problem(
+        session,
+        owner_id=owner.id,
+        title="Licensed one",
+        license="CC BY-SA 4.0",
+    )
+    await _create_problem(
+        session,
+        owner_id=owner.id,
+        title="Licensed two",
+        license="CC BY-SA 4.0",
+    )
     literal = await _create_problem(session, owner_id=owner.id, title="Literal", source="50%_off")
+    license_literal = await _create_problem(
+        session,
+        owner_id=owner.id,
+        title="Literal license",
+        license="Custom%_License",
+    )
     await _create_problem(session, owner_id=owner.id, title="Wildcard decoy", source="50AXoff")
     duplicate.source = "  Gamma  "
     case_variant.source, blank.source, literal.source = "gamma", " ", "  50%_off  "
+    license_duplicate.license = "  CC BY-SA 4.0  "
+    license_literal.license = "  Custom%_License  "
     await session.flush()
 
     async def scoped_suggestions(field: ProblemSuggestionField, query: str) -> list[str]:
@@ -219,6 +254,8 @@ async def test_sqlite_suggestions_filter_trim_deduplicate_and_treat_wildcards_li
     assert await scoped_suggestions("source", "ga") == ["Gamma", "gamma"]
     assert await scoped_suggestions("source", "50%_off") == ["50%_off"]
     assert await scoped_suggestions("author", "Owner") == ["Owner-backed Name Studio"]
+    assert await scoped_suggestions("license", "by-sa") == ["CC BY-SA 4.0"]
+    assert await scoped_suggestions("license", "%_") == ["Custom%_License"]
     assert await scoped_suggestions("source", "  ") == []
     assert await scoped_suggestions("source", "Unlisted source") == []
     created = await _create_problem(
@@ -227,12 +264,14 @@ async def test_sqlite_suggestions_filter_trim_deduplicate_and_treat_wildcards_li
         title="New arbitrary values",
         source="Unlisted source",
         author="Unlisted contributor",
+        license="Unlisted license",
     )
     await session.flush()
-    assert (created.source, created.author, created.author_is_owner) == (
+    assert (created.source, created.author, created.author_is_owner, created.license) == (
         "Unlisted source",
         "Unlisted contributor",
         False,
+        "Unlisted license",
     )
 
 
@@ -254,22 +293,37 @@ async def test_form_wires_suggestions_in_create_and_edit_modes(session: AsyncSes
         base_url="http://testserver",
         cookies={"arena_access_token": token},
     ) as client:
-        create_response = await client.get("/admin/problems/new")
+        create_response = await client.get("/admin/problems/new/standard")
         edit_response = await client.get(f"/admin/problems/{problem.id}/edit")
 
     for response in (create_response, edit_response):
         assert response.status_code == 200
-        assert all(value in response.text for value in ('list="source-suggestions"', 'list="author-suggestions"'))
+        assert all(
+            value in response.text
+            for value in (
+                'list="source-suggestions"',
+                'list="author-suggestions"',
+                'list="license-suggestions"',
+            )
+        )
         assert response.text.count('data-suggestions-field="source"') == 1
         assert response.text.count('data-suggestions-field="author"') == 1
-        assert response.text.count('data-suggestions-url="http://testserver/admin/problems/suggestions"') == 2
-        assert all(value in response.text for value in ('id="source-suggestions"', 'id="author-suggestions"'))
+        assert response.text.count('data-suggestions-field="license"') == 1
+        assert response.text.count('data-suggestions-url="http://testserver/admin/problems/suggestions"') == 3
+        assert all(
+            value in response.text
+            for value in (
+                'id="source-suggestions"',
+                'id="author-suggestions"',
+                'id="license-suggestions"',
+            )
+        )
 
 
 def test_suggestion_script_debounces_aborts_per_input_and_uses_safe_option_nodes() -> None:
     """The external client code keeps autocomplete advisory and isolated per text input."""
     script = _SCRIPT.read_text(encoding="utf-8")
-    suggestion_section = script.split("// ── Source and free-text author suggestions", 1)[1].split(
+    suggestion_section = script.split("// ── Problem metadata suggestions", 1)[1].split(
         "// ── Category autocomplete", 1
     )[0]
 

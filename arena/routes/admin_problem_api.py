@@ -9,7 +9,7 @@
 Provides:
   - Rating history endpoint for the ECharts spikeline on the problem edit form.
   - Category search endpoint for the category autocomplete tag picker.
-  - Source and free-text author suggestion endpoint for the problem form.
+  - Source, free-text author, and license suggestion endpoint for the problem form.
   - Statement-language detection endpoint used by the problem form's
     confirmation modal.
 """
@@ -75,12 +75,13 @@ async def arena_admin_problem_suggestions(
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Return visible free-text author or source suggestions for the problem form.
+    """Return visible author, source, or license suggestions for the problem form.
 
     Editors receive enabled problems plus their own disabled drafts; admins receive all.
 
     Args:
-        field: Stored text field to search, either ``"author"`` or ``"source"``.
+        field: Stored text field to search: ``"author"``, ``"license"`, or
+            ``"source"``.
         q: Literal search text, between 2 and 256 characters.
         current_user: Authenticated admin or problem editor.
         session: Active request database session.

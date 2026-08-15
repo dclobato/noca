@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TypedDict
 
-from shared.enumerations import JudgmentStatus, ProfilingStatus, Verdict
+from shared.enumerations import JudgmentStatus, ProblemValidatorType, ProfilingStatus, Verdict
 from shared.queue_schema import CustomValidatorValidationJob
 
 # ---------------------------------------------------------------------------
@@ -104,10 +104,27 @@ class ActiveCustomValidator:
 
 @dataclass(frozen=True)
 class CustomValidatorDispatchState:
-    """Validator availability snapshot loaded at submission dispatch."""
+    """The problem's validation strategy and validator availability at dispatch.
 
-    configured: bool
+    ``strategy`` is the problem's stored, authoritative value; it is never derived
+    from validator source presence, so a standard problem carrying a stale
+    validator row dispatches as standard and an interactive problem whose source
+    was removed is refused rather than judged by the token comparator.
+
+    ``unsupported_reason`` is set when the strategy names something this build
+    cannot judge (currently the reserved output checker). It is modelled
+    separately from "no validator configured" precisely so it cannot fall through
+    to the standard comparator.
+    """
+
+    strategy: ProblemValidatorType
     active: ActiveCustomValidator | None
+    unsupported_reason: str | None = None
+
+    @property
+    def is_interactive(self) -> bool:
+        """Whether this problem is judged by a concurrently-running validator."""
+        return self.strategy is ProblemValidatorType.INTERACTIVE
 
 
 @dataclass(frozen=True)

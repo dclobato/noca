@@ -27,7 +27,7 @@ from shared.db_schema import (
     arena_users,
     languages,
 )
-from shared.enumerations import ArenaNotificationKind, ArenaRole
+from shared.enumerations import ArenaNotificationKind, ArenaRole, ProblemValidatorType
 from shared.services.valkey_service.worker_commands import LivePauseFlag
 from shared.services.worker_pause_state import bump_worker_pause_state
 
@@ -91,6 +91,7 @@ async def _seed_review_submission(
                 problem_image_base64=problem_image_base64,
                 problem_image_mime=problem_image_mime,
                 problem_image_caption=problem_image_caption,
+                validator_type=ProblemValidatorType.STANDARD,
             )
         )
         await conn.execute(

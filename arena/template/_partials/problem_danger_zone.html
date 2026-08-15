@@ -1,0 +1,112 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Arena problem danger zone: permanent deletion and a full rejudge, both behind a
+  password confirmation modal. Kept out of the tab strip on purpose -- these are
+  not edits to the problem, they are actions on it, and they must not be one
+  mis-click away from a pane an author works in.
+#}
+{% from "_macros.html" import render_icon with context %}
+<div class="arena-card mb-3 border-danger">
+    <h2 class="arena-card-title text-danger">
+        {{ render_icon(icon="warning") }}
+        Danger zone
+    </h2>
+    <div class="d-flex flex-wrap gap-2">
+        <button type="button"
+                class="btn btn-outline-danger btn-sm arena-icon-button"
+                data-problem-delete-button
+                data-action="{{ request.url_for('arena_admin_problem_delete', problem_id=problem.id) }}"
+                data-problem-number="{{ problem.arena_number }}">{{ render_icon("delete") }} Delete problem</button>
+        <button type="button"
+                class="btn btn-outline-warning btn-sm arena-icon-button"
+                data-problem-rejudge-button
+                data-action="{{ request.url_for('arena_admin_problem_rejudge_all', problem_id=problem.id) }}"
+                data-problem-number="{{ problem.arena_number }}">
+            {{ render_icon("replay") }} Rejudge all submissions
+        </button>
+    </div>
+</div>
+<div class="modal fade" id="problem-delete-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" data-problem-delete-form>
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5 text-danger">Delete problem</h2>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>
+                        Permanently delete problem <strong data-problem-delete-number></strong>?
+                    </p>
+                    <p class="text-muted small">
+                        All test cases, submissions, judgments, and solve/attempt/favourite records
+                        will be removed. This action cannot be undone.
+                    </p>
+                    <div class="mb-3">
+                        <label class="form-label" for="delete_password">Current password</label>
+                        <input type="password"
+                               class="form-control"
+                               id="delete_password"
+                               name="password"
+                               autocomplete="current-password"
+                               required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-outline-secondary"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger arena-icon-button">{{ render_icon("delete") }} Delete permanently</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="problem-rejudge-modal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" data-problem-rejudge-form>
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5">Rejudge all submissions</h2>
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>
+                        Re-enqueue all submissions for problem
+                        <strong data-problem-rejudge-number></strong>?
+                    </p>
+                    <p class="text-muted small">
+                        Every existing submission will be queued for a new judgment.
+                        Useful after test case changes.
+                    </p>
+                    <div class="mb-3">
+                        <label class="form-label" for="rejudge_password">Current password</label>
+                        <input type="password"
+                               class="form-control"
+                               id="rejudge_password"
+                               name="password"
+                               autocomplete="current-password"
+                               required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-outline-secondary"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning arena-icon-button">{{ render_icon("replay") }} Rejudge all</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

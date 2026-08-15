@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from shared.enumerations import ProblemValidatorType
+
 if TYPE_CHECKING:
     from shared.services.custom_validator import PackagedValidator
     from shared.services.problem_package.errors import PackageWarning
@@ -55,14 +57,20 @@ class ValidatorSpec:
 
 @dataclass(frozen=True, slots=True)
 class PackageMetadata:
-    """Every version-1 ``problem.json`` key, already validated and defaulted.
+    """Every ``problem.json`` key, already validated, normalized, and defaulted.
 
     Keys a given domain cannot store are still parsed and still exported: the
     package format is the union of both domains, and dropping a field on the way
     through is what made the two exporters diverge in the first place.
+
+    ``validator_type`` is always populated regardless of the package's own
+    version: version 2 states it, and a version-1 package has it derived from
+    ``custom_validator`` presence by the parser. Consumers therefore never branch
+    on the version to learn the strategy.
     """
 
     format_version: int
+    validator_type: ProblemValidatorType
     title: str
     author: str | None
     notes: str | None
@@ -151,8 +159,14 @@ class ProblemPackage:
 
     @property
     def is_interactive(self) -> bool:
-        """Whether the package configures a custom validator."""
-        return self.validator is not None
+        """Whether the package's stored validation strategy is interactive.
+
+        This reads the normalized strategy, never ``validator is not None``: an
+        interactive problem whose validator source was removed is still
+        interactive, and a standard problem carrying a stale validator row is
+        still standard.
+        """
+        return self.metadata.validator_type is ProblemValidatorType.INTERACTIVE
 
 
 @dataclass(frozen=True, slots=True)

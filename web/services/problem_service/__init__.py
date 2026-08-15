@@ -20,7 +20,6 @@ from .files import (
     read_testcase_full,
     read_testcase_preview,
     renumber_testcase_files,
-    reorder_testcase_files,
     save_md_statement,
     save_problem_statement,
     save_testcase_files,
@@ -59,7 +58,6 @@ from .ordering import (
     append_problem,
     append_test_case,
     move_problem,
-    move_test_case,
     remove_problem_and_resequence,
     remove_test_case_and_resequence,
 )
@@ -70,7 +68,14 @@ from .profiling import (
     get_active_profiling_run_for_problem,
     get_profiling_runs_for_problem,
 )
-from .queries import get_active_languages, get_contest_languages, get_contest_problems, get_problem_in_contest
+from .queries import (
+    get_active_languages,
+    get_contest_languages,
+    get_contest_problems,
+    get_problem_definition_in_contest,
+    get_problem_in_contest,
+    load_contest_problem_judgeability_facts,
+)
 
 __all__ = [
     "BALLOON_COLORS",
@@ -103,7 +108,9 @@ __all__ = [
     "get_contest_problems",
     "get_language_limits_map",
     "get_md_statement_path",
+    "get_problem_definition_in_contest",
     "get_problem_in_contest",
+    "load_contest_problem_judgeability_facts",
     "get_problem_limit_change_batch",
     "get_profiling_runs_for_problem",
     "get_statement_path",
@@ -114,7 +121,6 @@ __all__ = [
     "load_sample_interactions",
     "move_problem",
     "move_sample_interaction",
-    "move_test_case",
     "parse_testcases_zip",
     "problem_fallback_limits",
     "read_testcase_full",
@@ -123,7 +129,6 @@ __all__ = [
     "remove_sample_interaction_and_resequence",
     "remove_test_case_and_resequence",
     "renumber_testcase_files",
-    "reorder_testcase_files",
     "save_md_statement",
     "save_problem_statement",
     "save_testcase_files",

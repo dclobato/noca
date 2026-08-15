@@ -28,9 +28,10 @@ from shared.db_schema.arena import arena_problem_set_problems as _arena_problem_
 from shared.db_schema.arena import arena_problem_tried as _arena_problem_tried
 from shared.db_schema.arena import arena_problems as _arena_problem
 from shared.db_schema.arena import arena_test_cases as _arena_test_case
-from shared.enumerations import CustomValidatorActiveState, JudgmentStatus
+from shared.enumerations import CustomValidatorActiveState, JudgmentStatus, ProblemValidatorType
 from shared.queue_schema import ArenaSubmissionJob
 from shared.services.arena_query_helpers import is_excluded_from_problem_rating
+from shared.services.problem_judgeability import ProblemJudgeabilityFacts, judgeability_error
 
 
 class ArenaSubmissionServiceError(ValueError):
@@ -196,49 +197,35 @@ async def _validate_problem_language_and_cases(session: AsyncSession, problem_id
     if language_exists is None:
         raise ArenaSubmissionServiceError("Language is not available.")
 
-    validator = (
+    # One shared contract, decided from the problem's stored strategy: an
+    # interactive problem needs an active valid validator and secret input-only
+    # cases; a standard one needs cases that all carry an expected output.
+    strategy = await session.scalar(select(_arena_problem.c.validator_type).where(_arena_problem.c.id == problem_id))
+    active_state = await session.scalar(
+        select(_arena_problem_custom_validator.c.active_state).where(
+            _arena_problem_custom_validator.c.problem_id == problem_id
+        )
+    )
+    counts = (
         await session.execute(
             select(
-                _arena_problem_custom_validator.c.active_state,
-                _arena_problem_custom_validator.c.active_source,
-                _arena_problem_custom_validator.c.candidate_source,
-            ).where(_arena_problem_custom_validator.c.problem_id == problem_id)
+                func.count(),
+                func.count().filter(_arena_test_case.c.is_sample.is_(False)),
+                func.count().filter(_arena_test_case.c.output_size_bytes.is_(None)),
+            ).where(_arena_test_case.c.problem_id == problem_id)
         )
-    ).one_or_none()
-    validator_configured = validator is not None and (
-        validator.active_source is not None or validator.candidate_source is not None
-    )
-    if validator is not None and validator_configured and validator.active_state != CustomValidatorActiveState.VALID:
-        raise ArenaSubmissionServiceError("The custom validator is not available.")
-
-    # Every problem needs a test case, interactive or not: a plain problem compares
-    # each case's expected output, and a validator is replayed once per case with
-    # that case's input. An interactive problem judges only against secret cases —
-    # its public samples are sample interactions, never test cases — so count those.
-    test_case_count = await session.scalar(
-        select(func.count())
-        .select_from(_arena_test_case)
-        .where(
-            _arena_test_case.c.problem_id == problem_id,
-            *([_arena_test_case.c.is_sample.is_(False)] if validator_configured else []),
+    ).one()
+    reason = judgeability_error(
+        ProblemJudgeabilityFacts(
+            strategy=strategy or ProblemValidatorType.STANDARD,
+            total_case_count=int(counts[0]),
+            secret_case_count=int(counts[1]),
+            cases_missing_expected_output=int(counts[2]),
+            has_active_valid_validator=active_state == CustomValidatorActiveState.VALID,
         )
     )
-    if int(test_case_count or 0) == 0:
-        raise ArenaSubmissionServiceError("Arena problem has no test cases.")
-
-    # A problem that lost its validator keeps that validator's output-less cases,
-    # which a token-based comparison has nothing to compare against.
-    if not validator_configured:
-        missing_output = await session.scalar(
-            select(func.count())
-            .select_from(_arena_test_case)
-            .where(
-                _arena_test_case.c.problem_id == problem_id,
-                _arena_test_case.c.output_size_bytes.is_(None),
-            )
-        )
-        if int(missing_output or 0) > 0:
-            raise ArenaSubmissionServiceError("Arena problem has test cases with no expected output.")
+    if reason is not None:
+        raise ArenaSubmissionServiceError(reason)
 
 
 async def _validate_problem_set_tie(

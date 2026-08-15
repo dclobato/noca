@@ -39,7 +39,12 @@ from arena.models.arena_users import ArenaUser
 from arena.routes.admin_problem_validator import router as arena_admin_problem_validator_router
 from arena.services import admin_problem_interaction_service, admin_problem_service
 from arena.services.token_service import ArenaTokenAction
-from shared.enumerations import ArenaRole, CustomValidatorActiveState, CustomValidatorCandidateState
+from shared.enumerations import (
+    ArenaRole,
+    CustomValidatorActiveState,
+    CustomValidatorCandidateState,
+    ProblemValidatorType,
+)
 from shared.services.sample_interactions import parse_interaction_text
 from web.models.language import Language
 
@@ -86,6 +91,16 @@ def _build_app(session: AsyncSession) -> FastAPI:
     @app.get("/admin/problems/{problem_id}/edit", name="arena_admin_problem_edit")
     async def _edit(problem_id: str) -> Response:
         return Response(f"edit {problem_id}")
+
+    # Removal returns to the judgment page that owns the validator, so the name
+    # has to resolve here even though this app does not exercise that page.
+    @app.get("/admin/problems/{problem_id}/judgment/test-cases", name="arena_admin_problem_judgment_cases")
+    async def _judgment_cases(problem_id: str) -> Response:
+        return Response(f"judgment {problem_id}")
+
+    @app.get("/admin/problems/{problem_id}/judgment/validator", name="arena_admin_problem_judgment_validator")
+    async def _judgment_validator(problem_id: str) -> Response:
+        return Response(f"validator {problem_id}")
 
     @app.get("/live", name="arena_live")
     @app.get("/status", name="arena_status")
@@ -171,6 +186,7 @@ async def _interactive_problem_with_interaction(
         notes=None,
         license=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(
         ArenaProblemCustomValidator(

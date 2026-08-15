@@ -4,11 +4,16 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Arena admin routes for test-case management.
+"""The single-test-case pages: view, inline edit, download, replace, reorder.
+
+The list-level actions -- add, upload, replace-all, delete, sample toggle -- live
+on the judgment-data test-cases page (:mod:`arena.routes.admin_problem_judgment`).
+What is left here is everything that concerns *one* case on a page of its own,
+because a case can be far too large to edit in a row.
 
 All routes are scoped to ``/admin/problems/{problem_id}/testcases/`` and require
-at least ``ARENA_JUDGE`` access.  ARENA_JUDGE users may only manage test cases
-for their own problems; ARENA_ADMIN users may manage any problem's test cases.
+at least ``ARENA_JUDGE`` access. ARENA_JUDGE users may only manage test cases for
+their own problems; ARENA_ADMIN users may manage any problem's test cases.
 """
 
 from __future__ import annotations
@@ -24,14 +29,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.config import settings
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_problem_editor
-from arena.models.arena_problems import ArenaProblem
+from arena.models.arena_problems import ArenaProblem, ArenaTestCase
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_problem_form_views import build_testcase_row_views
+from arena.routes.admin_problem_judgment_urls import judgment_page_url
 from arena.services import admin_problem_service, admin_problem_tc_service
-from shared.enumerations import ArenaRole
+from arena.services.admin_problem_case_actions import ProblemVanished, apply_case_action
+from arena.services.admin_problem_tc_service import check_inline_size
+from shared.enumerations import ArenaRole, ProblemValidatorType
 from shared.http_params import PG_INT32_MAX
-from shared.services.custom_validator import status_view
+from shared.services.editor_urls import editor_url
+from shared.services.problem_save_errors import unsupported_strategy_message
 from shared.services.testcase_files import read_testcase_full
+from shared.services.testcase_pending_ops import CaseContent, PendingTestCaseOps, case_content_from_single_archive
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES, build_single_testcase_zip, parse_single_testcase_zip
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
@@ -83,138 +93,6 @@ async def _get_problem_or_403(
     return problem
 
 
-@router.post(
-    "/problems/{problem_id}/testcases/add",
-    name="arena_admin_problem_tc_add",
-)
-async def admin_problem_tc_add(
-    request: Request,
-    problem_id: str,
-    flash: FlashDep,
-    input_content: str = Form(""),
-    output_content: str = Form(""),
-    explanation: str = Form(""),
-    is_sample: bool = Form(False),
-    current_user: ArenaUser = Depends(require_arena_problem_editor),
-    session: AsyncSession = Depends(get_db),
-) -> Response:
-    """Append a single test case to a problem.
-
-    Redirects back to the problem edit page with a flash message.
-    """
-    problem = await _get_problem_or_403(problem_id, current_user, session)
-    edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
-    explanation_value, exp_error = _clean_explanation(explanation)
-    if exp_error:
-        flash(exp_error, FlashCategory.DANGER)
-        return RedirectResponse(url=edit_url, status_code=303)
-    try:
-        _tc, write_files = await admin_problem_tc_service.create_testcase(
-            session,
-            problem,
-            input_content=input_content,
-            output_content=output_content,
-            is_sample=is_sample,
-            explanation=explanation_value,
-            testcase_dir=settings.PROBLEM_TESTCASE_DIR,
-        )
-    except ValueError as exc:
-        flash(str(exc), FlashCategory.DANGER)
-        return RedirectResponse(url=edit_url, status_code=303)
-    await session.commit()
-    await anyio.to_thread.run_sync(write_files)
-    flash("Test case added.", FlashCategory.SUCCESS)
-    return RedirectResponse(url=edit_url, status_code=303)
-
-
-@router.post(
-    "/problems/{problem_id}/testcases/add-zip",
-    name="arena_admin_problem_tc_add_from_zip",
-)
-async def admin_problem_tc_add_from_zip(
-    request: Request,
-    problem_id: str,
-    flash: FlashDep,
-    zip_file: UploadFile = File(...),
-    current_user: ArenaUser = Depends(require_arena_problem_editor),
-    session: AsyncSession = Depends(get_db),
-) -> Response:
-    """Add a single new test case from an uploaded single-case ZIP.
-
-    Args:
-        request: The incoming HTTP request.
-        problem_id: UUID of the problem to add the test case to.
-        flash: Flash message dependency.
-        zip_file: The uploaded ZIP file (``input.txt`` + ``output.txt``).
-        current_user: The authenticated Arena user.
-        session: Active async database session.
-
-    Returns:
-        Response: Redirect to the problem edit page.
-    """
-    problem = await _get_problem_or_403(problem_id, current_user, session)
-    edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
-    zip_bytes = await zip_file.read()
-    interactive = status_view(problem.custom_validator).configured
-    try:
-        single = parse_single_testcase_zip(zip_bytes, require_output=not interactive)
-    except ValueError as exc:
-        flash(str(exc), FlashCategory.DANGER)
-        return RedirectResponse(url=edit_url, status_code=303)
-    try:
-        _tc, write_files = await admin_problem_tc_service.create_testcase(
-            session,
-            problem,
-            input_content=single.input_bytes.decode("utf-8"),
-            output_content="" if single.output_bytes is None else single.output_bytes.decode("utf-8"),
-            is_sample=False,
-            explanation=single.explanation,
-            testcase_dir=settings.PROBLEM_TESTCASE_DIR,
-        )
-    except ValueError as exc:
-        flash(str(exc), FlashCategory.DANGER)
-        return RedirectResponse(url=edit_url, status_code=303)
-    await session.commit()
-    await anyio.to_thread.run_sync(write_files)
-    flash("Test case added from ZIP.", FlashCategory.SUCCESS)
-    return RedirectResponse(url=edit_url, status_code=303)
-
-
-@router.get(
-    "/problems/{problem_id}/testcases/new",
-    response_class=HTMLResponse,
-    name="arena_admin_problem_tc_new",
-)
-async def admin_problem_tc_new(
-    request: Request,
-    problem_id: str,
-    current_user: ArenaUser = Depends(require_arena_problem_editor),
-    session: AsyncSession = Depends(get_db),
-) -> Response:
-    """Render the form for a new test case."""
-    problem = await _get_problem_or_403(problem_id, current_user, session)
-    templates = request.app.state.arena_templates
-    return _html(
-        templates.TemplateResponse(
-            request,
-            "admin/problem_tc_form.html",
-            {
-                "problem": problem,
-                "tc": None,
-                "interactive": status_view(problem.custom_validator).configured,
-                "form": {
-                    "input_content": "",
-                    "output_content": "",
-                    "explanation": "",
-                    "is_sample": False,
-                },
-                "back_url": str(request.url_for("arena_admin_problem_edit", problem_id=problem_id)),
-                "current_user": current_user,
-            },
-        )
-    )
-
-
 @router.get(
     "/problems/{problem_id}/testcases/{tc_id}/edit",
     response_class=HTMLResponse,
@@ -253,7 +131,7 @@ async def admin_problem_tc_edit(
             {
                 "problem": problem,
                 "tc": tc,
-                "interactive": status_view(problem.custom_validator).configured,
+                "interactive": problem.validator_type is ProblemValidatorType.INTERACTIVE,
                 "offline": offline,
                 "input_size_bytes": in_size,
                 "output_size_bytes": out_size,
@@ -269,7 +147,10 @@ async def admin_problem_tc_edit(
                     "explanation": tc.explanation or "",
                     "is_sample": tc.is_sample,
                 },
-                "back_url": str(request.url_for("arena_admin_problem_edit", problem_id=problem_id)),
+                "back_url": editor_url(
+                    request.url_for("arena_admin_problem_judgment_cases", problem_id=problem_id).path,
+                    anchor=f"tc-{tc.id}",
+                ),
                 "current_user": current_user,
             },
         )
@@ -294,7 +175,7 @@ async def admin_problem_tc_update(
 ) -> Response:
     """Submit updates to a single test case."""
     problem = await _get_problem_or_403(problem_id, current_user, session)
-    edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
+    edit_url = judgment_page_url(request, problem_id)
     tc = await admin_problem_tc_service.get_testcase(session, tc_id, problem_id=problem.id)
     if tc is None:
         raise HTTPException(status_code=404, detail="Test case not found")
@@ -302,56 +183,43 @@ async def admin_problem_tc_update(
     if exp_error:
         flash(exp_error, FlashCategory.DANGER)
         return RedirectResponse(url=edit_url, status_code=303)
+    unsupported = unsupported_strategy_message(problem.validator_type)
+    if unsupported is not None:
+        flash(unsupported, FlashCategory.DANGER)
+        return _tab_redirect(request, problem_id)
+    interactive = problem.validator_type is ProblemValidatorType.INTERACTIVE
+    ordinal = tc.ordinal
+    # An inline edit and an offline ZIP replace are the same operation on the same
+    # row, so they take the same path: the case is replaced in place, in staging.
     try:
-        _tc, write_files = await admin_problem_tc_service.update_testcase(
+        check_inline_size(
+            input_content.encode("utf-8"),
+            None if interactive else output_content.encode("utf-8"),
+        )
+        await apply_case_action(
             session,
-            tc,
-            input_content=input_content,
-            output_content=output_content,
-            is_sample=is_sample,
-            explanation=explanation_value,
+            problem,
+            PendingTestCaseOps(
+                replacements={
+                    tc_id: CaseContent(
+                        input_bytes=input_content.encode("utf-8"),
+                        output_bytes=None if interactive else output_content.encode("utf-8"),
+                        explanation=explanation_value,
+                        is_sample=not interactive and is_sample,
+                        # This form states both: an unchecked box makes the case
+                        # secret and an emptied box clears the explanation. A
+                        # replacement archive states neither and keeps them.
+                        states_metadata=True,
+                    )
+                }
+            ),
             testcase_dir=settings.PROBLEM_TESTCASE_DIR,
         )
-    except ValueError as exc:
-        flash(str(exc), FlashCategory.DANGER)
+    except (ValueError, ProblemVanished) as exc:
+        flash(str(exc) or "Problem not found.", FlashCategory.DANGER)
         return RedirectResponse(url=edit_url, status_code=303)
-    await session.commit()
-    await anyio.to_thread.run_sync(write_files)
-    flash(f"Test case #{tc.ordinal} updated.", FlashCategory.SUCCESS)
-    return RedirectResponse(url=edit_url, status_code=303)
-
-
-@router.post(
-    "/problems/{problem_id}/testcases/{tc_id}/toggle-sample",
-    name="arena_admin_problem_tc_toggle_sample",
-)
-async def admin_problem_tc_toggle_sample(
-    request: Request,
-    problem_id: str,
-    tc_id: str,
-    flash: FlashDep,
-    current_user: ArenaUser = Depends(require_arena_problem_editor),
-    session: AsyncSession = Depends(get_db),
-) -> Response:
-    """Flip a test case between sample and secret and return to the edit page.
-
-    Redirects to the problem edit page anchored to the affected row so the
-    row-highlight pattern highlights it.
-    """
-    problem = await _get_problem_or_403(problem_id, current_user, session)
-    tc = await admin_problem_tc_service.get_testcase(session, tc_id, problem_id=problem.id)
-    if tc is None:
-        raise HTTPException(status_code=404, detail="Test case not found")
-    edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
-    try:
-        await admin_problem_tc_service.toggle_sample(session, tc)
-    except ValueError as exc:
-        flash(str(exc), FlashCategory.DANGER)
-        return RedirectResponse(url=f"{edit_url}#tc-{tc_id}", status_code=303)
-    await session.commit()
-    kind = "sample" if tc.is_sample else "secret"
-    flash(f"Test case #{tc.ordinal} is now a {kind} case.", FlashCategory.SUCCESS)
-    return RedirectResponse(url=f"{edit_url}#tc-{tc_id}", status_code=303)
+    flash(f"Test case #{ordinal} updated.", FlashCategory.SUCCESS)
+    return RedirectResponse(url=editor_url(edit_url, anchor=f"tc-{tc_id}"), status_code=303)
 
 
 @router.post(
@@ -373,11 +241,29 @@ async def admin_problem_tc_move(
     if tc is None:
         raise HTTPException(status_code=404, detail="Test case not found")
 
-    await admin_problem_tc_service.move_testcase(session, tc, new_ordinal, testcase_dir=settings.PROBLEM_TESTCASE_DIR)
-    await session.commit()
+    unsupported = unsupported_strategy_message(problem.validator_type)
+    if unsupported is not None:
+        # This endpoint answers a `fetch`, not a form post: a redirect would be
+        # followed and swapped into the list, so a refusal must be a status code.
+        raise HTTPException(status_code=400, detail=unsupported)
+
+    # Reordering permutes files, so it goes through staging like every other
+    # file-touching action. It used to permute the live directory first and commit
+    # afterwards, which left permuted files against unpermuted rows on a failure.
+    current = await admin_problem_tc_service.list_testcases(session, problem.id)
+    try:
+        await apply_case_action(
+            session,
+            problem,
+            PendingTestCaseOps(order=_reordered_ids(current, tc_id, new_ordinal)),
+            testcase_dir=settings.PROBLEM_TESTCASE_DIR,
+        )
+    except (ValueError, ProblemVanished) as exc:
+        raise HTTPException(status_code=400, detail=str(exc) or "Problem not found.") from exc
     test_cases = await admin_problem_tc_service.list_testcase_views(session, problem.id, settings.PROBLEM_TESTCASE_DIR)
     rows = build_testcase_row_views(request, problem.id, test_cases)
     templates = request.app.state.arena_templates
+    is_interactive = problem.validator_type is ProblemValidatorType.INTERACTIVE
     return _html(
         templates.TemplateResponse(
             request,
@@ -385,47 +271,9 @@ async def admin_problem_tc_move(
             {
                 "rows": rows,
                 "is_edit_allowed": True,
-                "sample_toggle_disabled": status_view(problem.custom_validator).configured,
+                "interactive": is_interactive,
             },
         )
-    )
-
-
-@router.post(
-    "/problems/{problem_id}/testcases/zip-replace",
-    name="arena_admin_problem_tc_zip_replace",
-)
-async def admin_problem_tc_zip_replace(
-    request: Request,
-    problem_id: str,
-    flash: FlashDep,
-    zip_file: UploadFile = File(...),
-    current_user: ArenaUser = Depends(require_arena_problem_editor),
-    session: AsyncSession = Depends(get_db),
-) -> Response:
-    """Replace all test cases for a problem from an uploaded ZIP archive.
-
-    The ZIP must follow the standard format:
-    ``in/001.in`` + ``out/001.out`` or flat ``001.in`` + ``001.out``.
-    """
-    problem = await _get_problem_or_403(problem_id, current_user, session)
-    zip_bytes = await zip_file.read()
-    try:
-        count, apply_files = await admin_problem_tc_service.replace_all_from_zip(
-            session, problem, zip_bytes, testcase_dir=settings.PROBLEM_TESTCASE_DIR
-        )
-    except ValueError as exc:
-        flash(str(exc), FlashCategory.DANGER)
-        return RedirectResponse(
-            url=str(request.url_for("arena_admin_problem_edit", problem_id=problem_id)),
-            status_code=303,
-        )
-    await session.commit()
-    await anyio.to_thread.run_sync(apply_files)
-    flash(f"Test cases replaced: {count} case(s) imported.", FlashCategory.SUCCESS)
-    return RedirectResponse(
-        url=str(request.url_for("arena_admin_problem_edit", problem_id=problem_id)),
-        status_code=303,
     )
 
 
@@ -449,7 +297,7 @@ async def admin_problem_tc_download(
     input_text, output_text = await anyio.to_thread.run_sync(
         read_testcase_full, problem.id, tc.ordinal, settings.PROBLEM_TESTCASE_DIR
     )
-    interactive = status_view(problem.custom_validator).configured
+    interactive = problem.validator_type is ProblemValidatorType.INTERACTIVE
     zip_bytes = build_single_testcase_zip(
         input_text.encode("utf-8"),
         None if interactive else output_text.encode("utf-8"),
@@ -477,29 +325,75 @@ async def admin_problem_tc_replace(
 ) -> Response:
     """Replace a single test case from an uploaded single-case ZIP (no size cap)."""
     problem = await _get_problem_or_403(problem_id, current_user, session)
-    tc_edit_url = str(request.url_for("arena_admin_problem_tc_edit", problem_id=problem_id, tc_id=tc_id))
     tc = await admin_problem_tc_service.get_testcase(session, tc_id, problem_id=problem.id)
     if tc is None:
         raise HTTPException(status_code=404, detail="Test case not found")
 
     zip_bytes = await zip_file.read()
-    interactive = status_view(problem.custom_validator).configured
+    unsupported = unsupported_strategy_message(problem.validator_type)
+    if unsupported is not None:
+        flash(unsupported, FlashCategory.DANGER)
+        return _tab_redirect(request, problem_id)
+    interactive = problem.validator_type is ProblemValidatorType.INTERACTIVE
     try:
         single = parse_single_testcase_zip(zip_bytes, require_output=not interactive)
     except ValueError as exc:
         flash(str(exc), FlashCategory.DANGER)
-        return RedirectResponse(url=tc_edit_url, status_code=303)
+        return _tab_redirect(request, problem_id, tc_id)
 
-    _tc, write_files = await admin_problem_tc_service.replace_single_testcase(
-        session,
-        tc,
-        input_bytes=single.input_bytes,
-        output_bytes=single.output_bytes,
-        explanation=single.explanation,
-        testcase_dir=settings.PROBLEM_TESTCASE_DIR,
+    ordinal = tc.ordinal
+    # An archive with no `explanation.txt` leaves the stored text alone rather
+    # than erasing it, which is what `set_explanation` on the plan expresses.
+    try:
+        await apply_case_action(
+            session,
+            problem,
+            PendingTestCaseOps(
+                replacements={
+                    tc_id: case_content_from_single_archive(
+                        single,
+                        interactive=interactive,
+                        is_sample=tc.is_sample,
+                    )
+                }
+            ),
+            testcase_dir=settings.PROBLEM_TESTCASE_DIR,
+        )
+    except (ValueError, ProblemVanished) as exc:
+        flash(str(exc) or "Problem not found.", FlashCategory.DANGER)
+        return _tab_redirect(request, problem_id, tc_id)
+    flash(f"Test case #{ordinal} replaced.", FlashCategory.SUCCESS)
+    return _tab_redirect(request, problem_id, tc_id)
+
+
+def _reordered_ids(test_cases: list[ArenaTestCase], tc_id: str, new_ordinal: int) -> tuple[str, ...]:
+    """Return every case id in the order a move leaves them in.
+
+    Expressing a move as the resulting *order* rather than as a file permutation
+    is what lets it share the staged swap with every other action: the planner
+    renumbers, and ``materialize`` performs the renames inside staging.
+
+    Raises:
+        ValueError: If ``tc_id`` names no case of this problem.
+    """
+    ordered = sorted(test_cases, key=lambda item: (item.ordinal, item.id))
+    current_index = next((index for index, item in enumerate(ordered) if item.id == tc_id), None)
+    if current_index is None:
+        raise ValueError("Test case not found.")
+    moving = ordered.pop(current_index)
+    ordered.insert(max(0, min(new_ordinal - 1, len(ordered))), moving)
+    return tuple(item.id for item in ordered)
+
+
+def _tab_redirect(request: Request, problem_id: str, tc_id: str | None = None) -> RedirectResponse:
+    """Return the editor redirect these retained endpoints always answer with.
+
+    Success or failure, the operator lands on the Test cases tab: nothing in the
+    editor points here any more, so someone who reaches one of these directly
+    should still end up looking at what it changed -- or did not.
+    """
+    url = judgment_page_url(request, problem_id)
+    return RedirectResponse(
+        url=url if tc_id is None else editor_url(url, anchor=f"tc-{tc_id}"),
+        status_code=303,
     )
-    await session.commit()
-    await anyio.to_thread.run_sync(write_files)
-    flash(f"Test case #{tc.ordinal} replaced.", FlashCategory.SUCCESS)
-    problem_edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
-    return RedirectResponse(url=f"{problem_edit_url}#tc-{tc_id}", status_code=303)

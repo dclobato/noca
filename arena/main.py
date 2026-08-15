@@ -46,9 +46,13 @@ from arena.routes.admin_affiliations import router as arena_admin_affiliations_r
 from arena.routes.admin_categories import router as arena_admin_categories_router
 from arena.routes.admin_dashboard import router as arena_admin_dashboard_router
 from arena.routes.admin_dashboard_history import router as arena_admin_dashboard_history_router
+from arena.routes.admin_dashboard_security import router as arena_admin_dashboard_security_router
 from arena.routes.admin_problem_api import router as arena_admin_problem_api_router
 from arena.routes.admin_problem_interaction import router as arena_admin_problem_interaction_router
 from arena.routes.admin_problem_io import router as arena_admin_problem_io_router
+from arena.routes.admin_problem_judgment import router as arena_admin_problem_judgment_router
+from arena.routes.admin_problem_new import router as arena_admin_problem_new_router
+from arena.routes.admin_problem_save import router as arena_admin_problem_save_router
 from arena.routes.admin_problem_tc import router as arena_admin_problem_tc_router
 from arena.routes.admin_problem_validator import router as arena_admin_problem_validator_router
 from arena.routes.admin_problems import router as arena_admin_problems_router
@@ -720,9 +724,13 @@ app.include_router(arena_admin_affiliations_router)
 app.include_router(arena_admin_categories_router)
 app.include_router(arena_admin_dashboard_router)
 app.include_router(arena_admin_dashboard_history_router)
+app.include_router(arena_admin_dashboard_security_router)
 app.include_router(arena_admin_users_router)
 app.include_router(arena_admin_users_actions_router)
+app.include_router(arena_admin_problem_new_router)
 app.include_router(arena_admin_problems_router)
+app.include_router(arena_admin_problem_save_router)
+app.include_router(arena_admin_problem_judgment_router)
 app.include_router(arena_admin_problem_io_router)
 app.include_router(arena_admin_problem_tc_router)
 app.include_router(arena_admin_problem_interaction_router)

@@ -31,7 +31,12 @@ from arena.services.submission_service import (
 )
 from shared.db_schema.arena import arena_problem_ratings, arena_problem_tried
 from shared.db_schema.arena.arena_submissions import arena_submissions
-from shared.enumerations import ArenaRole, CustomValidatorActiveState, JudgmentStatus
+from shared.enumerations import (
+    ArenaRole,
+    CustomValidatorActiveState,
+    JudgmentStatus,
+    ProblemValidatorType,
+)
 from web.models.language import Language
 
 
@@ -74,6 +79,7 @@ async def _make_problem(session: AsyncSession, author: ArenaUser, *, with_case: 
         title=f"Arena Service Problem {uuid.uuid4().hex[:8]}",
         owner_id=author.id,
         problem_statement="<p>Echo.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

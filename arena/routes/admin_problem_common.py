@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -40,10 +40,28 @@ async def get_problem_or_403(
     return problem
 
 
+async def get_problem_definition_or_403(
+    problem_id: str,
+    current_user: ArenaUser,
+    session: AsyncSession,
+) -> ArenaProblem:
+    """Fetch the narrow definition-editor view with ownership enforcement."""
+    is_admin_user = current_user.role == ArenaRole.ARENA_ADMIN
+    problem = await admin_problem_service.get_problem_definition(
+        session,
+        problem_id,
+        caller_id=current_user.id,
+        is_admin=is_admin_user,
+    )
+    if problem is None:
+        raise HTTPException(status_code=404, detail="Problem not found")
+    return problem
+
+
 async def validator_languages(session: AsyncSession) -> list[Any]:
     """Return globally active Autojudge languages for validator forms."""
     result = await session.execute(
-        select(languages_table.c.id, languages_table.c.name)
+        select(languages_table.c.id, languages_table.c.name, languages_table.c.source_filename)
         .where(languages_table.c.active.is_(True))
         .order_by(languages_table.c.name)
     )

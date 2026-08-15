@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -33,7 +33,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
-from shared.enumerations import CustomValidatorActiveState, RoleEnum
+from shared.enumerations import CustomValidatorActiveState, ProblemValidatorType, RoleEnum
 from shared.services.imageprocessing_service import ImageProcessingService
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.models.contest import Contest
@@ -42,8 +42,12 @@ from web.models.users import UberAdmin
 from web.routes.contest_admin_problem import router as problem_router
 from web.routes.contest_admin_problem_edit import router as problem_edit_router
 from web.routes.contest_admin_problem_io import router as problem_io_router
+from web.routes.contest_admin_problem_judgment_pages import router as problem_judgment_pages_router
+from web.routes.contest_admin_problem_judgment_tc import router as problem_judgment_tc_router
 from web.routes.contest_admin_problem_limits import router as problem_limits_router
 from web.routes.contest_admin_problem_tc import router as problem_tc_router
+from web.routes.contest_admin_problem_tc_pages import router as problem_tc_pages_router
+from web.routes.contest_admin_problem_validator import router as problem_validator_router
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -153,7 +157,11 @@ def _build_app(session: AsyncSession, contest: Contest, actor: UberAdmin, tmp_pa
 
     app.include_router(problem_router)
     app.include_router(problem_edit_router)
+    app.include_router(problem_judgment_tc_router)
+    app.include_router(problem_judgment_pages_router)
+    app.include_router(problem_validator_router)
     app.include_router(problem_tc_router)
+    app.include_router(problem_tc_pages_router)
     app.include_router(problem_limits_router)
     app.include_router(problem_io_router)
 
@@ -221,7 +229,7 @@ async def _create_problem_with_image(
     caption: str = "A red square",
 ) -> Problem:
     response = await client.post(
-        f"/c/{slug}/admin/problems/new",
+        f"/c/{slug}/admin/problems/new/standard",
         data={**_create_form(), "image_caption": caption},
         files={"image": ("figure.png", _png_bytes(), "image/png")},
     )
@@ -237,6 +245,7 @@ async def _create_problem_with_validator(session: AsyncSession, contest: Contest
         title="Validator Problem",
         ordinal=7,
         color="#2f9e41",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()
@@ -287,6 +296,7 @@ async def test_validator_source_view_returns_404_without_source(
         title="Plain Problem",
         ordinal=8,
         color="#2f9e41",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.commit()
@@ -331,7 +341,7 @@ async def test_create_persists_gif_image(
 ) -> None:
     """The Contest problem route accepts GIF illustration images."""
     response = await client.post(
-        f"/c/{upcoming_contest.login_slug}/admin/problems/new",
+        f"/c/{upcoming_contest.login_slug}/admin/problems/new/standard",
         data=_create_form(),
         files={"image": ("figure.gif", _gif_bytes(), "image/gif")},
     )
@@ -348,7 +358,7 @@ async def test_create_without_image_leaves_columns_null(
 ) -> None:
 
     response = await client.post(
-        f"/c/{upcoming_contest.login_slug}/admin/problems/new",
+        f"/c/{upcoming_contest.login_slug}/admin/problems/new/standard",
         data=_create_form(),
     )
     assert response.status_code == 303, response.text
@@ -481,6 +491,7 @@ async def test_limits_only_tab_leaves_image_and_caption_untouched(
         problem_image_base64="AAAA",
         problem_image_mime="image/png",
         problem_image_caption="Keep me",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     problem.contest_id = running_contest.id
     problem.ordinal = 1
@@ -509,7 +520,7 @@ async def test_oversized_image_is_rejected_and_nothing_persists(
 ) -> None:
 
     response = await client.post(
-        f"/c/{upcoming_contest.login_slug}/admin/problems/new",
+        f"/c/{upcoming_contest.login_slug}/admin/problems/new/standard",
         data={**_create_form(), "image_caption": "Too big"},
         files={"image": ("huge.png", _oversized_png_bytes(), "image/png")},
     )

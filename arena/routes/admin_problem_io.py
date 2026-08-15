@@ -158,8 +158,9 @@ async def admin_problem_import_submit(
             FlashCategory.WARNING,
         )
     # An interactive problem shows sample interactions instead of sample test cases,
-    # so one imported without any has nothing public to show a contestant.
-    if result.has_custom_validator and result.imported_interaction_count == 0:
+    # so one imported without any has nothing public to show a contestant. This
+    # reads the imported problem's stored strategy, not the package's validator.
+    if result.is_interactive and result.imported_interaction_count == 0:
         flash(
             "This package has a custom validator but no sample interactions, so the problem "
             "shows no examples. Add them on the edit page below.",

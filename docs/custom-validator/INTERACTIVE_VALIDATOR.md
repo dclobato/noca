@@ -86,9 +86,18 @@ not runtime dependencies.
 The validation strategy is selected when the problem is created and is
 immutable afterward. An interactive problem cannot become a standard or checker
 problem; changing strategy requires creating a new problem from scratch. Web and
-Arena must eventually enforce this invariant in their creation and edit
-workflows. Removing validator source leaves the problem interactive but unable
-to accept submissions until another validator candidate becomes active.
+Arena **enforce** this: the strategy is stored in `problems.validator_type` /
+`arena_problems.validator_type`, creation and import state it explicitly, and both
+the update services and a `before_flush` ORM guard refuse to change it (see
+[SHARED_SERVICES.md](../SHARED_SERVICES.md), `validator_type_guard.py`). The
+enforcement covers every supported workflow but not direct SQL.
+
+Removing validator source leaves the problem interactive but unable to accept
+submissions until another validator candidate becomes active — and because the
+stored strategy, not the presence of source, is what makes a problem interactive,
+such a problem still presents itself as interactive everywhere and may upload a
+replacement candidate. Uploading a validator to a problem that is *not* stored as
+interactive is refused.
 
 NOCA stores the language, UTF-8 source, and revision metadata, but never retains
 a compiled validator artifact. Candidate validation discards its artifact. The
@@ -281,14 +290,13 @@ The transcript is stored in the same JSON shape the judge records for a real int
 so the problem page renders your authored examples with exactly the UI the submission page uses
 for the conversation that actually happened.
 
-Sample interactions are managed with the same UX as test cases — pending add rows, pending removal
-with undo, and drag-to-reorder — and, like test cases, they are only persisted when you press
-**Save**.
+Sample interactions are managed with the same UX as test cases, on their own page of the
+problem's **Judgment data** editor: deleting and reordering apply immediately, and only the
+transcripts you type inline wait for that page's **Save new interactions**.
 
-The five-interaction cap is judged against the row count the *save* will produce, not the one
-currently on screen: a save applies removals before additions. So if you are already at five and
-mark one for removal, the **Add** button frees up immediately and you can write its replacement in
-the same edit. A save that still would not fit is rejected before it changes anything.
+The five-interaction cap is simply the row count. If you are already at five, delete one first
+and its slot is free at once — the deletion has already been applied when the page comes back.
+An addition that would not fit is refused before it changes anything.
 
 ## 4. Writing a validator
 
@@ -654,7 +662,7 @@ inspect persisted attempts and service logs through operational access; this
 contract does not introduce an operator-facing application role or page.
 
 Validator-source access is separate. Authorized problem managers can download
-the current active source from the problem editor. Authorized Web Contest staff
+the current active source from the problem's Judgment data editor, on its validator page. Authorized Web Contest staff
 can also download that current source from a historical submission page, where
 it must be labeled as current. Arena submission pages expose no validator source
 or version. No submission page can recover the validator revision that produced

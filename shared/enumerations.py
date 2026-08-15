@@ -126,6 +126,23 @@ class ProfilingStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class ProblemValidatorType(StrEnum):
+    """How a problem's submissions are validated.
+
+    This is the problem's stored, immutable validation strategy. It is the
+    authoritative answer to "what kind of problem is this", and every behavioral
+    decision reads it -- never the presence of custom-validator source, which
+    only answers whether an interactive problem currently holds a revision.
+
+    ``OUTPUT_CHECKER`` is reserved for forward compatibility: the value is
+    storable and round-trips, but it is never judgeable in this build.
+    """
+
+    STANDARD = "standard"
+    INTERACTIVE = "interactive"
+    OUTPUT_CHECKER = "checker"
+
+
 class CustomValidatorActiveState(StrEnum):
     """State of the validator revision used for new submissions."""
 

@@ -56,7 +56,13 @@ from shared.db_schema.arena import (
     arena_submissions,
     arena_test_cases,
 )
-from shared.enumerations import ArenaClassMembershipStatus, ArenaNotificationKind, ArenaRole, Verdict
+from shared.enumerations import (
+    ArenaClassMembershipStatus,
+    ArenaNotificationKind,
+    ArenaRole,
+    ProblemValidatorType,
+    Verdict,
+)
 from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-batch-feedback-tests!!"
@@ -194,6 +200,7 @@ async def _make_problem(session: AsyncSession, author: ArenaUser) -> ArenaProble
         owner_id=author.id,
         problem_statement="<p>Solve this.</p>",
         enabled=True,
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

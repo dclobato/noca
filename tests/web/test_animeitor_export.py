@@ -1,3 +1,9 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 """
 tests/test_animeitor_export.py
 
@@ -20,7 +26,7 @@ import pytest_asyncio
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.enumerations import JudgmentStatus, RoleEnum, Verdict
+from shared.enumerations import JudgmentStatus, ProblemValidatorType, RoleEnum, Verdict
 from shared.timing import icpc_minutes_from_seconds
 from web.models.contest import Contest
 from web.models.language import Language
@@ -94,6 +100,7 @@ async def _make_problem(
         title=title,
         ordinal=ordinal,
         color="#ff0000",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

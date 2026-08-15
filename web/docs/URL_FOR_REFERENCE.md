@@ -54,6 +54,7 @@ with a degraded payload when either required backend is unavailable.
 |---|---|---|---|
 | `GET /uberadmin/` | `uberadmin_dashboard` | — | `uberadmin_dashboard.py` |
 | `GET /uberadmin/security-events` | `uberadmin_security_events` | `event_type=`, `per_page=`, `page=` | `uberadmin_security.py` |
+| `GET /uberadmin/security-events.csv` | `uberadmin_security_events_csv` | none | `uberadmin_security.py` |
 | `GET /uberadmin/uberadmins` | `list_uberadmins_route` | — | `uberadmin_users.py` |
 | `GET /uberadmin/uberadmins/new` | `add_uberadmin` | — | `uberadmin_dashboard.py` |
 | `POST /uberadmin/uberadmins/new` | `add_uberadmin_submit` | — | `uberadmin_dashboard.py` |
@@ -174,8 +175,9 @@ Core routes (`contest_admin_problem.py`):
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
 | `GET /c/{slug}/admin/problems` | `manage_problems` | `slug=` | `contest_admin_problem.py` |
-| `GET /c/{slug}/admin/problems/new` | `new_problem_form` | `slug=` | `contest_admin_problem.py` |
-| `POST /c/{slug}/admin/problems/new` | `new_problem_submit` | `slug=` | `contest_admin_problem.py` |
+| `GET /c/{slug}/admin/problems/new` | `new_problem_choose` | `slug=` | `contest_admin_problem_new.py` |
+| `GET /c/{slug}/admin/problems/new/{validator_type}` | `new_problem_form` | `slug=`, `validator_type=`; optional query `tab=` | `contest_admin_problem.py` |
+| `POST /c/{slug}/admin/problems/new/{validator_type}` | `new_problem_submit` | `slug=`, `validator_type=`; form `active_tab`. Definition only; HTML 422 on invalid fields, otherwise redirects to judgment | `contest_admin_problem.py` |
 | `POST /c/{slug}/admin/problems/{problem_id}/move` | `move_problem_htmx` | `slug=`, `problem_id=` | `contest_admin_problem.py` |
 | `POST /c/{slug}/admin/problems/{problem_id}/remove` | `remove_problem` | `slug=`, `problem_id=` | `contest_admin_problem.py` |
 
@@ -183,8 +185,8 @@ Edit routes (`contest_admin_problem_edit.py`):
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
-| `GET /c/{slug}/admin/problems/{problem_id}/edit` | `edit_problem_form` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/edit` | `edit_problem_submit` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
+| `GET /c/{slug}/admin/problems/{problem_id}/edit` | `edit_problem_form` | `slug=`, `problem_id=`; optional query `tab=` | `contest_admin_problem_edit.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/edit` | `edit_problem_submit` | `slug=`, `problem_id=`; form `active_tab`; HTML 422 opens the first invalid field | `contest_admin_problem_edit.py` |
 
 Limits routes (`contest_admin_problem_limits.py`):
 
@@ -219,21 +221,33 @@ Import / export / serve routes (`contest_admin_problem_io.py`):
 | `GET /c/{slug}/admin/problems/{problem_id}/statement` | `problem_statement` | `slug=`, `problem_id=` | `contest_admin_problem_io.py` |
 | `GET /c/{slug}/admin/problems/{problem_id}/export` | `export_problem` | `slug=`, `problem_id=` | `contest_admin_problem_io.py` |
 
-Test case routes (`contest_admin_problem_tc.py`):
+Judgment-data routes (`contest_admin_problem_judgment_tc.py`,
+`contest_admin_problem_judgment_pages.py`):
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
-| `POST /c/{slug}/admin/problems/{problem_id}/test-cases/zip` | `upload_testcase_zip` | `slug=`, `problem_id=` | `contest_admin_problem_tc.py` |
-| `GET /c/{slug}/admin/problems/{problem_id}/test-cases/new` | `new_test_case_form` | `slug=`, `problem_id=` | `contest_admin_problem_tc.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/test-cases/add` | `add_test_case` | `slug=`, `problem_id=` | `contest_admin_problem_tc.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/test-cases/add-zip` | `add_test_case_zip` | `slug=`, `problem_id=` | `contest_admin_problem_tc.py` |
-| `GET /c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/edit` | `edit_test_case_form` | `slug=`, `problem_id=`, `tc_id=` | `contest_admin_problem_tc.py` |
+| `GET /c/{slug}/admin/problems/{problem_id}/judgment` | `problem_judgment_home` | `slug=`, `problem_id=` | `contest_admin_problem_judgment_tc.py` |
+| `GET\|POST /c/{slug}/admin/problems/{problem_id}/judgment/test-cases` | `problem_judgment_cases` / `problem_judgment_cases_save` | `slug=`, `problem_id=`; invalid inline rows return retained HTML (422) | `contest_admin_problem_judgment_tc.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/judgment/test-cases/upload` | `problem_judgment_case_upload` | `slug=`, `problem_id=` | `contest_admin_problem_judgment_tc.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/judgment/test-cases/bulk` | `problem_judgment_cases_replace_all` | `slug=`, `problem_id=` | `contest_admin_problem_judgment_tc.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/judgment/test-cases/{tc_id}/toggle-sample` | `problem_judgment_case_toggle_sample` | `slug=`, `problem_id=`, `tc_id=` | `contest_admin_problem_judgment_tc.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/judgment/test-cases/{tc_id}/replace` | `problem_judgment_case_replace` | `slug=`, `problem_id=`, `tc_id=` | `contest_admin_problem_judgment_tc.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/judgment/test-cases/{tc_id}/delete` | `problem_judgment_case_delete` | `slug=`, `problem_id=`, `tc_id=` | `contest_admin_problem_judgment_tc.py` |
+| `GET /c/{slug}/admin/problems/{problem_id}/judgment/validator` | `problem_judgment_validator` | `slug=`, `problem_id=` | `contest_admin_problem_judgment_pages.py` |
+| `GET\|POST /c/{slug}/admin/problems/{problem_id}/judgment/interactions` | `problem_judgment_interactions` / `problem_judgment_interactions_save` | `slug=`, `problem_id=`; invalid inline rows return retained HTML (422) | `contest_admin_problem_judgment_pages.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/judgment/interactions/{si_id}/delete` | `problem_judgment_interaction_delete` | `slug=`, `problem_id=`, `si_id=` | `contest_admin_problem_judgment_pages.py` |
+
+Test case routes (`contest_admin_problem_tc.py`). The four marked *deprecated* are
+retained for one release only: the editor applies those mutations through the
+problem Save instead.
+
+| Hardcoded path | Endpoint name | Path params | File |
+|---|---|---|---|
+| `GET /c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/edit` | `edit_test_case_form` | `slug=`, `problem_id=`, `tc_id=`; Cancel returns to `#tc-{tc_id}` on judgment data | `contest_admin_problem_tc_pages.py` |
 | `POST /c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/edit` | `edit_test_case` | `slug=`, `problem_id=`, `tc_id=` | `contest_admin_problem_tc.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/toggle-sample` | `toggle_test_case_sample` | `slug=`, `problem_id=`, `tc_id=` | `contest_admin_problem_tc.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/remove` | `remove_test_case_route` | `slug=`, `problem_id=`, `tc_id=` | `contest_admin_problem_tc.py` |
 | `POST /c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/move` | `move_test_case_route` | `slug=`, `problem_id=`, `tc_id=` | `contest_admin_problem_tc.py` |
 | `GET /c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/download` | `download_test_case` | `slug=`, `problem_id=`, `tc_id=` | `contest_admin_problem_tc.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/replace` | `replace_test_case` | `slug=`, `problem_id=`, `tc_id=` | `contest_admin_problem_tc.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/test-cases/{tc_id}/replace` | `replace_test_case` | `slug=`, `problem_id=`, `tc_id=` | `contest_admin_problem_tc.py` (deprecated) |
 
 Shared helpers (`contest_admin_problem_helpers.py` and
 `contest_admin_problem_limits_helpers.py`) — no routes.
@@ -281,11 +295,11 @@ Shared helpers (`contest_admin_problem_helpers.py` and
 - Several route functions are named `view`, but only explicitly named routes are stable for `url_for(...)`. Prefer the endpoint names listed above instead of relying on function names.
 - For StaticFiles mounts, `path=` is the filename relative to the mount directory (no leading slash).
 - Trailing slashes: routes mounted with `prefix + "/"` (e.g. `/c/{slug}/clarifications/`) get a trailing slash in `url_for` output. FastAPI redirects the slash-less version automatically.
-| `POST /c/{slug}/admin/problems/{problem_id}/validator` | `upload_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
-| `GET /c/{slug}/admin/problems/{problem_id}/validator/status` | `problem_custom_validator_status` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
-| `GET /c/{slug}/admin/problems/{problem_id}/validator/source` | `download_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
-| `GET /c/{slug}/admin/problems/{problem_id}/validator/source/view` | `view_problem_custom_validator_source` | `slug=`, `problem_id=` | `contest_admin_problem_edit.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/validator/remove` | `remove_problem_custom_validator` | `slug=`, `problem_id=`, Form: `keep_interactions` (`"true"`/`"false"`, required) | `contest_admin_problem_edit.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/validator` | `upload_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_validator.py` |
+| `GET /c/{slug}/admin/problems/{problem_id}/validator/status` | `problem_custom_validator_status` | `slug=`, `problem_id=` | `contest_admin_problem_validator.py` |
+| `GET /c/{slug}/admin/problems/{problem_id}/validator/source` | `download_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_validator.py` |
+| `GET /c/{slug}/admin/problems/{problem_id}/validator/source/view` | `view_problem_custom_validator_source` | `slug=`, `problem_id=` | `contest_admin_problem_validator.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/validator/remove` | `remove_problem_custom_validator` | `slug=`, `problem_id=`, Form: `keep_interactions` (`"true"`/`"false"`, required) | `contest_admin_problem_validator.py` (deprecated) |
 | `GET /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/edit` | `edit_problem_interaction_form` | `slug=`, `problem_id=`, `si_id=` | `contest_admin_problem_interactions.py` |
 | `POST /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/edit` | `update_problem_interaction` | `slug=`, `problem_id=`, `si_id=` | `contest_admin_problem_interactions.py` |
 | `POST /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/move` | `move_problem_interaction` | `slug=`, `problem_id=`, `si_id=`, Query: `new_ordinal` | `contest_admin_problem_interactions.py` |

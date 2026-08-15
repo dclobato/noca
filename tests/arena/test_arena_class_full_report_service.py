@@ -29,7 +29,13 @@ from arena.models.arena_users import ArenaUser
 from arena.services import arena_class_full_report_service as full
 from arena.services import arena_problem_set_service as svc
 from shared.db_schema.arena import arena_submissions
-from shared.enumerations import ArenaClassMembershipStatus, ArenaRole, JudgmentStatus, Verdict
+from shared.enumerations import (
+    ArenaClassMembershipStatus,
+    ArenaRole,
+    JudgmentStatus,
+    ProblemValidatorType,
+    Verdict,
+)
 from web.models.language import Language
 
 NOW = datetime(2026, 6, 4, 12, 0, tzinfo=UTC)
@@ -76,6 +82,7 @@ async def _make_problem(session: AsyncSession, author: ArenaUser) -> ArenaProble
         title=f"Problem {uuid.uuid4().hex[:8]}",
         owner_id=author.id,
         problem_statement="<p>Echo.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

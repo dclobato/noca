@@ -31,7 +31,6 @@ from arena.services.pagination_service import Pagination, PaginationParams
 from arena.services.problem_list_query_service import (
     ProblemListCategory,
     categories_by_problem_id,
-    configured_validator_problem_ids,
     test_case_counts_by_problem_id,
 )
 from arena.services.problem_search_service import (
@@ -44,7 +43,13 @@ from shared.db_schema.arena import arena_problem_custom_validators as _custom_va
 from shared.db_schema.arena import arena_submission_judgments as _arena_submission_judgments
 from shared.db_schema.arena import arena_submissions as _arena_submissions
 from shared.db_schema.arena import arena_users as _users_table
-from shared.enumerations import ArenaRole, CustomValidatorActiveState, JudgmentStatus, StatementLanguage
+from shared.enumerations import (
+    ArenaRole,
+    CustomValidatorActiveState,
+    JudgmentStatus,
+    ProblemValidatorType,
+    StatementLanguage,
+)
 from shared.problem_statement_markdown import validate_md_content
 from shared.queue_schema import ArenaSubmissionJob
 from shared.services.problem_package import (
@@ -210,6 +215,7 @@ async def list_problems_paginated(
     category_slugs: list[str] | None = None,
     owner_id: str | None = None,
     language: StatementLanguage | None = None,
+    enabled: bool | None = None,
     sort_by: str = "",
     caller_id: str,
     is_admin: bool,
@@ -225,6 +231,7 @@ async def list_problems_paginated(
         category_slugs: Require ALL listed category slugs (AND semantics). None = no filter.
         owner_id: Restrict to a specific owner (admin-only filter). None = no filter.
         language: Restrict to problems whose statement is in this language. None = no filter.
+        enabled: Restrict to enabled (True) or disabled (False) problems. None = no filter.
         sort_by: One of the ``VALID_SORTS`` values.
         caller_id: UUID of the requesting user.
         is_admin: When False, scopes the query to problems owned by ``caller_id``.
@@ -250,6 +257,9 @@ async def list_problems_paginated(
 
     if language is not None:
         filtered_problem_ids = filtered_problem_ids.where(ArenaProblem.statement_language == language)
+
+    if enabled is not None:
+        filtered_problem_ids = filtered_problem_ids.where(ArenaProblem.enabled == enabled)
 
     if normalized_search:
         search_expressions = await prepare_problem_search(session, normalized_search)
@@ -309,6 +319,7 @@ async def list_problems_paginated(
             ArenaProblem.arena_number,
             ArenaProblem.title,
             ArenaProblem.enabled,
+            ArenaProblem.validator_type,
             ArenaRatingProblem.rating.label("rating_value"),
         )
         .join(filtered_ids, filtered_ids.c.id == ArenaProblem.id)
@@ -324,7 +335,6 @@ async def list_problems_paginated(
 
     categories = await categories_by_problem_id(session, problem_ids)
     test_case_counts = await test_case_counts_by_problem_id(session, problem_ids)
-    validator_problem_ids = await configured_validator_problem_ids(session, problem_ids)
 
     items: list[ProblemListItem] = []
     for row in rows:
@@ -339,7 +349,7 @@ async def list_problems_paginated(
                 private_tc_count=private_tc_count,
                 rating=row.rating_value / 10.0 if row.rating_value is not None else None,
                 categories=categories.get(row.id, []),
-                has_custom_validator=row.id in validator_problem_ids,
+                has_custom_validator=row.validator_type is ProblemValidatorType.INTERACTIVE,
             )
         )
 
@@ -382,6 +392,31 @@ async def get_problem(
     return result.scalar_one_or_none()
 
 
+async def get_problem_definition(
+    session: AsyncSession,
+    problem_id: str,
+    *,
+    caller_id: str,
+    is_admin: bool,
+) -> ArenaProblem | None:
+    """Fetch a definition-editor problem without judgment relationships.
+
+    Args:
+        session: Active database session.
+        problem_id: UUID of the problem.
+        caller_id: UUID of the requesting user.
+        is_admin: When False, scope the problem to ``caller_id``.
+
+    Returns:
+        The problem with categories loaded, or ``None`` when unavailable.
+    """
+    stmt = select(ArenaProblem).where(ArenaProblem.id == problem_id).options(selectinload(ArenaProblem.categories))
+    if not is_admin:
+        stmt = stmt.where(ArenaProblem.owner_id == caller_id)
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 async def create_problem(
     session: AsyncSession,
     *,
@@ -399,6 +434,7 @@ async def create_problem(
     image_caption: str | None,
     notes: str | None,
     category_ids: list[str],
+    validator_type: ProblemValidatorType,
     license: str | None = None,
     author: str | None = None,
     author_is_owner: bool = True,
@@ -417,6 +453,8 @@ async def create_problem(
     Args:
         session: Active async database session.
         caller_id: UUID of the owner (current user).
+        validator_type: The problem's validation strategy, chosen here and
+            immutable afterwards.
         image_b64: Base64-encoded image string from ``ImageProcessingResult.imagem_base64``,
             or ``None`` if no image was uploaded.
         image_mime: MIME type from ``ImageProcessingResult.mime_type``, or ``None``.
@@ -446,6 +484,7 @@ async def create_problem(
     problem = ArenaProblem(
         id=str(uuid.uuid4()),
         title=title.strip(),
+        validator_type=validator_type,
         owner_id=caller_id,
         author=None if author_is_owner else author.strip() if author else None,
         author_is_owner=author_is_owner,
@@ -494,6 +533,7 @@ async def update_problem(
     author: str | None = None,
     author_is_owner: bool = True,
     statement_language: StatementLanguage | None = None,
+    validator_type: ProblemValidatorType | None = None,
 ) -> ArenaProblem:
     """Update mutable fields of an existing Arena problem.
 
@@ -508,14 +548,20 @@ async def update_problem(
         image_mime: MIME type from ``ImageProcessingResult.mime_type``, or ``None``.
         image_caption: Optional caption text to display below the image, or ``None``.
         clear_image: When True, removes the existing image even if no new one provided.
+        validator_type: Rejected unless it equals the stored strategy. Present so
+            a caller that echoes the value back cannot silently change it.
         All other args correspond to form fields.
 
     Returns:
         ArenaProblem: The updated instance (pending flush).
 
     Raises:
-        ValueError: On any validation failure.
+        ValueError: On any validation failure, including a disagreeing
+            ``validator_type``.
     """
+    if validator_type is not None and validator_type is not problem.validator_type:
+        message = "A problem's validation strategy is immutable and cannot be changed on edit."
+        raise ValueError(message)
     _validate_problem_data(
         title,
         source,
@@ -640,11 +686,12 @@ async def search_problem_suggestions(
     caller_id: str,
     is_admin: bool,
 ) -> list[str]:
-    """Return visible, distinct author or source values matching an autocomplete query.
+    """Return visible, distinct problem-metadata values matching an autocomplete query.
 
     Args:
         session: Active async database session.
-        field: Stored free-text field to project, either ``"author"`` or ``"source"``.
+        field: Stored free-text field to project: ``"author"``, ``"license"``, or
+            ``"source"``.
         query: Literal text to search after surrounding whitespace is removed.
         caller_id: UUID of the requesting user.
         is_admin: When False, includes enabled problems plus drafts owned by ``caller_id``.
@@ -658,7 +705,11 @@ async def search_problem_suggestions(
         return []
 
     search_expressions = await prepare_problem_suggestion_search(session, field, normalized_query)
-    stored_value = ArenaProblem.author if field == "author" else ArenaProblem.source
+    stored_value = {
+        "author": ArenaProblem.author,
+        "license": ArenaProblem.license,
+        "source": ArenaProblem.source,
+    }[field]
     normalized_value = func.trim(stored_value).label("suggestion_value")
     full_text_rank = func.max(search_expressions.full_text_rank).label("full_text_rank")
     trigram_rank = func.max(search_expressions.trigram_rank).label("trigram_rank")

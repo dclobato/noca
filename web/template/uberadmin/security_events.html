@@ -15,6 +15,9 @@
                 <p class="text-muted mb-0">Recent Web authentication and admin-action events.</p>
             </div>
             <div class="d-flex flex-wrap gap-2">
+                <a href="{{ request.url_for("uberadmin_security_events_csv") }}"
+                   class="btn btn-outline-primary btn-sm"
+                   title="Download the complete Web security-event log, ignoring the filters below">Download as CSV</a>
                 <a href="{{ request.url_for("uberadmin_dashboard") }}"
                    class="btn btn-outline-secondary btn-sm">Back to dashboard</a>
             </div>

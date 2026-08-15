@@ -195,6 +195,29 @@ Minimum requirements:
 - `NOCA_WEB_PROBLEM_STATEMENT_DIR` must exist and be readable/writable by `web`
 - `NOCA_PROBLEM_TESTCASE_DIR` must exist and be readable/writable by `web` and `arena`, and readable by `autojudge`. Web problems are stored under `<root>/contest/`, Arena problems under `<root>/arena/` (subdirs created on demand).
 
+#### Filesystem requirements for the test-case root
+
+Two capabilities matter, and only one of them is optional.
+
+- **Atomic same-directory rename is required.** A problem-editor save writes its
+  new test-case directory beside the live one and renames it into place, keeping
+  what it displaced in a hidden sibling until the database transaction commits. A
+  filesystem that cannot rename atomically cannot make that swap safe, which was
+  already true before this was written down.
+- **Hardlinks are preferred, and their absence only costs speed.** Staging seeds
+  itself with `os.link` so an action on a problem with 5 GB of test data does not
+  copy 5 GB to change one case; nothing is ever written *through* a link (writes go
+  to a temporary name and are renamed into position), so the live files cannot be
+  touched by staging. Where `os.link` fails the seed falls back to copying and logs
+  one WARNING naming the directory. Behaviour is identical either way.
+
+Windows itself is not the constraint -- NTFS supports hardlinks and `os.link`
+works there. What varies is the *filesystem*: FAT32/exFAT (USB and SD media), some
+SMB/CIFS shares, some FUSE mounts, and Docker Desktop bind mounts from a Windows or
+macOS host. If you develop against one of those, expect the copy fallback and its
+log line. Production deployments keep the data root on a Linux volume, since
+isolate-based judging requires Linux anyway.
+
 Typical dev values:
 
 ```env
@@ -218,7 +241,7 @@ Important variable guidance:
 | `NOCA_DB_NAME` | Database name, typically `noca` |
 | `NOCA_DATA_ROOT` | Root for local data directories, for example `.docker` |
 | `NOCA_WEB_PROBLEM_STATEMENT_DIR` | Usually `<NOCA_DATA_ROOT>/problem_statements` |
-| `NOCA_PROBLEM_TESTCASE_DIR` | Usually `<NOCA_DATA_ROOT>/problem_test_cases`; shared root for web, arena, and autojudge (subdirs `contest/` and `arena/`) |
+| `NOCA_PROBLEM_TESTCASE_DIR` | Usually `<NOCA_DATA_ROOT>/problem_test_cases`; shared root for web, arena, and autojudge (subdirs `contest/` and `arena/`). Must support atomic same-directory renames; hardlinks are used when available (see above) |
 | `NOCA_VALKEY_USER` | Leave empty in development when using the local container without auth |
 | `NOCA_VALKEY_PASSWORD` | Leave empty in development when using the local container without auth |
 

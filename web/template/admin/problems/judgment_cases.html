@@ -1,0 +1,43 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Contest judgment data: the test-cases page.
+#}
+{% extends "_base.html" %}
+{% block title_suffix %}— {{ problem.title }} test cases{% endblock %}
+{% block breadcrumb %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item">
+                <a href="{{ shell.problem_list_url }}">Problems</a>
+            </li>
+            <li class="breadcrumb-item">
+                <a href="{{ shell.definition_url }}">{{ problem.title }}</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">Judgment data</li>
+        </ol>
+    </nav>
+{% endblock %}
+{% block content %}
+    <div class="container py-5">
+        {% include "_partials/judgment_shell.html" %}
+        {% include "_partials/judgment_testcases_page.html" %}
+    </div>
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='Sortable.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='tc-reorder-sortable.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='tc-add-row.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='judgment-actions.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('static_shared_js', path='problem-edit-unsaved-guard.js') }}?v={{ app_version }}"></script>
+{% endblock %}

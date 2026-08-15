@@ -26,7 +26,7 @@ from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_users import ArenaUser
 from arena.services import arena_problem_assignment_service as service
 from shared.db_schema.arena import arena_problem_set_problems
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, ProblemValidatorType
 
 NOW = datetime(2026, 7, 25, 15, 0, tzinfo=UTC)
 TODAY = NOW.date()
@@ -95,6 +95,7 @@ async def _problem(session: AsyncSession, owner: ArenaUser) -> ArenaProblem:
         owner_id=owner.id,
         problem_statement="Statement",
         enabled=True,
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

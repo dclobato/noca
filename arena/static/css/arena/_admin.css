@@ -108,7 +108,8 @@
 }
 
 .arena-cat-dropdown-item:hover,
-.arena-cat-dropdown-item:focus {
+.arena-cat-dropdown-item:focus,
+.arena-cat-dropdown-item.is-active {
     background: var(--bs-tertiary-bg);
     outline: none;
 }
@@ -208,14 +209,6 @@
 
 /* Problem image preview (admin form) lives in shared/static/css/common.css
    as .noca-problem-image-preview, shared with the Contest module. */
-
-/* ── Help version label ──────────────────────────────────────────────────── */
-
-.arena-help-version {
-    font-size: 0.8125rem;
-    color: var(--arena-on-surface-variant);
-    font-style: italic;
-}
 
 /* ── Category color picker ───────────────────────────────────────────────── */
 

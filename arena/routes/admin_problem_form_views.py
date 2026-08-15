@@ -18,20 +18,24 @@ from urllib.parse import quote, urlencode
 
 from fastapi import Request, UploadFile
 from fastapi.responses import HTMLResponse
-from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from arena.config import settings
 from arena.models.arena_problems import ArenaProblem, ArenaSampleInteraction
-from arena.models.arena_submissions import ArenaSubmission
 from arena.models.arena_users import ArenaUser
-from arena.services import admin_problem_service, admin_problem_tc_service
+from arena.routes.admin_problem_judgment_urls import with_query
+from arena.services import admin_problem_service
 from arena.services.admin_problem_tc_service import TestCaseView
-from shared.enumerations import ArenaRole, StatementLanguage
+from shared.enumerations import ArenaRole, ProblemValidatorType, StatementLanguage
 from shared.services.imageprocessing_service import ImageProcessingService
+from shared.services.problem_definition_view import (
+    TAB_METADATA,
+    TAB_STATEMENT,
+    ProblemDefinitionView,
+    label_for_strategy,
+    resolve_tab,
+)
 from shared.services.problem_image import process_problem_image_upload
 from shared.services.sample_interactions import (
-    MAX_SAMPLE_INTERACTIONS,
     SampleInteractionRowView,
     transcript_line_count,
     transcript_preview,
@@ -60,8 +64,12 @@ def build_testcase_row_views(
     """Adapt Arena ``TestCaseView`` items into shared list-partial view models.
 
     URLs are pre-built with the Arena route names so the shared template never
-    resolves module-specific ``url_for`` names.
+    resolves module-specific ``url_for`` names. The current request's query
+    string -- the problem list's page, filters, and sort -- rides along on every
+    row action so a save or delete that redirects back to this page does not
+    lose it either.
     """
+    query = request.url.query
     rows: list[TestCaseRowView] = []
     for tc in views:
         rows.append(
@@ -75,14 +83,34 @@ def build_testcase_row_views(
                 input_size_bytes=tc.input_size_bytes,
                 output_size_bytes=tc.output_size_bytes,
                 is_large=tc.is_large,
-                edit_url=str(request.url_for("arena_admin_problem_tc_edit", problem_id=problem_id, tc_id=tc.id)),
+                edit_url=with_query(
+                    str(request.url_for("arena_admin_problem_tc_edit", problem_id=problem_id, tc_id=tc.id)), query
+                ),
                 download_url=str(
                     request.url_for("arena_admin_problem_tc_download", problem_id=problem_id, tc_id=tc.id)
                 ),
-                replace_url=str(request.url_for("arena_admin_problem_tc_replace", problem_id=problem_id, tc_id=tc.id)),
-                move_url=str(request.url_for("arena_admin_problem_tc_move", problem_id=problem_id, tc_id=tc.id)),
-                toggle_sample_url=str(
-                    request.url_for("arena_admin_problem_tc_toggle_sample", problem_id=problem_id, tc_id=tc.id)
+                replace_url=with_query(
+                    str(
+                        request.url_for("arena_admin_problem_judgment_case_replace", problem_id=problem_id, tc_id=tc.id)
+                    ),
+                    query,
+                ),
+                move_url=with_query(
+                    str(request.url_for("arena_admin_problem_tc_move", problem_id=problem_id, tc_id=tc.id)), query
+                ),
+                toggle_sample_url=with_query(
+                    str(
+                        request.url_for(
+                            "arena_admin_problem_judgment_case_toggle_sample", problem_id=problem_id, tc_id=tc.id
+                        )
+                    ),
+                    query,
+                ),
+                delete_url=with_query(
+                    str(
+                        request.url_for("arena_admin_problem_judgment_case_delete", problem_id=problem_id, tc_id=tc.id)
+                    ),
+                    query,
                 ),
             )
         )
@@ -97,8 +125,11 @@ def build_interaction_row_views(
     """Adapt Arena sample-interaction rows into shared list-partial view models.
 
     URLs are pre-built with the Arena route names so the shared template never
-    resolves module-specific ``url_for`` names.
+    resolves module-specific ``url_for`` names. The current request's query
+    string rides along on every row action for the same reason it does on the
+    test-case rows.
     """
+    query = request.url.query
     return [
         SampleInteractionRowView(
             id=interaction.id,
@@ -106,11 +137,27 @@ def build_interaction_row_views(
             preview=transcript_preview(interaction.transcript),
             line_count=transcript_line_count(interaction.transcript),
             has_explanation=bool(interaction.explanation),
-            edit_url=str(
-                request.url_for("arena_admin_problem_interaction_edit", problem_id=problem_id, si_id=interaction.id)
+            edit_url=with_query(
+                str(
+                    request.url_for("arena_admin_problem_interaction_edit", problem_id=problem_id, si_id=interaction.id)
+                ),
+                query,
             ),
-            move_url=str(
-                request.url_for("arena_admin_problem_interaction_move", problem_id=problem_id, si_id=interaction.id)
+            move_url=with_query(
+                str(
+                    request.url_for("arena_admin_problem_interaction_move", problem_id=problem_id, si_id=interaction.id)
+                ),
+                query,
+            ),
+            delete_url=with_query(
+                str(
+                    request.url_for(
+                        "arena_admin_problem_judgment_interaction_delete",
+                        problem_id=problem_id,
+                        si_id=interaction.id,
+                    )
+                ),
+                query,
             ),
         )
         for interaction in sorted(interactions, key=lambda item: item.ordinal)
@@ -124,6 +171,15 @@ def effective_per_page(value: str | None) -> int:
     except TypeError, ValueError:
         return DEFAULT_PER_PAGE
     return effective if effective in ALLOWED_PER_PAGE else DEFAULT_PER_PAGE
+
+
+def parse_enabled_filter(value: str) -> bool | None:
+    """Return the tri-state enabled/disabled filter as ``bool | None`` (None = all)."""
+    if value == "1":
+        return True
+    if value == "0":
+        return False
+    return None
 
 
 def safe_next_path(next_url: str | None) -> str:
@@ -143,6 +199,7 @@ def problem_list_url(
     owner_id: str = "",
     category_slugs: list[str] | None = None,
     language: str = "",
+    enabled: str = "",
     anchor: str | None = None,
 ) -> str:
     """Build a problem list URL preserving non-default filter/sort state."""
@@ -159,6 +216,8 @@ def problem_list_url(
         params["owner_id"] = owner_id
     if language:
         params["language"] = language
+    if enabled:
+        params["enabled"] = enabled
     qs_parts = urlencode(params)
     category_qs = urlencode({"category_slugs": category_slugs or []}, doseq=True)
     query_parts = [part for part in (qs_parts, category_qs) if part]
@@ -203,10 +262,10 @@ def form_fields(
     author_is_owner: bool,
     source: str,
     hide_author_show_source: bool,
-    time_limit_ms: int,
-    memory_limit_kb: int,
-    pids_limit: int,
-    output_limit_in_bytes: int,
+    time_limit_ms: int | str,
+    memory_limit_kb: int | str,
+    pids_limit: int | str,
+    output_limit_in_bytes: int | str,
     problem_statement: str,
     category_ids: list[str],
     image_caption: str,
@@ -214,7 +273,7 @@ def form_fields(
     license: str = "",
     statement_language: str = "",
 ) -> dict[str, Any]:
-    """Build the ``form`` context dict consumed by ``problem_form.html``."""
+    """Build the form context, retaining raw limit strings after rejection."""
     return {
         "title": title,
         "author": author,
@@ -243,6 +302,7 @@ def return_state(
     owner_id: str,
     category_slugs: list[str] | None,
     language: str = "",
+    enabled: str = "",
 ) -> dict[str, Any]:
     """Build the hidden return-state dict that preserves list filters across the form."""
     return {
@@ -253,7 +313,77 @@ def return_state(
         "owner_id": owner_id,
         "category_slugs": category_slugs or [],
         "language": language,
+        "enabled": enabled,
     }
+
+
+#: Panes the Arena definition editor renders. Arena keeps its resource limits
+#: inside Metadata, so it has no Limits pane and must not accept ``?tab=limits``.
+ARENA_EDITOR_TABS: tuple[str, ...] = (TAB_METADATA, TAB_STATEMENT)
+
+
+def build_problem_form_view(
+    request: Request,
+    *,
+    problem: ArenaProblem | None,
+    validator_type: ProblemValidatorType,
+    back_url: str,
+    active_tab: str | None,
+    reselect_uploads: tuple[str, ...] = (),
+) -> ProblemDefinitionView:
+    """Build the shared editor view model for one Arena problem-form rendering.
+
+    All URLs are resolved here so the shared tab partials never resolve Arena
+    route names or Arena template paths.
+
+    Args:
+        request: The active request.
+        problem: The problem being edited, or None while creating.
+        validator_type: The problem's stored (or chosen) strategy.
+        back_url: Where Cancel/Back returns to.
+        active_tab: Requested tab, from ``?tab=`` or an ``active_tab`` field.
+        reselect_uploads: Labels of archives a rejected submission carried, which
+            the browser cannot restore and the author must choose again.
+
+    Returns:
+        ProblemDefinitionView: The resolved view model.
+    """
+    is_interactive = validator_type is ProblemValidatorType.INTERACTIVE
+    tabs = ARENA_EDITOR_TABS
+    resolved_tab = resolve_tab(active_tab, allowed=frozenset(tabs))
+    if problem is None:
+        return ProblemDefinitionView(
+            validator_type=validator_type,
+            is_interactive=is_interactive,
+            is_create=True,
+            allow_pdf=False,
+            tabs=tabs,
+            active_tab=resolved_tab,
+            save_url=str(request.url_for("arena_admin_problem_create", validator_type=validator_type.value)),
+            cancel_url=back_url,
+            # A problem must exist before it can have judgment data.
+            judgment_url="",
+            strategy_label=label_for_strategy(validator_type),
+            reselect_uploads=reselect_uploads,
+        )
+    problem_id = problem.id
+    return ProblemDefinitionView(
+        validator_type=validator_type,
+        is_interactive=is_interactive,
+        is_create=False,
+        allow_pdf=False,
+        tabs=tabs,
+        active_tab=resolved_tab,
+        save_url=str(request.url_for("arena_admin_problem_update", problem_id=problem_id)),
+        cancel_url=back_url,
+        editor_base_url=str(request.url_for("arena_admin_problem_edit", problem_id=problem_id)),
+        judgment_url=with_query(
+            str(request.url_for("arena_admin_problem_judgment", problem_id=problem_id)), request.url.query
+        ),
+        validator_status_template="admin/_validator_status.html",
+        strategy_label=label_for_strategy(validator_type),
+        reselect_uploads=reselect_uploads,
+    )
 
 
 def render_problem_form(
@@ -265,39 +395,52 @@ def render_problem_form(
     back_url: str,
     state: dict[str, Any],
     current_user: ArenaUser,
+    validator_type: ProblemValidatorType | None = None,
     problem: ArenaProblem | None = None,
-    test_cases: list[Any] | None = None,
     next_url: str | None = None,
     problem_owner: ArenaUser | None = None,
-    has_submissions: bool = False,
-    validator_status: Any = None,
-    validator_languages: list[Any] | None = None,
-    interactions: list[ArenaSampleInteraction] | None = None,
     language_conflict: dict[str, str] | None = None,
+    active_tab: str | None = None,
+    errors: tuple[str, ...] = (),
+    field_errors: dict[str, str] | None = None,
+    reselect_uploads: tuple[str, ...] = (),
     status_code: int = 200,
 ) -> HTMLResponse:
     """Render ``problem_form.html`` with the shared create/edit context.
 
     Edit-only context keys (``next_url``, ``problem_owner``, ``rating_history_url``)
     are added only when ``mode == "edit"``.
+
+    ``validator_type`` is required in create mode: it is part of the create POST
+    path, so the template's form action cannot be built without it. In edit mode
+    it is read from the stored problem instead.
+
+    ``reselect_uploads`` names the file inputs a rejected submission carried: the
+    browser cannot restore them, so the author is told which to choose again.
+
+    ``field_errors`` keeps the server's validation model aligned with the
+    browser's: the rejected pane opens and the exact control owns its message.
+
+    Judgment relationships are deliberately absent. Test cases, validator state,
+    and sample interactions are loaded only by their dedicated pages.
     """
-    rows = (
-        build_testcase_row_views(request, problem.id, cast(list[TestCaseView], test_cases))
-        if mode == "edit" and problem is not None
-        else []
+    effective_validator_type = problem.validator_type if problem is not None else validator_type
+    if effective_validator_type is None:
+        raise ValueError("A problem form needs a validation strategy: pass validator_type when creating.")
+    view = build_problem_form_view(
+        request,
+        problem=problem,
+        validator_type=effective_validator_type,
+        back_url=back_url,
+        active_tab=active_tab,
+        reselect_uploads=reselect_uploads,
     )
-    interaction_rows = (
-        build_interaction_row_views(request, problem.id, interactions or [])
-        if mode == "edit" and problem is not None
-        else []
-    )
+    resolved_field_errors = field_errors or {}
     context: dict[str, Any] = {
         "mode": mode,
         "problem": problem,
-        "test_cases": test_cases or [],
-        "rows": rows,
-        "interaction_rows": interaction_rows,
-        "max_interactions": MAX_SAMPLE_INTERACTIONS,
+        "view": view,
+        "validator_type": effective_validator_type,
         "is_edit_allowed": True,
         "form": form,
         "selected_cats_data": cats_data,
@@ -305,15 +448,15 @@ def render_problem_form(
         "return_state": state,
         "current_user": current_user,
         "is_admin": is_admin(current_user),
-        "has_submissions": has_submissions,
-        "validator_status": validator_status,
-        "validator_languages": validator_languages or [],
         "statement_languages": list(StatementLanguage),
         "language_conflict": language_conflict,
+        "errors": errors,
+        "field_errors": resolved_field_errors,
+        "first_error_field": next(iter(resolved_field_errors), ""),
         "detect_language_url": str(request.url_for("arena_admin_problem_detect_language")),
     }
+    context["next_url"] = next_url or ""
     if mode == "edit" and problem is not None:
-        context["next_url"] = next_url or ""
         context["problem_owner"] = problem_owner
         context["rating_history_url"] = str(
             request.url_for("arena_admin_problem_rating_history", problem_id=problem.id)
@@ -328,11 +471,8 @@ async def edit_form_extras(
     problem: ArenaProblem,
     current_user: ArenaUser,
     session: AsyncSession,
-) -> tuple[list[Any], list[Any], ArenaUser | None, bool]:
-    """Load test cases, categories, admin-only owner data, and submission state."""
-    test_cases = await admin_problem_tc_service.list_testcase_views(session, problem.id, settings.PROBLEM_TESTCASE_DIR)
+) -> tuple[list[Any], ArenaUser | None]:
+    """Load categories and admin-only owner data for the definition editor."""
     all_categories = await admin_problem_service.search_categories(session, query="", limit=200)
     problem_owner = await session.get(ArenaUser, problem.owner_id) if is_admin(current_user) else None
-    result = await session.execute(select(exists().where(ArenaSubmission.problem_id == problem.id)))
-    has_submissions: bool = result.scalar_one()
-    return test_cases, all_categories, problem_owner, has_submissions
+    return all_categories, problem_owner

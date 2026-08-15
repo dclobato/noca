@@ -11,11 +11,11 @@ temporary path and the route streams it with a ``FileResponse``, the same
 no-RAM rule imports follow.
 
 Two profiles exist. ``full`` is an importable package carrying **every**
-version-1 key, including keys the exporting domain cannot store — written as
+version-2 key, including keys the exporting domain cannot store — written as
 ``null`` / ``false`` / ``{}`` rather than omitted, so a round trip through the
 other domain is describable. ``public`` is a contestant-facing statement bundle
 and deliberately **not** importable: no ``problem.json``, no secret cases, no
-limits, no notes, no validator source.
+limits, no notes, no validator source — and therefore no strategy metadata.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Literal
 
+from shared.enumerations import ProblemValidatorType
 from shared.services.custom_validator import packaged_validator_member
 from shared.services.problem_package.constants import (
     FORMAT_VERSION,
@@ -42,15 +43,33 @@ PackageProfile = Literal["full", "public"]
 _COPY_CHUNK_BYTES = 1024 * 1024
 
 
-def build_package(package: ProblemPackage, destination: Path, *, profile: PackageProfile) -> Path:
+def build_package(
+    package: ProblemPackage,
+    destination: Path,
+    *,
+    profile: PackageProfile,
+    require_importable: bool = True,
+) -> Path:
     """Write ``package`` to ``destination`` and return that path.
 
+    Args:
+        package: The problem projected onto the package contract.
+        destination: Path to write the archive to.
+        profile: ``"full"`` for an importable package, ``"public"`` for the
+            contestant-facing statement bundle.
+        require_importable: Whether a ``full`` package must satisfy the version-2
+            rules that make it re-importable. Only the contest backup exporter
+            passes ``False``; see :func:`_check_importable`.
+
     Raises:
-        PackageError: If a required stored file is missing. Both previous
-            exporters wrote ``b""`` in that case, producing a package that
+        PackageError: If a required stored file is missing, or if an importable
+            ``full`` package cannot be expressed in version 2. Both previous
+            exporters wrote ``b""`` for a missing file, producing a package that
             re-imports with silently different semantics; the routes turn this
             into an actionable 409 instead.
     """
+    if profile == "full" and require_importable:
+        _check_importable(package)
     destination.parent.mkdir(parents=True, exist_ok=True)
     digests: dict[str, str] = {}
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -62,6 +81,27 @@ def build_package(package: ProblemPackage, destination: Path, *, profile: Packag
             _write_validator(archive, package, digests)
             archive.writestr(PROBLEM_JSON_MEMBER, json.dumps(_problem_json(package, digests), indent=2))
     return destination
+
+
+def _check_importable(package: ProblemPackage) -> None:
+    """Refuse a full export that version 2 cannot express as an importable package.
+
+    Version 2 requires an ``interactive`` problem to declare a validator source,
+    so an incomplete interactive draft has no valid representation: writing one
+    anyway would produce an archive this build's own reader rejects. ``checker``
+    has no representation at all in this build.
+
+    Raises:
+        PackageError: If the package cannot be written as importable version 2.
+    """
+    strategy = package.metadata.validator_type
+    if strategy is ProblemValidatorType.OUTPUT_CHECKER:
+        raise PackageError("Output checker validation is not available in this build.")
+    if strategy is ProblemValidatorType.INTERACTIVE and package.validator is None:
+        raise PackageError(
+            "Cannot export: this interactive problem has no validator source, so it cannot be "
+            "written as an importable package. Upload a validator source and export again."
+        )
 
 
 def _write_statement(archive: zipfile.ZipFile, package: ProblemPackage, digests: dict[str, str]) -> None:
@@ -142,15 +182,19 @@ def _write_validator(archive: zipfile.ZipFile, package: ProblemPackage, digests:
 
 
 def _problem_json(package: ProblemPackage, digests: dict[str, str]) -> dict[str, Any]:
-    """Build the complete version-1 metadata object.
+    """Build the complete version-2 metadata object.
 
     Every key is present. A domain that cannot store a field writes its empty
     value rather than omitting the key, so a consumer never has to guess whether
     absence means "unset" or "unsupported by the producer".
+
+    ``checker_semantics`` is deliberately absent: it belongs to the output-checker
+    strategy, which this build reserves but does not implement.
     """
     metadata = package.metadata
     return {
         "format_version": FORMAT_VERSION,
+        "validator_type": metadata.validator_type.value,
         "title": metadata.title,
         "author": metadata.author,
         "notes": metadata.notes,

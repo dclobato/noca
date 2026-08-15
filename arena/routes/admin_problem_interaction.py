@@ -4,13 +4,11 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Arena admin routes for a problem's sample interactions.
+"""Arena judgment-data routes for a problem's sample interactions.
 
-An interactive problem has no public test cases: what contestants see instead are
-these authored conversations. The problem edit form manages them the way it
-manages test cases — pending add rows and pending removals ride the single Save
-(see :mod:`arena.services.admin_problem_interaction_pending`) — while per-row edit
-and drag-reorder get their own endpoints here.
+An interactive problem has no public test cases: contestants see these authored
+conversations instead. Adds, edits, removals, and drag-reorders belong to the
+dedicated interactions page and apply immediately.
 """
 
 from __future__ import annotations
@@ -27,8 +25,10 @@ from arena.models.arena_users import ArenaUser
 from arena.routes.admin_problem_common import get_problem_or_403
 from arena.routes.admin_problem_form_views import build_interaction_row_views
 from arena.routes.admin_problem_form_views import html_response as _html
+from arena.routes.admin_problem_judgment_urls import judgment_page_url
 from arena.services import admin_problem_interaction_service
 from shared.http_params import PG_INT32_MAX
+from shared.services.editor_urls import editor_url
 from shared.services.sample_interactions import InteractionParseError, parse_interaction_text, transcript_to_text
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
@@ -105,7 +105,7 @@ async def arena_admin_problem_interaction_update(
     """Save an edited sample interaction."""
     problem = await get_problem_or_403(problem_id, current_user, session)
     interaction = await _get_interaction_or_404(session, problem.id, si_id)
-    edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
+    edit_url = judgment_page_url(request, problem_id, "interactions")
 
     try:
         parsed = parse_interaction_text(transcript)
@@ -124,7 +124,7 @@ async def arena_admin_problem_interaction_update(
     )
     await session.commit()
     flash(f"Sample interaction #{interaction.ordinal} updated.", FlashCategory.SUCCESS)
-    return RedirectResponse(edit_url, 303)
+    return RedirectResponse(editor_url(edit_url, anchor=f"si-{interaction.id}"), 303)
 
 
 @router.post(

@@ -7,189 +7,203 @@
 #}
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon %}
-{% block title_suffix %}— Languages &amp; Verdicts{% endblock %}
+{% block title_suffix %}— Verdicts &amp; languages{% endblock %}
 {% block nav_help %}active{% endblock %}
 {% block nav_help_languages %}active{% endblock %}
 {% block content %}
-    <div class="arena-page-container px-5">
-        <div class="arena-page-header">
-            <h1 class="arena-page-title">{{ render_icon(icon="terminal", classes="me-2") }}Languages &amp; Verdicts</h1>
-            <p class="arena-page-subtitle">Supported programming languages and the meaning of each possible judgment verdict.</p>
-        </div>
-        {# ── Tabs ── #}
-        <div class="arena-card p-0">
-            <ul class="nav nav-tabs arena-help-tabs px-3 pt-3"
-                id="languagesVerdictsTabs"
-                role="tablist">
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link active"
-                            id="tab-languages-btn"
-                            data-bs-toggle="tab"
-                            data-bs-target="#tab-languages"
-                            type="button"
-                            role="tab"
-                            aria-controls="tab-languages"
-                            aria-selected="true">
-                        {{ render_icon(icon="code", classes="me-1") }}Available languages
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link"
-                            id="tab-verdicts-btn"
-                            data-bs-toggle="tab"
-                            data-bs-target="#tab-verdicts"
-                            type="button"
-                            role="tab"
-                            aria-controls="tab-verdicts"
-                            aria-selected="false">
-                        {{ render_icon(icon="gavel", classes="me-1") }}Judgment Verdicts
-                    </button>
-                </li>
-            </ul>
-            <div class="tab-content arena-help-tab-content px-3 pb-3"
-                 id="languagesVerdictsTabsContent">
-                {# ── Available languages ── #}
-                <div class="tab-pane fade show active"
-                     id="tab-languages"
-                     role="tabpanel"
-                     aria-labelledby="tab-languages-btn">
-                    <p>
-                        Compile and run commands are shown exactly as they are executed inside the sandbox container.
-                        Languages without a compilation step run the source file directly.
-                        For custom-validator problems, the stdout flush hint shows how to send each message immediately.
+    <!--
+    THESIS: The judge explains itself in the artifact every competitive programmer already
+    reads at a glance -- the standings cell. Refuses the knowledge-base article: sidebar
+    tree, prose column, tabs hiding half the page from search and print.
+    OWN-WORLD: The cell is the atom. Hairline rules, tabular monospace numerals, semantic
+    verdict colour only (AC green, WA red, limit amber); no decorative fill, no cards.
+    STORY: The reader arrives holding a verdict they did not expect, reads it off a key
+    shaped like the board it came from, and finds their language's exact commands below.
+    FIRST VIEWPORT: Masthead, then the verdict key -- eight marked cells, each anchored so
+    a submission page can link straight to one.
+    FORM: The Verdict Board; candidate 4 of the grounded list; seed key 01ac1107.
+    FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+    -->
+    {% set tone_for = {"bg-success": "ok", "bg-danger": "bad", "bg-warning text-dark": "limit", "bg-secondary": "neutral"} %}
+    <div class="arena-help-page container-fluid px-3 px-lg-4">
+        <header class="arena-help-masthead">
+            <h1 class="arena-help-masthead-title">Verdicts &amp; languages</h1>
+            <p class="arena-help-masthead-lede">
+                What the judge can say about a submission, and the exact commands it runs for every
+                language {{ brand_name }} accepts.
+            </p>
+        </header>
+        <div class="arena-help-shell">
+            <div class="arena-help-body">
+                {# ── Verdict key ── #}
+                <section class="arena-help-section" id="verdicts">
+                    <h2 class="arena-help-heading">What the judge can say</h2>
+                    <p class="arena-help-lede">
+                        On a regular problem the judge runs your code against every test case, compares each output with the
+                        expected answer, and reports the most severe outcome it found. They are listed here in exactly that
+                        order of severity — the first one to occur anywhere is the one you get, so Accepted is last because
+                        it only survives when nothing else happened.
                     </p>
-                    {% if languages %}
-                        <div class="arena-help-lang-list mt-3">
-                            {% for lang in languages %}
-                                <div class="arena-help-lang-entry">
-                                    <div class="arena-help-lang-header">
-                                        <img src="{{ request.url_for('static_vendor', path='img/devicon/' ~ lang.icon.split('-')[1] ~ '-original.svg') }}"
-                                             class="arena-help-lang-icon"
-                                             width="48"
-                                             height="48"
-                                             alt="{{ lang.name }}">
-                                        <strong class="arena-help-lang-name">{{ lang.name }}</strong>
-                                        {% if lang.version %}<span class="arena-help-version">{{ lang.version }}</span>{% endif %}
-                                    </div>
-                                    {% if lang.compile_cmd %}
-                                        <div class="arena-help-lang-row">
-                                            <span class="arena-help-lang-label">Compile</span>
-                                            <pre class="arena-help-cmd">{{ lang.compile_cmd | fmt_shell_cmd }}</pre>
-                                        </div>
+                    <div class="arena-verdict-key">
+                        {% for verdict, description in verdicts.items() %}
+                            {% set parts = description.split(" — ", 1) %}
+                            <div class="arena-verdict-row" id="verdict-{{ verdict.value }}">
+                                <span class="arena-verdict-mark"
+                                      data-verdict-tone="{{ tone_for.get(verdict_badge_classes.get(verdict.value, '') , 'neutral') }}">
+                                    {{- verdict.value -}}
+                                </span>
+                                <div>
+                                    {% if parts | length == 2 %}
+                                        <span class="arena-verdict-name">{{ parts[0] }}</span>
+                                        <p class="arena-verdict-text">{{ parts[1] }}</p>
                                     {% else %}
-                                        <div class="arena-help-lang-row">
-                                            <span class="arena-help-lang-label">Compile</span>
-                                            <span class="arena-help-version">No compilation step</span>
-                                        </div>
-                                    {% endif %}
-                                    <div class="arena-help-lang-row">
-                                        <span class="arena-help-lang-label">Run</span>
-                                        <pre class="arena-help-cmd">{{ lang.run_cmd | fmt_shell_cmd }}</pre>
-                                    </div>
-                                    {% if lang.stdout_flush_hint_parts %}
-                                        <div class="arena-help-lang-row">
-                                            <span class="arena-help-lang-label">Stdout flush</span>
-                                            <span class="arena-help-hint">
-                                                {% for part in lang.stdout_flush_hint_parts %}
-                                                    {% if part.is_code %}
-                                                        <pre class="arena-help-cmd">{{ part.text }}</pre>
-                                                    {% else %}
-                                                        <span>{{ part.text }}</span>
-                                                    {% endif %}
-                                                {% endfor %}
-                                            </span>
-                                        </div>
+                                        <p class="arena-verdict-text">{{ description }}</p>
                                     {% endif %}
                                 </div>
-                            {% endfor %}
-                        </div>
-                    {% else %}
-                        <p class="arena-help-note mt-3">No languages are currently active.</p>
-                    {% endif %}
-                </div>
-                {# ── Verdicts ── #}
-                <div class="tab-pane fade"
-                     id="tab-verdicts"
-                     role="tabpanel"
-                     aria-labelledby="tab-verdicts-btn">
-                    <p>
-                        After your submission is judged, it receives one of the verdicts below.
-                        On a regular problem, the judge runs your code against all test cases,
-                        compares your output with the expected output, and reports the most severe outcome.
-                        Interactive problems are judged differently — see
-                        <a href="#interactive">Interactive problems</a> below.
-                    </p>
-                    <div class="table-responsive mt-3">
-                        <table class="arena-table">
-                            <thead>
-                                <tr>
-                                    <th>Verdict</th>
-                                    <th>Meaning</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for verdict, description in verdicts.items() %}
-                                    <tr>
-                                        <td>
-                                            <span class="badge {{ verdict_badge_classes.get(verdict.value, 'bg-secondary') }} font-monospace">{{ verdict.value }}</span>
-                                        </td>
-                                        <td>{{ description }}</td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                            </div>
+                        {% endfor %}
                     </div>
-                    <h2 class="h5 mt-4" id="interactive">Interactive problems (custom validators)</h2>
-                    <p>
-                        Some problems have no fixed expected output. Instead of comparing your output
-                        against a stored answer file, the problem author supplies a program — the
-                        <em>custom validator</em> — and the judge runs it side by side with your solution:
-                        everything your program prints is read by the validator, and everything the
-                        validator prints is fed back to your program's input. The two exchange messages
-                        until the conversation ends. Problem statements of such problems describe the
-                        protocol you must follow.
+                    <p class="arena-help-note mt-3">
+                        Each verdict has its own address, so a link can point at exactly one — for example
+                        <code>#verdict-TLE</code>.
+                    </p>
+                </section>
+                {# ── Interactive problems ── #}
+                <section class="arena-help-section" id="interactive">
+                    <h2 class="arena-help-heading">Interactive problems</h2>
+                    <p class="arena-help-lede">
+                        Some problems have no fixed expected output. Instead the author supplies a program — the
+                        <em>custom validator</em> — and the judge runs it beside your solution: everything you print is read by
+                        the validator, and everything it prints becomes your input. The two talk until the conversation ends.
                     </p>
                     <p>
-                        Interactive problems still have <strong>test cases</strong>, and your solution is
-                        run against each of them in turn. A test case does not hold an expected answer —
-                        it holds the data the validator itself is given before it starts talking to you
-                        (the secret number, the hidden graph, the query budget). So each test case is a
-                        different round of the same game, and your program plays it from the start. The
-                        samples on the statement show you that data for the rounds the author chose to
-                        make public; the rest are hidden, just like on any other problem.
+                        Interactive problems still have test cases, and your solution is run against each in turn. A test case
+                        holds no expected answer — it holds the data the validator is given before it starts talking to you: the
+                        secret number, the hidden graph, the query budget. Each case is a different round of the same game, and
+                        your program plays it from the start. The samples on the statement show that data for the rounds the
+                        author made public; the rest are hidden, as on any other problem.
                     </p>
                     <p>
-                        Each round ends with the validator deciding how it went: whether your answers were
-                        correct, wrong, badly formatted, or whether you took too many queries or too much
-                        time for the budget the problem allows. If a round is accepted, the judge moves on
-                        to the next one; <strong>the first round you do not pass ends the judgment</strong>
-                        and becomes your verdict — you get Accepted only when every round passes. The
-                        remaining verdicts still come from the judging environment itself, which enforces
-                        compilation, memory, output and process limits and detects a crashing program
-                        exactly as it does on regular problems. A crash on your side always wins over
-                        whatever the validator was about to report.
+                        Each round ends with the validator deciding how it went — whether your answers were correct, wrong, badly
+                        formatted, or over the query or time budget. If a round is accepted the judge moves to the next;
+                        <strong>the first round you do not pass ends the judgment</strong> and becomes your verdict. You are
+                        Accepted only when every round passes. The remaining verdicts still come from the judging environment
+                        itself, which enforces compilation, memory, output and process limits and detects a crashing program
+                        exactly as on regular problems. A crash on your side always wins over whatever the validator was about to
+                        report.
                     </p>
                     <p>
-                        On a submission that was not accepted, the submission page shows you the
-                        <strong>conversation from the round that failed</strong>, so you can read the
-                        exchange exactly as it happened.
+                        On a submission that was not accepted, the submission page shows the conversation from the round that
+                        failed, so you can read the exchange exactly as it happened.
                     </p>
                     <div class="alert alert-warning d-flex align-items-start gap-2 mt-3"
                          role="alert">
                         {{ render_icon(icon="warning", classes="flex-shrink-0 mt-1") }}
                         <div>
-                            Because your program and the validator take turns waiting for each other, you
-                            must <strong>flush your output after every message you send</strong> (for
-                            the exact syntax for your language, see the stdout flush detail in the
-                            Available languages tab).
-                            A buffered message that never reaches the validator deadlocks the attempt.
+                            Because your program and the validator take turns waiting for each other, you must
+                            <strong>flush your output after every message you send</strong>. A buffered message that never
+                            reaches the validator deadlocks the attempt — the exact syntax for your language is in the
+                            <a href="#languages">roster below</a>.
                         </div>
                     </div>
-                </div>
+                </section>
+                {# ── Language roster ── #}
+                <section class="arena-help-section" id="languages">
+                    <h2 class="arena-help-heading">Languages the judge accepts</h2>
+                    <p class="arena-help-lede">
+                        Compile and run commands are shown exactly as they are executed inside the sandbox container. Languages
+                        with no compilation step run the source file directly.
+                    </p>
+                    {% if languages %}
+                        <div class="arena-lang-filter" data-lang-filter hidden>
+                            <label class="visually-hidden" for="lang-filter-input">Filter languages by name</label>
+                            <input type="search"
+                                   class="form-control form-control-sm arena-lang-filter-input"
+                                   id="lang-filter-input"
+                                   data-lang-filter-input
+                                   placeholder="Filter by name — rust, py, c++"
+                                   autocomplete="off">
+                            <span class="arena-lang-count" data-lang-count aria-live="polite"></span>
+                        </div>
+                        <div class="arena-lang-board" data-lang-board>
+                            {% for lang in languages %}
+                                <div class="arena-lang-row" data-lang-name="{{ lang.name }}">
+                                    <div class="arena-lang-identity">
+                                        <img src="{{ request.url_for('static_vendor', path='img/devicon/' ~ lang.icon.split('-')[1] ~ '-original.svg') }}"
+                                             class="arena-lang-icon"
+                                             width="28"
+                                             height="28"
+                                             alt=""
+                                             loading="lazy">
+                                        <span>
+                                            <span class="arena-lang-name">{{ lang.name }}</span>
+                                            {% if lang.version %}<span class="arena-help-version">{{ lang.version }}</span>{% endif %}
+                                        </span>
+                                    </div>
+                                    <div class="arena-lang-specs">
+                                        <div class="arena-lang-spec">
+                                            <span class="arena-lang-spec-label">Compile</span>
+                                            {% if lang.compile_cmd %}
+                                                <pre class="arena-help-cmd">{{ lang.compile_cmd | fmt_shell_cmd }}</pre>
+                                            {% else %}
+                                                <span class="arena-help-hint">No compilation step</span>
+                                            {% endif %}
+                                        </div>
+                                        <div class="arena-lang-spec">
+                                            <span class="arena-lang-spec-label">Run</span>
+                                            <pre class="arena-help-cmd">{{ lang.run_cmd | fmt_shell_cmd }}</pre>
+                                        </div>
+                                        {% if lang.stdout_flush_hint_parts %}
+                                            <div class="arena-lang-spec">
+                                                <span class="arena-lang-spec-label">Flush</span>
+                                                <span class="arena-help-hint">
+                                                    {% for part in lang.stdout_flush_hint_parts %}
+                                                        {% if part.is_code %}
+                                                            <pre class="arena-help-cmd">{{ part.text }}</pre>
+                                                        {% else %}
+                                                            <span>{{ part.text }}</span>
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                </span>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            {% endfor %}
+                            <p class="arena-lang-empty" data-lang-empty hidden>No language matches that name.</p>
+                        </div>
+                    {% else %}
+                        <div class="arena-lang-board">
+                            <p class="arena-lang-empty">
+                                No languages are currently active, so no submissions can be judged. If that is unexpected, an
+                                administrator can re-enable them in the language registry.
+                            </p>
+                        </div>
+                    {% endif %}
+                </section>
             </div>
+            <nav class="arena-help-index"
+                 data-help-index
+                 aria-label="Sections on this page">
+                <p class="arena-help-index-title">On this page</p>
+                <ul class="arena-help-index-list">
+                    <li>
+                        <a class="arena-help-index-link" href="#verdicts">What the judge can say</a>
+                    </li>
+                    <li>
+                        <a class="arena-help-index-link" href="#interactive">Interactive problems</a>
+                    </li>
+                    <li>
+                        <a class="arena-help-index-link" href="#languages">Languages</a>
+                    </li>
+                </ul>
+            </nav>
         </div>
     </div>
 {% endblock %}
 {% block extra_script %}
-    <script src="{{ request.url_for("arena_static_js", path="help-languages-tabs.js") }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-help-nav.js') }}?v={{ app_version }}"
+            defer></script>
+    <script src="{{ request.url_for('arena_static_js', path='arena-help-languages.js') }}?v={{ app_version }}"
+            defer></script>
 {% endblock %}

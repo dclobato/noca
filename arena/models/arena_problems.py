@@ -20,7 +20,8 @@ from datetime import datetime
 from math import exp
 from typing import TYPE_CHECKING
 
-from sqlalchemy.orm import Mapped, relationship
+from sqlalchemy import event
+from sqlalchemy.orm import Mapped, Session, relationship
 
 from arena.database import ArenaBase
 from shared.db_schema.arena import arena_problem_categories as arena_problem_categories_table
@@ -33,9 +34,11 @@ from shared.db_schema.arena import arena_test_cases as arena_test_cases_table
 from shared.enumerations import (
     CustomValidatorActiveState,
     CustomValidatorCandidateState,
+    ProblemValidatorType,
     StatementLanguage,
 )
 from shared.services.arena_rating import CONFIDENCE_SCALE
+from shared.services.validator_type_guard import guard_validator_type_immutability
 
 if TYPE_CHECKING:
     from arena.models.arena_submissions import ArenaSubmission, ArenaUserSolvedProblem, ArenaUserTriedProblem
@@ -73,6 +76,8 @@ class ArenaProblem(ArenaBase):
     notes: Mapped[str | None]
     license: Mapped[str | None]
     statement_language: Mapped[StatementLanguage | None]
+    validator_type: Mapped[ProblemValidatorType]
+    artifact_generation: Mapped[int]
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 
@@ -326,3 +331,13 @@ class ArenaCategory(ArenaBase):
         contrast_with_black = (luminance + 0.05) / 0.05
         contrast_with_white = 1.05 / (luminance + 0.05)
         return "#000000" if contrast_with_black >= contrast_with_white else "#ffffff"
+
+
+@event.listens_for(Session, "before_flush")
+def _guard_arena_problem_validator_type(
+    session: Session,
+    flush_context: object,
+    instances: object,
+) -> None:
+    """Refuse a flush that changes a persisted problem's validation strategy."""
+    guard_validator_type_immutability(session, (ArenaProblem,))

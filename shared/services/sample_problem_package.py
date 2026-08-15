@@ -24,6 +24,7 @@ import tempfile
 from pathlib import Path
 from typing import Final
 
+from shared.enumerations import ProblemValidatorType
 from shared.services.problem_package.constants import FORMAT_VERSION
 from shared.services.problem_package.model import (
     PackageLanguageLimit,
@@ -108,6 +109,8 @@ def _sample_package(cases: tuple[PackageTestCase, ...]) -> ProblemPackage:
     """Build the reference package's frozen value."""
     metadata = PackageMetadata(
         format_version=FORMAT_VERSION,
+        # The reference package is an ordinary token-compared problem.
+        validator_type=ProblemValidatorType.STANDARD,
         title="A + B",
         author="John Doe",
         notes="Sample problem",

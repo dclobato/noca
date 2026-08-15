@@ -18,18 +18,20 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from shared.enumerations import ProblemValidatorType
 from shared.services.problem_package.constants import (
     DEFAULT_MEMORY_LIMIT_KB,
     DEFAULT_OUTPUT_LIMIT_BYTES,
     DEFAULT_PIDS_LIMIT,
     DEFAULT_TIME_LIMIT_MS,
-    FORMAT_VERSION,
+    LEGACY_FORMAT_VERSION,
     MAX_AUTHOR_CHARS,
     MAX_IMAGE_CAPTION_CHARS,
     MAX_LICENSE_CHARS,
     MAX_NOTES_CHARS,
     MAX_SOURCE_CHARS,
     MAX_TITLE_CHARS,
+    SUPPORTED_FORMAT_VERSIONS,
 )
 from shared.services.problem_package.errors import PackageError
 from shared.services.problem_package.model import PackageLanguageLimit, PackageMetadata, ValidatorSpec
@@ -62,22 +64,24 @@ def decode_problem_json(raw: bytes) -> dict[str, Any]:
 def check_format_version(meta: Mapping[str, Any]) -> int:
     """Validate ``format_version`` before any other field is looked at.
 
-    An absent key means version 1, the format that predates the key. Any other
-    value fails here rather than after half the metadata has been interpreted
-    under assumptions the package never agreed to.
+    An absent key means version 1, the format that predates the key. Any value
+    outside the supported set fails here rather than after half the metadata has
+    been interpreted under assumptions the package never agreed to.
+
+    Returns:
+        int: The package's effective format version.
 
     Raises:
-        PackageError: If the value is present and not the supported version.
+        PackageError: If the value is mistyped or is not a supported version.
     """
     if "format_version" not in meta:
-        return FORMAT_VERSION
+        return LEGACY_FORMAT_VERSION
     raw = meta["format_version"]
     if isinstance(raw, bool) or not isinstance(raw, int):
         raise PackageError(f"problem.json: 'format_version' must be an integer; got {raw!r}.")
-    if raw != FORMAT_VERSION:
-        raise PackageError(
-            f"problem.json: unsupported 'format_version' {raw}; this build reads version {FORMAT_VERSION} only."
-        )
+    if raw not in SUPPORTED_FORMAT_VERSIONS:
+        supported = ", ".join(str(version) for version in SUPPORTED_FORMAT_VERSIONS)
+        raise PackageError(f"problem.json: unsupported 'format_version' {raw}; this build reads versions {supported}.")
     return raw
 
 
@@ -88,8 +92,10 @@ def parse_metadata(meta: Mapping[str, Any]) -> PackageMetadata:
         PackageError: On any invalid, mistyped, or over-long recognized field.
     """
     version = check_format_version(meta)
+    custom_validator = _validator_spec(meta.get("custom_validator"))
     return PackageMetadata(
         format_version=version,
+        validator_type=_validator_type(meta, version, custom_validator),
         title=_required_string(meta, "title", MAX_TITLE_CHARS),
         author=_string(meta, "author", MAX_AUTHOR_CHARS),
         notes=_string(meta, "notes", MAX_NOTES_CHARS),
@@ -109,9 +115,69 @@ def parse_metadata(meta: Mapping[str, Any]) -> PackageMetadata:
         image=_string(meta, "image", 255),
         image_caption=_string(meta, "image_caption", MAX_IMAGE_CAPTION_CHARS),
         language_limits=_language_limits(_absent_or(meta, "language_limits")),
-        custom_validator=_validator_spec(meta.get("custom_validator")),
+        custom_validator=custom_validator,
         sha256=_sha256_map(_absent_or(meta, "sha256")),
     )
+
+
+def _validator_type(
+    meta: Mapping[str, Any],
+    version: int,
+    custom_validator: ValidatorSpec | None,
+) -> ProblemValidatorType:
+    """Resolve the package's validation strategy for its declared version.
+
+    Version 1 predates the discriminator and can only be read one way: a package
+    declaring a custom validator was interactive, and any other package was
+    standard. A ``validator_type`` key in a version-1 package is **ignored**
+    rather than rejected -- the parser tolerates unrecognized keys everywhere
+    else, and the version the package claims is what decides how it is read.
+
+    Version 2 states the strategy and must agree with what ``problem.json``
+    alone can see, so an inconsistent package fails before anything is
+    persisted. Archive-member consistency is the reader's half of the rule.
+
+    Args:
+        meta: The decoded ``problem.json`` mapping.
+        version: The already-validated format version.
+        custom_validator: The parsed validator declaration, if any.
+
+    Returns:
+        ProblemValidatorType: The strategy the package describes.
+
+    Raises:
+        PackageError: On a missing, mistyped, unknown, or inconsistent value, and
+            on ``checker``, which this build cannot judge.
+    """
+    if version == LEGACY_FORMAT_VERSION:
+        return ProblemValidatorType.INTERACTIVE if custom_validator else ProblemValidatorType.STANDARD
+
+    raw = meta.get("validator_type")
+    if raw is None:
+        raise PackageError("problem.json: 'validator_type' is required in format version 2.")
+    if not isinstance(raw, str):
+        raise PackageError(f"problem.json: 'validator_type' must be a string; got {raw!r}.")
+    try:
+        strategy = ProblemValidatorType(raw.strip())
+    except ValueError as exc:
+        known = ", ".join(repr(member.value) for member in ProblemValidatorType)
+        raise PackageError(f"problem.json: unknown 'validator_type' {raw!r}; expected one of {known}.") from exc
+
+    # Rejected centrally, before any ProblemPackage exists, so neither domain
+    # importer implements the check itself and the two cannot diverge on it.
+    if strategy is ProblemValidatorType.OUTPUT_CHECKER:
+        raise PackageError("Output checker validation is not available in this build.")
+
+    if strategy is ProblemValidatorType.STANDARD and custom_validator is not None:
+        raise PackageError(
+            "problem.json: a 'standard' problem must declare 'custom_validator': null, "
+            "but this package declares a validator source."
+        )
+    if strategy is ProblemValidatorType.INTERACTIVE and custom_validator is None:
+        raise PackageError(
+            "problem.json: an 'interactive' problem must declare a 'custom_validator', but this package declares none."
+        )
+    return strategy
 
 
 def _absent_or(meta: Mapping[str, Any], key: str) -> Any:

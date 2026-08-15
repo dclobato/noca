@@ -12,6 +12,7 @@ import shutil
 from base64 import b64decode
 from pathlib import Path
 
+from shared.enumerations import ProblemValidatorType
 from shared.problem_statement_markdown import validate_md_content as validate_md_content  # noqa: F401
 from shared.services.custom_validator import PackagedValidator, current_validator_source
 from shared.services.problem_image import export_image_filename
@@ -108,10 +109,9 @@ def save_testcase_files(
     return _shared_save_testcase_files(problem_id, ordinal, in_bytes, out_bytes, testcase_dir)
 
 
-def _problem_has_custom_validator(problem: Problem) -> bool:
-    """Return whether a problem currently has an active or candidate validator."""
-    validator = problem.custom_validator
-    return bool(validator and (validator.active_source is not None or validator.candidate_source is not None))
+def _problem_is_interactive(problem: Problem) -> bool:
+    """Return whether the problem's stored strategy is interactive."""
+    return problem.validator_type is ProblemValidatorType.INTERACTIVE
 
 
 def read_testcase_preview(problem_id: str, ordinal: int, testcase_dir: Path, max_bytes: int = 32) -> tuple[str, str]:
@@ -165,30 +165,6 @@ def renumber_testcase_files(problem_id: str, old_ordinal: int, new_ordinal: int,
             src.rename(dst)
 
 
-def reorder_testcase_files(problem_id: str, ordinal_map: dict[int, int], testcase_dir: Path) -> None:
-    """Rename testcase files through temporary paths for an arbitrary reorder."""
-    base = _shared_get_problem_testcase_dir(problem_id, testcase_dir)
-    if not base.exists():
-        return
-
-    changed_ordinals = {old: new for old, new in ordinal_map.items() if old != new}
-    temp_paths: list[tuple[Path, Path]] = []
-    for old_ordinal in changed_ordinals:
-        for ext in ("in", "out"):
-            src = base / f"{old_ordinal:03d}.{ext}"
-            if not src.exists():
-                continue
-            tmp = base / f".noca-reorder-{old_ordinal:03d}.{ext}.tmp"
-            if tmp.exists():
-                msg = f"Temporary testcase reorder file already exists: {tmp.name}"
-                raise FileExistsError(msg)
-            src.rename(tmp)
-            temp_paths.append((tmp, base / f"{changed_ordinals[old_ordinal]:03d}.{ext}"))
-
-    for tmp, dst in temp_paths:
-        tmp.rename(dst)
-
-
 def problem_to_package(
     problem: Problem,
     testcase_dir: Path,
@@ -209,7 +185,10 @@ def problem_to_package(
         raise PackageError(f"Cannot export: no statement file is stored for problem {problem.id}.")
 
     validator_source = current_validator_source(problem.custom_validator)
-    interactive = validator_source is not None
+    # The export's shape follows the stored strategy, so an interactive problem
+    # whose source was removed still exports as interactive (input-only cases and
+    # its sample interactions) rather than silently changing kind.
+    interactive = problem.validator_type is ProblemValidatorType.INTERACTIVE
 
     cases = tuple(
         PackageTestCase(
@@ -237,6 +216,7 @@ def problem_to_package(
 
     metadata = PackageMetadata(
         format_version=FORMAT_VERSION,
+        validator_type=problem.validator_type,
         title=problem.title,
         author=problem.author,
         notes=problem.notes,
@@ -283,9 +263,13 @@ def problem_to_package(
         ),
         test_cases=cases,
         image=image,
+        # Gated on the stored strategy, not merely on a row existing: a standard
+        # problem carrying a stale validator row would otherwise export a
+        # 'standard' declaration alongside validator/ members, which is a version-2
+        # package this build's own reader refuses.
         validator=(
             PackagedValidator(validator_source.language_id, validator_source.source)
-            if validator_source is not None
+            if interactive and validator_source is not None
             else None
         ),
         interactions=interactions if interactive else (),
@@ -301,6 +285,7 @@ def build_problem_export(
     *,
     profile: PackageProfile,
     language_limits: dict[str, ProblemLanguageLimit] | None = None,
+    require_importable: bool = True,
 ) -> Path:
     """Write a contest problem package to ``destination`` and return that path.
 
@@ -308,11 +293,14 @@ def build_problem_export(
         profile: ``"full"`` for an importable admin package, ``"public"`` for the
             contestant-facing statement bundle, which carries no ``problem.json``.
         language_limits: Required for the ``full`` profile, which exports them.
+        require_importable: Whether a ``full`` package must be re-importable.
+            Only the contest backup exporter passes ``False``.
 
     Raises:
-        PackageError: If a required stored file is missing.
+        PackageError: If a required stored file is missing, or if an importable
+            ``full`` package cannot be expressed in the current format version.
     """
     if profile == "full" and language_limits is None:
         raise ValueError("language_limits is required for the full export profile.")
     package = problem_to_package(problem, testcase_dir, statement_dir, language_limits or {})
-    return build_package(package, destination, profile=profile)
+    return build_package(package, destination, profile=profile, require_importable=require_importable)

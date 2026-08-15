@@ -235,11 +235,23 @@ async def remove_inactive_contest(
     *,
     contest_id: str,
     actor_uberadmin_id: str,
+    actor_uberadmin_label: str | None = None,
     valkey_runtime: ValkeyRuntime,
     statement_dir: Path,
     testcase_dir: Path,
 ) -> ContestRemovalResult:
     """Permanently remove one inactive contest across all NOCA-managed stores.
+
+    Args:
+        session: Active async database session.
+        contest_id: Identifier of the inactive contest to remove.
+        actor_uberadmin_id: Acting UberAdmin identifier.
+        actor_uberadmin_label: Acting UberAdmin username, snapshotted into the
+            security event so the viewer names the actor instead of showing an
+            opaque identifier.
+        valkey_runtime: Runtime used for strict Valkey state cleanup.
+        statement_dir: Root directory holding problem statement files.
+        testcase_dir: Root directory holding problem test-case files.
 
     Raises:
         ContestRemovalNotFoundError: If the contest does not exist.
@@ -276,6 +288,7 @@ async def remove_inactive_contest(
             event_type="contest_deleted",
             severity="warning",
             actor_user_id=actor_uberadmin_id,
+            actor_label=actor_uberadmin_label,
             metadata={"contest_id": contest_id},
         )
         await session.commit()

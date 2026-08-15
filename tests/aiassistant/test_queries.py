@@ -14,7 +14,7 @@ import pytest
 
 from aiassistant.db.queries import ProblemData, get_problem_data, get_user_prefered_language
 from shared.db_schema import arena_problems, arena_users
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, ProblemValidatorType
 
 
 async def _insert_user(conn: object, user_id: str) -> None:
@@ -79,6 +79,7 @@ async def _insert_problem(
             problem_image_base64=image_base64,
             problem_image_mime=image_mime,
             problem_image_caption=image_caption,
+            validator_type=ProblemValidatorType.STANDARD,
         )
     )
 

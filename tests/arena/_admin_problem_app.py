@@ -36,6 +36,9 @@ from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_problem_api import router as arena_admin_problem_api_router
 from arena.routes.admin_problem_io import router as arena_admin_problem_io_router
+from arena.routes.admin_problem_judgment import router as arena_admin_problem_judgment_router
+from arena.routes.admin_problem_new import router as arena_admin_problem_new_router
+from arena.routes.admin_problem_save import router as arena_admin_problem_save_router
 from arena.routes.admin_problem_tc import router as arena_admin_problem_tc_router
 from arena.routes.admin_problem_validator import router as arena_admin_problem_validator_router
 from arena.routes.admin_problems import router as arena_admin_problems_router
@@ -180,7 +183,10 @@ def build_admin_app(session: AsyncSession) -> FastAPI:
     async def _notifications() -> Response:
         return Response("[]", media_type="application/json")
 
+    app.include_router(arena_admin_problem_new_router)
     app.include_router(arena_admin_problems_router)
+    app.include_router(arena_admin_problem_save_router)
+    app.include_router(arena_admin_problem_judgment_router)
     app.include_router(arena_admin_problem_io_router)
     app.include_router(arena_admin_problem_tc_router)
     app.include_router(arena_admin_problem_api_router)

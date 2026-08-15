@@ -17,7 +17,7 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.db_schema import submission_judgments as submission_judgments_table
-from shared.enumerations import JudgmentStatus, Verdict
+from shared.enumerations import JudgmentStatus, ProblemValidatorType, Verdict
 from web.models.contest import Contest
 from web.models.language import Language
 from web.models.problem import Problem
@@ -108,6 +108,7 @@ async def test_list_submissions_filters_problem_and_team_and_orders_in_sql(
         title="Test Problem B",
         ordinal=2,
         color="#00ff00",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(second_problem)
     await session.flush()

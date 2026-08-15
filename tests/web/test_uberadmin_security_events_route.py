@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -17,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.db_schema import security_events
 from shared.services.security_events import record_security_event
+from shared.services.security_events_export import CSV_HEADER
 from tests.web.test_inactive_contest_routes import _build_app, _login_uberadmin
 
 
@@ -176,3 +179,47 @@ def _event_rows(html: str) -> str:
     """Return only the table-body portion of the rendered page."""
     _, _, body = html.partition("<tbody>")
     return body
+
+
+@pytest.mark.asyncio
+async def test_security_events_csv_exports_all_web_rows_ignoring_filters(
+    session: AsyncSession,
+    uberadmin,
+) -> None:
+    """The CSV download returns every Web-scoped row, not the filtered page."""
+    for i in range(3):
+        await record_security_event(session, module="web", event_type=f"web_csv_event_{i}")
+    await record_security_event(session, module="arena", event_type="arena_csv_event")
+    await session.commit()
+
+    app, auth_service = _build_app(session)
+    token = await _login_uberadmin(auth_service, session, uberadmin.username)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("noca_access_token", token)
+        response = await client.get(
+            "/uberadmin/security-events.csv",
+            params={"event_type": "web_csv_event_0", "per_page": "10"},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=" in response.headers["content-disposition"]
+    body = response.text
+    assert body.startswith("﻿")
+    rows = list(csv.reader(io.StringIO(body.lstrip("﻿"))))
+    assert rows[0] == list(CSV_HEADER)
+    exported = {row[2] for row in rows[1:]}
+    assert {"web_csv_event_0", "web_csv_event_1", "web_csv_event_2"} <= exported
+    assert "arena_csv_event" not in exported
+
+
+@pytest.mark.asyncio
+async def test_security_events_csv_requires_uberadmin(session: AsyncSession) -> None:
+    """An anonymous caller cannot download the Web security-event export."""
+    app, _auth_service = _build_app(session)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/uberadmin/security-events.csv", follow_redirects=False)
+
+    assert response.status_code in {302, 303, 307, 401, 403}

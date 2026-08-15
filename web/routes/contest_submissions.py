@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from shared.db_schema import submission_interactive_attempts
-from shared.enumerations import JudgmentStatus, RoleEnum, Verdict
+from shared.enumerations import JudgmentStatus, ProblemValidatorType, RoleEnum, Verdict
 from shared.services.custom_validator import status_view
 from shared.services.lock_service import get_lock
 from web.config import settings
@@ -248,6 +248,7 @@ async def review_submission(
                 "test_results": test_results,
                 "interactive_attempts": interactive_attempts,
                 "validator_status": status_view(submission.problem.custom_validator),
+                "is_interactive": submission.problem.validator_type is ProblemValidatorType.INTERACTIVE,
                 "judging_history": judging_history,
                 "panel": panel,
                 "is_judge": is_judge,

@@ -127,7 +127,13 @@ enumerations, queue payloads, and services.
   reconciled from PostgreSQL when queue delivery is interrupted.
 - **The shared filesystem stores problem data.** Contest statements and test
   cases are stored in configured directories. Test cases use separate
-  `contest/` and `arena/` namespaces and are shared with AutoJudge.
+  `contest/` and `arena/` namespaces and are shared with AutoJudge. The test-case
+  root must support **atomic same-directory renames**: that is how an editor save
+  promotes its staged files and how a failed save puts the originals back.
+  Hardlinks are used when the filesystem supports them, so staging a change costs
+  a link per case rather than a copy of the whole problem; where they are
+  unavailable the code falls back to copying and logs it once, which is slower on
+  large problems but otherwise identical.
 - **Docker provides the execution boundary.** AutoJudge manages language
   containers through the Docker daemon. Contest and Arena never execute
   submitted code in their application processes.

@@ -18,7 +18,7 @@ from arena.models.arena_problems import ArenaCategory, ArenaProblem
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_category_service
 from shared.db_schema.arena import arena_problem_category_map
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, ProblemValidatorType
 
 
 async def _author(session: AsyncSession) -> ArenaUser:
@@ -82,6 +82,7 @@ async def test_list_categories_includes_problem_counts(session: AsyncSession) ->
         title="Shortest Path",
         owner_id=author.id,
         problem_statement="Find the shortest path.",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()
@@ -108,6 +109,7 @@ async def test_delete_category_removes_links_and_keeps_problems(session: AsyncSe
         title="Prime",
         owner_id=author.id,
         problem_statement="Check primality.",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

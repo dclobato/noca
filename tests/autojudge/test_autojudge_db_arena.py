@@ -46,6 +46,7 @@ from shared.enumerations import (
     ArenaRole,
     CustomValidatorActiveState,
     JudgmentStatus,
+    ProblemValidatorType,
     Verdict,
 )
 
@@ -64,6 +65,7 @@ async def test_get_arena_submission_for_judging_happy_path(engine, session: Asyn
         memory_limit_kb=65536,
         pids_limit=32,
         output_limit_in_bytes=4096,
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()
@@ -113,6 +115,7 @@ async def test_get_arena_submission_for_judging_normalizes_legacy_line_endings(
         title="Arena Legacy Line Endings",
         owner_id=user.id,
         problem_statement="<p>Echo.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()
@@ -158,6 +161,7 @@ async def test_arena_judgment_dispatched_clears_stale_result(engine, session: As
         title="Arena Retry Problem",
         owner_id=user.id,
         problem_statement="<p>Echo.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()
@@ -216,6 +220,7 @@ async def test_arena_judgment_done_records_first_solver_stats(engine, session: A
         title="Arena Solve Problem",
         owner_id=author.id,
         problem_statement="<p>Echo.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()
@@ -313,6 +318,7 @@ async def test_arena_judgment_done_counts_non_owner_admin_solve(
         title="Arena Staff Solve Problem",
         owner_id=author.id,
         problem_statement="<p>Echo.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()
@@ -376,6 +382,7 @@ async def test_arena_judgment_done_excludes_author_self_solve_from_counters(
         title="Arena Author Solve Problem",
         owner_id=author.id,
         problem_statement="<p>Echo.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()
@@ -442,6 +449,7 @@ async def test_set_arena_judgment_dispatched_is_fenced_on_a_terminal_judgment(
         memory_limit_kb=65536,
         pids_limit=32,
         output_limit_in_bytes=4096,
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()
@@ -498,6 +506,7 @@ async def test_arena_validator_crash_containment_is_idempotent(engine, session: 
         owner_id=owner.id,
         problem_statement="Interactive.",
         enabled=True,
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

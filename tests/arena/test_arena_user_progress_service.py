@@ -26,7 +26,7 @@ from shared.db_schema.arena import (
     arena_problem_tried,
     arena_problems,
 )
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, ProblemValidatorType
 
 
 async def _make_user(session: AsyncSession) -> ArenaUser:
@@ -65,6 +65,7 @@ async def _make_problem(
             title=title,
             owner_id=author.id,
             problem_statement="<p>Progress.</p>",
+            validator_type=ProblemValidatorType.STANDARD,
         )
     )
     await session.execute(

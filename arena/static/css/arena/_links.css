@@ -18,7 +18,12 @@ a[href]:where(
         .arena-icon-link,
         .arena-problem-row,
         .arena-problem-set-report-status-summary,
-        .arena-ranking-affiliation-link
+        .arena-ranking-affiliation-link,
+        .arena-dashboard-card-link,
+        .arena-ranking-back-link,
+        .arena-2fa-setup-back,
+        .arena-topic-row,
+        .arena-help-index-link
     )
 ) {
     color: var(--arena-primary);
@@ -35,7 +40,12 @@ a[href]:where(
         .arena-icon-link,
         .arena-problem-row,
         .arena-problem-set-report-status-summary,
-        .arena-ranking-affiliation-link
+        .arena-ranking-affiliation-link,
+        .arena-dashboard-card-link,
+        .arena-ranking-back-link,
+        .arena-2fa-setup-back,
+        .arena-topic-row,
+        .arena-help-index-link
     )
 ):visited {
     color: var(--arena-primary);
@@ -50,7 +60,12 @@ a[href]:where(
         .arena-icon-link,
         .arena-problem-row,
         .arena-problem-set-report-status-summary,
-        .arena-ranking-affiliation-link
+        .arena-ranking-affiliation-link,
+        .arena-dashboard-card-link,
+        .arena-ranking-back-link,
+        .arena-2fa-setup-back,
+        .arena-topic-row,
+        .arena-help-index-link
     )
 ):hover,
 a[href]:where(
@@ -62,7 +77,12 @@ a[href]:where(
         .arena-icon-link,
         .arena-problem-row,
         .arena-problem-set-report-status-summary,
-        .arena-ranking-affiliation-link
+        .arena-ranking-affiliation-link,
+        .arena-dashboard-card-link,
+        .arena-ranking-back-link,
+        .arena-2fa-setup-back,
+        .arena-topic-row,
+        .arena-help-index-link
     )
 ):focus-visible {
     color: var(--arena-primary-container);

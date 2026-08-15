@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import Select, case, func, or_, select
+from sqlalchemy import Select, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, selectinload
 
@@ -27,14 +27,13 @@ from arena.services.problem_list_query_service import ProblemListCategory, categ
 from arena.services.problem_search_service import prepare_problem_search
 from shared.db_schema.arena import arena_affiliations as _affiliations_table
 from shared.db_schema.arena import arena_problem_category_map as _cat_map_table
-from shared.db_schema.arena import arena_problem_custom_validators as _custom_validator_table
 from shared.db_schema.arena import arena_problem_favorites as _favorites_table
 from shared.db_schema.arena import arena_problem_solvers as _solvers_table
 from shared.db_schema.arena import arena_problem_tried as _tried_table
 from shared.db_schema.arena import arena_problems as _problems_table
 from shared.db_schema.arena import arena_users as _users_table
 from shared.db_schema.arena.arena_rating_history import arena_problem_rating_history
-from shared.enumerations import StatementLanguage
+from shared.enumerations import ProblemValidatorType, StatementLanguage
 from shared.services.arena_query_helpers import counts_toward_problem_rating
 
 
@@ -92,7 +91,7 @@ class PublicProblemListItem:
         is_solved: Whether the viewing user has a first-AC record for this problem.
         solved: Number of distinct non-owner solvers for this problem, or
             ``None`` if no counted solver data is available.
-        has_custom_validator: Whether an active or candidate custom validator is configured.
+        has_custom_validator: Whether the problem's stored strategy is interactive.
     """
 
     id: str
@@ -250,17 +249,11 @@ async def list_enabled_problems_paginated(
         (ArenaProblem.author_is_owner.is_(True), _users_table.c.nome),
         else_=ArenaProblem.author,
     ).label("author_name")
-    has_custom_validator = (
-        select(1)
-        .where(
-            _custom_validator_table.c.problem_id == ArenaProblem.id,
-            or_(
-                _custom_validator_table.c.active_source.is_not(None),
-                _custom_validator_table.c.candidate_source.is_not(None),
-            ),
-        )
-        .exists()
-        .label("has_custom_validator")
+    # The public "interactive problem" marker follows the stored strategy: a
+    # problem whose validator source was removed is still interactive, and a
+    # stale validator row never makes a standard problem look like one.
+    has_custom_validator = (ArenaProblem.validator_type == ProblemValidatorType.INTERACTIVE).label(
+        "has_custom_validator"
     )
     filtered_ids = filtered_problem_ids.subquery()
     display_statement = (

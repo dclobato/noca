@@ -68,7 +68,13 @@ from shared.db_schema.arena import (
     arena_problem_ratings,
     arena_problem_set_problems,
 )
-from shared.enumerations import ArenaClassMembershipStatus, ArenaNotificationKind, ArenaRole, Verdict
+from shared.enumerations import (
+    ArenaClassMembershipStatus,
+    ArenaNotificationKind,
+    ArenaRole,
+    ProblemValidatorType,
+    Verdict,
+)
 from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-class-route-tests-32b!"
@@ -247,6 +253,7 @@ async def _create_problem(
         owner_id=author.id,
         enabled=True,
         problem_statement="<p>Statement</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

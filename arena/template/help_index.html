@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -10,37 +10,63 @@
 {% block title_suffix %}&mdash; Help{% endblock %}
 {% block nav_help %}active{% endblock %}
 {% block content %}
-    <div class="container-fluid px-3 py-3">
-        <div class="arena-card mb-3">
-            <h1 class="arena-card-title mb-4">
-                {{ render_icon(icon="help") }}
-                Help
-            </h1>
-            <p class="text-muted mb-4">Choose a help topic to explore.</p>
-            <div class="row g-3">
-                <div class="col-12 col-md-6">
-                    <a href="{{ request.url_for("arena_help_rating") }}"
-                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
-                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="functions") }}</span>
-                        <div>
-                            <div class="fw-semibold">Difficulty &amp; Rating System</div>
-                            <div class="text-muted small">How difficulty, user score and affiliation ratings are computed</div>
-                        </div>
-                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
-                    </a>
+    <!--
+    THESIS: The judge explains itself in the artifact every competitive programmer already
+    reads at a glance -- the standings cell. Refuses the knowledge-base index: a grid of
+    equal cards, each an icon over a heading over a line of text.
+    OWN-WORLD: The cell is the atom. Hairline rules, tabular monospace numerals, semantic
+    colour only; no decorative fill, no cards.
+    STORY: The reader knows which question they hold; the index names both questions in
+    their own words and shows what each topic covers before they commit to a click.
+    FIRST VIEWPORT: Masthead, then two full-width board rows, each naming its topic and
+    listing its sections as printed tags.
+    FORM: The Verdict Board; candidate 4 of the grounded list; seed key 01ac1107.
+    FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+    -->
+    <div class="arena-help-page container-fluid px-3 px-lg-4">
+        <header class="arena-help-masthead">
+            <h1 class="arena-help-masthead-title">Help</h1>
+            <p class="arena-help-masthead-lede">
+                How {{ brand_name }} judges a submission, and how it turns the results into difficulties
+                and ratings. Both pages are written from the code that actually runs.
+            </p>
+        </header>
+        <div class="arena-topic-board">
+            <a class="arena-topic-row"
+               href="{{ request.url_for("arena_help_rating") }}">
+                <div>
+                    <span class="arena-topic-name">Where your rating comes from</span>
+                    <p class="arena-topic-text">
+                        Why a problem is rated 6.2, why your rating moved without you submitting, and what the
+                        confidence figure beside it means.
+                    </p>
+                    <div class="arena-topic-covers">
+                        <span class="arena-topic-cover">problem difficulty</span>
+                        <span class="arena-topic-cover">user rating</span>
+                        <span class="arena-topic-cover">confidence</span>
+                        <span class="arena-topic-cover">affiliations</span>
+                        <span class="arena-topic-cover">update cadence</span>
+                    </div>
                 </div>
-                <div class="col-12 col-md-6">
-                    <a href="{{ request.url_for("arena_help_languages") }}"
-                       class="arena-card d-flex align-items-center gap-3 text-decoration-none arena-ranking-choice-card">
-                        <span class="arena-ranking-choice-icon text-arena-primary">{{ render_icon(icon="terminal") }}</span>
-                        <div>
-                            <div class="fw-semibold">Languages &amp; Verdicts</div>
-                            <div class="text-muted small">Supported languages and what each judgment verdict means</div>
-                        </div>
-                        <span class="ms-auto text-muted">{{ render_icon(icon="chevron_right") }}</span>
-                    </a>
+                <span class="arena-topic-chevron">{{ render_icon(icon="chevron_right") }}</span>
+            </a>
+            <a class="arena-topic-row"
+               href="{{ request.url_for("arena_help_languages") }}">
+                <div>
+                    <span class="arena-topic-name">Verdicts &amp; languages</span>
+                    <p class="arena-topic-text">
+                        What each verdict means, how interactive problems are judged differently, and the exact
+                        compile and run commands for every language the judge accepts.
+                    </p>
+                    <div class="arena-topic-covers">
+                        <span class="arena-topic-cover">verdict key</span>
+                        <span class="arena-topic-cover">interactive problems</span>
+                        <span class="arena-topic-cover">flush hints</span>
+                        <span class="arena-topic-cover">language roster</span>
+                    </div>
                 </div>
-            </div>
+                <span class="arena-topic-chevron">{{ render_icon(icon="chevron_right") }}</span>
+            </a>
         </div>
     </div>
 {% endblock %}

@@ -28,6 +28,7 @@ from shared.db_schema import (
     arena_submission_judgments,
     arena_submissions,
     problem_custom_validators,
+    problems,
     solution_test_case_results,
     solution_test_runs,
     submission_interactive_attempts,
@@ -39,6 +40,7 @@ from shared.enumerations import (
     CustomValidatorActiveState,
     CustomValidatorCandidateState,
     JudgmentStatus,
+    ProblemValidatorType,
     Verdict,
 )
 from shared.queue_schema import CustomValidatorValidationJob
@@ -77,25 +79,58 @@ class _CustomValidatorMixin(_DatabaseBase):
         return jobs
 
     async def get_custom_validator_dispatch_state(self, domain: str, problem_id: str) -> CustomValidatorDispatchState:
-        """Load configured and active state at submission dispatch time."""
-        table = arena_problem_custom_validators if domain == "arena" else problem_custom_validators
+        """Load the problem's stored strategy and its validator availability.
+
+        The strategy comes from the problem row, not from the validator table, so
+        a stale validator row cannot make a standard problem interactive and a
+        removed source cannot make an interactive problem standard. The validator
+        table is still read, but only to answer "is there an active valid
+        revision" for a problem the strategy already says is interactive.
+
+        Args:
+            domain: ``"contest"`` or ``"arena"`` identity domain.
+            problem_id: The problem being dispatched.
+
+        Returns:
+            CustomValidatorDispatchState: The strategy, the active revision when
+            one applies, and an unsupported reason for a strategy this build
+            cannot judge.
+        """
+        is_arena = domain == "arena"
+        problem_table = arena_problems if is_arena else problems
+        table = arena_problem_custom_validators if is_arena else problem_custom_validators
+
+        strategy_value = (
+            await self._conn.execute(select(problem_table.c.validator_type).where(problem_table.c.id == problem_id))
+        ).scalar_one_or_none()
+        if strategy_value is None:
+            # No such problem. Treat it as standard and let the caller's own
+            # missing-problem handling report it.
+            return CustomValidatorDispatchState(ProblemValidatorType.STANDARD, None)
+        strategy = ProblemValidatorType(strategy_value)
+
+        if strategy is ProblemValidatorType.OUTPUT_CHECKER:
+            return CustomValidatorDispatchState(
+                strategy,
+                None,
+                unsupported_reason="Output checker validation is not available in this build.",
+            )
+        if strategy is not ProblemValidatorType.INTERACTIVE:
+            return CustomValidatorDispatchState(strategy, None)
+
         row = (
             await self._conn.execute(
                 select(
                     table.c.active_language_id,
                     table.c.active_source,
                     table.c.active_state,
-                    table.c.candidate_source,
                 ).where(table.c.problem_id == problem_id)
             )
         ).one_or_none()
-        if row is None:
-            return CustomValidatorDispatchState(False, None)
-        configured = row.active_source is not None or row.candidate_source is not None
         active = None
-        if row.active_state == CustomValidatorActiveState.VALID:
+        if row is not None and row.active_state == CustomValidatorActiveState.VALID:
             active = ActiveCustomValidator(str(row.active_language_id), str(row.active_source))
-        return CustomValidatorDispatchState(configured, active)
+        return CustomValidatorDispatchState(strategy, active)
 
     async def insert_interactive_attempt(
         self,

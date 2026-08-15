@@ -1,114 +1,120 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Test-case edits deferred to the problem edit form's single Save.
+"""Applying one Arena problem Save's test-case plan to the ORM.
 
-The edit page does not remove or add test cases as you click: it marks removals
-in a hidden ``tc_remove_ids`` field and collects new rows as ``tc_in_N`` /
-``tc_out_N`` groups, all of which ride the one form. This module turns that raw
-form data into service calls.
+The plan is decided in :mod:`shared.services.testcase_save_plan`, which knows
+nothing about either module's models; this is the Arena half of joining that
+decision to rows, and ``web.services.problem_edit_save`` is the Contest half.
 
-Filesystem work is deferred: the returned callables are meant to run only after
-the caller commits, so a rolled-back save never deletes a live test-case file nor
-leaves an orphaned one behind.
+Filesystem work is no longer deferred to callbacks that run after the commit.
+Every case the Save wants already exists in a staging directory by the time these
+rows are written, and the artifact swap renames that directory in as part of the
+commit -- so a rolled-back Save cannot leave rows describing files that were never
+written, nor files describing rows that were never committed.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from pathlib import Path
-from typing import Any
+import uuid
+from collections.abc import Sequence
+from datetime import UTC, datetime
 
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from arena.models.arena_problems import ArenaProblem
-from arena.services import admin_problem_tc_service
-
-PostCommitCallbacks = tuple[list[Callable[[], None]], list[Callable[[], None]]]
+from arena.models.arena_problems import ArenaProblem, ArenaTestCase
+from shared.services.testcase_save_plan import CurrentCase, MaterializedCase
 
 
-def _add_indices(form_data: Mapping[str, Any]) -> list[int]:
-    """Return the sorted indices of the inline add-rows present in ``form_data``."""
-    return sorted(
-        {
-            int(key.rsplit("_", 1)[1])
-            for key in form_data
-            if (key.startswith("tc_in_") or key.startswith("tc_out_")) and key.rsplit("_", 1)[1].isdigit()
-        }
-    )
+def _now() -> datetime:
+    """Return the current UTC timestamp."""
+    return datetime.now(UTC)
 
 
-def _row_is_filled(form_data: Mapping[str, Any], index: int) -> bool:
-    """Report whether add-row ``index`` carries any input or output content."""
-    return bool(str(form_data.get(f"tc_in_{index}", "")) or str(form_data.get(f"tc_out_{index}", "")))
-
-
-def removal_ids(form_data: Mapping[str, Any]) -> set[str]:
-    """Return the test-case ids the user marked for removal on the edit page."""
-    raw = str(form_data.get("tc_remove_ids", "") or "")
-    return {value.strip() for value in raw.split(",") if value.strip()}
-
-
-async def apply_pending_testcases(
-    session: AsyncSession,
-    problem: ArenaProblem,
-    form_data: Mapping[str, Any],
-    *,
-    testcase_dir: Path,
-) -> PostCommitCallbacks:
-    """Apply the removals and additions the edit form deferred to Save.
-
-    Removals run before the additions so surviving ordinals stay contiguous, and
-    in descending ordinal order so the renumbering churns as few files as
-    possible.
+async def load_current_cases(session: AsyncSession, problem_id: str) -> list[CurrentCase]:
+    """Describe a problem's current test cases for the planner.
 
     Args:
-        session: Open Arena session; nothing is committed here.
-        problem: The problem being saved.
-        form_data: Raw submitted form.
-        testcase_dir: Root of the Arena test-case storage.
+        session: Open Arena session.
+        problem_id: The problem being saved.
 
     Returns:
-        ``(file_cleanups, file_writes)`` — callables to run after the commit.
-
-    Raises:
-        ValueError: If an added row fails test-case validation, or if the save's
-            net outcome would leave an interactive problem with no secret case.
+        list[CurrentCase]: The planner's view of the rows, in ordinal order.
     """
-    to_remove_ids = removal_ids(form_data)
-    add_indices = [index for index in _add_indices(form_data) if _row_is_filled(form_data, index)]
+    result = await session.execute(
+        select(ArenaTestCase).where(ArenaTestCase.problem_id == problem_id).order_by(ArenaTestCase.ordinal)
+    )
+    return [CurrentCase(id=row.id, ordinal=row.ordinal, is_sample=row.is_sample) for row in result.scalars().all()]
 
-    cleanups: list[Callable[[], None]] = []
-    existing = await admin_problem_tc_service.list_testcases(session, problem.id)
-    to_remove = [tc for tc in existing if tc.id in to_remove_ids]
 
-    # Judge the invariant on the save's net outcome: removing every existing case
-    # while adding replacements in the same submit is legitimate.
-    if len(existing) - len(to_remove) + len(add_indices) < 1 and await admin_problem_tc_service.has_custom_validator(
-        session, problem.id
-    ):
-        raise ValueError("An interactive problem needs at least one secret test case.")
+async def apply_materialized_cases(
+    session: AsyncSession,
+    problem: ArenaProblem,
+    materialized: Sequence[MaterializedCase],
+) -> None:
+    """Make the problem's rows describe the staged directory exactly.
 
-    if to_remove:
-        for tc in sorted(to_remove, key=lambda item: item.ordinal, reverse=True):
-            cleanups.append(await admin_problem_tc_service.delete_testcase(session, tc, testcase_dir=testcase_dir))
+    Dropped rows are deleted first so their ordinals are free, survivors then move
+    through a disjoint temporary range -- ``(problem_id, ordinal)`` is unique, and
+    a direct renumbering would collide midway -- and added rows take the positions
+    past the end.
 
-    file_writes: list[Callable[[], None]] = []
-    for index in add_indices:
-        explanation = str(form_data.get(f"tc_explanation_{index}", "")).strip()
-        _tc, write_files = await admin_problem_tc_service.create_testcase(
-            session,
-            problem,
-            input_content=str(form_data.get(f"tc_in_{index}", "")),
-            output_content=str(form_data.get(f"tc_out_{index}", "")),
-            is_sample=bool(form_data.get(f"tc_is_sample_{index}")),
-            explanation=explanation or None,
-            testcase_dir=testcase_dir,
+    Args:
+        session: The Save's session. Nothing is committed here.
+        problem: The problem being saved.
+        materialized: The staged cases, in final order.
+    """
+    result = await session.execute(select(ArenaTestCase).where(ArenaTestCase.problem_id == problem.id))
+    existing = {row.id: row for row in result.scalars().all()}
+    kept = {case.plan.source_id for case in materialized if case.plan.source_id is not None}
+
+    for row_id, row in existing.items():
+        if row_id not in kept:
+            await session.delete(row)
+    await session.flush()
+
+    now = _now()
+    offset = len(existing) + len(materialized)
+    if kept:
+        await session.execute(
+            update(ArenaTestCase)
+            .where(ArenaTestCase.problem_id == problem.id)
+            .values(ordinal=ArenaTestCase.ordinal + offset, updated_at=now)
         )
-        file_writes.append(write_files)
         await session.flush()
 
-    return cleanups, file_writes
+    for case in materialized:
+        source_id = case.plan.source_id
+        if source_id is None:
+            continue
+        row = existing[source_id]
+        row.ordinal = case.plan.ordinal
+        row.is_sample = case.plan.is_sample
+        if case.plan.set_explanation:
+            row.explanation = case.plan.explanation
+        row.input_size_bytes = case.input_size_bytes
+        row.output_size_bytes = case.output_size_bytes
+        row.updated_at = now
+    await session.flush()
+
+    for case in materialized:
+        if case.plan.source_id is not None:
+            continue
+        session.add(
+            ArenaTestCase(
+                id=str(uuid.uuid4()),
+                problem_id=problem.id,
+                ordinal=case.plan.ordinal,
+                is_sample=case.plan.is_sample,
+                input_size_bytes=case.input_size_bytes,
+                output_size_bytes=case.output_size_bytes,
+                explanation=case.plan.explanation,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    await session.flush()

@@ -132,7 +132,7 @@ def test_absent_format_version_means_one(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("version", [0, 2, 99])
+@pytest.mark.parametrize("version", [0, 3, 99])
 def test_unsupported_format_version_fails_before_other_metadata(tmp_path: Path, version: int) -> None:
     # The title is absent too; the version error must win, proving the check runs
     # before any other field is interpreted.
@@ -538,7 +538,7 @@ def test_markdown_statement_wins_over_pdf(tmp_path: Path) -> None:
 # ── Writer ────────────────────────────────────────────────────────────────────
 
 
-def test_full_export_writes_every_version_one_key(tmp_path: Path) -> None:
+def test_full_export_writes_every_version_two_key(tmp_path: Path) -> None:
     source = build_sample_problem_package(tmp_path / "sample.zip")
     with read_problem_package(source) as staged:
         destination = build_package(staged.package, tmp_path / "out.zip", profile="full")
@@ -554,6 +554,7 @@ def test_full_export_writes_every_version_one_key(tmp_path: Path) -> None:
         "color",
         "hide_author_show_source",
         "statement_language",
+        "validator_type",
         "time_limit_ms",
         "memory_limit_kb",
         "pids_limit",

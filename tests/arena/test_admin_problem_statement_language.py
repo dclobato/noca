@@ -26,7 +26,7 @@ import arena.models.arena_submissions  # noqa: F401
 import arena.models.arena_users  # noqa: F401
 from arena.models.arena_problems import ArenaProblem
 from arena.services import admin_problem_service
-from shared.enumerations import ArenaRole, StatementLanguage
+from shared.enumerations import ArenaRole, ProblemValidatorType, StatementLanguage
 from shared.services.imageprocessing_service import ImageProcessingService
 
 _PT_STATEMENT = (
@@ -67,7 +67,7 @@ async def test_problem_create_stores_the_detected_language(session: AsyncSession
         follow_redirects=False,
         cookies={"arena_access_token": token},
     ) as client:
-        response = await client.post("/admin/problems/new", data=_create_form(statement_language=""))
+        response = await client.post("/admin/problems/new/standard", data=_create_form(statement_language=""))
 
     assert response.status_code == 303
     problem = await _problem_titled(session, "Soma")
@@ -84,9 +84,9 @@ async def test_problem_create_refuses_an_unconfirmed_language_mismatch(session: 
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
     ) as client:
-        response = await client.post("/admin/problems/new", data=_create_form(statement_language="en"))
+        response = await client.post("/admin/problems/new/standard", data=_create_form(statement_language="en"))
 
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert 'data-language-conflict-chosen="en"' in response.text
     assert 'data-language-conflict-detected="pt"' in response.text
     assert await _problem_titled(session, "Soma") is None
@@ -104,7 +104,7 @@ async def test_problem_create_accepts_an_acknowledged_language_mismatch(session:
         cookies={"arena_access_token": token},
     ) as client:
         response = await client.post(
-            "/admin/problems/new",
+            "/admin/problems/new/standard",
             data=_create_form(statement_language="en", language_confirmed="en:pt"),
         )
 
@@ -123,9 +123,9 @@ async def test_problem_create_rejects_an_unsupported_language_value(session: Asy
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver", cookies={"arena_access_token": token}
     ) as client:
-        response = await client.post("/admin/problems/new", data=_create_form(statement_language="klingon"))
+        response = await client.post("/admin/problems/new/standard", data=_create_form(statement_language="klingon"))
 
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert "Statement language must be one of" in response.text
     assert await _problem_titled(session, "Soma") is None
 
@@ -150,6 +150,7 @@ async def test_problem_update_stores_a_confirmed_language(session: AsyncSession)
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.commit()
     token = login_token(app, judge)
@@ -165,7 +166,7 @@ async def test_problem_update_stores_a_confirmed_language(session: AsyncSession)
         )
         confirmed = await client.post(f"/admin/problems/{problem.id}/edit", data=payload)
 
-    assert mismatch.status_code == 400
+    assert mismatch.status_code == 422
     assert confirmed.status_code == 303
     await session.refresh(problem)
     assert problem.statement_language == StatementLanguage.ES
@@ -225,6 +226,7 @@ async def test_admin_problem_list_filters_by_statement_language(session: AsyncSe
             notes=None,
             category_ids=[],
             statement_language=language,
+            validator_type=ProblemValidatorType.STANDARD,
         )
         assert created.statement_language == language
     await session.commit()
@@ -325,6 +327,7 @@ async def test_problem_edit_form_preselects_the_stored_language(session: AsyncSe
         notes=None,
         category_ids=[],
         statement_language=StatementLanguage.ES,
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.commit()
     token = login_token(app, judge)

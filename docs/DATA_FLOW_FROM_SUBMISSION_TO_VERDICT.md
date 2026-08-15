@@ -26,10 +26,10 @@ Web route + submission service
     │     - within the contest's maximum source-file size
     │     - within the rolling submission-rate limit
     │     - not a duplicate for this team, problem, language, and source hash
-    │  5. Validate judge inputs:
-    │     - configured custom validator has an active VALID revision
-    │     - at least one judge test case exists
-    │     - non-interactive test cases have expected output
+    │  5. Validate judge inputs, from the problem's stored strategy:
+    │     - standard: >=1 case, every case has an expected-output file
+    │     - interactive: active VALID revision and >=1 secret input-only case
+    │     - output checker (reserved): never judgeable in this build
     │  6. INSERT submissions row
     │  7. INSERT submission_judgments row (status = QUEUED)
     │  8. INSERT model-hook and WEB submission-created audit rows
@@ -141,7 +141,28 @@ Submission is fully resolved
 
 ## Custom-validator branch
 
-When a problem has a configured validator, submission and dispatch both require
+Whether this branch applies is decided by the problem's **stored validation
+strategy** (`problems.validator_type` / `arena_problems.validator_type`), never
+by the presence of a `problem_custom_validators` row. The two disagree in both
+directions, and each disagreement used to be a silent mis-judgment: a standard
+problem carrying a stale validator row was judged interactively, and an
+interactive problem whose source had been removed was judged by the token
+comparator against test cases that carry no expected output.
+
+`AutojudgeDb.get_custom_validator_dispatch_state` therefore reads the strategy
+from the problem row and returns it explicitly. A **standard** problem never
+takes this branch whatever the validator table holds; an **interactive** problem
+takes it and fails closed as non-judgeable without an active `VALID` revision;
+the reserved **output checker** fails as unsupported and never falls back to the
+comparator.
+
+Incomplete drafts are allowed to exist and be saved -- a problem may have no
+cases and no validator source -- and are refused at these gates instead:
+submission creation, solution tests, Arena enablement, dispatch, and full
+export. The rule is one shared decision
+(`shared/services/problem_judgeability.py`), so the gates cannot drift apart.
+
+When a problem is interactive, submission and dispatch both require
 an active `VALID` revision. Autojudge reloads that revision at dispatch,
 compiles the validator first, and then compiles the contestant. Validator
 compilation or infrastructure failure ends as internal `FAILED`; contestant

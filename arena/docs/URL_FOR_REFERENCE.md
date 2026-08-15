@@ -74,6 +74,7 @@ Use this endpoint for runtime health probes.
 | `url_for` call | Generated path | Notes |
 |---|---|---|
 | `request.url_for('arena_submission_detail', submission_id=ID)` | `/submissions/{ID}` | Requires auth; direct access is owner-only unless `ARENA_ADMIN`, while an authorized class-report drill-down may add `back_context=student_report`, `back_class_id`, `back_set_id`, and `back_user_id` to show the report return link. Those query values are navigation-only and checked against the persisted submission. The owner confirms AI review requests in a balance-preview modal and sees pending, batch-queued, or completed review states for non-AC submissions |
+| `request.url_for('arena_submission_source_download', submission_id=ID)` | `/submissions/{ID}/source` | Downloads the raw source code as a UTF-8 attachment. Uses the same owner/admin authorization as the detail page; authorized class-report viewers must forward `back_context`, `back_class_id`, `back_set_id`, and `back_user_id` |
 | `request.url_for('arena_submission_request_ai_review', submission_id=ID)` | `/submissions/{ID}/request-ai-review` | POST only; owner-only (no admin bypass); idempotent; requires `ai_api_key` or `ai_backend_credits > 0`; consumes one credit when using platform key |
 | `request.url_for('arena_submission_teacher_feedback', submission_id=ID)` | `/submissions/{ID}/teacher-feedback` | POST only; manager-only (set's teacher or ARENA_ADMIN); non-AC, set-tied submissions; upserts feedback and notifies the student; `back_class_id`/`back_set_id`/`back_user_id`/`back_context` form fields are navigation-only |
 | `request.url_for('arena_submission_force_rejudge', submission_id=ID)` | `/submissions/{ID}/force-rejudge` | POST only; ARENA_ADMIN-only; supersedes the active judgment, queues a new one, and enqueues a fresh judging job; rendered as a confirmation modal on the submission detail page |
@@ -227,7 +228,8 @@ and summarizes the recent Valkey turnaround statistics above its filters.
 | `GET /admin/dashboard/login-history` | `arena_admin_dashboard_login_history` | `search=`, `sort_dir=`, `per_page=`, `page=`, `date_from=`, `date_to=` | `admin_dashboard_history.py` |
 | `GET /admin/dashboard/submissions` | `arena_admin_dashboard_submissions` | `search=`, `verdict_filter=`, `status_filter=`, `ai_filter=`, `language_filter=`, `problem_filter=`, `date_from=`, `date_to=`, `sort_dir=`, `per_page=`, `page=` | `admin_dashboard_history.py` |
 | `POST /admin/dashboard/submissions/{submission_id}/reenqueue` | `arena_admin_dashboard_submission_reenqueue` | path: `submission_id` | `admin_dashboard_history.py` |
-| `GET /admin/dashboard/security-events` | `arena_admin_dashboard_security_events` | `module=`, `event_type=`, `per_page=`, `page=` | `admin_dashboard_history.py` |
+| `GET /admin/dashboard/security-events` | `arena_admin_dashboard_security_events` | `module=`, `event_type=`, `per_page=`, `page=` | `admin_dashboard_security.py` |
+| `GET /admin/dashboard/security-events.csv` | `arena_admin_dashboard_security_events_csv` | none | `admin_dashboard_security.py` |
 
 ## Arena Admin – User Management Routes
 
@@ -273,15 +275,16 @@ GET routes: `arena/routes/admin_users.py` · POST routes: `arena/routes/admin_us
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
-| `GET /admin/problems` | `arena_admin_problem_list` | Query: `search`, `sort_by` (`relevance`, `number_asc`, `number_desc`, `title_asc`, `title_desc`, `rating_asc`, `rating_desc`), `owner_id`, `category_slugs`, `language`, `per_page`, `page`; omitted sort defaults to relevance while searching and number ascending otherwise | `admin_problems.py` |
-| `GET /admin/problems/new` | `arena_admin_problem_new` | Optional query: list-return state | `admin_problems.py` |
-| `POST /admin/problems/new` | `arena_admin_problem_create` | — | `admin_problems.py` |
-| `GET /admin/problems/{problem_id}/edit` | `arena_admin_problem_edit` | `problem_id=`, optional query: list-return state | `admin_problems.py` |
-| `POST /admin/problems/{problem_id}/edit` | `arena_admin_problem_update` | `problem_id=` | `admin_problems.py` |
-| `POST /admin/problems/{problem_id}/toggle-enabled` | `arena_admin_problem_toggle_enabled` | `problem_id=`, Query: `page`, `per_page`, `search`, `sort_by`, `owner_id`, `category_slugs`, `language` | `admin_problems.py` |
+| `GET /admin/problems` | `arena_admin_problem_list` | Query: `search`, `sort_by` (`relevance`, `number_asc`, `number_desc`, `title_asc`, `title_desc`, `rating_asc`, `rating_desc`), `owner_id`, `category_slugs`, `language`, `enabled` (`1`/`0`, any other value means all statuses), `per_page`, `page`; omitted sort defaults to relevance while searching and number ascending otherwise | `admin_problems.py` |
+| `GET /admin/problems/new` | `arena_admin_problem_new_choose` | Optional query: list-return state | `admin_problem_new.py` |
+| `GET /admin/problems/new/{validator_type}` | `arena_admin_problem_new` | `validator_type=`; optional query: list-return state, `tab=` | `admin_problems.py` |
+| `POST /admin/problems/new/{validator_type}` | `arena_admin_problem_create` | `validator_type=`; form `active_tab`. Definition only; HTML 422 on invalid fields, otherwise redirects to judgment | `admin_problem_save.py` |
+| `GET /admin/problems/{problem_id}/edit` | `arena_admin_problem_edit` | `problem_id=`, optional query: list-return state, `tab=` | `admin_problems.py` |
+| `POST /admin/problems/{problem_id}/edit` | `arena_admin_problem_update` | `problem_id=`; form `active_tab`. Definition only; HTML 422 opens the first invalid field | `admin_problem_save.py` |
+| `POST /admin/problems/{problem_id}/toggle-enabled` | `arena_admin_problem_toggle_enabled` | `problem_id=`, Query: `page`, `per_page`, `search`, `sort_by`, `owner_id`, `category_slugs`, `language`, `enabled` | `admin_problems.py` |
 | `POST /admin/problems/{problem_id}/delete` | `arena_admin_problem_delete` | `problem_id=`, Form: `password`, list-return state | `admin_problems.py` |
-| `POST /admin/problems/{problem_id}/rejudge-all` | `arena_admin_problem_rejudge_all` | `problem_id=`, Form: `password` | `admin_problems.py` |
-| `GET /admin/problems/suggestions` | `arena_admin_problem_suggestions` | Required query: `field` (`author` or `source`), literal `q` (2–256 characters); admins see all problems, while editors see enabled problems plus their own disabled drafts | `admin_problem_api.py` |
+| `POST /admin/problems/{problem_id}/rejudge-all` | `arena_admin_problem_rejudge_all` | `problem_id=`, Form: `password`, optional safe local `next_url` | `admin_problems.py` |
+| `GET /admin/problems/suggestions` | `arena_admin_problem_suggestions` | Required query: `field` (`author`, `license`, or `source`), literal `q` (2–256 characters); admins see all problems, while editors see enabled problems plus their own disabled drafts | `admin_problem_api.py` |
 | `POST /admin/problems/detect-language` | `arena_admin_problem_detect_language` | JSON body: `statement`, `title` | `admin_problem_api.py` |
 
 ## Arena Admin – Problem Import/Export Routes (`arena/routes/admin_problem_io.py`)
@@ -319,26 +322,31 @@ GET routes: `arena/routes/admin_users.py` · POST routes: `arena/routes/admin_us
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
-| `GET /admin/problems/{problem_id}/testcases/new` | `arena_admin_problem_tc_new` | `problem_id=` | `admin_problem_tc.py` |
-| `POST /admin/problems/{problem_id}/testcases/add` | `arena_admin_problem_tc_add` | `problem_id=` | `admin_problem_tc.py` |
-| `POST /admin/problems/{problem_id}/testcases/add-zip` | `arena_admin_problem_tc_add_from_zip` | `problem_id=` | `admin_problem_tc.py` |
-| `GET /admin/problems/{problem_id}/testcases/{tc_id}/edit` | `arena_admin_problem_tc_edit` | `problem_id=`, `tc_id=` | `admin_problem_tc.py` |
+| `GET /admin/problems/{problem_id}/judgment` | `arena_admin_problem_judgment` | `problem_id=` | `admin_problem_judgment.py` |
+| `GET\|POST /admin/problems/{problem_id}/judgment/test-cases` | `arena_admin_problem_judgment_cases` / `..._cases_save` | `problem_id=`; invalid inline rows return retained HTML (422) | `admin_problem_judgment.py` |
+| `POST /admin/problems/{problem_id}/judgment/test-cases/upload` | `arena_admin_problem_judgment_case_upload` | `problem_id=` | `admin_problem_judgment.py` |
+| `POST /admin/problems/{problem_id}/judgment/test-cases/bulk` | `arena_admin_problem_judgment_cases_replace_all` | `problem_id=` | `admin_problem_judgment.py` |
+| `POST /admin/problems/{problem_id}/judgment/test-cases/{tc_id}/toggle-sample` | `arena_admin_problem_judgment_case_toggle_sample` | `problem_id=`, `tc_id=` | `admin_problem_judgment.py` |
+| `POST /admin/problems/{problem_id}/judgment/test-cases/{tc_id}/replace` | `arena_admin_problem_judgment_case_replace` | `problem_id=`, `tc_id=` | `admin_problem_judgment.py` |
+| `POST /admin/problems/{problem_id}/judgment/test-cases/{tc_id}/delete` | `arena_admin_problem_judgment_case_delete` | `problem_id=`, `tc_id=` | `admin_problem_judgment.py` |
+| `GET /admin/problems/{problem_id}/judgment/validator` | `arena_admin_problem_judgment_validator` | `problem_id=` | `admin_problem_judgment.py` |
+| `GET\|POST /admin/problems/{problem_id}/judgment/interactions` | `arena_admin_problem_judgment_interactions` / `..._interactions_save` | `problem_id=`; invalid inline rows return retained HTML (422) | `admin_problem_judgment.py` |
+| `POST /admin/problems/{problem_id}/judgment/interactions/{si_id}/delete` | `arena_admin_problem_judgment_interaction_delete` | `problem_id=`, `si_id=` | `admin_problem_judgment.py` |
+| `GET /admin/problems/{problem_id}/testcases/{tc_id}/edit` | `arena_admin_problem_tc_edit` | `problem_id=`, `tc_id=`; Back/Cancel return to `#tc-{tc_id}` on judgment data | `admin_problem_tc.py` |
 | `POST /admin/problems/{problem_id}/testcases/{tc_id}/edit` | `arena_admin_problem_tc_update` | `problem_id=`, `tc_id=` | `admin_problem_tc.py` |
-| `POST /admin/problems/{problem_id}/testcases/{tc_id}/toggle-sample` | `arena_admin_problem_tc_toggle_sample` | `problem_id=`, `tc_id=` | `admin_problem_tc.py` |
 | `POST /admin/problems/{problem_id}/testcases/{tc_id}/move` | `arena_admin_problem_tc_move` | `problem_id=`, `tc_id=`, Query: `new_ordinal` | `admin_problem_tc.py` |
-| `POST /admin/problems/{problem_id}/testcases/zip-replace` | `arena_admin_problem_tc_zip_replace` | `problem_id=` | `admin_problem_tc.py` |
 | `GET /admin/problems/{problem_id}/testcases/{tc_id}/download` | `arena_admin_problem_tc_download` | `problem_id=`, `tc_id=` | `admin_problem_tc.py` |
-| `POST /admin/problems/{problem_id}/testcases/{tc_id}/replace` | `arena_admin_problem_tc_replace` | `problem_id=`, `tc_id=` | `admin_problem_tc.py` |
+| `POST /admin/problems/{problem_id}/testcases/{tc_id}/replace` | `arena_admin_problem_tc_replace` | `problem_id=`, `tc_id=` | `admin_problem_tc.py` (deprecated) |
 
 ## Notes
 
 - `GET /` performs a plain 302 redirect to `/dashboard` and has no endpoint name.
 - For StaticFiles mounts, `path=` is the filename relative to the mount directory (no leading slash).
-| `POST /admin/problems/{problem_id}/validator` | `arena_admin_problem_validator_upload` | `problem_id=` |
+| `POST /admin/problems/{problem_id}/validator` | `arena_admin_problem_validator_upload` | `problem_id=` (deprecated: the editor uploads through the problem Save) |
 | `GET /admin/problems/{problem_id}/validator/status` | `arena_admin_problem_validator_status` | `problem_id=` |
 | `GET /admin/problems/{problem_id}/validator/source` | `arena_admin_problem_validator_download` | `problem_id=` |
 | `GET /admin/problems/{problem_id}/validator/source/view` | `arena_admin_problem_validator_source_view` | `problem_id=` |
-| `POST /admin/problems/{problem_id}/validator/remove` | `arena_admin_problem_validator_remove` | `problem_id=`, Form: `keep_interactions` (`"true"`/`"false"`, required) |
+| `POST /admin/problems/{problem_id}/validator/remove` | `arena_admin_problem_validator_remove` | `problem_id=`, Form: `keep_interactions` (`"true"`/`"false"`, required) (deprecated: the editor removes through the problem Save) |
 | `GET /admin/problems/{problem_id}/interactions/{si_id}/edit` | `arena_admin_problem_interaction_edit` | `problem_id=`, `si_id=` |
 | `POST /admin/problems/{problem_id}/interactions/{si_id}/edit` | `arena_admin_problem_interaction_update` | `problem_id=`, `si_id=` |
 | `POST /admin/problems/{problem_id}/interactions/{si_id}/move` | `arena_admin_problem_interaction_move` | `problem_id=`, `si_id=`, Query: `new_ordinal` |

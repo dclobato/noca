@@ -1,0 +1,35 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Validation-strategy chooser for a new Arena problem. The strategy is stored on
+  the problem and is immutable afterwards, so this is the only page in the Arena
+  admin where it is ever selected. The card URLs already carry the list-return
+  state, so the author lands back on the list they came from.
+#}
+{% extends "_base.html" %}
+{% from "_macros.html" import render_icon with context %}
+{% block title_suffix %}&mdash; New Problem{% endblock %}
+{% block nav_admin_problems %}active{% endblock %}
+{% block content %}
+    <div class="container-fluid px-3 py-3">
+        <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+            <h1 class="h4 mb-0">
+                {{ render_icon(icon="assignment") }}
+                New Problem
+            </h1>
+            <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm">
+                {{ render_icon(icon="arrow_back") }}
+                Back
+            </a>
+        </div>
+        <p class="text-muted">
+            How should NOCA decide whether a submission is correct? This choice is
+            stored on the problem and <strong>cannot be changed later</strong>.
+        </p>
+        {% include "_partials/validator_choice_cards.html" %}
+    </div>
+{% endblock %}

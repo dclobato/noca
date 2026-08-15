@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -28,10 +29,13 @@ from sqlalchemy import Enum as SAEnum
 from shared.enumerations import (
     CustomValidatorActiveState,
     CustomValidatorCandidateState,
+    ProblemValidatorType,
     StatementLanguage,
 )
 
 from .._base import _created_at_column, _id_column, _updated_at_column, metadata
+
+_artifact_generation_type = BigInteger().with_variant(Integer, "sqlite")
 
 arena_problem_categories = Table(
     "arena_problem_categories",
@@ -199,6 +203,20 @@ arena_problems = Table(
         nullable=True,
         default=None,
         comment="Natural language of the problem statement (ISO 639-1); NULL when unknown.",
+    ),
+    Column(
+        "validator_type",
+        SAEnum(ProblemValidatorType, values_callable=lambda e: [m.value for m in e]),
+        nullable=False,
+        comment="Stored, immutable validation strategy; never inferred from validator source.",
+    ),
+    Column(
+        "artifact_generation",
+        _artifact_generation_type,
+        nullable=False,
+        default=0,
+        server_default="0",
+        comment="Monotonic fence bumped by each editor save that promotes artifacts.",
     ),
     _created_at_column(),
     _updated_at_column(),

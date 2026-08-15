@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -20,12 +20,11 @@ from arena.config import settings as arena_settings
 from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.services import (
-    admin_problem_interaction_pending,
     admin_problem_interaction_service,
     admin_problem_service,
     admin_problem_tc_service,
 )
-from shared.enumerations import ArenaRole, CustomValidatorActiveState
+from shared.enumerations import ArenaRole, CustomValidatorActiveState, ProblemValidatorType
 from shared.services.sample_interactions import MAX_SAMPLE_INTERACTIONS, parse_interaction_text
 from web.models.language import Language
 
@@ -91,6 +90,7 @@ async def _problem(session: AsyncSession, owner_id: str, *, interactive: bool = 
         notes=None,
         license=None,
         category_ids=[],
+        validator_type=(ProblemValidatorType.INTERACTIVE if interactive else ProblemValidatorType.STANDARD),
     )
     if interactive:
         language = await _create_language(session)
@@ -181,12 +181,12 @@ async def test_hidden_interactions_still_count_towards_the_cap(session: AsyncSes
 
 
 @pytest.mark.asyncio
-async def test_a_full_problem_can_swap_an_interaction_in_one_save(session: AsyncSession) -> None:
-    """Removals land before additions, so the fifth slot is free for a replacement.
+async def test_a_full_problem_frees_a_slot_by_deleting_first(session: AsyncSession) -> None:
+    """At the cap, deleting one interaction frees the slot its replacement needs.
 
-    An author at the cap who marks one interaction for removal must be able to add
-    its replacement in the same edit: the cap is judged against the row count the
-    save produces, not the one it started from.
+    The removal and the addition used to ride one Save, which is why the cap had to
+    be judged against the count the save would produce. Each is its own immediate
+    POST now, so the ordering is the author's and the cap is simply the count.
     """
     owner = await _create_user(session)
     problem = await _problem(session, owner.id)
@@ -196,12 +196,16 @@ async def test_a_full_problem_can_swap_an_interaction_in_one_save(session: Async
         )
         await session.flush()
 
+    with pytest.raises(ValueError, match="at most"):
+        await admin_problem_interaction_service.create_interaction(
+            session, problem, transcript=parse_interaction_text("> replacement")
+        )
+
     doomed = (await admin_problem_interaction_service.list_interactions(session, problem.id))[0]
-    await admin_problem_interaction_pending.apply_pending_interactions(
-        session,
-        problem,
-        {"si_remove_ids": doomed.id},
-        [(parse_interaction_text("> replacement"), None)],
+    await admin_problem_interaction_service.delete_interaction(session, doomed)
+    await session.flush()
+    await admin_problem_interaction_service.create_interaction(
+        session, problem, transcript=parse_interaction_text("> replacement")
     )
     await session.flush()
 
@@ -211,35 +215,6 @@ async def test_a_full_problem_can_swap_an_interaction_in_one_save(session: Async
     lines = [row.transcript["lines"][0]["line"] for row in rows]
     assert "old 0" not in lines
     assert lines[-1] == "replacement"
-
-
-@pytest.mark.asyncio
-async def test_a_save_that_would_overflow_the_cap_is_rejected_before_mutating(session: AsyncSession) -> None:
-    """The final count is validated up front, so a doomed save changes nothing."""
-    owner = await _create_user(session)
-    problem = await _problem(session, owner.id)
-    for index in range(MAX_SAMPLE_INTERACTIONS):
-        await admin_problem_interaction_service.create_interaction(
-            session, problem, transcript=parse_interaction_text(f"> old {index}")
-        )
-        await session.flush()
-
-    doomed = (await admin_problem_interaction_service.list_interactions(session, problem.id))[0]
-    with pytest.raises(ValueError, match="at most"):
-        # One removal frees one slot, but two additions need two.
-        await admin_problem_interaction_pending.apply_pending_interactions(
-            session,
-            problem,
-            {"si_remove_ids": doomed.id},
-            [(parse_interaction_text("> a"), None), (parse_interaction_text("> b"), None)],
-        )
-
-    # The rejected save left the existing interactions untouched.
-    rows = await admin_problem_interaction_service.list_interactions(session, problem.id)
-    assert len(rows) == MAX_SAMPLE_INTERACTIONS
-    assert [row.transcript["lines"][0]["line"] for row in rows] == [
-        f"old {index}" for index in range(MAX_SAMPLE_INTERACTIONS)
-    ]
 
 
 @pytest.mark.asyncio

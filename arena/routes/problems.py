@@ -68,11 +68,10 @@ from arena.services.submission_service import (
 from arena.services.user_timezone_service import format_user_datetime
 from shared.db_schema import languages as languages_table
 from shared.db_schema.arena import arena_submissions
-from shared.enumerations import ArenaNotificationKind, ArenaRole, StatementLanguage
+from shared.enumerations import ArenaNotificationKind, ArenaRole, ProblemValidatorType, StatementLanguage
 from shared.http_params import DbId
 from shared.language_registry import ace_mode_for_language_id, default_stub_for_language_id
 from shared.services.arena_notification_service import create_arena_notification
-from shared.services.custom_validator import status_view
 from shared.services.problem_package import PackageError
 from shared.services.problem_package.upload import safe_package_filename, temporary_package_path
 from shared.services.testcase_files import read_testcase_full
@@ -485,7 +484,7 @@ async def arena_problem_detail(
                 "accepting_set": accepting_set,
                 "problem_set_assignments": problem_set_assignments,
                 "problem_set_assignment_options": problem_set_assignment_options,
-                "has_custom_validator": status_view(problem.custom_validator).configured,
+                "has_custom_validator": problem.validator_type is ProblemValidatorType.INTERACTIVE,
                 "prev_problem_url": prev_problem_url,
                 "next_problem_url": next_problem_url,
                 "prev_problem_number": prev_number,
@@ -551,7 +550,7 @@ async def arena_problem_print(
                 "author_info": author_info,
                 "sample_test_cases": sample_test_cases,
                 "sample_interactions": sample_interactions,
-                "has_custom_validator": status_view(problem.custom_validator).configured,
+                "has_custom_validator": problem.validator_type is ProblemValidatorType.INTERACTIVE,
             },
         )
     )
@@ -711,7 +710,7 @@ async def arena_problem_sample_testcases_zip(
             problem.id,
             sample_tcs,
             settings.PROBLEM_TESTCASE_DIR,
-            has_custom_validator=status_view(problem.custom_validator).configured,
+            has_custom_validator=problem.validator_type is ProblemValidatorType.INTERACTIVE,
         )
     )
     filename = f"sample-testcases-{arena_number}.zip"

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -20,9 +20,11 @@ from arena.config import settings
 from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_service, admin_problem_tc_service
-from shared.enumerations import ArenaRole, CustomValidatorActiveState
+from arena.services.admin_problem_case_actions import apply_case_action
+from shared.enumerations import ArenaRole, CustomValidatorActiveState, ProblemValidatorType
 from shared.services.custom_validator import remove_validator
 from shared.services.testcase_files import read_testcase_full
+from shared.services.testcase_pending_ops import PendingTestCaseOps
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
 
 _TC_DIR = settings.PROBLEM_TESTCASE_DIR
@@ -50,7 +52,12 @@ async def _make_user(session: AsyncSession) -> ArenaUser:
     return user
 
 
-async def _make_problem(session: AsyncSession, owner_id: str) -> ArenaProblem:
+async def _make_problem(
+    session: AsyncSession,
+    owner_id: str,
+    *,
+    validator_type: ProblemValidatorType = ProblemValidatorType.STANDARD,
+) -> ArenaProblem:
     p = await admin_problem_service.create_problem(
         session,
         caller_id=owner_id,
@@ -67,6 +74,7 @@ async def _make_problem(session: AsyncSession, owner_id: str) -> ArenaProblem:
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=validator_type,
     )
     await session.flush()
     return p
@@ -208,21 +216,31 @@ async def test_delete_testcase_renumbers_remaining(session: AsyncSession) -> Non
     assert _full(problem.id, 2) == ("c", "c")
 
 
-# ── move_testcase + renumber ──────────────────────────────────────────────────
+# ── reordering, now through the staged swap ──────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_move_testcase_reorders_and_renumbers(session: AsyncSession) -> None:
+async def test_reordering_moves_content_with_the_ordinals(session: AsyncSession) -> None:
+    """A reorder is a file permutation, so it goes through the staged swap.
+
+    It used to permute the live directory and commit afterwards, which left
+    permuted files against unpermuted rows whenever the commit failed. Expressing
+    it as a desired *order* lets the planner renumber and the swap promote.
+    """
     author = await _make_user(session)
     problem = await _make_problem(session, author.id)
 
     tc1 = await _create(session, problem, "a", "a", is_sample=True)
     tc2 = await _create(session, problem, "b", "b")
     tc3 = await _create(session, problem, "c", "c")
-    await session.flush()
+    await session.commit()
 
-    await admin_problem_tc_service.move_testcase(session, tc3, 1, testcase_dir=_TC_DIR)
-    await session.flush()
+    await apply_case_action(
+        session,
+        problem,
+        PendingTestCaseOps(order=(tc3.id, tc1.id, tc2.id)),
+        testcase_dir=_TC_DIR,
+    )
 
     reordered = await admin_problem_tc_service.list_testcases(session, problem.id)
     assert [(tc.id, tc.ordinal) for tc in reordered] == [
@@ -317,7 +335,7 @@ async def test_zip_replace_normalizes_crlf(session: AsyncSession) -> None:
     assert _full(problem.id, 2) == ("Q\n", "NO\n")
 
 
-# ── has_custom_validator / testcase_readiness_error after removal ────────────
+# ── strategy / judgeability after validator removal ──────────────────────────
 
 
 async def _add_validator(session: AsyncSession, problem: ArenaProblem) -> ArenaProblemCustomValidator:
@@ -335,36 +353,44 @@ async def _add_validator(session: AsyncSession, problem: ArenaProblem) -> ArenaP
 
 
 @pytest.mark.asyncio
-async def test_has_custom_validator_is_false_once_the_row_is_cleared(session: AsyncSession) -> None:
-    """A cleared-but-still-present row must not read as interactive.
+async def test_interactivity_ignores_the_validator_row_in_both_directions(session: AsyncSession) -> None:
+    """Interactivity is the stored strategy, never the state of the validator row.
 
-    ``remove_validator()`` only nulls the source/state columns; the caller
-    decides separately whether to delete the row. Both states must report the
-    same answer, since a future caller could plausibly leave the row behind.
+    Both directions matter. Clearing the source of an interactive problem leaves
+    it interactive (it just cannot judge until a revision compiles), and a
+    standard problem carrying a stale validator row is still standard.
     """
     author = await _make_user(session)
-    problem = await _make_problem(session, author.id)
-    validator = await _add_validator(session, problem)
+    interactive = await _make_problem(session, author.id, validator_type=ProblemValidatorType.INTERACTIVE)
+    validator = await _add_validator(session, interactive)
 
-    assert await admin_problem_tc_service.has_custom_validator(session, problem.id) is True
+    assert await admin_problem_tc_service.is_interactive(session, interactive.id) is True
 
     remove_validator(validator)
     await session.flush()
 
-    assert await admin_problem_tc_service.has_custom_validator(session, problem.id) is False
+    assert await admin_problem_tc_service.is_interactive(session, interactive.id) is True
+
+    standard = await _make_problem(session, author.id)
+    await _add_validator(session, standard)
+
+    assert await admin_problem_tc_service.is_interactive(session, standard.id) is False
 
 
 @pytest.mark.asyncio
-async def test_readiness_error_reappears_once_a_validator_is_removed(session: AsyncSession) -> None:
-    """A case that only ever held input must block enabling once it goes plain.
+async def test_removing_the_validator_keeps_the_problem_interactive_and_ungatedable(
+    session: AsyncSession,
+) -> None:
+    """Removing validator source never changes what kind of problem this is.
 
-    While the validator is configured such a case is exactly what it is meant to
-    look like: it parametrizes the validator instead of carrying an expected
-    output. Once the problem stops being interactive, the same case is unusable
-    for a token-based compare, so the readiness check must start rejecting it.
+    Previously the problem silently became standard, and its input-only cases
+    were then judged by a token compare that had nothing to compare against. Now
+    the stored strategy is unchanged and the problem is simply refused at the
+    gates until a valid validator exists again -- which is the failure mode the
+    author can actually act on.
     """
     author = await _make_user(session)
-    problem = await _make_problem(session, author.id)
+    problem = await _make_problem(session, author.id, validator_type=ProblemValidatorType.INTERACTIVE)
     validator = await _add_validator(session, problem)
 
     tc, write_files = await admin_problem_tc_service.create_testcase(
@@ -374,12 +400,14 @@ async def test_readiness_error_reappears_once_a_validator_is_removed(session: As
     write_files()
     assert tc.output_size_bytes is None
 
-    assert await admin_problem_tc_service.testcase_readiness_error(session, problem.id) is None
+    assert await admin_problem_tc_service.judgeability_error_for(session, problem) is None
 
     remove_validator(validator)
     await session.delete(validator)
     await session.flush()
 
-    error = await admin_problem_tc_service.testcase_readiness_error(session, problem.id)
+    assert problem.validator_type is ProblemValidatorType.INTERACTIVE
+    assert await admin_problem_tc_service.is_interactive(session, problem.id) is True
+    error = await admin_problem_tc_service.judgeability_error_for(session, problem)
     assert error is not None
-    assert "expected output" in error
+    assert "no active valid custom validator" in error

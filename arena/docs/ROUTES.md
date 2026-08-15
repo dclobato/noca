@@ -41,9 +41,9 @@ trusted local health-check CIDRs bypass this limit.
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/help` | Help landing page with links to each help topic (difficulty & rating system, languages & verdicts). No authentication required. |
-| `GET` | `/help/rating` | Rating system help page. Explains how problem difficulty, user score, and affiliation ratings are computed, with the mathematical formulas and the configured rating update interval. No authentication required. |
+| `GET` | `/help/rating` | Rating system help page. Opens on an annotated standings row showing the three counts every difficulty is computed from, then answers each question in plain language with the full derivation in a `<details>` disclosure beneath it. Covers problem difficulty, user rating, rating confidence, affiliation ratings and the configured update cadence. One scrollable document -- every section carries a stable anchor and nothing is hidden from in-page search or print. No authentication required. |
 | `GET` | `/help/rating/difficulty-distribution` | JSON snapshot of the catalogue-wide problem-difficulty histogram (20 bins over `[0, 10]`), written by the rating worker at the end of each difficulty cycle. Returns an explicit empty shape when no snapshot exists yet. No authentication required. |
-| `GET` | `/help/languages` | Languages and verdicts help page. Lists all active languages (name, version, compile/run commands, and stdout flush hints for custom-validator problems) from the database and explains every possible judgment verdict. No authentication required. |
+| `GET` | `/help/languages` | Verdicts and languages help page. Opens on the verdict key, ordered by `VERDICT_PRIORITY` -- the judge's own aggregation precedence -- so the page demonstrates the severity rule it states; each verdict is anchored as `#verdict-<CODE>` for deep links from a submission. Then interactive-problem judging (anchored `#interactive`, linked from `problem_detail.html`) and the roster of active languages with name, version, compile/run commands and stdout flush hints, filterable by name. No authentication required. |
 
 ## Legal (`arena/routes/legal.py`)
 
@@ -183,6 +183,7 @@ GET page, such as the submission detail page, as the `next` target.
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/submissions/{submission_id}` | Submission detail page. Shows three cards: problem limits and language; resources (wall time, peak memory) and verdict with full label; syntax-highlighted source code. Only the submitting user or an `ARENA_ADMIN` may access directly; an `ARENA_JUDGE` may also access a student's submission when the persisted problem-set class belongs to that teacher. The class-report link adds `back_context=student_report` with `back_class_id`, `back_set_id`, and `back_user_id` so an authorized teacher or admin gets a return link to the student's report. These query values are navigation-only and are checked against the persisted submission. For non-AC verdicts, the owner sees an AI review section (confirmation modal → pending → batch queued → review depending on state). The modal shows the current and projected AI credit balances, explains when a personal API key leaves the balance unchanged, and disables confirmation when neither a key nor a credit is available. Platform-credit confirmations also show recent average and median batch turnaround, an unavailable state when the Valkey statistics are absent, and the 24-hour maximum wait notice. |
+| `GET` | `/submissions/{submission_id}/source` | Downloads the raw UTF-8 source code as an attachment for the submitting user or an `ARENA_ADMIN`. An `ARENA_JUDGE` may download it only with the validated class-report context (`back_context=student_report`, `back_class_id`, `back_set_id`, and `back_user_id`). |
 | `POST` | `/submissions/{submission_id}/request-ai-review` | Enqueue an AI code-review job for a submission. **Owner-only** — not accessible by admins for other users' submissions. Idempotent: if `submit_to_ai` is already True or a review row already exists, redirects back without double-enqueueing. **Credit gate:** user must have their own AI API key (`ai_api_key`) **or** at least one `ai_backend_credits`. If neither condition is met, redirects back with a flash error. When using platform credits (no personal key), one credit is atomically consumed before enqueueing. The `use_platform_key` decision is frozen in the job payload. On success sets `submit_to_ai=True`, enqueues `ArenaAIReviewJob`, and redirects to the submission detail page. |
 | `POST` | `/submissions/{submission_id}/teacher-feedback` | Create or update teacher feedback on a student's non-AC, set-tied submission. **Manager-only:** the assigned teacher of the submission's problem-set class, or an `ARENA_ADMIN`. Authorization is derived from the submission's persisted `problem_set_id` (never the `back_*` form fields, which are navigation-only). Returns 404 when the submission is missing, not tied to a problem set, AC/unjudged, or the actor is not a manager. Empty/whitespace feedback redirects back with a warning. On success upserts `arena_submission_teacher_feedback` (editing refreshes `feedback_at`) and creates a `TEACHER_FEEDBACK_POSTED` notification for the student with a per-update `source_ref`, so each edit produces a fresh notification while preserving prior ones. Redirects (303) to the detail page, forwarding report navigation params, including `back_context`, when present. |
 | `POST` | `/submissions/{submission_id}/teacher-feedback/remove` | Delete existing teacher feedback on a submission. **Manager-only**, same authorization as the write route above. Unlike the write route, the submission's current verdict is not checked — feedback left behind by a later rejudge to AC can still be removed. Flashes success or "No feedback to remove." when there was none, and redirects (303) to the detail page, forwarding report navigation params, including `back_context`, when present. |
@@ -268,6 +269,7 @@ autojudge, rating, and AI assistant processes. All routes require
 | `GET` | `/admin/dashboard/submissions` | Paginated list of all Arena submissions across all users. Query params: `search` (user name/email), `verdict_filter` (for example, `AC`), `status_filter` (`QUEUED`/`DISPATCHED`/`JUDGING`/`DONE`/`FAILED`, filters the active judgment status; invalid values are ignored), `ai_filter` (`yes`/`no`, filters `submit_to_ai` flag), `language_filter` (language id), `problem_filter` (exact arena_number), `date_from`/`date_to` (YYYY-MM-DD submission-date range, user-timezone), `sort_dir` (`desc` newest first default / `asc`), `per_page` (10/25/50/100/500), `page`. Links each row to the user profile and to the existing submission detail page. |
 | `POST` | `/admin/dashboard/submissions/{submission_id}/reenqueue` | Re-enqueue a submission whose latest judgment is in the terminal `FAILED` state (an internal judge error that produced no verdict). Resets that judgment to `QUEUED`, clears its error/verdict/worker fields, commits, and pushes a fresh judging job onto the autojudge pending queue. No-op (danger flash) when the submission is missing or not failed. Redirects back to the referring submissions list. |
 | `GET` | `/admin/dashboard/security-events` | Paginated Arena-owned security events, including auth throttle lockouts, repeated failures, duplicate signup submissions, AI response redactions, and suspicious token/session mismatches. Query params: `module` (`arena`/`aiassistant`), `event_type`, `per_page` (10/25/50/100/500), and `page`. |
+| `GET` | `/admin/dashboard/security-events.csv` | Downloads the **complete** Arena-owned security-event log as a CSV attachment (UTF-8 BOM, newest first, one row per event with the JSON metadata in a single cell). Takes no query parameters: the export deliberately ignores the page's filters and pagination, and is scoped to `module in (arena, aiassistant)`. |
 
 ## Arena Admin – User Management
 
@@ -334,7 +336,7 @@ The public logo route requires no authentication.
 | `GET` | `/affiliations/{affiliation_id}/logo/thumbnail` | Public logo thumbnail route. Returns the stored 64×64 logo thumbnail with cache headers. Falls back to a 302 redirect to the full-size logo when no thumbnail is stored yet. Returns 404 if the affiliation is missing or has no logo at all. |
 | `GET` | `/affiliations/{affiliation_id}/rating-history` | Public rating history endpoint. Returns `{"history": [{"ts": ISO8601, "rating": int}, ...]}` for the last 24 months. Returns 404 if the affiliation is missing. |
 
-## Arena Admin – Problem Management (`arena/routes/admin_problems.py`)
+## Arena Admin – Problem Management (`arena/routes/admin_problems.py`; the create and edit Saves live in `arena/routes/admin_problem_save.py`)
 
 All routes require `ArenaRole.ARENA_ADMIN` or any user whose `can_edit` flag is set (granted by
 an admin). A plain `ARENA_JUDGE` without `can_edit` is rejected. Non-admin editors are restricted
@@ -342,14 +344,51 @@ to their own problems; admins may manage any problem.
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `GET` | `/admin/problems` | Paginated problem-management list. `search` uses the same number/title/statement/source/resolved-author full-text and trigram behavior as the public list. Supports `sort_by` (`relevance` default while searching; otherwise `number_asc`, plus `number_desc`, `title_asc`, `title_desc`, `rating_asc`, `rating_desc`), `owner_id` (admin only), `category_slugs` (AND semantics, repeatable), `language` (`pt`/`en`/`es`; an unknown value means all languages), `per_page` (10/25/50/100, default 25), `page`, and hash-based row highlighting after CRUD redirects. |
-| `GET` | `/admin/problems/new` | Render the create-problem form with owner-backed or free-text authorship, statement editor, limits, optional image upload, category picker, optional validator upload, and optional list-return query state. |
-| `POST` | `/admin/problems/new` | Create a disabled Arena problem owned by the current user. Form fields `author_is_owner` and `author` select the owner's fullname or a required free-text author of at most 80 characters. The route also validates scalar and Markdown fields, processes an optional image with a fail-fast 2 MiB streaming ceiling, binds categories, optionally stages a custom validator (`validator_language_id` + `validator_source_file`), and redirects to the highlighted problem-list row. The statement language comes from `statement_language` (empty = auto-detect); when an explicit choice disagrees with detection the form is re-rendered with a confirmation modal and **nothing is committed** until `language_confirmed` carries the matching `<chosen>:<detected>` token. |
-| `GET` | `/admin/problems/{problem_id}/edit` | Render the edit form for an existing problem: six cards (Basic Info, Problem statement, Problem illustration, Categories, Custom interactive validator, Test cases) plus a Danger zone. Includes selected categories, the rating-history chart data URL, and optional list-return query state (`page`, `per_page`, `search`, `sort_by`, `owner_id`, `category_slugs`, `language`). |
-| `POST` | `/admin/problems/{problem_id}/edit` | The page's single Save. Updates mutable problem fields, including `author_is_owner` and `author`, without transferring ownership; replaces or clears the statement image with a fail-fast 2 MiB streaming ceiling; updates category links; applies pending test-case removals (`tc_remove_ids`) and inline add-rows (`tc_in_N` / `tc_out_N` / `tc_explanation_N` / `tc_is_sample_N`); and stages a custom validator when `validator_language_id` + `validator_source_file` are supplied, enqueueing its compile job after the commit. The image rule ignores validator-source bytes. The statement language follows the same `statement_language` / `language_confirmed` confirmation rule as the create route. The save is refused if it would leave the problem with no test cases — every problem needs at least one, interactive or not. Redirects while preserving list-return state. |
-| `POST` | `/admin/problems/{problem_id}/toggle-enabled` | Toggle the problem's `enabled` flag and redirect to the problem list while preserving query state and adding `#problem_id` row highlight. Enabling is refused (redirect to the edit page with a flash) unless the problem can actually judge: a configured custom validator must have compiled, and the problem must have at least one test case — with an expected output on every case when it is *not* interactive. |
+| `GET` | `/admin/problems` | Paginated problem-management list. `search` uses the same number/title/statement/source/resolved-author full-text and trigram behavior as the public list. Supports `sort_by` (`relevance` default while searching; otherwise `number_asc`, plus `number_desc`, `title_asc`, `title_desc`, `rating_asc`, `rating_desc`), `owner_id` (admin only), `category_slugs` (AND semantics, repeatable), `language` (`pt`/`en`/`es`; an unknown value means all languages), `enabled` (`1` enabled-only, `0` disabled-only; any other value means all statuses), `per_page` (10/25/50/100, default 25), `page`, and hash-based row highlighting after CRUD redirects. |
+| `GET` | `/admin/problems/new` | Render the validation-strategy chooser (`arena_admin_problem_new_choose`, in `admin_problem_new.py`). Offers Standard, Interactive, a disabled **Output checker** card, and the existing import flow, forwarding the list-return query state onto the chosen form. The strategy is stored on the problem and is immutable afterwards, so this is the only place it is chosen. |
+| `GET` | `/admin/problems/new/{validator_type}` | Render the creation editor for one strategy: owner-backed or free-text authorship, statement editor, limits, optional image upload, category picker, and optional list-return query state. It collects the problem **definition** only: test cases, the custom validator and sample interactions are authored on the judgment-data pages afterwards. `{validator_type}` is taken as a string and resolved in the handler: `standard`/`interactive` render, `checker` redirects (303) to the chooser with an explanatory flash, and anything else is **404** (not 422, which the framework would render as neutral JSON). |
+| `POST` | `/admin/problems/new/{validator_type}` | Create a disabled Arena problem owned by the current user under the strategy named by the route parameter, which is the sole authority: a `validator_type` field in the request body is never read, so form tampering cannot select or change one, and validator fields in the body are inert. Form fields `author_is_owner` and `author` select the owner's fullname or a required free-text author of at most 80 characters. The route also validates scalar and Markdown fields, processes an optional image with a fail-fast 2 MiB streaming ceiling, binds categories, and redirects to the new problem's judgment-data pages -- the validator page for an interactive problem, which cannot be judged until a validator compiles, and the test-cases page otherwise (a `next` URL still wins when present). Invalid scalar input returns the HTML editor with 422, retained values, and the owning Metadata/Statement pane and field selected instead of FastAPI's generic JSON 422. It writes nothing to the filesystem, so it needs no staged swap; a field naming a test case, validator or interaction is never read. The statement language comes from `statement_language` (empty = auto-detect); when an explicit choice disagrees with detection the form is re-rendered with a confirmation modal and **nothing is committed** until `language_confirmed` carries the matching `<chosen>:<detected>` token. |
+| `GET` | `/admin/problems/{problem_id}/edit` | Render the tabbed definition form for an existing problem. Panes: **Metadata**, organized as Identity and attribution, Execution limits, and Publication details with notes/licensing disclosed on demand; and **Statement** (Markdown plus the illustration). Judgment data uses separate pages. Arena keeps its resource limits inside Metadata, so it renders no Limits pane and ignores `?tab=limits`. Every pane stays mounted and every control binds to one detached `#edit-form`, so switching tabs cannot lose input. Optional `?tab=` selects the opening pane; an unknown or strategy-inappropriate value falls back to Metadata rather than erroring. Includes selected categories, the rating-history chart data URL, and optional list-return query state (`page`, `per_page`, `search`, `sort_by`, `owner_id`, `category_slugs`, `language`, `enabled`). |
+| `POST` | `/admin/problems/{problem_id}/edit` | Save the problem **definition**: mutable problem fields, including `author_is_owner` and `author`, without transferring ownership; the statement image, replaced or cleared with a fail-fast 2 MiB streaming ceiling; and the category links. Test cases, the custom validator and sample interactions are not part of it -- they are authored on the judgment-data pages, and a field naming one is never read. An Arena definition is entirely database columns, so the save commits directly with no staged swap. The statement language follows the same `statement_language` / `language_confirmed` confirmation rule as the create route. Validation failures return the HTML editor with 422, open the pane that owns the first error, retain submitted values, and associate the message with the exact field. Redirects while preserving list-return state. |
+| `POST` | `/admin/problems/{problem_id}/toggle-enabled` | Toggle the problem's `enabled` flag and redirect to the problem list while preserving query state and adding `#problem_id` row highlight. Enabling is refused (redirect to the edit page with a flash) unless the problem can actually judge, per the shared judgeability contract read from its **stored strategy**: a standard problem needs at least one case with an expected output on every case; an interactive one needs an active `VALID` validator and at least one secret case; the reserved output checker can never be enabled. |
 | `POST` | `/admin/problems/{problem_id}/delete` | Permanently delete the problem and all dependent data (test cases, submissions, judgments, AI reviews, solve/attempt/favourite records). Requires current-password confirmation via form field. Redirects to the problem list on success or back to the edit page on wrong password. |
-| `POST` | `/admin/problems/{problem_id}/rejudge-all` | Create new `QUEUED` judgment rows for every existing submission and enqueue them on the low-priority autojudge queue (`judge:queue:pending`). Requires current-password confirmation. Redirects back to the edit page. |
+| `POST` | `/admin/problems/{problem_id}/rejudge-all` | Create new `QUEUED` judgment rows for every existing submission and enqueue them on the low-priority autojudge queue (`judge:queue:pending`). Requires current-password confirmation. An optional safe local `next_url` returns the author to the judgment-data page that requested the action; a missing or unsafe value returns to the definition editor. |
+
+## Arena Admin – Judgment data (`arena/routes/admin_problem_judgment.py`)
+
+Test cases, the custom validator and the sample interactions are edited on their
+own **pages**, reached from the problem list's *Judgment data* action, because a
+problem can hold many large test cases and carrying them inside the form that
+edits its statement is what made that form unwieldy. Every action applies
+immediately through the staged swap; only the rows an author types inline wait for
+that page's own Save, since typed text is the only state the browser holds that the
+server has not seen. A standard problem is offered the test-cases page alone.
+Every page starts with one judgeability summary: it names missing cases or an
+unavailable validator, distinguishes validator compilation from readiness, and
+offers the password-confirmed **Rejudge all** action when Arena submissions
+already exist. Test-case rows keep **Edit** visible and place download,
+replacement, sample visibility, and removal under a labeled **More** menu.
+
+Ownership is enforced by a FastAPI dependency rather than a call, so a route that
+omits it fails to resolve rather than silently letting an editor touch another
+owner's problem. A problem the caller may not edit answers **404**, not 403, like
+every other Arena admin problem route: telling a stranger that a problem exists is
+itself a leak.
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| `GET` | `/admin/problems/{problem_id}/judgment` | Open the page the author most likely wants: test cases, or the validator for an interactive problem that has none. |
+| `GET` | `/admin/problems/{problem_id}/judgment/test-cases` | The test-case list, the inline add rows, and the upload controls. |
+| `POST` | `/admin/problems/{problem_id}/judgment/test-cases` | Add the rows typed inline (`tc_in_N` / `tc_out_N` / `tc_explanation_N` / `tc_is_sample_N`), subject to the 10 KB inline gate. Invalid input returns 422 on this page with every submitted row retained and the exact field marked/focused. |
+| `POST` | `/admin/problems/{problem_id}/judgment/test-cases/upload` | Append cases from single-case ZIPs (`tc_add_zip`, repeatable). |
+| `POST` | `/admin/problems/{problem_id}/judgment/test-cases/bulk` | Replace every case from one ZIP (`tc_bulk_zip`). Staging is not seeded: the plan claims nothing from the current files. |
+| `POST` | `/admin/problems/{problem_id}/judgment/test-cases/{tc_id}/toggle-sample` | Flip one case between sample and secret. Commits directly under the row lock: it changes no file. Refused for an interactive problem, whose cases are always secret. |
+| `POST` | `/admin/problems/{problem_id}/judgment/test-cases/{tc_id}/replace` | Replace one case from a single-case ZIP (no size cap). |
+| `POST` | `/admin/problems/{problem_id}/judgment/test-cases/{tc_id}/delete` | Delete one case; the survivors are renumbered inside staging. |
+| `GET` | `/admin/problems/{problem_id}/judgment/validator` | The custom-validator page (interactive only). |
+| `GET` | `/admin/problems/{problem_id}/judgment/interactions` | The sample-interactions page (interactive only). |
+| `POST` | `/admin/problems/{problem_id}/judgment/interactions` | Add the transcripts typed inline, subject to the five-interaction cap. A malformed/capped submission returns 422 with every row retained and the exact transcript marked/focused. |
+| `POST` | `/admin/problems/{problem_id}/judgment/interactions/{si_id}/delete` | Delete one sample interaction. |
 
 ## Arena Admin – Problem Import/Export (`arena/routes/admin_problem_io.py`)
 
@@ -368,16 +407,17 @@ problem packages.
 All routes require `ArenaRole.ARENA_ADMIN` or any user with the `can_edit` grant (a plain `ARENA_JUDGE` without `can_edit` is rejected). Non-admin editors are restricted to
 their own problems; admins may manage any problem's test cases.
 
+What is left here concerns **one** test case, which gets a page of its own because
+a case can be far too large to edit in a row. The list-level actions -- add, upload,
+replace-all, delete, sample toggle -- live on the judgment-data test-cases page
+above; the endpoints that used to duplicate them here are gone, as is the standalone
+"new test case" page, since new cases are typed as rows on that page.
+
 | Method | URL | Description |
 |--------|-----|-------------|
-| `POST` | `/admin/problems/{problem_id}/testcases/add` | Append one test case to the problem and redirect back to the problem edit page. |
-| `POST` | `/admin/problems/{problem_id}/testcases/add-zip` | Add a single new test case from an uploaded single-case ZIP (`input.txt` / `output.txt`, optional `explanation.txt`). Redirects back to the problem edit page. |
-| `GET` | `/admin/problems/{problem_id}/testcases/new` | Render the form for adding one test case. |
-| `GET` | `/admin/problems/{problem_id}/testcases/{tc_id}/edit` | Render the edit form for one test case. |
+| `GET` | `/admin/problems/{problem_id}/testcases/{tc_id}/edit` | Render the edit form for one test case with a `Problems / problem / Judgment data / Test case` breadcrumb. Back and Cancel return to the judgment-data test-case list anchored to `#tc-{tc_id}`. |
 | `POST` | `/admin/problems/{problem_id}/testcases/{tc_id}/edit` | Update one test case's input, output, and sample flag. |
-| `POST` | `/admin/problems/{problem_id}/testcases/{tc_id}/toggle-sample` | Flip one test case between sample and secret without opening the edit form, then redirect to the problem edit page anchored to `#tc-{tc_id}` so the row is highlighted. |
 | `POST` | `/admin/problems/{problem_id}/testcases/{tc_id}/move` | Move one test case to `?new_ordinal=N`, renumber rows contiguously, and return the refreshed list partial. |
-| `POST` | `/admin/problems/{problem_id}/testcases/zip-replace` | Replace all test cases from an uploaded ZIP archive using the standard `in/001.in` + `out/001.out` or flat `001.in` + `001.out` format. |
 | `GET` | `/admin/problems/{problem_id}/testcases/{tc_id}/download` | Download one test case as a single-case ZIP (`input.txt` / `output.txt`, optional `explanation.txt`); used for the offline edit round-trip of large cases. |
 | `POST` | `/admin/problems/{problem_id}/testcases/{tc_id}/replace` | Replace one test case from an uploaded single-case ZIP (`input.txt` / `output.txt`, optional `explanation.txt`); no size cap. |
 
@@ -390,7 +430,7 @@ their own problems where applicable.
 |--------|-----|-------------|
 | `POST` | `/admin/problems/detect-language` | JSON endpoint returning `{"language": "pt"\|"en"\|"es"\|null}` for the `{"statement": ..., "title": ...}` body. Used by the problem form to warn about a language mismatch before submitting; the save routes re-run the same detection and stay authoritative. |
 | `GET` | `/admin/problems/categories/search` | JSON endpoint for the admin problem form category picker. Returns matching categories as `{id, name, color, foreground_color}` for `?q=`. |
-| `GET` | `/admin/problems/suggestions` | JSON endpoint for the problem form's Source and free-text Author datalists on both create and edit pages. Requires `field=source\|author` and literal `q` of 2–256 characters; returns at most 15 trimmed strings as `{"suggestions": [...]}`. Admins search all problems; other editors receive all enabled problems plus only their own disabled drafts. Author suggestions never expose owner-backed names. |
+| `GET` | `/admin/problems/suggestions` | JSON endpoint for the problem form's Source, free-text Author, and License datalists on both create and edit pages. Requires `field=source\|author\|license` and literal `q` of 2–256 characters; returns at most 15 trimmed strings as `{"suggestions": [...]}`. Admins search all problems; other editors receive all enabled problems plus only their own disabled drafts. Author suggestions never expose owner-backed names. |
 | `GET` | `/admin/problems/{problem_id}/rating-history` | JSON endpoint returning the problem's rating history for the last 24 months as `{"history": [{"ts": ISO8601, "rating": float}]}` (display-scale, e.g. `7.3`) in chronological order. |
 
 ## Ranking (`arena/routes/ranking.py`)
@@ -405,13 +445,13 @@ No authentication required. `current_user` dependency is optional so the sidebar
 | `GET` | `/ranking/affiliations/{affiliation_id}/users` | Paginated user ranking scoped to one affiliation's members. Same layout and query params as `/ranking/users`. Returns 404 if the affiliation is not found. |
 ## Custom validator routes (`arena/routes/admin_problem_validator.py`)
 
-Staging a validator is part of the problem form's single Save (see
-`POST /admin/problems/{problem_id}/edit` above), so the edit page renders no
-upload button of its own. These routes cover what that form cannot express. The
-status endpoint supports HTMX polling while compilation remains pending.
+The validator is staged from the judgment-data **validator page**, which posts to
+the upload endpoint below and applies it immediately; every one of these routes
+returns to that page, since that is where a refusal has to be corrected and where
+the compile status polls. The status endpoint supports HTMX polling while
+compilation remains pending.
 
-- `POST /admin/problems/{problem_id}/validator` stages and enqueues a candidate
-  directly. Kept for API/direct use; the edit page does not post to it.
+- `POST /admin/problems/{problem_id}/validator` stages and enqueues a candidate.
   Replacing a configured validator means removing it first.
 - `GET /admin/problems/{problem_id}/validator/status` renders current status.
 - `GET /admin/problems/{problem_id}/validator/source` downloads the current
@@ -426,6 +466,8 @@ status endpoint supports HTMX polling while compilation remains pending.
   `bool` on purpose: FastAPI would coerce `1`, `on` and `yes` too, and the choice
   between hiding data and destroying it must not hinge on a spelling. Any other
   value, or none, is a 422.
+  Removal never changes the problem's validation strategy: it stays interactive
+  and simply stops being judgeable until a replacement validator compiles.
 
 ### Sample interactions
 
@@ -440,9 +482,9 @@ transcript UI that shows a submission's recorded attempts.
   interaction (`new_ordinal` query param) and returns the refreshed list partial
   for the drag-and-drop handler.
 
-Additions and removals are deferred to the problem form's single Save, exactly like
-test cases (`si_transcript_N` / `si_explanation_N` add-rows and a hidden
-`si_remove_ids` field).
+Deletion and reordering apply immediately, exactly like test cases. Only the
+transcripts an author types inline (`si_transcript_N` / `si_explanation_N`
+add-rows) wait, and they are applied by the interactions page's own Save.
 
 A problem with a configured validator must have **zero public test cases and at
 least one secret one**. Staging a validator demotes any existing public case to

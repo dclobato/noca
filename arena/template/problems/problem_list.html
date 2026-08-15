@@ -65,6 +65,9 @@
                                 {% else %}
                                     <span class="text-muted small">No categories defined.</span>
                                 {% endfor %}
+                                {% if all_categories %}
+                                    <span class="text-muted small d-none" id="cat-filter-no-matches">No matching categories.</span>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -109,7 +112,7 @@
                 {% include "_partials/pagination.html" %}
             {% endwith %}
             <div class="table-responsive">
-                <table class="arena-table">
+                <table class="arena-table arena-problem-list-table">
                     <thead>
                         <tr>
                             {% if current_user %}<th class="arena-col-favorite column-width-tiny" aria-label="Favorite"></th>{% endif %}
@@ -205,14 +208,14 @@
                                     {% if item.solved is not none and item.solved > 0 %}
                                         {{ item.solved }}
                                     {% else %}
-                                        <span class="text-muted">&nbsp;</span>
+                                        <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
                                 <td class="column-width-tiny noca-small-text">
                                     {% if (item.ac_rate is not none) and (item.solved is not none and item.solved > 0) %}
                                         {{ "%.0f"|format(item.ac_rate * 100) }}%
                                     {% else %}
-                                        <span class="text-muted">&nbsp;</span>
+                                        <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
                                 {% if current_user %}

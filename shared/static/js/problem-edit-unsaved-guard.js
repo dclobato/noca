@@ -1,5 +1,5 @@
 // NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+// Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,7 +8,12 @@
   'use strict';
 
   var message = 'You have unsaved problem changes. Save changes before leaving this page?';
-  var editForm = document.getElementById('edit-form');
+  // The definition editor guards its single Save form; each judgment page guards
+  // its typed-rows form, which is the only thing on those pages the server has
+  // not already seen.
+  var editForm = document.getElementById('edit-form')
+    || document.getElementById('tc-add-form')
+    || document.getElementById('si-add-form');
   if (!editForm) return;
 
   var initialState = null;

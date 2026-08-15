@@ -30,6 +30,9 @@
             <li class="breadcrumb-item">
                 <a href="{{ request.url_for('edit_problem_form', slug=contest.login_slug, problem_id=problem.id) }}">{{ problem.title }}</a>
             </li>
+            <li class="breadcrumb-item">
+                <a href="{{ back_url }}">Judgment data</a>
+            </li>
             <li class="breadcrumb-item active" aria-current="page">
                 {% if tc %}
                     Test Case {{ tc.ordinal }}
@@ -65,8 +68,8 @@
             output_size_bytes=output_size_bytes | default(0),
             download_url=download_url | default(''),
             replace_url=replace_url | default(''),
-            post_action_url=(request.url_for('edit_test_case', slug=contest.login_slug, problem_id=problem.id, tc_id=tc.id) if tc else request.url_for('add_test_case', slug=contest.login_slug, problem_id=problem.id)) | string,
-            cancel_url=request.url_for('edit_problem_form', slug=contest.login_slug, problem_id=problem.id) | string,
+            post_action_url=request.url_for('edit_test_case', slug=contest.login_slug, problem_id=problem.id, tc_id=tc.id) | string,
+            cancel_url=back_url,
             input_field_name='tc_in',
             output_field_name='tc_out',
             input_value=form_data.tc_in if form_data.tc_in is defined else '',

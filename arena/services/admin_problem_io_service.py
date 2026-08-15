@@ -46,7 +46,7 @@ from arena.services.statement_language_service import (
     detect_statement_language_async,
     parse_statement_language,
 )
-from shared.enumerations import StatementLanguage
+from shared.enumerations import ProblemValidatorType, StatementLanguage
 from shared.services.custom_validator import PackagedValidator, current_validator_source, stage_candidate
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.problem_image import export_image_filename, load_staged_image
@@ -56,6 +56,7 @@ from shared.services.problem_package import (
     ProblemPackage,
     build_package,
 )
+from shared.services.problem_package.constants import FORMAT_VERSION
 from shared.services.problem_package.errors import WARN_UNKNOWN_CATEGORIES
 from shared.services.problem_package.journal import journal_root_for
 from shared.services.problem_package.model import (
@@ -79,7 +80,7 @@ class ArenaProblemImportResult:
 
     Attributes:
         problem: The newly created, committed problem.
-        has_custom_validator: Whether the package staged a validator.
+        is_interactive: Whether the imported problem's stored strategy is interactive.
         imported_interaction_count: Sample interactions read from ``interaction/``.
         statement_language: The language stored on the problem, if any.
         language_source: Where that language came from — ``"package"`` when the
@@ -89,7 +90,7 @@ class ArenaProblemImportResult:
     """
 
     problem: ArenaProblem
-    has_custom_validator: bool
+    is_interactive: bool
     imported_interaction_count: int
     statement_language: StatementLanguage | None
     language_source: LanguageSource
@@ -144,6 +145,9 @@ async def import_problem_package(
         license=metadata.license,
         category_ids=category_ids,
         statement_language=language,
+        # The package's normalized strategy: version 2 states it, version 1 has it
+        # derived by the shared parser. Never re-derived from validator presence.
+        validator_type=package.metadata.validator_type,
     )
 
     _add_test_cases(session, problem.id, package)
@@ -157,7 +161,7 @@ async def import_problem_package(
 
     return ArenaProblemImportResult(
         problem=problem,
-        has_custom_validator=package.validator is not None,
+        is_interactive=problem.validator_type is ProblemValidatorType.INTERACTIVE,
         imported_interaction_count=len(package.interactions),
         statement_language=language,
         language_source=language_source,
@@ -189,7 +193,10 @@ def export_problem_package(
 def _to_package(problem: ArenaProblem, owner_name: str, testcase_dir: Path) -> ProblemPackage:
     """Project an Arena problem onto the shared package contract."""
     validator_source = current_validator_source(problem.custom_validator)
-    interactive = validator_source is not None
+    # The export's shape follows the stored strategy, so an interactive problem
+    # whose source was removed still exports as interactive rather than silently
+    # changing kind.
+    interactive = problem.validator_type is ProblemValidatorType.INTERACTIVE
 
     cases: list[PackageTestCase] = []
     for test_case in sorted(problem.test_cases, key=lambda item: item.ordinal):
@@ -218,7 +225,8 @@ def _to_package(problem: ArenaProblem, owner_name: str, testcase_dir: Path) -> P
         )
 
     metadata = PackageMetadata(
-        format_version=1,
+        format_version=FORMAT_VERSION,
+        validator_type=problem.validator_type,
         title=problem.title,
         author=owner_name if problem.author_is_owner else problem.author,
         notes=problem.notes,
@@ -251,9 +259,13 @@ def _to_package(problem: ArenaProblem, owner_name: str, testcase_dir: Path) -> P
         statement=PackageStatement(kind="md", path=None, text=problem.problem_statement or ""),
         test_cases=tuple(cases),
         image=image,
+        # Gated on the stored strategy, not merely on a row existing: a standard
+        # problem carrying a stale validator row would otherwise export a
+        # 'standard' declaration alongside validator/ members, which is a version-2
+        # package this build's own reader refuses.
         validator=(
             PackagedValidator(validator_source.language_id, validator_source.source)
-            if validator_source is not None
+            if interactive and validator_source is not None
             else None
         ),
         interactions=interactions if interactive else (),

@@ -1,0 +1,112 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Shared validation-strategy chooser, rendered by both the Web (contest admin)
+  and Arena modules. A problem's strategy is chosen once and is immutable
+  afterwards, so this page is the only place it is ever selected.
+
+  Required context:
+    standard_url     str  target for the Standard creation editor
+    interactive_url  str  target for the Interactive creation editor
+    import_url       str  target for the module's existing package import flow
+
+  All URLs are pre-built by the calling route so this partial never resolves
+  module-specific url_for names. Output checker is deliberately inert: it is
+  reserved in the stored vocabulary but has no runtime in this release, so it
+  renders as a plain <div> -- never an <a> or <button> -- and is neither
+  clickable nor focusable. render_icon is called without `title=` so it resolves
+  under either module's _macros.html.
+#}
+{% from "_macros.html" import render_icon with context %}
+<div class="row row-cols-1 row-cols-md-2 g-4">
+    <div class="col">
+        <a href="{{ standard_url }}"
+           class="card h-100 text-decoration-none noca-validator-choice-card">
+            <div class="card-body">
+                <div class="noca-validator-choice-content">
+                    <div class="noca-validator-choice-heading">
+                        <span class="noca-validator-choice-icon" aria-hidden="true">{{ render_icon(icon="fact_check", filled=True) }}</span>
+                        <h2 class="h4 card-title mb-0">Standard</h2>
+                    </div>
+                    <p class="card-text mb-0">
+                        NOCA compares your program's output against a fixed expected output.
+                        Line-ending style, trailing whitespace and a missing final newline are
+                        forgiven. No validator program to write.
+                    </p>
+                </div>
+                <div class="noca-validator-choice-action" aria-hidden="true">
+                    <span>Choose Standard</span>
+                    {{ render_icon(icon="arrow_forward") }}
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col">
+        <a href="{{ interactive_url }}"
+           class="card h-100 text-decoration-none noca-validator-choice-card">
+            <div class="card-body">
+                <div class="noca-validator-choice-content">
+                    <div class="noca-validator-choice-heading">
+                        <span class="noca-validator-choice-icon" aria-hidden="true">{{ render_icon(icon="forum", filled=True) }}</span>
+                        <h2 class="h4 card-title mb-0">Interactive</h2>
+                    </div>
+                    <p class="card-text mb-0">
+                        The problem is a conversation. You supply one source file that talks to
+                        the submission and decides the verdict with its exit code. Test cases
+                        carry input only and are always secret; contestants see sample
+                        interactions instead.
+                    </p>
+                </div>
+                <div class="noca-validator-choice-action" aria-hidden="true">
+                    <span>Choose Interactive</span>
+                    {{ render_icon(icon="arrow_forward") }}
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col">
+        <div class="card h-100 noca-validator-choice-card noca-validator-choice-card-disabled"
+             aria-disabled="true">
+            <div class="card-body">
+                <div class="noca-validator-choice-content">
+                    <div class="noca-validator-choice-heading">
+                        <span class="noca-validator-choice-icon" aria-hidden="true">{{ render_icon(icon="rule", filled=True) }}</span>
+                        <h2 class="h4 card-title mb-0">Output checker</h2>
+                    </div>
+                    <p class="card-text mb-0">
+                        For problems with many correct answers. The submission runs normally,
+                        then your checker inspects its output and decides whether it is valid.
+                    </p>
+                </div>
+                <div class="noca-validator-choice-action">
+                    <span class="badge text-bg-secondary">Coming soon</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <a href="{{ import_url }}"
+           class="card h-100 text-decoration-none noca-validator-choice-card">
+            <div class="card-body">
+                <div class="noca-validator-choice-content">
+                    <div class="noca-validator-choice-heading">
+                        <span class="noca-validator-choice-icon" aria-hidden="true">{{ render_icon(icon="upload_file", filled=True) }}</span>
+                        <h2 class="h4 card-title mb-0">Import a problem</h2>
+                    </div>
+                    <p class="card-text mb-0">
+                        Create the problem from an existing problem package. The package states
+                        its own validation strategy, so there is nothing to choose here.
+                    </p>
+                </div>
+                <div class="noca-validator-choice-action" aria-hidden="true">
+                    <span>Import package</span>
+                    {{ render_icon(icon="arrow_forward") }}
+                </div>
+            </div>
+        </a>
+    </div>
+</div>

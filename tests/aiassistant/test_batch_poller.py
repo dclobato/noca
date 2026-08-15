@@ -32,7 +32,12 @@ from shared.db_schema import (
     arena_users,
     languages,
 )
-from shared.enumerations import ArenaAIBatchJobStatus, ArenaNotificationKind, ArenaRole
+from shared.enumerations import (
+    ArenaAIBatchJobStatus,
+    ArenaNotificationKind,
+    ArenaRole,
+    ProblemValidatorType,
+)
 from shared.services.valkey_service import AI_BATCH_TURNAROUND_STATS_KEY, ValkeyRuntime
 
 # ---------------------------------------------------------------------------
@@ -102,6 +107,7 @@ async def _seed_submission(
                 problem_image_base64=None,
                 problem_image_mime=None,
                 problem_image_caption=None,
+                validator_type=ProblemValidatorType.STANDARD,
             )
         )
         await conn.execute(

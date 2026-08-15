@@ -29,7 +29,7 @@ import arena.models.arena_users  # noqa: F401 — registers ORM mappers
 from arena.models.arena_problems import ArenaCategory, ArenaProblem, ArenaRatingProblem, ArenaTestCase
 from arena.models.arena_users import ArenaUser
 from arena.services.problem_service import get_problem_by_arena_number
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, ProblemValidatorType
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -59,6 +59,7 @@ async def arena_problem(session: AsyncSession, arena_author: ArenaUser) -> Arena
         title="Two Sum",
         owner_id=arena_author.id,
         problem_statement="<p>Given an array, return indices of two numbers that add up to target.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()
@@ -124,6 +125,7 @@ async def test_problem_custom_limits(session: AsyncSession, arena_author: ArenaU
         memory_limit_kb=524288,
         pids_limit=32,
         output_limit_in_bytes=131072,
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()
@@ -144,6 +146,7 @@ async def test_problem_image_mime_is_persisted(session: AsyncSession, arena_auth
         problem_statement="See the diagram.",
         problem_image_base64="iVBORw0KGgo=",
         problem_image_mime="image/png",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()
@@ -346,12 +349,14 @@ async def test_duplicate_arena_number_rejected(
         title="First",
         owner_id=arena_author.id,
         problem_statement="First.",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     p2 = ArenaProblem(
         arena_number=1,
         title="Second",
         owner_id=arena_author.id,
         problem_statement="Second.",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add_all([p1, p2])
     with pytest.raises(IntegrityError):
@@ -369,6 +374,7 @@ async def test_non_positive_arena_number_rejected(
         title="Zero",
         owner_id=arena_author.id,
         problem_statement="Invalid.",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     with pytest.raises(IntegrityError):

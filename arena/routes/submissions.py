@@ -8,6 +8,7 @@
 
 Routes:
   GET  /submissions/{submission_id}                         arena_submission_detail
+  GET  /submissions/{submission_id}/source                  arena_submission_source_download
   POST /submissions/{submission_id}/request-ai-review       arena_submission_request_ai_review
   POST /submissions/{submission_id}/teacher-feedback        arena_submission_teacher_feedback
   POST /submissions/{submission_id}/teacher-feedback/remove arena_submission_teacher_feedback_remove
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated, Any, cast
 from urllib.parse import urlencode
 
@@ -573,6 +575,109 @@ async def arena_submission_detail(
                 "back_context": back_context,
             },
         )
+    )
+
+
+@router.get(
+    "/submissions/{submission_id}/source",
+    name="arena_submission_source_download",
+)
+async def arena_submission_source_download(
+    submission_id: str,
+    request: Request,
+    back_class_id: str | None = None,
+    back_set_id: str | None = None,
+    back_user_id: str | None = None,
+    back_context: str | None = None,
+    current_user: ArenaUser | None = Depends(get_current_arena_user),
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    """Download a submission's source code for an authorized viewer.
+
+    The submitting user and Arena admins may download directly. An Arena judge
+    may download a student's source only with the same validated class-report
+    context used by the submission detail page.
+
+    Args:
+        submission_id: UUID of the ``arena_submissions`` row.
+        request: Current HTTP request.
+        back_class_id: Navigation-only class id for report-view authorization.
+        back_set_id: Navigation-only problem-set id for report-view authorization.
+        back_user_id: Navigation-only student id for report-view authorization.
+        back_context: Navigation-only report origin identifier.
+        current_user: Authenticated Arena user, or ``None`` for guests.
+        session: Active database session.
+
+    Returns:
+        Response: UTF-8 source code attachment, or a login redirect for guests.
+
+    Raises:
+        HTTPException: 404 when the submission is not found or the actor lacks
+            permission to view it.
+    """
+    if current_user is None:
+        return build_login_redirect_response(request, next_url=build_current_next_url(request))
+
+    row = (
+        await session.execute(
+            select(
+                arena_submissions.c.user_id,
+                arena_submissions.c.source_code,
+                languages_table.c.source_filename,
+                arena_submissions.c.problem_set_id,
+                arena_classes.c.id,
+            )
+            .select_from(
+                arena_submissions.join(
+                    languages_table,
+                    arena_submissions.c.language_id == languages_table.c.id,
+                )
+                .outerjoin(
+                    arena_problem_sets,
+                    arena_submissions.c.problem_set_id == arena_problem_sets.c.id,
+                )
+                .outerjoin(arena_classes, arena_problem_sets.c.class_id == arena_classes.c.id)
+            )
+            .where(arena_submissions.c.id == submission_id)
+        )
+    ).one_or_none()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Submission not found.")
+
+    submission_owner_id, source_code, source_filename, problem_set_id, class_id = row
+    is_admin = current_user.role == ArenaRole.ARENA_ADMIN.value
+    is_owner = submission_owner_id == current_user.id
+    has_report_context = bool(
+        current_user.role == ArenaRole.ARENA_JUDGE.value
+        and not is_owner
+        and back_class_id
+        and back_set_id
+        and back_user_id
+        and back_context == _STUDENT_REPORT_BACK_CONTEXT
+        and back_user_id == submission_owner_id
+        and back_set_id == problem_set_id
+        and back_class_id == class_id
+    )
+    if (
+        not is_admin
+        and not is_owner
+        and (
+            not has_report_context
+            or back_set_id is None
+            or not await can_teacher_view_submission(session, teacher_id=current_user.id, set_id=back_set_id)
+        )
+    ):
+        raise HTTPException(status_code=404, detail="Submission not found.")
+
+    extension = Path(source_filename).suffix
+    if not extension or not extension.isascii() or not extension[1:].isalnum():
+        extension = ".txt"
+    filename = f"submission-{submission_id[:8]}{extension}"
+    return Response(
+        content=source_code,
+        media_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

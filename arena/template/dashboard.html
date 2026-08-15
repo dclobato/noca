@@ -6,10 +6,27 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
+{% from "_macros.html" import render_icon %}
 {% block title_suffix %}&mdash; Dashboard{% endblock %}
 {% block content %}
     <main class="arena-dashboard">
-        <h1 class="visually-hidden">Dashboard</h1>
+        <header class="arena-dashboard-heading">
+            <h1>
+                {{ render_icon(icon="waving_hand") }}
+                {% if current_user %}
+                    Welcome back, {{ current_user.nome.split(" ")[0] }}
+                {% else %}
+                    Welcome to {{ brand_name }}
+                {% endif %}
+            </h1>
+            <p>
+                {% if current_user %}
+                    Here's what's new across problems, the leaderboard, and supported languages.
+                {% else %}
+                    Practice competitive programming, track your progress, and climb the leaderboard.
+                {% endif %}
+            </p>
+        </header>
         <div class="row g-3">
             <div class="col-12 col-xl-6">{% include "_partials/dashboard/latest_problems_card.html" %}</div>
             <div class="col-12 col-xl-6">{% include "_partials/dashboard/leaderboard_card.html" %}</div>

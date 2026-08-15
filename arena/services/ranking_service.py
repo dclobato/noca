@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -43,6 +43,7 @@ class RankedUser:
         country_name: Country display name, or None.
         subdivision_name: Subdivision display name, or None.
         rating: Computed Arena user rating.
+        solved: Number of distinct problems the user has solved.
         public_profile: True when the user has opted in to a public profile
             page. The CTE only emits users with ``ranking_visible=True``,
             so a public profile page can be linked whenever this is True.
@@ -59,6 +60,7 @@ class RankedUser:
     country_name: str | None
     subdivision_name: str | None
     rating: int
+    solved: int
     public_profile: bool
 
 
@@ -153,6 +155,7 @@ async def get_ranked_users_paginated(
             country_name=country_name(row.country_code),
             subdivision_name=subdivision_name(row.subdivision_code),
             rating=row.rating,
+            solved=row.solved,
             public_profile=bool(row.public_profile),
         )
         for row in rows

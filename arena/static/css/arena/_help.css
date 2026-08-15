@@ -4,213 +4,296 @@
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *
+ * Help surface shell: masthead, section index, sections, prose measure and
+ * disclosure. The cell grammar this surface is built from lives in
+ * _help-board.css.
  */
 
 /* ============================================================
-   Help page
+   Shared page container
    ============================================================ */
+
+/* The only survivor of the old help page header: submissions/submission_detail
+   still lays itself out with it. The header, title and subtitle rules that sat
+   here went with the templates that used them. */
 .arena-page-container {
     display: flex;
     flex-direction: column;
     gap: var(--arena-space-md);
 }
 
-.arena-page-header {
-    padding-bottom: var(--arena-space-sm);
-    border-bottom: 1px solid var(--arena-outline-variant);
-}
-
-.arena-page-title {
-    font-family: 'Public Sans', sans-serif;
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--arena-on-surface);
+/* ============================================================
+   Help masthead — the board's header block
+   ============================================================ */
+.arena-help-page {
     display: flex;
-    align-items: center;
-    margin-bottom: 0.25rem;
+    flex-direction: column;
+    gap: var(--arena-space-lg);
+    max-width: 64rem;
+    padding-block: var(--arena-space-md) var(--arena-space-lg);
 }
 
-.arena-page-title .material-symbols-outlined {
-    color: var(--arena-primary);
-    font-size: 1.5rem;
+.arena-help-masthead {
+    border-top: 2px solid var(--arena-on-surface);
+    border-bottom: 1px solid var(--arena-outline-variant);
+    padding-block: var(--arena-space-md);
 }
 
-.arena-page-subtitle {
+.arena-help-masthead-title {
+    font-family: 'Public Sans', sans-serif;
+    font-size: clamp(2rem, 3.2vw, 2.5rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    color: var(--arena-on-surface);
+    text-wrap: balance;
+    margin: 0 0 0.5rem;
+}
+
+.arena-help-masthead-lede {
+    max-width: 68ch;
+    margin: 0;
+    font-size: 1.125rem;
+    line-height: 1.6;
     color: var(--arena-on-surface-variant);
-    margin-bottom: 0;
-    font-size: 0.9375rem;
 }
 
-.arena-help-section {
-    background-color: var(--arena-surface-container-lowest);
+/* ============================================================
+   Two-column shell: reading column + sticky section index
+   ============================================================ */
+.arena-help-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--arena-space-lg);
+    align-items: start;
+}
+
+@media (min-width: 62rem) {
+    .arena-help-shell {
+        /* The body track is the reading measure, not the leftover width, so the
+           index sits beside the prose rather than out at the container edge. */
+        grid-template-columns: minmax(0, 44rem) 13rem;
+        justify-content: start;
+    }
+}
+
+.arena-help-body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--arena-space-lg);
+}
+
+/* ── Section index: board cells, not a docs tree ── */
+.arena-help-index {
+    min-width: 0;
+    order: -1;
+}
+
+@media (min-width: 62rem) {
+    .arena-help-index {
+        order: 0;
+        position: sticky;
+        top: 5rem;
+    }
+}
+
+.arena-help-index-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--arena-on-surface-variant);
+    margin: 0 0 0.5rem;
+}
+
+.arena-help-index-list {
+    display: flex;
+    flex-direction: row;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    overflow-x: auto;
     border: 1px solid var(--arena-outline-variant);
-    border-radius: var(--arena-radius);
-    box-shadow: var(--arena-card-shadow);
-    padding: var(--arena-space-md);
+    /* Fade the trailing edge so a strip that continues past the fold says so.
+       A mask reads only the alpha channel, so this stop is opacity, not a
+       colour: `currentColor` supplies "fully opaque" without inventing one. */
+    mask-image: linear-gradient(to right, currentColor calc(100% - 2rem), transparent);
+}
+
+@media (min-width: 62rem) {
+    .arena-help-index-list {
+        flex-direction: column;
+        overflow-x: visible;
+        mask-image: none;
+    }
+}
+
+.arena-help-index-link {
+    display: block;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--arena-on-surface-variant);
+    text-decoration: none;
+    white-space: nowrap;
+    border-right: 1px solid var(--arena-outline-variant);
+    border-left: 2px solid transparent;
+}
+
+.arena-help-index-list li:last-child .arena-help-index-link {
+    border-right: 0;
+}
+
+@media (min-width: 62rem) {
+    .arena-help-index-link {
+        white-space: normal;
+        border-right: 0;
+        border-bottom: 1px solid var(--arena-outline-variant);
+    }
+
+    .arena-help-index-list li:last-child .arena-help-index-link {
+        border-bottom: 0;
+    }
+}
+
+.arena-help-index-link:hover,
+.arena-help-index-link:focus-visible {
+    color: var(--arena-primary);
+    background-color: var(--arena-surface-container);
+}
+
+.arena-help-index-link[aria-current="true"] {
+    color: var(--arena-on-surface);
+    background-color: var(--arena-surface-container);
+    border-left-color: var(--arena-primary);
+}
+
+/* ============================================================
+   Sections, prose measure and headings
+   ============================================================ */
+.arena-help-section {
+    scroll-margin-top: 5.5rem;
 }
 
 .arena-help-heading {
     font-family: 'Public Sans', sans-serif;
-    font-size: 1.125rem;
-    font-weight: 600;
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
     color: var(--arena-on-surface);
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
     padding-bottom: 0.5rem;
-    margin-bottom: var(--arena-space-sm);
+    margin: 0 0 var(--arena-space-md);
     border-bottom: 1px solid var(--arena-outline-variant);
 }
 
-.arena-help-heading .material-symbols-outlined {
-    color: var(--arena-primary);
-    font-size: 1.125rem;
-}
-
 .arena-help-subheading {
-    font-size: 0.9375rem;
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1rem;
     font-weight: 600;
     color: var(--arena-on-surface);
-    margin-top: var(--arena-space-sm);
-    margin-bottom: 0.375rem;
+    margin: var(--arena-space-md) 0 0.375rem;
 }
 
-.arena-help-formula {
-    background-color: var(--arena-surface-container);
-    border-radius: var(--arena-radius);
-    padding: 0.75rem 1rem;
-    margin: 0.5rem 0 0.75rem;
-    overflow-x: auto;
-    text-align: center;
+.arena-help-section p,
+.arena-help-section li {
+    max-width: 70ch;
+    line-height: 1.65;
+}
+
+/* The plain answer: always visible, set above the reading size. */
+.arena-help-lede {
+    font-size: 1.125rem;
+    line-height: 1.6;
+    color: var(--arena-on-surface);
 }
 
 .arena-help-note {
     font-size: 0.875rem;
+    line-height: 1.6;
     color: var(--arena-on-surface-variant);
 }
 
+/* ============================================================
+   Disclosure: the exact computation
+   ============================================================ */
+.arena-help-detail {
+    border: 1px solid var(--arena-outline-variant);
+    margin-top: var(--arena-space-md);
+}
+
+.arena-help-detail-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 0.875rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--arena-on-surface-variant);
+    cursor: pointer;
+    list-style: none;
+    background-color: var(--arena-surface-container-lowest);
+}
+
+.arena-help-detail-summary::-webkit-details-marker {
+    display: none;
+}
+
+.arena-help-detail-summary:hover {
+    color: var(--arena-primary);
+}
+
+.arena-help-detail-summary .material-symbols-outlined {
+    font-size: 1.125rem;
+    transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.arena-help-detail[open] > .arena-help-detail-summary {
+    border-bottom: 1px solid var(--arena-outline-variant);
+}
+
+.arena-help-detail[open] > .arena-help-detail-summary .material-symbols-outlined {
+    transform: rotate(90deg);
+}
+
+.arena-help-detail-body {
+    padding: var(--arena-space-md) 0.875rem;
+}
+
+.arena-help-detail-body > :last-child {
+    margin-bottom: 0;
+}
+
+.arena-help-formula {
+    background-color: var(--arena-surface-container);
+    border: 1px solid var(--arena-outline-variant);
+    padding: 0.75rem 1rem;
+    margin: 0.5rem 0 0.875rem;
+    overflow-x: auto;
+    text-align: center;
+}
+
+/* ============================================================
+   Charts
+   ============================================================ */
 .arena-help-chart {
     width: 100%;
-    height: 240px;
-    margin: 0.5rem 0 0.75rem;
+    height: 260px;
+    margin: var(--arena-space-sm) 0 0.75rem;
 }
 
 .arena-help-chart-half {
-    width: 50%;
-    margin: 0.5rem auto 0.75rem;
+    max-width: 34rem;
+    margin-inline: auto;
 }
 
-/* ============================================================
-   Help — language list
-   ============================================================ */
-.arena-help-lang-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--arena-space-sm);
-}
-
-.arena-help-lang-entry {
-    background-color: var(--arena-surface-container);
-    border-radius: var(--arena-radius);
-    padding: var(--arena-space-md) var(--arena-space-md);
-}
-
-.arena-help-lang-header {
-    display: flex;
-    align-items: center;
-    gap: 0.875rem;
-    margin-bottom: 1rem;
-}
-
-.arena-help-lang-icon {
-    width: 3rem;
-    height: 3rem;
-    object-fit: contain;
-    flex-shrink: 0;
-}
-
-.arena-help-lang-name {
-    font-size: 0.9375rem;
-    color: var(--arena-on-surface);
-}
-
-.arena-help-lang-row {
-    display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
-    margin: 0;
-    font-size: 0.875rem;
-}
-
-.arena-help-lang-row + .arena-help-lang-row {
-    margin-top: 0.625rem;
-}
-
-.arena-help-lang-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--arena-on-surface-variant);
-    flex: 0 0 7.5rem;
-}
-
-.arena-help-cmd {
-    font-family: var(--noca-font-mono);
-    font-size: 0.8125rem;
-    font-variant-numeric: var(--noca-font-variant-numeric-mono);
-    font-variant-ligatures: var(--noca-font-variant-ligatures-literal);
-    color: var(--arena-primary);
-    margin: 0;
-    white-space: pre-wrap;
-    word-break: break-all;
-}
-
-.arena-help-hint {
-    display: inline;
-    min-width: 0;
-}
-
-.arena-help-hint .arena-help-cmd {
-    display: inline;
-}
-
-/* ============================================================
-   Help topic tabs
-   ============================================================ */
-.arena-help-tabs {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 0.25rem;
-    border-bottom-color: var(--arena-outline-variant);
-}
-
-.arena-help-tabs .nav-item {
-    width: auto;
-}
-
-.arena-help-tabs .nav-link {
-    min-height: 2.75rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    color: var(--arena-on-surface-variant);
-    font-weight: 600;
-    text-align: left;
-}
-
-.arena-help-tabs .nav-link:hover {
-    color: var(--arena-primary);
-}
-
-.arena-help-tabs .nav-link.active {
-    color: var(--arena-primary);
-    background-color: var(--arena-surface-container-lowest);
-    border-color: var(--arena-outline-variant) var(--arena-outline-variant)
-        var(--arena-surface-container-lowest);
-}
-
-.arena-help-tab-content {
-    min-width: 0;
-    padding-top: var(--arena-space-md);
+@media (prefers-reduced-motion: reduce) {
+    .arena-help-detail-summary .material-symbols-outlined {
+        transition: none;
+    }
 }

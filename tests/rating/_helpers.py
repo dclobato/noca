@@ -22,7 +22,7 @@ from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_submissions import ArenaSubmission
 from arena.models.arena_users import ArenaUser
 from shared.db_schema.arena import arena_problem_ratings, arena_problem_solvers
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, ProblemValidatorType
 from web.models.language import Language
 
 
@@ -119,6 +119,7 @@ async def _make_problem(session: AsyncSession, user: ArenaUser) -> ArenaProblem:
         title=f"Problem {uuid.uuid4().hex[:8]}",
         owner_id=user.id,
         problem_statement="<p>Test.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

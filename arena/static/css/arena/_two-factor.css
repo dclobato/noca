@@ -79,8 +79,14 @@
     align-items: center;
     gap: 0.4rem;
     margin-bottom: 1.5rem;
+    color: var(--arena-on-surface-variant);
     font-size: 0.875rem;
     font-weight: 600;
+    text-decoration: none;
+}
+
+.arena-2fa-setup-back:hover {
+    color: var(--arena-primary);
 }
 
 .arena-2fa-setup-back .material-symbols-outlined {

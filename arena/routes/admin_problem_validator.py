@@ -1,18 +1,13 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Arena admin routes for the per-problem custom interactive validator.
+"""Arena judgment-data routes for a problem's interactive validator.
 
-The problem edit form stages a validator candidate as part of its single Save
-(see ``admin_problems.admin_problem_update``). These routes cover what that form
-cannot express: downloading the current source, the HTMX-polled compile status,
-and removing an active validator.
-
-``arena_admin_problem_validator_upload`` remains for direct/API use; the edit
-page no longer renders a form that posts to it while a validator is configured.
+The dedicated page uploads and removes validator revisions immediately, and
+also exposes source download/view and the HTMX-polled compile status.
 """
 
 from __future__ import annotations
@@ -28,6 +23,7 @@ from arena.database import get_db
 from arena.dependencies.admin import require_arena_problem_editor
 from arena.models.arena_users import ArenaUser
 from arena.routes.admin_problem_common import get_problem_or_403
+from arena.routes.admin_problem_judgment_urls import judgment_page_url
 from arena.services import admin_problem_interaction_service
 from arena.services.admin_problem_validator_service import stage_validator_source
 from shared.language_configs import default_extension_for_language
@@ -50,7 +46,10 @@ async def arena_admin_problem_validator_upload(
 ) -> RedirectResponse:
     """Stage and enqueue an Arena validator revision."""
     problem = await get_problem_or_403(problem_id, current_user, session)
-    edit_url = request.url_for("arena_admin_problem_edit", problem_id=problem.id)
+    # Back to the page that owns the validator, not the test cases: an upload that
+    # was refused has to be corrected here, and one that was accepted is watched
+    # here while it compiles.
+    edit_url = judgment_page_url(request, problem.id, "validator")
     try:
         job = await stage_validator_source(
             session,
@@ -165,7 +164,10 @@ async def arena_admin_problem_validator_remove(
     hiding data and destroying it must not hinge on a spelling.
     """
     problem = await get_problem_or_403(problem_id, current_user, session)
-    edit_url = request.url_for("arena_admin_problem_edit", problem_id=problem.id)
+    # Back to the page that owns the validator, not the test cases: an upload that
+    # was refused has to be corrected here, and one that was accepted is watched
+    # here while it compiles.
+    edit_url = judgment_page_url(request, problem.id, "validator")
     if problem.custom_validator is None:
         return RedirectResponse(edit_url, 303)
 

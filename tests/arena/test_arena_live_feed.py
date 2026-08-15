@@ -23,7 +23,7 @@ from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_submissions import ArenaSubmission, ArenaSubmissionJudgment
 from arena.models.arena_users import ArenaUser
 from arena.services.live_feed_service import build_arena_live_feed_snapshot
-from shared.enumerations import ArenaRole, JudgmentStatus
+from shared.enumerations import ArenaRole, JudgmentStatus, ProblemValidatorType
 from shared.services.sse_refresh import iter_refresh_events
 from web.models.language import Language
 
@@ -90,6 +90,7 @@ async def _make_problem(session: AsyncSession, author: ArenaUser) -> ArenaProble
         title=f"Problem {uuid.uuid4().hex[:6]}",
         owner_id=author.id,
         problem_statement="<p>Echo.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

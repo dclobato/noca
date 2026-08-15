@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -9,7 +9,8 @@
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
-_TEMPLATE = _ROOT / "arena" / "template" / "admin" / "problem_form.html"
+# The authorship and licence fields live on the Metadata pane, not the shell.
+_TEMPLATE = _ROOT / "arena" / "template" / "_partials" / "problem_tab_metadata.html"
 _SCRIPT = _ROOT / "arena" / "static" / "js" / "admin-problem-form.js"
 
 
@@ -45,3 +46,17 @@ def test_license_field_follows_internal_note() -> None:
     assert notes_field < license_field
     assert 'name="license"' in template[license_field:]
     assert 'maxlength="256"' in template[license_field:]
+
+
+def test_metadata_uses_task_groups_and_discloses_rare_fields() -> None:
+    """Identity, execution, and publication no longer compete in one card."""
+    template = _TEMPLATE.read_text(encoding="utf-8")
+
+    identity = template.index("Identity and attribution")
+    execution = template.index("Execution limits")
+    publication = template.index("Publication details")
+    disclosure = template.index("Notes and licensing")
+
+    assert identity < execution < publication < disclosure
+    assert '<details class="noca-form-disclosure"' in template
+    assert "Maximum processes the submission may run at once." in template

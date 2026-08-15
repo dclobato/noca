@@ -165,7 +165,7 @@
                 {% if can_see_test_results %}
                     <div class="card shadow-sm border-0">
                         <div class="card-header fw-semibold">
-                            {% if validator_status.configured %}
+                            {% if is_interactive %}
                                 Interactive Validator Run
                             {% else %}
                                 Test Case Results
@@ -200,7 +200,7 @@
                                     </tbody>
                                 </table>
                             </div>
-                            {% if validator_status.configured %}
+                            {% if is_interactive %}
                                 <div class="p-3">
                                     {# An accepted submission passed every test case, so there is no
                                        failing conversation to show. #}

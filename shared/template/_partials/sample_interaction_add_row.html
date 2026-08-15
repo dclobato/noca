@@ -1,0 +1,48 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Server-rendered twin of one row from `si-add-row.js`. A rejected request
+  renders the submitted text and its row-specific error instead of redirecting
+  to an empty form.
+#}
+{% set form_id = form_id | default("si-add-form") %}
+{% set error_id = "si_error_" ~ row.index %}
+<div class="noca-inline-entry mb-3 position-relative">
+    <button type="button"
+            class="btn-close position-absolute top-0 end-0 m-2"
+            aria-label="Remove"
+            data-si-add-remove></button>
+    <div class="row g-2">
+        <div class="col-12">
+            <label class="form-label" for="si_transcript_{{ row.index }}">Interaction</label>
+            <textarea name="si_transcript_{{ row.index }}"
+                      id="si_transcript_{{ row.index }}"
+                      rows="8"
+                      form="{{ form_id }}"
+                      {% if row.error %}aria-describedby="{{ error_id }}" autofocus{% endif %}
+                      class="form-control form-control-sm font-monospace{% if row.error %} is-invalid{% endif %}"
+                      placeholder="> 3&#10;&lt; 5&#10;> !8">{{ row.transcript_text }}</textarea>
+            <div class="form-text">
+                One message per line, each starting with <code>&gt;&nbsp;</code> (validator)
+                or <code>&lt;&nbsp;</code> (contestant), including the space.
+            </div>
+            {% if row.error %}
+                <div class="invalid-feedback d-block" id="{{ error_id }}" role="alert">{{ row.error }}</div>
+            {% endif %}
+        </div>
+        <div class="col-12">
+            <label class="form-label" for="si_explanation_{{ row.index }}">Explanation (optional)</label>
+            <textarea name="si_explanation_{{ row.index }}"
+                      id="si_explanation_{{ row.index }}"
+                      rows="2"
+                      form="{{ form_id }}"
+                      class="form-control form-control-sm"
+                      placeholder="Explain what happens in this conversation…">{{ row.explanation }}</textarea>
+            <div class="form-text">Shown to contestants below the interaction.</div>
+        </div>
+    </div>
+</div>

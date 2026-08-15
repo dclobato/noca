@@ -7,7 +7,8 @@ on the other. Every format decision (integer coercion, null semantics, string le
 image resolution, archive safety, export field sets) is made there exactly once; a domain
 importer only decides what its own schema can store.
 
-This document is the canonical reference for **format version 1**. The UI on the import pages is
+This document is the canonical reference for **format version 2**, and for reading the version 1
+packages this build still accepts. The UI on the import pages is
 rendered from `shared/template/_partials/problem_package_format.html`, the downloadable sample ZIP
 is built by `shared/services/sample_problem_package.py`, and
 `scripts/validate_problem_package.py` checks a package offline with the same reader.
@@ -30,7 +31,7 @@ A package is written in one of two profiles, and they are **not** interchangeabl
 
 | Profile | Contains | Importable |
 | --- | --- | --- |
-| `full` | `problem.json` with every version-1 key, statement, image, **all** test cases with explanations, sample interactions, validator source | **Yes** |
+| `full` | `problem.json` with every version-2 key, statement, image, **all** test cases with explanations, sample interactions, validator source | **Yes** |
 | `public` | statement, image, **public** test cases with their explanations, sample interactions | **No** |
 
 The `public` profile is a **contestant-facing statement bundle**. It deliberately carries no
@@ -45,17 +46,72 @@ from the admin export routes.
 ## Format version
 
 ```json
-{ "format_version": 1 }
+{ "format_version": 2 }
 ```
 
-Every package written by this build carries `format_version: 1`. On import:
+Every package written by this build carries `format_version: 2`. On import:
 
 - an **absent** key means version 1, the format that predates the key;
+- explicit `1` and explicit `2` are both accepted;
 - **any other value** fails *before* any other metadata is interpreted, with a message naming the
-  supported version.
+  supported versions.
 
 Checking the version first is deliberate: interpreting half of a package's metadata under
 assumptions the package never agreed to is worse than refusing it.
+
+### What version 2 adds
+
+Version 2 adds one key, `validator_type`, which states the problem's **validation strategy**
+explicitly instead of leaving it to be inferred from whether a validator happens to be declared.
+That inference was wrong in both directions: a problem whose validator source had been removed
+looked standard, and a standard problem carrying a stale validator row looked interactive.
+
+| Value | Meaning |
+| --- | --- |
+| `"standard"` | The built-in token comparator judges the submission against a fixed expected output. |
+| `"interactive"` | A custom validator runs concurrently with the submission and decides the verdict. |
+| `"checker"` | **Reserved.** Accepted by the vocabulary, but rejected on import — this build cannot judge output-checker problems. |
+
+### Reading version 1
+
+A version-1 package carries no strategy, so the reader derives one, and this is the last place
+that derivation is still correct — it is all such a package says:
+
+- a package declaring a `custom_validator` is read as `interactive`;
+- any other package is read as `standard`;
+- never `checker`.
+
+A `validator_type` key appearing in a package that claims version 1 is **ignored**, not rejected.
+The version the package declares is what decides how it is read.
+
+### Version 2 consistency rules
+
+Because version 2 states the strategy *and* still carries the validator declaration, the two can
+disagree. A package where they do is refused before anything is persisted:
+
+| Rule | Checked by |
+| --- | --- |
+| `"standard"` requires `"custom_validator": null` | `problem.json` alone (the metadata parser) |
+| `"interactive"` requires a non-null `custom_validator` | `problem.json` alone (the metadata parser) |
+| `"standard"` must ship no `validator/` members | the archive index (the reader) |
+| `validator/` members require a `custom_validator` declaration | the archive index (the reader) |
+
+The split is deliberate: only the reader holds the extracted archive index, so member-level rules
+cannot live in metadata parsing.
+
+`checker_semantics` is **not** part of version 2. It belongs to the output-checker strategy and
+lands with it.
+
+### Exporting
+
+Only version 2 is written. A `full` export therefore refuses two problems it cannot represent:
+
+- an **interactive problem with no validator source** — version 2 cannot express it, and writing it
+  anyway would produce an archive this build's own reader rejects. Upload a validator source and
+  export again;
+- a **`checker` problem**, which this build cannot represent at all.
+
+`public` bundles are unaffected: they carry no `problem.json`, so they carry no strategy metadata.
 
 ## Directory layout
 
@@ -173,7 +229,8 @@ rather than omitted, so a consumer never has to guess whether absence means "uns
 
 ```json
 {
-  "format_version": 1,
+  "format_version": 2,
+  "validator_type": "standard",
   "title": "A + B",
   "author": "John Doe",
   "notes": "Internal management note.",
@@ -214,7 +271,8 @@ rather than omitted, so a consumer never has to guess whether absence means "uns
 
 | Field | Type | Required | Default when absent | Description |
 | --- | --- | --- | --- | --- |
-| `format_version` | integer | no | `1` | Must be `1` when present. |
+| `format_version` | integer | no | `1` | Must be `1` or `2` when present. New exports write `2`. |
+| `validator_type` | `"standard"`\|`"interactive"` | **yes on v2** | derived on v1 | The validation strategy. Required in version 2; derived from `custom_validator` presence in version 1, where the key is ignored if present. `"checker"` parses but is rejected as unsupported. |
 | `title` | string | **yes** | — | Non-empty after trim. Max **256** characters. |
 | `author` | string \| null | no | `null` | Free-text authorship, max **256**. On Arena, absent means the importing user is recorded as both owner and author. |
 | `notes` | string \| null | no | `null` | Internal management note, max **512**. |
@@ -633,7 +691,8 @@ noca-sample-problem-a-plus-b.zip
 
 ```json
 {
-  "format_version": 1,
+  "format_version": 2,
+  "validator_type": "standard",
   "title": "A + B",
   "author": "John Doe",
   "notes": "Sample problem",
@@ -693,7 +752,8 @@ my-contest-problem.zip
 
 ```json
 {
-  "format_version": 1,
+  "format_version": 2,
+  "validator_type": "standard",
   "title": "Geometry Maze",
   "author": "Jane Doe",
   "notes": "Created for the 2025 regionals.",
@@ -730,7 +790,8 @@ number-guessing.zip
 
 ```json
 {
-  "format_version": 1,
+  "format_version": 2,
+  "validator_type": "interactive",
   "title": "Number Guessing",
   "author": "Jane Doe",
   "source": "ICPC 2025",

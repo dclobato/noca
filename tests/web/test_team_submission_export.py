@@ -1,3 +1,9 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 from __future__ import annotations
 
 import hashlib
@@ -14,7 +20,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.enumerations import JudgmentStatus, RoleEnum, Verdict
+from shared.enumerations import JudgmentStatus, ProblemValidatorType, RoleEnum, Verdict
 from web.config import settings
 from web.dependencies import ContestContext, get_contest_context
 from web.models.contest import Contest
@@ -83,6 +89,7 @@ async def _make_problem(
         title=title,
         ordinal=ordinal,
         color="#ff0000",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

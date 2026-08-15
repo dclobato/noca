@@ -21,7 +21,7 @@ from arena.models.arena_users import ArenaUser
 from shared.db_schema import languages as languages_table
 from shared.db_schema.arena import arena_rating_cycle_state
 from shared.db_schema.arena.arena_rating_cycle_state import RATING_CYCLE_STATE_ID
-from shared.enumerations import Verdict
+from shared.enumerations import VERDICT_PRIORITY, Verdict
 from shared.services.arena_rating import (
     ALPHA,
     BASE_POINTS,
@@ -64,6 +64,31 @@ _VERDICT_DESCRIPTIONS: dict[Verdict, str] = {
         "Presentation Error — the output is correct but formatted incorrectly (e.g. extra spaces, wrong line endings)."
     ),
 }
+
+# Position of each verdict in the judge's own aggregation precedence.
+_VERDICT_SEVERITY: dict[Verdict, int] = {verdict: rank for rank, verdict in enumerate(VERDICT_PRIORITY)}
+
+
+def _verdicts_by_severity() -> dict[Verdict, str]:
+    """Return the verdict descriptions ordered most severe first.
+
+    ``VERDICT_PRIORITY`` is the precedence the autojudge applies when aggregating
+    across test cases: the first of those verdicts to appear anywhere is the one
+    reported. Ordering the help key by it makes the page demonstrate the rule it
+    states instead of listing the same verdicts in an unrelated order. A verdict
+    missing from the priority list sorts last rather than raising, so adding one
+    can never break this page.
+
+    Returns:
+        dict[Verdict, str]: Descriptions keyed by verdict, most severe first.
+    """
+    return {
+        verdict: _VERDICT_DESCRIPTIONS[verdict]
+        for verdict in sorted(
+            _VERDICT_DESCRIPTIONS,
+            key=lambda verdict: _VERDICT_SEVERITY.get(verdict, len(_VERDICT_SEVERITY)),
+        )
+    }
 
 
 @dataclass(frozen=True)
@@ -221,7 +246,7 @@ async def arena_help_languages(
             {
                 "current_user": current_user,
                 "languages": active_languages,
-                "verdicts": _VERDICT_DESCRIPTIONS,
+                "verdicts": _verdicts_by_severity(),
             },
         )
     )

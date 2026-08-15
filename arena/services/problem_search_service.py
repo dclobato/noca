@@ -47,7 +47,7 @@ from shared.enumerations import StatementLanguage
 
 _MAX_ARENA_NUMBER = 2_147_483_647
 
-type ProblemSuggestionField = Literal["author", "source"]
+type ProblemSuggestionField = Literal["author", "license", "source"]
 
 _SEARCH_VECTOR_SQL = """
 setweight(
@@ -102,6 +102,7 @@ to_tsvector(
 
 _FIELD_SEARCH_VECTOR_SQL: dict[ProblemSuggestionField, str] = {
     "author": _FIELD_SEARCH_VECTOR_SQL_TEMPLATE.format(field="author"),
+    "license": "to_tsvector('simple'::regconfig, coalesce(arena_problems.license, ''))",
     "source": _FIELD_SEARCH_VECTOR_SQL_TEMPLATE.format(field="source"),
 }
 _TITLE_SEARCH_VECTOR_SQL = _FIELD_SEARCH_VECTOR_SQL_TEMPLATE.format(field="title")
@@ -120,7 +121,7 @@ class ProblemSearchExpressions:
 
 @dataclass(frozen=True)
 class ProblemSuggestionSearchExpressions:
-    """Predicate and ranking expressions for one author/source suggestion query."""
+    """Predicate and ranking expressions for one problem-metadata suggestion query."""
 
     predicate: ColumnElement[bool]
     full_text_rank: ColumnElement[Any]
@@ -220,7 +221,7 @@ def _field_search_vector(
     field: ProblemSuggestionField,
     table_name: str = "arena_problems",
 ) -> ColumnElement[Any]:
-    """Return the requested field's language-aware PostgreSQL FTS vector."""
+    """Return the requested field's indexed PostgreSQL FTS vector."""
     field_sql = _FIELD_SEARCH_VECTOR_SQL[field]
     return literal_column(field_sql.replace("arena_problems.", f"{table_name}."), TSVECTOR())
 
@@ -284,6 +285,8 @@ def _field_column(field: ProblemSuggestionField) -> ColumnElement[str | None]:
     """Return the stored free-text column for one autocomplete field."""
     if field == "author":
         return type_cast(ColumnElement[str | None], ArenaProblem.author)
+    if field == "license":
+        return type_cast(ColumnElement[str | None], ArenaProblem.license)
     return type_cast(ColumnElement[str | None], ArenaProblem.source)
 
 
@@ -500,7 +503,18 @@ def _suggestion_candidate_problem_ids(
     text_queries: dict[StatementLanguage | None, ColumnElement[Any]],
 ) -> Any:
     """Return independent FTS, literal, and fuzzy candidate branches for one stored field."""
-    candidates = _full_text_candidate_branches(text_queries, field=field)
+    if field == "license":
+        license_problems = ArenaProblem.__table__.alias("suggestion_license_problem")
+        license_value = license_problems.c.license
+        license_vector = _field_search_vector(field, "suggestion_license_problem")
+        candidates = [
+            select(license_problems.c.id).where(
+                license_value.is_not(None),
+                license_vector.bool_op("@@")(text_queries[None]),
+            )
+        ]
+    else:
+        candidates = _full_text_candidate_branches(text_queries, field=field)
     problems = ArenaProblem.__table__.alias("suggestion_problem")
     value = problems.c[field]
     field_conditions = _field_candidate_conditions(field, value, problems.c.author_is_owner)
@@ -529,9 +543,14 @@ def _postgres_suggestion_search(
     value = _field_column(field)
     text_queries = _text_queries(query, literal_query=True)
     field_vector = _field_search_vector(field)
+    full_text_rank = (
+        func.ts_rank_cd(field_vector, text_queries[None], 32)
+        if field == "license"
+        else _full_text_rank(field_vector, text_queries)
+    )
     return ProblemSuggestionSearchExpressions(
         predicate=ArenaProblem.id.in_(_suggestion_candidate_problem_ids(field, query, text_queries)),
-        full_text_rank=_full_text_rank(field_vector, text_queries),
+        full_text_rank=full_text_rank,
         trigram_rank=(func.similarity(value, query) if len(query) >= _MIN_FUZZY_QUERY_LENGTH else literal(0.0)),
     )
 

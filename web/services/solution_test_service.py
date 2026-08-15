@@ -25,15 +25,19 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from shared.db_schema import problem_custom_validators
-from shared.enumerations import CustomValidatorActiveState, JudgmentStatus, RoleEnum
+from shared.enumerations import (
+    JudgmentStatus,
+    RoleEnum,
+)
 from shared.queue_schema import SolutionTestJob
 from shared.services.pagination_service import Pagination
+from shared.services.problem_judgeability import judgeability_error
 from web.models._base import _new_uuid
 from web.models.contest import Contest
-from web.models.problem import Problem, ProblemTestCase
+from web.models.problem import Problem
 from web.models.solution_test import SolutionTestRun
 from web.models.users import UberAdmin, User
+from web.services.problem_service import load_contest_problem_judgeability_facts
 from web.services.rate_limit_service import check_solution_test_rate_limit
 from web.services.valkey_service import enqueue_solution_test_job as _enqueue_solution_test_job
 
@@ -150,48 +154,16 @@ async def _ensure_problem_in_contest(session: AsyncSession, contest: Contest, pr
 async def _ensure_judgeable(session: AsyncSession, problem_id: str) -> None:
     """Raise ValueError when the problem cannot be judged in its current state.
 
-    Mirrors the contestant submission gate: a configured validator must have an
-    active VALID revision, and the problem must have the test cases its kind
-    needs (an interactive problem judges only against secret cases).
+    Applies the same shared contract as the contestant submission gate, decided
+    from the problem's stored strategy rather than from validator presence.
+
+    Raises:
+        ValueError: With the shared gate's operator-facing reason.
     """
-    validator = (
-        await session.execute(
-            select(
-                problem_custom_validators.c.active_state,
-                problem_custom_validators.c.active_source,
-                problem_custom_validators.c.candidate_source,
-            ).where(problem_custom_validators.c.problem_id == problem_id)
-        )
-    ).one_or_none()
-
-    validator_configured = validator is not None and (
-        validator.active_source is not None or validator.candidate_source is not None
-    )
-    if validator_configured and validator is not None and validator.active_state != CustomValidatorActiveState.VALID:
-        raise ValueError("The custom validator is not available.")
-
-    test_case_count = await session.scalar(
-        select(func.count())
-        .select_from(ProblemTestCase)
-        .where(
-            ProblemTestCase.problem_id == problem_id,
-            *([ProblemTestCase.is_sample.is_(False)] if validator_configured else []),
-        )
-    )
-    if not test_case_count:
-        raise ValueError("This problem has no test cases and cannot be tested yet.")
-
-    if not validator_configured:
-        missing_output_count = await session.scalar(
-            select(func.count())
-            .select_from(ProblemTestCase)
-            .where(
-                ProblemTestCase.problem_id == problem_id,
-                ProblemTestCase.output_size_bytes.is_(None),
-            )
-        )
-        if missing_output_count:
-            raise ValueError("This problem has test cases with no expected output.")
+    facts = await load_contest_problem_judgeability_facts(session, problem_id)
+    reason = judgeability_error(facts)
+    if reason is not None:
+        raise ValueError(reason)
 
 
 async def get_solution_test_run(

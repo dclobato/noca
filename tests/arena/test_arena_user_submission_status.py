@@ -37,7 +37,7 @@ from shared.db_schema.arena.arena_submissions import (
     arena_submission_judgments,
     arena_submissions,
 )
-from shared.enumerations import ArenaRole, JudgmentStatus, Verdict
+from shared.enumerations import ArenaRole, JudgmentStatus, ProblemValidatorType, Verdict
 from shared.queue_schema import ArenaVerdictEvent
 from web.models.language import Language
 
@@ -84,6 +84,7 @@ async def _make_problem(session: AsyncSession, owner: ArenaUser) -> ArenaProblem
         title=f"Status Problem {uuid.uuid4().hex[:6]}",
         owner_id=owner.id,
         problem_statement="<p>Echo.</p>",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

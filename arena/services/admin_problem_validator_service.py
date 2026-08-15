@@ -1,13 +1,13 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 """Staging of Arena custom-validator candidates.
 
-Shared by the standalone validator upload route and by the problem edit form,
-whose single Save carries the validator alongside everything else.
+The judgment-data validator page applies each upload immediately through its
+dedicated route.
 
 The work is split so callers can reject a bad upload before touching the
 database: :func:`parse_validator_upload` only reads and checks the upload, while
@@ -26,13 +26,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator
 from arena.routes.admin_problem_common import validator_languages
 from arena.services import admin_problem_interaction_service
+from shared.enumerations import ProblemValidatorType
 from shared.queue_schema import CustomValidatorValidationJob
-from shared.services.custom_validator import (
-    build_validation_job,
-    parse_validator_source,
-    stage_candidate,
-    status_view,
-)
+from shared.services.custom_validator import build_validation_job, parse_validator_source, stage_candidate, status_view
 
 _BOTH_REQUIRED = "Choose a validator language and source file together."
 
@@ -102,8 +98,16 @@ async def stage_candidate_revision(
         The validation job to enqueue after the caller commits.
 
     Raises:
-        ValueError: If a validator is already configured.
+        ValueError: If the problem is not interactive, or a validator is already
+            configured.
     """
+    # Two independent axes. The stored strategy decides whether a validator
+    # belongs here at all; source presence decides whether *this* upload is an
+    # addition or an illegal silent replacement. A problem whose source was
+    # removed stays interactive and may upload a replacement.
+    if problem.validator_type is not ProblemValidatorType.INTERACTIVE:
+        raise ValueError("Only an interactive problem can have a custom validator.")
+
     validator = problem.custom_validator
     if status_view(validator).configured:
         raise ValueError("Remove the current validator before uploading a different one.")

@@ -1,0 +1,114 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Contest Limits pane: the failover limits plus the Web-only Auto-Limit profiling
+  card. The two flags are not interchangeable and the existing split is preserved
+  verbatim: the failover fields follow `is_edit_allowed`, while the per-language
+  limit rows inside profiling_limits.html follow `is_limits_edit_allowed`, which
+  is what stays true while a contest is running.
+#}
+<div class="card shadow-sm mb-4">
+    <div class="card-header fw-semibold">Failover limits</div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-6 col-md-3">
+                <label for="time_limit_ms" class="form-label">
+                    Time limit (ms) <span class="text-danger">*</span>
+                </label>
+                <input type="number"
+                       class="form-control{% if field_errors.time_limit_ms %} is-invalid{% endif %}"
+                       id="time_limit_ms"
+                       name="time_limit_ms"
+                       form="edit-form"
+                       min="1"
+                       step="1"
+                       data-editor-required
+                       data-editor-positive-int
+                       {% if field_errors.time_limit_ms %}aria-describedby="time-limit-server-error" aria-invalid="true"{% endif %}
+                       {% if first_error_field == "time_limit_ms" %}autofocus{% endif %}
+                       placeholder="e.g. 1000"
+                       required
+                       value="{{ form_data.time_limit_ms if form_data.time_limit_ms is defined else '' }}"
+                       {% if not is_edit_allowed %}disabled{% endif %}>
+                {% if field_errors.time_limit_ms %}
+                    <div class="invalid-feedback" id="time-limit-server-error">{{ field_errors.time_limit_ms }}</div>
+                {% endif %}
+            </div>
+            <div class="col-6 col-md-3">
+                <label for="memory_limit_kb" class="form-label">
+                    Memory limit (KB) <span class="text-danger">*</span>
+                </label>
+                <input type="number"
+                       class="form-control{% if field_errors.memory_limit_kb %} is-invalid{% endif %}"
+                       id="memory_limit_kb"
+                       name="memory_limit_kb"
+                       form="edit-form"
+                       min="1"
+                       step="1"
+                       data-editor-required
+                       data-editor-positive-int
+                       {% if field_errors.memory_limit_kb %}aria-describedby="memory-limit-server-error" aria-invalid="true"{% endif %}
+                       {% if first_error_field == "memory_limit_kb" %}autofocus{% endif %}
+                       placeholder="e.g. 262144"
+                       required
+                       value="{{ form_data.memory_limit_kb if form_data.memory_limit_kb is defined else '' }}"
+                       {% if not is_edit_allowed %}disabled{% endif %}>
+                {% if field_errors.memory_limit_kb %}
+                    <div class="invalid-feedback" id="memory-limit-server-error">{{ field_errors.memory_limit_kb }}</div>
+                {% endif %}
+            </div>
+            <div class="col-6 col-md-3">
+                <label for="pids_limit" class="form-label">
+                    PIDs limit <span class="text-danger">*</span>
+                </label>
+                <input type="number"
+                       class="form-control{% if field_errors.pids_limit %} is-invalid{% endif %}"
+                       id="pids_limit"
+                       name="pids_limit"
+                       form="edit-form"
+                       min="1"
+                       step="1"
+                       data-editor-required
+                       data-editor-positive-int
+                       {% if field_errors.pids_limit %}aria-describedby="pids-limit-server-error" aria-invalid="true"{% endif %}
+                       {% if first_error_field == "pids_limit" %}autofocus{% endif %}
+                       placeholder="e.g. 64"
+                       required
+                       value="{{ form_data.pids_limit if form_data.pids_limit is defined else '' }}"
+                       {% if not is_edit_allowed %}disabled{% endif %}>
+                {% if field_errors.pids_limit %}
+                    <div class="invalid-feedback" id="pids-limit-server-error">{{ field_errors.pids_limit }}</div>
+                {% endif %}
+            </div>
+            <div class="col-6 col-md-3">
+                <label for="output_limit_in_bytes" class="form-label">Output limit (bytes)</label>
+                <input type="number"
+                       class="form-control{% if field_errors.output_limit_in_bytes %} is-invalid{% endif %}"
+                       id="output_limit_in_bytes"
+                       name="output_limit_in_bytes"
+                       form="edit-form"
+                       min="1"
+                       step="1"
+                       data-editor-required
+                       data-editor-positive-int
+                       {% if field_errors.output_limit_in_bytes %}aria-describedby="output-limit-server-error" aria-invalid="true"{% endif %}
+                       {% if first_error_field == "output_limit_in_bytes" %}autofocus{% endif %}
+                       required
+                       placeholder="e.g. 65536"
+                       value="{{ form_data.output_limit_in_bytes if form_data.output_limit_in_bytes is defined and form_data.output_limit_in_bytes else 65536 }}"
+                       {% if not is_edit_allowed %}disabled{% endif %}>
+                {% if field_errors.output_limit_in_bytes %}
+                    <div class="invalid-feedback" id="output-limit-server-error">{{ field_errors.output_limit_in_bytes }}</div>
+                {% endif %}
+            </div>
+            <div class="col-12 mt-2">
+                <small class="text-muted">Fallback limits always use exactly 1 repetition per test case.</small>
+            </div>
+        </div>
+    </div>
+</div>
+{% include "admin/problems/profiling_limits.html" %}

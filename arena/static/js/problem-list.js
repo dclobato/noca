@@ -15,9 +15,10 @@
 (() => {
   "use strict";
 
-  const catFilterList   = document.getElementById("cat-filter-list");
-  const catFilterSearch = document.getElementById("cat-filter-search");
-  const catFilterCount  = document.getElementById("cat-filter-count");
+  const catFilterList      = document.getElementById("cat-filter-list");
+  const catFilterSearch    = document.getElementById("cat-filter-search");
+  const catFilterCount     = document.getElementById("cat-filter-count");
+  const catFilterNoMatches = document.getElementById("cat-filter-no-matches");
 
   document.querySelectorAll("[data-category-color]").forEach((el) => {
     const color = el.getAttribute("data-category-color") || "#6c757d";
@@ -42,10 +43,16 @@
   if (catFilterSearch && catFilterList) {
     catFilterSearch.addEventListener("input", () => {
       const q = catFilterSearch.value.trim().toLowerCase();
+      let anyVisible = false;
       catFilterList.querySelectorAll(".arena-cat-filter-item").forEach((item) => {
         const label = item.textContent.trim().toLowerCase();
-        item.classList.toggle("d-none", q !== "" && !label.includes(q));
+        const hidden = q !== "" && !label.includes(q);
+        item.classList.toggle("d-none", hidden);
+        if (!hidden) anyVisible = true;
       });
+      if (catFilterNoMatches) {
+        catFilterNoMatches.classList.toggle("d-none", anyVisible);
+      }
     });
   }
 })();

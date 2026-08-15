@@ -58,6 +58,7 @@ async def remove_contest(
                 session,
                 contest_id=contest_id,
                 actor_uberadmin_id=uberadmin.id,
+                actor_uberadmin_label=uberadmin.username,
                 valkey_runtime=request.app.state.valkey_runtime,
                 statement_dir=settings.PROBLEM_STATEMENT_DIR,
                 testcase_dir=settings.PROBLEM_TESTCASE_DIR,

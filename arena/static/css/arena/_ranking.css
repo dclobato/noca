@@ -57,8 +57,14 @@
     gap: 0.25rem;
     flex: 0 0 auto;
     padding: var(--arena-space-sm) 0;
+    color: var(--arena-on-surface-variant);
     font-size: 0.875rem;
     font-weight: 600;
+    text-decoration: none;
+}
+
+.arena-ranking-back-link:hover {
+    color: var(--arena-primary);
 }
 
 .arena-ranking-back-link:focus-visible {
@@ -156,8 +162,13 @@
     width: 7rem;
 }
 
+.arena-ranking-col-solved {
+    width: 7rem;
+}
+
 .arena-ranking-rank,
-.arena-ranking-rating {
+.arena-ranking-rating,
+.arena-ranking-solved {
     color: var(--arena-on-surface);
     font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     font-weight: 700;
@@ -263,7 +274,8 @@
         min-width: 0;
     }
     .arena-ranking-col-rank,
-    .arena-ranking-col-rating {
+    .arena-ranking-col-rating,
+    .arena-ranking-col-solved {
         width: 5rem;
     }
 

@@ -1,0 +1,128 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Shared Statement pane for the problem editor, rendered by both modules.
+
+  The one real difference between them is PDF: Contest problems may carry a PDF
+  *or* Markdown statement on the filesystem, while Arena statements are Markdown
+  held in the database. `view.allow_pdf` selects between those; it does not add
+  PDF storage to Arena or remove it from Contest.
+
+  Required context:
+    view              shared.services.problem_definition_view.ProblemDefinitionView
+    statement_value   current Markdown text
+    statement_field   name of the Markdown form field (modules differ)
+    is_edit_allowed   bool
+    has_pdf/has_md    bool, Contest only (ignored when view.allow_pdf is false)
+  Plus whatever `_partials/problem_image_field.html` needs.
+#}
+{% from "_macros.html" import render_icon with context %}
+{% set statement_field = statement_field | default("md_content") %}
+{% set has_pdf = has_pdf | default(false) %}
+{% set has_md = has_md | default(false) %}
+{% set field_errors = field_errors | default({}) %}
+{% set statement_error = field_errors[statement_field] | default("") %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header fw-semibold">Problem statement</div>
+    <div class="card-body">
+        {% if view.allow_pdf %}
+            <span id="stmt-state-sentinel"
+                  class="d-none"
+                  data-has-pdf="{{ 'true' if has_pdf else 'false' }}"
+                  data-has-md="{{ 'true' if has_md else 'false' }}"
+                  data-is-edit="{{ 'false' if view.is_create else 'true' }}"></span>
+            <input type="hidden"
+                   name="statement_source"
+                   id="statement_source"
+                   form="edit-form"
+                   value="{{ 'unchanged' if (not view.is_create and (has_pdf or has_md)) else 'md' }}">
+            {% if has_pdf and view.statement_view_url %}
+                <div class="mb-3" id="stmt-pdf-preview">
+                    <object data="{{ view.statement_view_url }}"
+                            type="application/pdf"
+                            width="100%"
+                            height="350px"
+                            class="rounded border">
+                        <p class="p-3 text-muted small">
+                            PDF preview not available.
+                            <a href="{{ view.statement_view_url }}">Open PDF</a>
+                        </p>
+                    </object>
+                    <div class="d-flex gap-2 mt-2 flex-wrap">
+                        <a href="{{ view.statement_download_url }}"
+                           class="btn btn-sm btn-outline-secondary">
+                            {{ render_icon(icon="download", classes="me-1") }}Download PDF
+                        </a>
+                        {% if is_edit_allowed %}
+                            <button type="button"
+                                    id="stmt-replace-with-md"
+                                    class="btn btn-sm btn-outline-warning">
+                                {{ render_icon(icon="edit", classes="me-1") }}Replace with empty Markdown
+                            </button>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+            <div class="mb-3">
+                <label class="form-label" for="stmt-file-input">
+                    {% if has_pdf %}
+                        Replace statement (PDF or Markdown)
+                    {% elif has_md %}
+                        Replace (PDF or Markdown)
+                    {% else %}
+                        Upload statement <span class="text-muted small">(or type it in the space below)</span>
+                    {% endif %}
+                </label>
+                <input type="file"
+                       class="form-control"
+                       name="statement_file"
+                       id="stmt-file-input"
+                       form="edit-form"
+                       accept=".pdf,.md"
+                       {% if not is_edit_allowed %}disabled{% endif %}>
+                <div class="form-text">
+                    Upload a <code>.pdf</code> or <code>.md</code> file.
+                    After uploading a PDF, the Markdown editor will be disabled.
+                    After uploading a <code>.md</code>, its content will be loaded into the editor.
+                </div>
+            </div>
+        {% endif %}
+        <div class="mb-1">
+            <label class="form-label" for="stmt-md-editor">
+                Statement (Markdown)
+                {% if not view.allow_pdf %}<span class="text-danger">*</span>{% endif %}
+            </label>
+            <textarea id="stmt-md-editor"
+                      name="{{ statement_field }}"
+                      form="edit-form"
+                      {% if not view.allow_pdf %}data-editor-required required{% endif %}
+                      {% if statement_error %}aria-describedby="statement-server-error" aria-invalid="true"{% endif %}
+                      {% if first_error_field == statement_field %}autofocus{% endif %}
+                      {% if not is_edit_allowed %}disabled{% endif %}>{{ statement_value | e }}</textarea>
+            {% if statement_error %}
+                <div class="invalid-feedback d-block" id="statement-server-error">{{ statement_error }}</div>
+            {% endif %}
+            <div class="form-text small">Only text and formatting. External links and images are not allowed.</div>
+            <div class="form-text small mt-1">
+                Support for <span class="fw-semibold">LaTeX</span> (
+                <span class="text-muted">$x^n + 3 = 0$</span>
+                ),
+                <span class="fw-semibold">Mermaid diagrams</span> (
+                <span class="text-muted font-monospace">```mermaid ...```</span>
+                ), and <span class="fw-semibold">NOCA directives</span>
+                <a href="#"
+                   class="ms-1"
+                   data-bs-toggle="modal"
+                   data-bs-target="#syntaxModal">View syntax examples</a>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="card shadow-sm mb-4">
+    <div class="card-header fw-semibold">Problem illustration</div>
+    <div class="card-body">{% include "_partials/problem_image_field.html" %}</div>
+</div>

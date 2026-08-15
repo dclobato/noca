@@ -24,7 +24,7 @@ import arena.models.arena_users  # noqa: F401
 from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_users import ArenaUser
 from shared.db_schema.arena import arena_problems
-from shared.enumerations import ArenaRole, StatementLanguage
+from shared.enumerations import ArenaRole, ProblemValidatorType, StatementLanguage
 
 _PT = """# Soma de dois números
 
@@ -88,6 +88,7 @@ async def _make_problem(
         enabled=False,
         problem_statement=statement,
         statement_language=language,
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(problem)
     await session.flush()

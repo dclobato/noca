@@ -5,7 +5,7 @@
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
-{% from "_macros.html" import render_icon, render_rank_medal %}
+{% from "_macros.html" import render_icon, render_avatar, render_rank_medal %}
 <section class="arena-card arena-dashboard-data-card h-100"
          aria-labelledby="dashboard-leaderboard-title">
     <div class="arena-dashboard-card-header">
@@ -27,6 +27,7 @@
                     <th scope="col">Rank</th>
                     <th scope="col">Name</th>
                     <th scope="col" class="text-end">Rating</th>
+                    <th scope="col" class="text-end">Solved</th>
                     <th scope="col" class="text-end">Confidence</th>
                 </tr>
             </thead>
@@ -35,13 +36,21 @@
                     {% set top_user_profile_url = request.url_for('arena_user_profile_public', user_id=top_user.id) if top_user.public_profile else None %}
                     <tr {% if top_user_profile_url %}data-href="{{ top_user_profile_url }}"{% endif %}>
                         <td>{{ render_rank_medal(request, top_user.rank) }}</td>
-                        <td class="arena-dashboard-user-name">{{ top_user.name }}</td>
+                        <td>
+                            <div class="arena-dashboard-user-identity">
+                                {% if current_user %}
+                                    {{ render_avatar(top_user.id, request.url_for('arena_user_avatar_by_id', user_id=top_user.id) , alt=top_user.name) }}
+                                {% endif %}
+                                <span class="arena-dashboard-user-name">{{ top_user.name }}</span>
+                            </div>
+                        </td>
                         <td class="text-end">{{ top_user.rating }}</td>
+                        <td class="text-end">{{ top_user.solved_problems }}</td>
                         <td class="text-end">{{ top_user.confidence }}%</td>
                     </tr>
                 {% else %}
                     <tr>
-                        <td colspan="4">
+                        <td colspan="5">
                             <div class="arena-dashboard-empty">
                                 {{ render_icon(icon="leaderboard") }}
                                 <p>No rated users yet.</p>

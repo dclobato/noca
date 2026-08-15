@@ -1,0 +1,104 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  The validator page of the judgment-data editor, shared by both modules.
+
+  Uploading and removing a validator are each one immediate POST. They were
+  briefly folded into the problem Save, which meant the page carried a decision
+  about the validator alongside decisions about everything else; here the page is
+  about the validator and nothing else, so there is nothing to lose.
+
+  Presence of validator *source* is a separate axis from the strategy: a problem
+  whose source was removed is still interactive, which is why this page exists for
+  every interactive problem and only its contents look at `validator_status`.
+
+  Required context:
+    shell                shared.services.judgment_page_view.JudgmentShellView
+    page                 shared.services.judgment_page_view.ValidatorPageView
+    validator_status     optional custom-validator status view
+    validator_languages  optional list of languages
+    is_edit_allowed      bool
+#}
+{% from "_macros.html" import render_icon with context %}
+{% set has_source = validator_status and validator_status.configured %}
+{% set validator_language_extensions = validator_language_extensions | default({}) %}
+<div class="card noca-operational-card mb-4">
+    <h2 class="card-header h6 mb-0 fw-semibold">Custom interactive validator</h2>
+    <div class="card-body">
+        {% if page.status_template %}
+            {% include page.status_template %}
+        {% endif %}
+        {% if has_source %}
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                {% if page.download_url %}
+                    <a class="btn btn-outline-secondary btn-sm"
+                       href="{{ page.download_url }}">
+                        {{ render_icon(icon="download", classes="me-1") }}Download validator source
+                    </a>
+                {% endif %}
+                {% if page.source_url %}
+                    <a class="btn btn-outline-secondary btn-sm"
+                       href="{{ page.source_url }}"
+                       target="_blank"
+                       rel="noopener noreferrer">{{ render_icon(icon="visibility", classes="me-1") }}View source</a>
+                {% endif %}
+                {% if is_edit_allowed %}
+                    <button class="btn btn-outline-danger btn-sm"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#validator-remove-modal">
+                        {{ render_icon(icon="delete", classes="me-1") }}Remove validator
+                    </button>
+                {% endif %}
+            </div>
+            <div class="form-text">Remove the current validator to upload a different one.</div>
+            {% with validator_remove_url=page.remove_url, interaction_count=page.interaction_count %}
+                {% include "_partials/validator_remove_modal.html" %}
+            {% endwith %}
+        {% elif is_edit_allowed %}
+            <script id="validator-language-extensions" type="application/json">
+                {{ validator_language_extensions | tojson }}
+            </script>
+            <form method="post"
+                  action="{{ page.upload_url }}"
+                  enctype="multipart/form-data"
+                  class="row g-2 align-items-end mt-1">
+                <div class="col-md-5">
+                    <label for="language_id" class="form-label">Language</label>
+                    <select id="language_id"
+                            name="language_id"
+                            class="form-select form-select-sm"
+                            required>
+                        {% for language in validator_languages | default([]) %}
+                            <option value="{{ language.id }}">{{ language.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <label for="source_file" class="form-label">UTF-8 source file</label>
+                    <input id="source_file"
+                           type="file"
+                           name="source_file"
+                           class="form-control form-control-sm"
+                           data-language-file-accept
+                           data-language-select="language_id"
+                           data-language-extensions="validator-language-extensions"
+                           required>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary btn-sm w-100" type="submit">Upload</button>
+                </div>
+            </form>
+        {% else %}
+            <p class="text-muted small mb-0">This problem has no validator source yet.</p>
+        {% endif %}
+        <div class="form-text">
+            The validator is replayed once per test case, with that case's input fed to its
+            standard input; test cases carry no expected output. Validation runs asynchronously.
+        </div>
+    </div>
+</div>

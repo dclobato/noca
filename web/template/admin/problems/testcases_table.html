@@ -1,3 +1,15 @@
-{# An interactive problem's cases are all secret, so it offers no sample toggle. #}
-{% set sample_toggle_disabled = validator_status is defined and validator_status.configured %}
-{% include "_partials/testcase_list_table.html" %}
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Contest-side wrapper for the shared test-case list table. The strategy comes
+  from the stored `validator_type`, never from validator-source presence: a
+  problem whose validator was removed is still interactive, and its cases still
+  carry input only.
+#}
+{% with interactive = is_interactive is defined and is_interactive %}
+    {% include "_partials/testcase_list_table.html" %}
+{% endwith %}

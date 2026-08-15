@@ -1,3 +1,9 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -7,7 +13,7 @@ import pytest_asyncio
 import valkey.asyncio as aivalkey
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.enumerations import RoleEnum, TaskType
+from shared.enumerations import ProblemValidatorType, RoleEnum, TaskType
 from shared.services.lock_service import get_lock
 from web.models.contest import Contest
 from web.models.problem import Problem
@@ -166,6 +172,7 @@ async def test_create_print_task_rejects_problem_from_other_contest(
         title="Foreign Problem",
         ordinal=99,
         color="#00ff00",
+        validator_type=ProblemValidatorType.STANDARD,
     )
     session.add(foreign_problem)
     await session.flush()

@@ -27,7 +27,7 @@ from shared.db_schema.arena import (
     arena_user_badges,
     arena_users,
 )
-from shared.enumerations import ArenaBadge, ArenaRole, JudgmentStatus, Verdict
+from shared.enumerations import ArenaBadge, ArenaRole, JudgmentStatus, ProblemValidatorType, Verdict
 from shared.services.arena_badges import compute_badge_awards
 
 pytestmark = pytest.mark.asyncio
@@ -60,6 +60,7 @@ async def _new_problem(session: AsyncSession, owner_id: str) -> str:
             title=f"Badge Problem {uuid.uuid4().hex[:8]}",
             owner_id=owner_id,
             problem_statement="<p>Echo.</p>",
+            validator_type=ProblemValidatorType.STANDARD,
         )
     )
     return problem_id

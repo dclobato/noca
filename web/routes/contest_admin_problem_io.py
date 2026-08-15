@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from fastapi_flash import FlashCategory, FlashDep
 from starlette.background import BackgroundTask
 
+from shared.enumerations import ProblemValidatorType
 from shared.services.custom_validator import build_validation_job
 from shared.services.imageprocessing_service import ImageProcessingError
 from shared.services.problem_package import PackageError, open_problem_package
@@ -127,8 +128,12 @@ async def import_problem_submit(
     for warning in import_result.warnings:
         flash(warning.message, FlashCategory.WARNING)
     # An interactive problem shows sample interactions instead of sample test cases,
-    # so one imported without any has nothing public to show a contestant.
-    if import_result.validator_candidate_token is not None and import_result.imported_interaction_count == 0:
+    # so one imported without any has nothing public to show a contestant. This
+    # reads the imported problem's stored strategy, not the package's validator.
+    if (
+        import_result.problem.validator_type is ProblemValidatorType.INTERACTIVE
+        and import_result.imported_interaction_count == 0
+    ):
         flash(
             "This package has a custom validator but no sample interactions, so the problem "
             "shows no examples. Add them on the edit page below.",

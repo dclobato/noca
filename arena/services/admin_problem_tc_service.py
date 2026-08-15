@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -34,16 +34,21 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator, ArenaTestCase
-from shared.services.custom_validator import status_view
+from shared.enumerations import CustomValidatorActiveState, ProblemValidatorType
+from shared.services.problem_judgeability import ProblemJudgeabilityFacts, judgeability_error
 from shared.services.testcase_files import (
     delete_all_testcase_files,
     delete_testcase_files,
     read_testcase_preview,
     renumber_testcase_files,
-    reorder_testcase_files,
     save_testcase_files,
 )
-from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES, normalize_testcase_bytes, parse_testcases_zip
+from shared.tc_zip import (
+    MAX_INLINE_TESTCASE_BYTES,
+    inline_oversized_side,
+    normalize_testcase_bytes,
+    parse_testcases_zip,
+)
 
 
 def _now() -> datetime:
@@ -65,46 +70,89 @@ class TestCaseView:
     is_large: bool
 
 
-def _check_inline_size(in_bytes: bytes, out_bytes: bytes | None) -> None:
+def check_inline_size(in_bytes: bytes, out_bytes: bytes | None) -> None:
     """Reject inline content whose normalized side exceeds the gate threshold.
+
+    Public because the routes now apply their own operations through the staged
+    swap and must refuse an oversized inline edit before anything is staged.
 
     Raises:
         ValueError: If either normalized side is larger than the limit.
     """
-    if len(normalize_testcase_bytes(in_bytes)) > MAX_INLINE_TESTCASE_BYTES:
+    oversized = inline_oversized_side(in_bytes, out_bytes)
+    if oversized == "input":
         raise ValueError(
             f"Input exceeds the {MAX_INLINE_TESTCASE_BYTES // 1024} KB inline-edit limit; "
             "edit this case offline via download/replace."
         )
-    if out_bytes is not None and len(normalize_testcase_bytes(out_bytes)) > MAX_INLINE_TESTCASE_BYTES:
+    if oversized == "output":
         raise ValueError(
             f"Output exceeds the {MAX_INLINE_TESTCASE_BYTES // 1024} KB inline-edit limit; "
             "edit this case offline via download/replace."
         )
 
 
-async def has_custom_validator(session: AsyncSession, problem_id: str) -> bool:
-    """Whether the problem is interactive, so its cases carry no expected output."""
-    validator = await session.scalar(
-        select(ArenaProblemCustomValidator).where(ArenaProblemCustomValidator.problem_id == problem_id)
-    )
-    return status_view(validator).configured
+async def is_interactive(session: AsyncSession, problem_id: str) -> bool:
+    """Whether the problem is interactive, so its cases carry no expected output.
 
+    Reads the stored strategy. A problem that lost its validator source stays
+    interactive, and a stale validator row never makes a standard problem one.
 
-async def testcase_readiness_error(session: AsyncSession, problem_id: str) -> str | None:
-    """Return why the problem's test cases cannot judge submissions yet, else None.
+    Args:
+        session: Active async session.
+        problem_id: The problem to inspect.
 
-    Every problem needs at least one test case: a plain problem compares each
-    case's expected output, and an interactive one replays its validator once per
-    case with that case's input. A plain problem additionally needs an expected
-    output on every case — which one that lost its validator no longer has.
+    Returns:
+        bool: True when the stored strategy is ``INTERACTIVE``.
     """
-    cases = await list_testcases(session, problem_id)
-    if not cases:
-        return "Add at least one test case first."
-    if not await has_custom_validator(session, problem_id) and any(case.output_size_bytes is None for case in cases):
-        return "Every test case needs an expected output. Add one to each case, or configure a custom validator."
-    return None
+    query = select(ArenaProblem.validator_type).where(ArenaProblem.id == problem_id)
+    strategy = await session.scalar(query)
+    return strategy is ProblemValidatorType.INTERACTIVE
+
+
+async def judgeability_error_for(session: AsyncSession, problem: ArenaProblem) -> str | None:
+    """Return why the problem cannot judge submissions yet, or ``None``.
+
+    Applies the shared cross-domain contract, so Arena enablement, submission
+    creation, and the worker cannot disagree about what "ready" means.
+
+    Args:
+        session: Active async session.
+        problem: The problem to gate.
+
+    Returns:
+        str | None: An operator-facing reason, or ``None`` when judgeable.
+    """
+    return judgeability_error(await judgeability_facts_for(session, problem))
+
+
+async def judgeability_facts_for(
+    session: AsyncSession,
+    problem: ArenaProblem,
+) -> ProblemJudgeabilityFacts:
+    """Gather the shared judgeability facts for one Arena problem.
+
+    Args:
+        session: Active async session.
+        problem: Problem whose stored strategy is authoritative.
+
+    Returns:
+        ProblemJudgeabilityFacts: Domain-neutral facts used by every gate and
+        by the judgment editor's readiness summary.
+    """
+    cases = await list_testcases(session, problem.id)
+    validator = await session.scalar(
+        select(ArenaProblemCustomValidator).where(ArenaProblemCustomValidator.problem_id == problem.id)
+    )
+    return ProblemJudgeabilityFacts(
+        strategy=problem.validator_type,
+        total_case_count=len(cases),
+        secret_case_count=sum(1 for case in cases if not case.is_sample),
+        cases_missing_expected_output=sum(1 for case in cases if case.output_size_bytes is None),
+        has_active_valid_validator=(
+            validator is not None and validator.active_state == CustomValidatorActiveState.VALID
+        ),
+    )
 
 
 async def list_testcases(session: AsyncSession, problem_id: str) -> list[ArenaTestCase]:
@@ -153,12 +201,22 @@ async def get_testcase(
     *,
     problem_id: str,
 ) -> ArenaTestCase | None:
-    """Fetch a single test case by id, scoped to a specific problem."""
+    """Fetch a single test case by id, scoped to a specific problem.
+
+    ``populate_existing`` because the caller may already hold this row from an
+    earlier load in the same session -- the problem's eagerly-loaded collection,
+    typically -- and the identity map would hand that stale instance back without
+    reading the database. A route that re-reads a case *after* taking the problem
+    lock is asking for the value the row holds now, which is the whole point of
+    reading it there.
+    """
     result = await session.execute(
-        select(ArenaTestCase).where(
+        select(ArenaTestCase)
+        .where(
             ArenaTestCase.id == tc_id,
             ArenaTestCase.problem_id == problem_id,
         )
+        .execution_options(populate_existing=True)
     )
     return result.scalar_one_or_none()
 
@@ -200,10 +258,10 @@ async def create_testcase(
     Raises:
         ValueError: If either normalized side exceeds ``MAX_INLINE_TESTCASE_BYTES``.
     """
-    interactive = await has_custom_validator(session, problem.id)
+    interactive = await is_interactive(session, problem.id)
     in_bytes = input_content.encode("utf-8")
     out_bytes = None if interactive else output_content.encode("utf-8")
-    _check_inline_size(in_bytes, out_bytes)
+    check_inline_size(in_bytes, out_bytes)
 
     in_norm = normalize_testcase_bytes(in_bytes)
     out_size = None if out_bytes is None else len(normalize_testcase_bytes(out_bytes))
@@ -250,10 +308,10 @@ async def update_testcase(
     Raises:
         ValueError: If either normalized side exceeds ``MAX_INLINE_TESTCASE_BYTES``.
     """
-    interactive = await has_custom_validator(session, tc.problem_id)
+    interactive = await is_interactive(session, tc.problem_id)
     in_bytes = input_content.encode("utf-8")
     out_bytes = None if interactive else output_content.encode("utf-8")
-    _check_inline_size(in_bytes, out_bytes)
+    check_inline_size(in_bytes, out_bytes)
 
     in_norm = normalize_testcase_bytes(in_bytes)
     tc.input_size_bytes = len(in_norm)
@@ -309,7 +367,7 @@ async def toggle_sample(session: AsyncSession, tc: ArenaTestCase) -> ArenaTestCa
         ValueError: If the problem is interactive. Such a problem presents sample
             interactions instead, so none of its cases may be public.
     """
-    if await has_custom_validator(session, tc.problem_id):
+    if await is_interactive(session, tc.problem_id):
         raise ValueError("Interactive problems present sample interactions instead of sample test cases.")
     tc.is_sample = not tc.is_sample
     tc.updated_at = _now()
@@ -350,33 +408,6 @@ async def delete_testcase(
             renumber_testcase_files(problem_id, old_ordinal, old_ordinal - 1, testcase_dir)
 
     return _cleanup_files
-
-
-async def move_testcase(
-    session: AsyncSession,
-    tc: ArenaTestCase,
-    new_ordinal: int,
-    *,
-    testcase_dir: Path,
-) -> None:
-    """Move a test case to a new 1-based ordinal inside its problem."""
-    result = await session.execute(
-        select(ArenaTestCase).where(ArenaTestCase.problem_id == tc.problem_id).order_by(ArenaTestCase.ordinal)
-    )
-    tcs = list(result.scalars())
-    current_index = next((index for index, item in enumerate(tcs) if item.id == tc.id), None)
-    if current_index is None:
-        return
-
-    moving = tcs.pop(current_index)
-    destination_index = max(0, min(new_ordinal - 1, len(tcs)))
-    tcs.insert(destination_index, moving)
-
-    # Map each case's current ordinal to its destination ordinal for the files.
-    ordinal_map = {item.ordinal: index for index, item in enumerate(tcs, start=1)}
-    reorder_testcase_files(tc.problem_id, ordinal_map, testcase_dir)
-
-    await _apply_testcase_order(session, tcs)
 
 
 async def _apply_testcase_order(session: AsyncSession, tcs: list[ArenaTestCase]) -> None:
@@ -420,7 +451,7 @@ async def replace_all_from_zip(
     Raises:
         ValueError: Propagated from ``parse_testcases_zip`` on malformed ZIP.
     """
-    interactive = await has_custom_validator(session, problem.id)
+    interactive = await is_interactive(session, problem.id)
     parsed = parse_testcases_zip(zip_bytes, require_output=not interactive)
     is_sample = False if interactive else default_is_sample
 

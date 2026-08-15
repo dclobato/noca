@@ -13,55 +13,42 @@ Presentation helpers (URL/context builders, form rendering) live in
 
 from __future__ import annotations
 
-import anyio
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from arena.config import settings
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_problem_editor
 from arena.models.arena_users import ArenaUser
-from arena.routes.admin_problem_common import get_problem_or_403, validator_languages
+from arena.routes.admin_problem_common import get_problem_definition_or_403, get_problem_or_403
 from arena.routes.admin_problem_form_views import (
     edit_form_extras,
     effective_per_page,
     form_fields,
     html_response,
     is_admin,
+    parse_enabled_filter,
     problem_list_url,
-    process_problem_image,
     render_problem_form,
     return_state,
     safe_next_path,
     selected_cats_data,
 )
+from arena.routes.admin_problem_judgment_urls import judgment_page_url
+from arena.routes.admin_problem_new import creation_return_query, resolve_choice_or_redirect
 from arena.services import (
-    admin_problem_interaction_pending,
     admin_problem_interaction_service,
     admin_problem_service,
-    admin_problem_tc_pending,
     admin_problem_tc_service,
-)
-from arena.services.admin_problem_validator_service import (
-    parse_validator_upload,
-    stage_candidate_revision,
 )
 from arena.services.pagination_service import parse_page
 from arena.services.statement_language_service import (
-    LanguageConflict,
-    conflict_context,
-    resolve_statement_language,
     safe_statement_language,
 )
-from shared.enumerations import StatementLanguage
-from shared.http_params import PG_INT32_MAX
+from shared.enumerations import ProblemValidatorType, StatementLanguage
 from shared.services.admin_audit import record_admin_action
-from shared.services.custom_validator import status_view
-from shared.services.imageprocessing_service import ImageProcessingError
-from shared.services.sample_interactions import InteractionParseError
-from shared.services.valkey_service import enqueue_custom_validator_validation_job
+from shared.services.problem_definition_view import MOVED_TO_JUDGMENT
 from shared.services.valkey_service.queue_ops import enqueue_arena_submission_job
 
 router = APIRouter(prefix="/admin", tags=["arena-admin"])
@@ -88,6 +75,7 @@ async def admin_problem_list(
     owner_id: str = "",
     category_slugs: list[str] | None = Query(None),
     language: str = "",
+    enabled: str = "",
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -96,6 +84,7 @@ async def admin_problem_list(
     is_adm = is_admin(current_user)
     effective_language = safe_statement_language(language)
     effective_sort = _effective_problem_sort(sort_by, search)
+    effective_enabled = parse_enabled_filter(enabled)
 
     pagination = await admin_problem_service.list_problems_paginated(
         session,
@@ -105,6 +94,7 @@ async def admin_problem_list(
         category_slugs=category_slugs or [],
         owner_id=owner_id if (is_adm and owner_id) else None,
         language=effective_language,
+        enabled=effective_enabled,
         sort_by=effective_sort,
         caller_id=current_user.id,
         is_admin=is_adm,
@@ -126,6 +116,7 @@ async def admin_problem_list(
                 "selected_category_slugs": set(category_slugs or []),
                 "language": effective_language.value if effective_language else "",
                 "statement_languages": list(StatementLanguage),
+                "selected_enabled": enabled if enabled in ("1", "0") else "",
                 "owners": owners,
                 "all_categories": all_categories,
                 "current_user": current_user,
@@ -135,10 +126,11 @@ async def admin_problem_list(
     )
 
 
-@router.get("/problems/new", response_class=HTMLResponse, name="arena_admin_problem_new")
+@router.get("/problems/new/{validator_type}", response_class=HTMLResponse, name="arena_admin_problem_new")
 async def admin_problem_new(
     request: Request,
     flash: FlashDep,
+    validator_type: str,
     page: str = "1",
     per_page: str = "25",
     search: str = "",
@@ -146,11 +138,36 @@ async def admin_problem_new(
     owner_id: str = "",
     category_slugs: list[str] | None = Query(None),
     language: str = "",
+    enabled: str = "",
+    next: str = Query(""),
+    tab: str = Query(""),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Render the create-problem form."""
-    back_url = problem_list_url(
+    """Render the creation editor for one validation strategy.
+
+    ``validator_type`` is taken as ``str`` and resolved in the handler on purpose:
+    annotated as the enum, FastAPI answers ``422`` before the handler runs, which
+    ``shared.error_handlers`` renders as a neutral JSON body -- wrong for an HTML
+    admin page, and it would make an unknown strategy indistinguishable from the
+    reserved one.
+    """
+    safe_next = safe_next_path(next)
+    return_query = creation_return_query(
+        page=page,
+        per_page=per_page,
+        search=search,
+        sort_by=sort_by,
+        owner_id=owner_id,
+        category_slugs=category_slugs,
+        language=language,
+        enabled=enabled,
+        next_path=safe_next,
+    )
+    strategy = resolve_choice_or_redirect(request, flash, validator_type, return_query)
+    if isinstance(strategy, RedirectResponse):
+        return strategy
+    back_url = safe_next or problem_list_url(
         request,
         page=page,
         per_page=per_page,
@@ -159,10 +176,12 @@ async def admin_problem_new(
         owner_id=owner_id,
         category_slugs=category_slugs,
         language=language,
+        enabled=enabled,
     )
     return render_problem_form(
         request,
         mode="create",
+        validator_type=strategy,
         form=form_fields(
             title="",
             author="",
@@ -187,184 +206,11 @@ async def admin_problem_new(
             owner_id=owner_id,
             category_slugs=category_slugs,
             language=language,
+            enabled=enabled,
         ),
         current_user=current_user,
-        validator_languages=await validator_languages(session),
-    )
-
-
-@router.post("/problems/new", name="arena_admin_problem_create")
-async def admin_problem_create(
-    request: Request,
-    flash: FlashDep,
-    title: str = Form(""),
-    author: str = Form(""),
-    author_is_owner: bool = Form(False),
-    source: str = Form(""),
-    hide_author_show_source: bool = Form(False),
-    time_limit_ms: int = Form(1000, ge=1, le=PG_INT32_MAX),
-    memory_limit_kb: int = Form(262144, ge=1, le=PG_INT32_MAX),
-    pids_limit: int = Form(64, ge=1, le=PG_INT32_MAX),
-    output_limit_in_bytes: int = Form(65536, ge=1, le=PG_INT32_MAX),
-    problem_statement: str = Form(""),
-    category_ids: list[str] = Form(default=[]),
-    return_page: str = Form("1"),
-    return_per_page: str = Form("25"),
-    return_search: str = Form(""),
-    return_sort_by: str = Form(admin_problem_service.DEFAULT_SORT),
-    return_owner_id: str = Form(""),
-    return_category_slugs: list[str] = Form(default=[]),
-    return_language: str = Form(""),
-    image: UploadFile = File(None),
-    image_caption: str = Form(""),
-    notes: str = Form(""),
-    license: str = Form(""),
-    statement_language: str = Form(""),
-    language_confirmed: str = Form(""),
-    validator_language_id: str = Form(""),
-    validator_source_file: UploadFile = File(None),
-    current_user: ArenaUser = Depends(require_arena_problem_editor),
-    session: AsyncSession = Depends(get_db),
-) -> Response:
-    """Create a new Arena problem (always starts as disabled)."""
-    back_url = problem_list_url(
-        request,
-        page=return_page,
-        per_page=return_per_page,
-        search=return_search,
-        sort_by=return_sort_by,
-        owner_id=return_owner_id,
-        category_slugs=return_category_slugs,
-        language=return_language,
-    )
-    state = return_state(
-        page=return_page,
-        per_page=return_per_page,
-        search=return_search,
-        sort_by=return_sort_by,
-        owner_id=return_owner_id,
-        category_slugs=return_category_slugs,
-        language=return_language,
-    )
-    form = form_fields(
-        title=title,
-        author=author,
-        author_is_owner=author_is_owner,
-        source=source,
-        hide_author_show_source=hide_author_show_source,
-        time_limit_ms=time_limit_ms,
-        memory_limit_kb=memory_limit_kb,
-        pids_limit=pids_limit,
-        output_limit_in_bytes=output_limit_in_bytes,
-        problem_statement=problem_statement,
-        category_ids=category_ids,
-        image_caption=image_caption,
-        notes=notes,
-        license=license,
-        statement_language=statement_language,
-    )
-
-    async def render_error(language_conflict: dict[str, str] | None = None) -> HTMLResponse:
-        all_categories = await admin_problem_service.search_categories(session, query="", limit=200)
-        return render_problem_form(
-            request,
-            mode="create",
-            form=form,
-            cats_data=selected_cats_data(all_categories, category_ids),
-            back_url=back_url,
-            state=state,
-            current_user=current_user,
-            validator_languages=await validator_languages(session),
-            language_conflict=language_conflict,
-            status_code=400,
-        )
-
-    # A stated language that disagrees with detection must be acknowledged before
-    # anything is written, so a mistyped language never reaches the database.
-    try:
-        resolution = await resolve_statement_language(
-            chosen_raw=statement_language,
-            confirmed_raw=language_confirmed,
-            statement=problem_statement,
-            title=title,
-        )
-    except ValueError as exc:
-        flash(str(exc), FlashCategory.DANGER)
-        return await render_error()
-    if isinstance(resolution, LanguageConflict):
-        return await render_error(language_conflict=conflict_context(resolution))
-    resolved_language = resolution.language
-
-    # Check the validator upload before creating anything, so a bad file cannot
-    # burn an Arena problem number.
-    try:
-        validator_upload = await parse_validator_upload(
-            session,
-            language_id=validator_language_id,
-            source_file=validator_source_file,
-        )
-    except ValueError as exc:
-        flash(str(exc), FlashCategory.DANGER)
-        return await render_error()
-
-    image_b64: str | None = None
-    image_mime: str | None = None
-    if image and image.filename:
-        try:
-            image_b64, image_mime = await process_problem_image(request, image)
-        except (ImageProcessingError, ValueError) as exc:
-            flash(str(exc), FlashCategory.DANGER)
-            return await render_error()
-
-    try:
-        problem = await admin_problem_service.create_problem(
-            session,
-            caller_id=current_user.id,
-            title=title,
-            author=author or None,
-            author_is_owner=author_is_owner,
-            source=source or None,
-            hide_author_show_source=hide_author_show_source,
-            time_limit_ms=time_limit_ms,
-            memory_limit_kb=memory_limit_kb,
-            pids_limit=pids_limit,
-            output_limit_in_bytes=output_limit_in_bytes,
-            problem_statement=problem_statement,
-            image_b64=image_b64,
-            image_mime=image_mime,
-            image_caption=image_caption or None,
-            notes=notes or None,
-            license=license or None,
-            category_ids=category_ids,
-            statement_language=resolved_language,
-        )
-    except ValueError as exc:
-        flash(str(exc), FlashCategory.DANGER)
-        return await render_error()
-
-    validation_job = (
-        await stage_candidate_revision(session, problem, validator_upload) if validator_upload is not None else None
-    )
-
-    await session.commit()
-    if validation_job is not None:
-        await enqueue_custom_validator_validation_job(request.app.state.valkey_runtime, validation_job)
-    flash(f"Problem #{problem.arena_number} created (disabled).", FlashCategory.SUCCESS)
-    if validation_job is not None:
-        return RedirectResponse(request.url_for("arena_admin_problem_edit", problem_id=problem.id), 303)
-    return RedirectResponse(
-        url=problem_list_url(
-            request,
-            page=return_page,
-            per_page=return_per_page,
-            search=return_search,
-            sort_by=return_sort_by,
-            owner_id=return_owner_id,
-            category_slugs=return_category_slugs,
-            language=return_language,
-            anchor=problem.id,
-        ),
-        status_code=303,
+        next_url=safe_next,
+        active_tab=tab or None,
     )
 
 
@@ -384,13 +230,25 @@ async def admin_problem_edit(
     owner_id: str = "",
     category_slugs: list[str] | None = Query(None),
     language: str = "",
+    enabled: str = "",
     next: str = Query(""),
+    tab: str = Query(""),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Render the edit form for an existing problem."""
-    problem = await get_problem_or_403(problem_id, current_user, session)
-    test_cases, all_categories, problem_owner, has_submissions = await edit_form_extras(problem, current_user, session)
+    """Render the problem definition editor.
+
+    A ``?tab=`` naming a pane that moved to the judgment-data editor is redirected
+    there rather than falling back to Metadata: an old link asking for test cases
+    should land on test cases.
+    """
+    problem = await get_problem_definition_or_403(problem_id, current_user, session)
+    moved = MOVED_TO_JUDGMENT.get(tab)
+    if moved is not None:
+        # The stale "?tab=" that named the moved pane has nothing to say on the
+        # judgment page it moved to, so it is dropped rather than carried forward.
+        return RedirectResponse(url=judgment_page_url(request, problem_id, moved, query=""), status_code=303)
+    all_categories, problem_owner = await edit_form_extras(problem, current_user, session)
     selected_ids = [cat.id for cat in problem.categories]
     safe_next = safe_next_path(next)
     back_url = safe_next or problem_list_url(
@@ -402,12 +260,12 @@ async def admin_problem_edit(
         owner_id=owner_id,
         category_slugs=category_slugs,
         language=language,
+        enabled=enabled,
     )
     return render_problem_form(
         request,
         mode="edit",
         problem=problem,
-        test_cases=test_cases,
         form=form_fields(
             title=problem.title,
             author=problem.author or "",
@@ -436,227 +294,11 @@ async def admin_problem_edit(
             owner_id=owner_id,
             category_slugs=category_slugs,
             language=language,
+            enabled=enabled,
         ),
         problem_owner=problem_owner,
-        has_submissions=has_submissions,
-        validator_status=status_view(problem.custom_validator),
-        validator_languages=await validator_languages(session),
-        interactions=await admin_problem_interaction_service.list_interactions(session, problem.id),
         current_user=current_user,
-    )
-
-
-@router.post("/problems/{problem_id}/edit", name="arena_admin_problem_update")
-async def admin_problem_update(
-    request: Request,
-    problem_id: str,
-    flash: FlashDep,
-    title: str = Form(""),
-    author: str = Form(""),
-    author_is_owner: bool = Form(False),
-    source: str = Form(""),
-    hide_author_show_source: bool = Form(False),
-    time_limit_ms: int = Form(1000, ge=1, le=PG_INT32_MAX),
-    memory_limit_kb: int = Form(262144, ge=1, le=PG_INT32_MAX),
-    pids_limit: int = Form(64, ge=1, le=PG_INT32_MAX),
-    output_limit_in_bytes: int = Form(65536, ge=1, le=PG_INT32_MAX),
-    problem_statement: str = Form(""),
-    category_ids: list[str] = Form(default=[]),
-    return_page: str = Form("1"),
-    return_per_page: str = Form("25"),
-    return_search: str = Form(""),
-    return_sort_by: str = Form(admin_problem_service.DEFAULT_SORT),
-    return_owner_id: str = Form(""),
-    return_category_slugs: list[str] = Form(default=[]),
-    return_language: str = Form(""),
-    next_url: str = Form(""),
-    clear_image: bool = Form(False),
-    image: UploadFile = File(None),
-    image_caption: str = Form(""),
-    notes: str = Form(""),
-    license: str = Form(""),
-    statement_language: str = Form(""),
-    language_confirmed: str = Form(""),
-    validator_language_id: str = Form(""),
-    validator_source_file: UploadFile = File(None),
-    current_user: ArenaUser = Depends(require_arena_problem_editor),
-    session: AsyncSession = Depends(get_db),
-) -> Response:
-    """Submit updates to an existing Arena problem."""
-    problem = await get_problem_or_403(problem_id, current_user, session)
-    safe_next = safe_next_path(next_url)
-    back_url = problem_list_url(
-        request,
-        page=return_page,
-        per_page=return_per_page,
-        search=return_search,
-        sort_by=return_sort_by,
-        owner_id=return_owner_id,
-        category_slugs=return_category_slugs,
-        language=return_language,
-        anchor=problem.id,
-    )
-    state = return_state(
-        page=return_page,
-        per_page=return_per_page,
-        search=return_search,
-        sort_by=return_sort_by,
-        owner_id=return_owner_id,
-        category_slugs=return_category_slugs,
-        language=return_language,
-    )
-    form = form_fields(
-        title=title,
-        author=author,
-        author_is_owner=author_is_owner,
-        source=source,
-        hide_author_show_source=hide_author_show_source,
-        time_limit_ms=time_limit_ms,
-        memory_limit_kb=memory_limit_kb,
-        pids_limit=pids_limit,
-        output_limit_in_bytes=output_limit_in_bytes,
-        problem_statement=problem_statement,
-        category_ids=category_ids,
-        image_caption=image_caption,
-        notes=notes,
-        license=license,
-        statement_language=statement_language,
-    )
-
-    async def render_error(language_conflict: dict[str, str] | None = None) -> HTMLResponse:
-        test_cases, all_categories, problem_owner, has_submissions = await edit_form_extras(
-            problem, current_user, session
-        )
-        return render_problem_form(
-            request,
-            mode="edit",
-            problem=problem,
-            test_cases=test_cases,
-            form=form,
-            cats_data=selected_cats_data(all_categories, category_ids),
-            back_url=back_url,
-            next_url=safe_next,
-            state=state,
-            problem_owner=problem_owner,
-            has_submissions=has_submissions,
-            validator_status=status_view(problem.custom_validator),
-            validator_languages=await validator_languages(session),
-            interactions=await admin_problem_interaction_service.list_interactions(session, problem.id),
-            current_user=current_user,
-            language_conflict=language_conflict,
-            status_code=400,
-        )
-
-    # A stated language that disagrees with detection must be acknowledged before
-    # anything is written, so a mistyped language never reaches the database.
-    try:
-        resolution = await resolve_statement_language(
-            chosen_raw=statement_language,
-            confirmed_raw=language_confirmed,
-            statement=problem_statement,
-            title=title,
-        )
-    except ValueError as exc:
-        flash(str(exc), FlashCategory.DANGER)
-        return await render_error()
-    if isinstance(resolution, LanguageConflict):
-        return await render_error(language_conflict=conflict_context(resolution))
-    resolved_language = resolution.language
-
-    # Check the validator upload before any database write, so a bad file leaves
-    # the problem untouched.
-    try:
-        validator_upload = await parse_validator_upload(
-            session,
-            language_id=validator_language_id,
-            source_file=validator_source_file,
-        )
-    except ValueError as exc:
-        flash(str(exc), FlashCategory.DANGER)
-        return await render_error()
-
-    # Same for the pending sample interactions: a malformed transcript is rejected
-    # while the problem is still untouched.
-    try:
-        pending_interactions = admin_problem_interaction_pending.parse_pending_interactions(await request.form())
-    except InteractionParseError as exc:
-        flash(str(exc), FlashCategory.DANGER)
-        return await render_error()
-
-    image_b64: str | None = None
-    image_mime: str | None = None
-    if image and image.filename:
-        try:
-            image_b64, image_mime = await process_problem_image(request, image)
-        except (ImageProcessingError, ValueError) as exc:
-            flash(str(exc), FlashCategory.DANGER)
-            return await render_error()
-
-    try:
-        await admin_problem_service.update_problem(
-            session,
-            problem,
-            title=title,
-            author=author or None,
-            author_is_owner=author_is_owner,
-            source=source or None,
-            hide_author_show_source=hide_author_show_source,
-            time_limit_ms=time_limit_ms,
-            memory_limit_kb=memory_limit_kb,
-            pids_limit=pids_limit,
-            output_limit_in_bytes=output_limit_in_bytes,
-            problem_statement=problem_statement,
-            image_b64=image_b64,
-            image_mime=image_mime,
-            image_caption=image_caption or None,
-            notes=notes or None,
-            license=license or None,
-            clear_image=clear_image,
-            category_ids=category_ids,
-            statement_language=resolved_language,
-        )
-    except ValueError as exc:
-        flash(str(exc), FlashCategory.DANGER)
-        return await render_error()
-
-    form_data = await request.form()
-    try:
-        cleanup_callbacks, file_writes = await admin_problem_tc_pending.apply_pending_testcases(
-            session,
-            problem,
-            form_data,
-            testcase_dir=settings.PROBLEM_TESTCASE_DIR,
-        )
-        await admin_problem_interaction_pending.apply_pending_interactions(
-            session,
-            problem,
-            form_data,
-            pending_interactions,
-        )
-    except ValueError as exc:
-        flash(str(exc), FlashCategory.DANGER)
-        return await render_error()
-
-    validation_job = None
-    if validator_upload is not None:
-        try:
-            validation_job = await stage_candidate_revision(session, problem, validator_upload)
-        except ValueError as exc:
-            flash(str(exc), FlashCategory.DANGER)
-            return await render_error()
-
-    await session.commit()
-    for fn in cleanup_callbacks:
-        await anyio.to_thread.run_sync(fn)
-    for fn in file_writes:
-        await anyio.to_thread.run_sync(fn)
-    if validation_job is not None:
-        await enqueue_custom_validator_validation_job(request.app.state.valkey_runtime, validation_job)
-    flash(f"Problem #{problem.arena_number} updated.", FlashCategory.SUCCESS)
-    redirect_target = safe_next or back_url
-    return RedirectResponse(
-        url=redirect_target,
-        status_code=303,
+        active_tab=tab or None,
     )
 
 
@@ -672,20 +314,20 @@ async def admin_problem_toggle_enabled(
     owner_id: str = Query(""),
     category_slugs: list[str] | None = Query(None),
     language: str = Query(""),
+    enabled: str = Query(""),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Toggle the enabled/disabled state of a problem."""
     problem = await get_problem_or_403(problem_id, current_user, session)
     if not problem.enabled:
-        if not status_view(problem.custom_validator).usable:
-            flash("Compile a valid custom validator before enabling this problem.", FlashCategory.DANGER)
-            return RedirectResponse(request.url_for("arena_admin_problem_edit", problem_id=problem.id), 303)
-        tc_error = await admin_problem_tc_service.testcase_readiness_error(session, problem.id)
-        if tc_error is None and status_view(problem.custom_validator).configured:
-            tc_error = await admin_problem_interaction_service.interactive_testcase_error(session, problem.id)
-        if tc_error is not None:
-            flash(f"Cannot enable this problem. {tc_error}", FlashCategory.DANGER)
+        # Enabling makes the problem visible and submittable, so it is one of the
+        # execution gates where the shared judgeability contract applies.
+        gate_error = await admin_problem_tc_service.judgeability_error_for(session, problem)
+        if gate_error is None and problem.validator_type is ProblemValidatorType.INTERACTIVE:
+            gate_error = await admin_problem_interaction_service.interactive_testcase_error(session, problem.id)
+        if gate_error is not None:
+            flash(f"Cannot enable this problem. {gate_error}", FlashCategory.DANGER)
             return RedirectResponse(request.url_for("arena_admin_problem_edit", problem_id=problem.id), 303)
     await admin_problem_service.toggle_enabled(session, problem)
     await session.commit()
@@ -701,6 +343,7 @@ async def admin_problem_toggle_enabled(
             owner_id=owner_id,
             category_slugs=category_slugs,
             language=language,
+            enabled=enabled,
             anchor=problem.id,
         ),
         status_code=303,
@@ -720,6 +363,7 @@ async def admin_problem_delete(
     owner_id: str = Form(""),
     category_slugs: list[str] = Form(default=[]),
     language: str = Form(""),
+    enabled: str = Form(""),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -755,6 +399,7 @@ async def admin_problem_delete(
             owner_id=owner_id,
             category_slugs=category_slugs,
             language=language,
+            enabled=enabled,
         ),
         status_code=303,
     )
@@ -766,16 +411,18 @@ async def admin_problem_rejudge_all(
     problem_id: str,
     flash: FlashDep,
     password: str = Form(""),
+    next_url: str = Form(""),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Re-enqueue all existing submissions for a problem on the low-priority autojudge queue."""
+    """Re-enqueue every submission and return to the workflow that requested it."""
     problem = await get_problem_or_403(problem_id, current_user, session)
     edit_url = str(request.url_for("arena_admin_problem_edit", problem_id=problem_id))
+    return_url = safe_next_path(next_url) or edit_url
 
     if not current_user.check_password(password):
         flash("Incorrect password.", FlashCategory.DANGER)
-        return RedirectResponse(url=edit_url, status_code=303)
+        return RedirectResponse(url=return_url, status_code=303)
 
     jobs = await admin_problem_service.build_rejudge_jobs(session, problem.id)
     await session.commit()
@@ -788,4 +435,4 @@ async def admin_problem_rejudge_all(
         f"{count} submission{'s' if count != 1 else ''} enqueued for re-judging.",
         FlashCategory.SUCCESS,
     )
-    return RedirectResponse(url=edit_url, status_code=303)
+    return RedirectResponse(url=return_url, status_code=303)

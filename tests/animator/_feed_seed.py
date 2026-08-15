@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from shared.db_schema import submission_judgments as sj_table
 from shared.db_schema import submissions as submissions_table
-from shared.enumerations import JudgmentStatus, RoleEnum, Verdict
+from shared.enumerations import JudgmentStatus, ProblemValidatorType, RoleEnum, Verdict
 from web.models.contest import Contest
 from web.models.language import Language
 from web.models.problem import Problem
@@ -118,7 +118,13 @@ def make_user(
 
 def make_problem(contest: Contest, ordinal: int, color: str = "#ff0000") -> Problem:
     """Build (without adding) a contest problem."""
-    return Problem(contest_id=contest.id, title=f"Problem {ordinal}", ordinal=ordinal, color=color)
+    return Problem(
+        contest_id=contest.id,
+        title=f"Problem {ordinal}",
+        ordinal=ordinal,
+        color=color,
+        validator_type=ProblemValidatorType.STANDARD,
+    )
 
 
 async def make_site(

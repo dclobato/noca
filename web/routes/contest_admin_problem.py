@@ -13,21 +13,17 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi_flash import FlashCategory, FlashDep
 
+from shared.enumerations import ProblemValidatorType
 from shared.http_params import PG_INT32_MAX
 from shared.services.admin_audit import record_admin_action
-from shared.services.custom_validator import (
-    build_validation_job,
-    parse_validator_source,
-    stage_candidate,
-)
 from shared.services.imageprocessing_service import ImageProcessingError
+from shared.services.problem_editor_save import abandon_swap, open_save_swap, stage_test_cases
 from shared.services.problem_image import process_problem_image_upload
 from shared.services.problem_package import DEFAULT_OUTPUT_LIMIT_BYTES, MAX_TITLE_CHARS
-from shared.services.valkey_service import enqueue_custom_validator_validation_job
-from shared.tc_zip import parse_single_testcase_zip
+from shared.services.problem_package.edit_swap import commit_with_edit_swap
 from web.config import settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
-from web.models.problem import Problem, ProblemCustomValidator, ProblemTestCase
+from web.models.problem import Problem
 from web.routes import contest_admin_problem_edit as _contest_admin_problem_edit
 from web.routes import contest_admin_problem_limits as _contest_admin_problem_limits
 from web.routes.contest_admin_problem_helpers import (
@@ -38,30 +34,27 @@ from web.routes.contest_admin_problem_helpers import (
     _label,
     _redirect,
     _remove_blocked_reason,
-    _run_sync0,
-    _save_md_statement_for,
-    _save_problem_statement_for,
-    _save_testcase_files_for,
 )
+from web.routes.contest_admin_problem_judgment_urls import judgment_page_url
 from web.routes.contest_admin_problem_limits_helpers import _validate_language_limit_inputs
+from web.routes.contest_admin_problem_new import resolve_choice_or_redirect
+from web.routes.contest_admin_problem_view import build_problem_form_view
 from web.services.category_service import get_or_create_categories, replace_problem_categories
 from web.services.problem_service import (
     BALLOON_COLORS,
     append_problem,
-    append_test_case,
     delete_all_testcase_files,
     delete_problem_statement,
-    get_active_languages,
     get_contest_languages,
     get_contest_problems,
     get_problem_in_contest,
     move_problem,
-    parse_testcases_zip,
     remove_problem_and_resequence,
     submitted_language_limits,
     upsert_language_limits,
     validate_md_content,
 )
+from web.services.problem_service.files import get_md_statement_path, get_statement_path
 
 logger = logging.getLogger(__name__)
 
@@ -126,14 +119,27 @@ async def manage_problems(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/new", response_class=HTMLResponse, name="new_problem_form")
+@router.get("/new/{validator_type}", response_class=HTMLResponse, response_model=None, name="new_problem_form")
 async def new_problem_form(
     request: Request,
+    flash: FlashDep,
+    validator_type: str,
+    tab: str = Query(""),
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
-) -> HTMLResponse:
+) -> HTMLResponse | RedirectResponse:
+    """Render the creation editor for one validation strategy.
+
+    ``validator_type`` is taken as ``str`` and resolved in the handler on purpose:
+    annotated as the enum, FastAPI answers ``422`` before the handler runs, which
+    ``shared.error_handlers`` renders as a neutral JSON body -- wrong for an HTML
+    admin page, and it would make an unknown strategy indistinguishable from the
+    reserved one.
+    """
+    strategy = resolve_choice_or_redirect(request, flash, ctx.contest.login_slug, validator_type)
+    if isinstance(strategy, RedirectResponse):
+        return strategy
     templates = request.app.state.templates
     languages = await get_contest_languages(ctx.session, ctx.contest)
-    validator_languages = await get_active_languages(ctx.session)
     return _html(
         templates.TemplateResponse(
             request,
@@ -142,9 +148,17 @@ async def new_problem_form(
                 "current_user": ctx.actor,
                 "contest": ctx.contest,
                 "problem": None,
+                "validator_type": strategy,
+                "is_interactive": strategy is ProblemValidatorType.INTERACTIVE,
+                "view": build_problem_form_view(
+                    request,
+                    slug=ctx.contest.login_slug,
+                    problem_id=None,
+                    validator_type=strategy,
+                    active_tab=tab or None,
+                ),
                 "languages": languages,
                 "limits_map": {},
-                "testcase_previews": {},
                 "has_pdf": False,
                 "has_md": False,
                 "md_content": "",
@@ -152,10 +166,10 @@ async def new_problem_form(
                 "is_limits_edit_allowed": _is_limits_edit_allowed(ctx.contest),
                 "is_remove_allowed": False,
                 "remove_blocked_reason": None,
-                "edit_tc_id": None,
-                "edit_tc_content": None,
                 "category_names_csv": "",
                 "errors": [],
+                "field_errors": {},
+                "first_error_field": "",
                 "success": False,
                 "balloon_colors": BALLOON_COLORS,
                 "form_data": {
@@ -167,17 +181,16 @@ async def new_problem_form(
                     "image_caption": "",
                 },
                 "latest_profiling_run": None,
-                "validator_languages": validator_languages,
-                "validator_status": None,
             },
         )
     )
 
 
-@router.post("/new", response_class=HTMLResponse, response_model=None, name="new_problem_submit")
+@router.post("/new/{validator_type}", response_class=HTMLResponse, response_model=None, name="new_problem_submit")
 async def new_problem_submit(
     request: Request,
     flash: FlashDep,
+    validator_type: str,
     ctx: ContestAdminContext = Depends(get_contest_admin_context),
     title: str = Form(""),
     color: str = Form("#000000"),
@@ -191,68 +204,60 @@ async def new_problem_submit(
     statement_file: UploadFile = File(None),
     statement_source: str = Form(""),
     md_content: str = Form(""),
-    testcases_zip: UploadFile = File(None),
-    validator_language_id: str = Form(""),
-    validator_source_file: UploadFile = File(None),
     image: UploadFile = File(None),
     image_caption: str = Form(""),
+    active_tab: str = Form(""),
 ) -> HTMLResponse | RedirectResponse:
+    """Create one problem under the strategy named by the route parameter."""
+    resolved = resolve_choice_or_redirect(request, flash, ctx.contest.login_slug, validator_type)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
+    # The strategy comes from the validated route parameter and from nowhere else:
+    # any `validator_type` a crafted POST body carries is never read, so form
+    # tampering cannot select or change one.
+    strategy = resolved
+    interactive = strategy is ProblemValidatorType.INTERACTIVE
+
     templates = request.app.state.templates
     form = await request.form()
     errors: list[str] = []
+    field_errors: dict[str, str] = {}
 
     if not _is_edit_allowed(ctx.contest):
         errors.append("Contest is not editable.")
 
     title = title.strip()
     if not title:
-        errors.append("Title is required.")
+        _contest_admin_problem_edit._add_field_error(errors, field_errors, "title", "Title is required.")
     elif len(title) > MAX_TITLE_CHARS:
-        errors.append(f"Title must be {MAX_TITLE_CHARS} characters or fewer.")
+        _contest_admin_problem_edit._add_field_error(
+            errors,
+            field_errors,
+            "title",
+            f"Title must be {MAX_TITLE_CHARS} characters or fewer.",
+        )
 
-    tlms = None
-    if not time_limit_ms.strip():
-        errors.append("Time limit (ms) is required.")
-    else:
-        try:
-            tlms = int(time_limit_ms)
-            if tlms < 1:
-                errors.append("Time limit must be >= 1.")
-        except ValueError:
-            errors.append("Time limit must be a positive integer.")
-
-    mlkb = None
-    if not memory_limit_kb.strip():
-        errors.append("Memory limit (KB) is required.")
-    else:
-        try:
-            mlkb = int(memory_limit_kb)
-            if mlkb < 1:
-                errors.append("Memory limit must be >= 1.")
-        except ValueError:
-            errors.append("Memory limit must be a positive integer.")
-
-    pl = None
-    if not pids_limit.strip():
-        errors.append("PIDs limit is required.")
-    else:
-        try:
-            pl = int(pids_limit)
-            if pl < 1:
-                errors.append("PIDs limit must be >= 1.")
-        except ValueError:
-            errors.append("PIDs limit must be a positive integer.")
+    tlms = _contest_admin_problem_edit._positive_int(
+        time_limit_ms, "Time limit (ms)", "time_limit_ms", errors, field_errors
+    )
+    mlkb = _contest_admin_problem_edit._positive_int(
+        memory_limit_kb, "Memory limit (KB)", "memory_limit_kb", errors, field_errors
+    )
+    pl = _contest_admin_problem_edit._positive_int(pids_limit, "PIDs limit", "pids_limit", errors, field_errors)
 
     # A blank field resolves to the documented default: the column is NOT NULL,
     # so "no limit" is no longer expressible at the problem level.
     output_lim = DEFAULT_OUTPUT_LIMIT_BYTES
     if output_limit_in_bytes.strip():
-        try:
-            output_lim = int(output_limit_in_bytes)
-            if output_lim < 1:
-                errors.append("Output limit must be at least 1 byte.")
-        except ValueError:
-            errors.append("Output limit must be a positive integer.")
+        parsed_output_limit = _contest_admin_problem_edit._positive_int(
+            output_limit_in_bytes,
+            "Output limit",
+            "output_limit_in_bytes",
+            errors,
+            field_errors,
+        )
+        if parsed_output_limit is not None:
+            output_lim = parsed_output_limit
 
     pdf_bytes: bytes | None = None
     md_text: str | None = None
@@ -265,10 +270,17 @@ async def new_problem_submit(
             pdf_bytes = await statement_file.read()
     elif statement_source == "md":
         if not md_content.strip():
-            errors.append("Markdown statement cannot be empty.")
+            _contest_admin_problem_edit._add_field_error(
+                errors,
+                field_errors,
+                "md_content",
+                "Markdown statement cannot be empty.",
+            )
         else:
             md_errors = validate_md_content(md_content)
             errors.extend(md_errors)
+            if md_errors:
+                field_errors["md_content"] = md_errors[0]
             if not md_errors:
                 md_text = md_content
     else:
@@ -282,77 +294,14 @@ async def new_problem_submit(
         except (ImageProcessingError, ValueError) as exc:
             errors.append(f"Problem image: {exc}")
 
-    tc_list: list[tuple[bytes, bytes | None, bool, str | None]] = []
-
-    validator_source: str | None = None
-    validator_language_id = validator_language_id.strip()
-    validator_file_supplied = bool(validator_source_file and validator_source_file.filename)
-    if validator_file_supplied != bool(validator_language_id):
-        errors.append("Choose a validator language and source file together.")
-    elif validator_file_supplied:
-        try:
-            validator_source = parse_validator_source(await validator_source_file.read())
-        except ValueError as exc:
-            errors.append(str(exc))
-
-    # An interactive problem's cases carry input only: the input parametrizes the
-    # validator, which decides the verdict instead of an expected-output file.
-    interactive = validator_source is not None
-
-    if testcases_zip and testcases_zip.filename:
-        zip_bytes_data = await testcases_zip.read()
-        try:
-            parsed = parse_testcases_zip(zip_bytes_data, require_output=not interactive)
-            for source_ordinal, (in_b, out_b) in sorted(parsed.pairs.items()):
-                tc_list.append((in_b, out_b, False, parsed.explanations.get(source_ordinal)))
-        except ValueError as exc:
-            errors.append(f"Test case ZIP error: {exc}")
-
-    tc_indices = sorted(
-        {
-            int(key.rsplit("_", 1)[1])
-            for key in form
-            if (key.startswith("tc_in_") or key.startswith("tc_out_")) and key.rsplit("_", 1)[1].isdigit()
-        }
-    )
-    for i in tc_indices:
-        in_val = str(form.get(f"tc_in_{i}", ""))
-        out_val = str(form.get(f"tc_out_{i}", ""))
-        is_sample = bool(form.get(f"tc_is_sample_{i}"))
-        raw_explanation = str(form.get(f"tc_explanation_{i}", "")).strip()
-        out_bytes = None if interactive else out_val.encode()
-        tc_list.append((in_val.encode(), out_bytes, is_sample, raw_explanation or None))
-
-    zip_indices = sorted(
-        {
-            int(key.rsplit("_", 1)[1])
-            for key in form
-            if key.startswith("tc_zip_") and not key.startswith("tc_zip_is_sample_") and key.rsplit("_", 1)[1].isdigit()
-        }
-    )
-    for i in zip_indices:
-        upload = form.get(f"tc_zip_{i}")
-        if not upload or not hasattr(upload, "read"):
-            continue
-        zip_data = await upload.read()
-        if not zip_data:
-            continue
-        try:
-            single = parse_single_testcase_zip(zip_data, require_output=not interactive)
-        except ValueError as exc:
-            errors.append(f"Test case ZIP #{i + 1} error: {exc}")
-            continue
-        is_sample = bool(form.get(f"tc_zip_is_sample_{i}"))
-        tc_list.append((single.input_bytes, single.output_bytes, is_sample, single.explanation))
-
-    if not tc_list:
-        errors.append("At least one test case is required.")
+    # Creation collects the problem *definition* only. Test cases, the custom
+    # validator and sample interactions are authored on the judgment-data pages,
+    # which this route redirects to on success -- so a form field naming any of
+    # them is never read here.
 
     languages = await get_contest_languages(ctx.session, ctx.contest)
-    validator_languages = await get_active_languages(ctx.session)
-    if validator_language_id and validator_language_id not in {language.id for language in validator_languages}:
-        errors.append("Validator language is not active.")
-    errors.extend(_validate_language_limit_inputs(languages, form))
+    language_limit_errors = _validate_language_limit_inputs(languages, form)
+    errors.extend(language_limit_errors)
 
     if errors:
         form_data = {
@@ -374,9 +323,22 @@ async def new_problem_submit(
                     "current_user": ctx.actor,
                     "contest": ctx.contest,
                     "problem": None,
+                    "validator_type": strategy,
+                    "is_interactive": interactive,
+                    "view": build_problem_form_view(
+                        request,
+                        slug=ctx.contest.login_slug,
+                        problem_id=None,
+                        validator_type=strategy,
+                        active_tab=_contest_admin_problem_edit._validation_tab(
+                            field_errors,
+                            language_limit_errors,
+                            errors,
+                            active_tab,
+                        ),
+                    ),
                     "languages": languages,
                     "limits_map": {},
-                    "testcase_previews": {},
                     "has_pdf": False,
                     "has_md": statement_source == "md",
                     "md_content": md_content,
@@ -384,17 +346,14 @@ async def new_problem_submit(
                     "is_limits_edit_allowed": _is_limits_edit_allowed(ctx.contest),
                     "is_remove_allowed": False,
                     "remove_blocked_reason": None,
-                    "edit_tc_id": None,
-                    "edit_tc_content": None,
                     "category_names_csv": category_names,
                     "errors": errors,
+                    "field_errors": field_errors,
+                    "first_error_field": next(iter(field_errors), ""),
                     "success": False,
                     "balloon_colors": BALLOON_COLORS,
                     "form_data": form_data,
                     "latest_profiling_run": None,
-                    "validator_languages": validator_languages,
-                    "validator_status": None,
-                    "validator_language_id": validator_language_id,
                 },
                 status_code=422,
             )
@@ -405,6 +364,7 @@ async def new_problem_submit(
     assert pl is not None
     problem = Problem(
         title=title,
+        validator_type=strategy,
         color=color,
         author=author.strip() or None,
         notes=notes.strip() or None,
@@ -418,39 +378,7 @@ async def new_problem_submit(
     )
     await append_problem(ctx.session, ctx.contest, problem)
 
-    statement_dir = settings.PROBLEM_STATEMENT_DIR
-    if pdf_bytes is not None:
-        await anyio.to_thread.run_sync(_run_sync0(_save_problem_statement_for(problem.id, pdf_bytes, statement_dir)))
-    elif md_text is not None:
-        await anyio.to_thread.run_sync(_run_sync0(_save_md_statement_for(problem.id, md_text, statement_dir)))
-
-    # The test cases land before the validator is staged, so the problem's cases are
-    # already durable and already forced secret by the time anything can observe it
-    # as interactive. Staging first would leave a window in which a reader sees a
-    # validator-configured problem whose cases are still public or absent.
-    testcase_dir = settings.PROBLEM_TESTCASE_DIR
-    for in_b, out_b, is_sample, explanation in tc_list:
-        # An interactive problem shows sample interactions, never sample cases, so
-        # a sample flag checked on the create form is discarded here.
-        tc = ProblemTestCase(is_sample=not interactive and is_sample, explanation=explanation)
-        await append_test_case(ctx.session, problem, tc)
-        ordinal = tc.ordinal
-        in_size, out_size = await anyio.to_thread.run_sync(
-            _run_sync0(_save_testcase_files_for(problem.id, ordinal, in_b, out_b, testcase_dir))
-        )
-        tc.input_size_bytes = in_size
-        tc.output_size_bytes = out_size
     await ctx.session.flush()
-
-    candidate_token: str | None = None
-    if validator_source is not None:
-        validator = ProblemCustomValidator(problem_id=problem.id)
-        candidate_token = stage_candidate(
-            validator,
-            language_id=validator_language_id,
-            source=validator_source,
-        )
-        ctx.session.add(validator)
 
     cat_names = [n.strip() for n in category_names.split(",") if n.strip()]
     if cat_names:
@@ -461,17 +389,40 @@ async def new_problem_submit(
     if lang_limits:
         await upsert_language_limits(ctx.session, problem, lang_limits)
 
-    await ctx.session.commit()
-    pid = problem.id
-    if candidate_token is not None:
-        await enqueue_custom_validator_validation_job(
-            request.app.state.valkey_runtime,
-            build_validation_job(domain="contest", problem_id=pid, candidate_token=candidate_token),
+    # Files are staged and swapped in as part of the commit, exactly as an edit
+    # does. A create has nothing to displace, but it can still fail after writing,
+    # and recovery reads the same journal: a problem row that never committed makes
+    # its staged artifacts orphans, which reconciliation removes.
+    statement_dir = settings.PROBLEM_STATEMENT_DIR
+    swap = await open_save_swap(
+        ctx.session,
+        domain="contest",
+        problem_id=problem.id,
+        testcase_dir=settings.PROBLEM_TESTCASE_DIR,
+    )
+    try:
+        # A new problem starts with no test cases; staging an empty directory is
+        # what gives the problem a test-case directory to fill in on its judgment
+        # pages.
+        await stage_test_cases(swap, [], interactive=interactive)
+        if pdf_bytes is not None:
+            swap.stage_file(pdf_bytes, get_statement_path(problem.id, statement_dir), statement_dir)
+        elif md_text is not None:
+            swap.stage_file(md_text.encode("utf-8"), get_md_statement_path(problem.id, statement_dir), statement_dir)
+    except Exception as exc:
+        await abandon_swap(ctx.session, swap)
+        flash(f"Could not create the problem: {exc}", FlashCategory.DANGER)
+        return _redirect(
+            str(request.url_for("new_problem_form", slug=ctx.contest.login_slug, validator_type=validator_type))
         )
-    flash("Problem created successfully.", FlashCategory.SUCCESS)
-    if md_text is not None or candidate_token is not None:
-        return _redirect(str(request.url_for("edit_problem_form", slug=ctx.contest.login_slug, problem_id=pid)))
-    return _redirect(str(request.url_for("manage_problems", slug=ctx.contest.login_slug)))
+
+    pid = problem.id
+    await commit_with_edit_swap(ctx.session, swap)
+    flash("Problem created. Now add the data it will be judged against.", FlashCategory.SUCCESS)
+    # An interactive problem cannot be judged at all until a validator compiles,
+    # so creation lands on that page; everything else starts at its test cases.
+    page = "validator" if interactive else "test-cases"
+    return _redirect(judgment_page_url(request, ctx.contest.login_slug, pid, page))
 
 
 # ---------------------------------------------------------------------------

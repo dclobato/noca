@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon %}
 {% block title_suffix %}— Problems{% endblock %}
@@ -39,7 +46,7 @@
                 <p class="text-muted mb-0">{{ contest.contest_name }}</p>
             </div>
             <div class="d-flex gap-2">
-                <a href="{{ request.url_for('new_problem_form', slug=contest.login_slug) }}"
+                <a href="{{ request.url_for('new_problem_choose', slug=contest.login_slug) }}"
                    class="btn btn-primary btn-sm {% if not is_edit_allowed %}disabled{% endif %}">{{ render_icon(icon="add", classes="me-1") }}New Problem</a>
                 <a href="{{ request.url_for('import_problem_form', slug=contest.login_slug) }}"
                    class="btn btn-outline-secondary btn-sm {% if not is_edit_allowed %}disabled{% endif %}">{{ render_icon(icon="upload", classes="me-1") }}Import Problem</a>

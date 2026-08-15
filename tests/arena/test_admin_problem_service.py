@@ -23,7 +23,12 @@ from arena.models.arena_problems import (
 )
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_service
-from shared.enumerations import ArenaRole, CustomValidatorActiveState, CustomValidatorCandidateState
+from shared.enumerations import (
+    ArenaRole,
+    CustomValidatorActiveState,
+    CustomValidatorCandidateState,
+    ProblemValidatorType,
+)
 from web.models.language import Language
 
 
@@ -78,6 +83,7 @@ async def _make_problem(
     *,
     title: str = "My Problem",
     license: str | None = None,
+    validator_type: ProblemValidatorType = ProblemValidatorType.STANDARD,
 ) -> ArenaProblem:
     p = await admin_problem_service.create_problem(
         session,
@@ -96,6 +102,7 @@ async def _make_problem(
         notes=None,
         category_ids=[],
         license=license,
+        validator_type=validator_type,
     )
     await session.flush()
     return p
@@ -141,6 +148,7 @@ async def test_create_problem_preserves_free_text_author(session: AsyncSession) 
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     assert problem.owner_id == owner.id
     assert problem.author == "External Author"
@@ -190,6 +198,7 @@ async def test_create_problem_requires_free_text_author(session: AsyncSession) -
             image_caption=None,
             notes=None,
             category_ids=[],
+            validator_type=ProblemValidatorType.STANDARD,
         )
 
 
@@ -213,6 +222,7 @@ async def test_create_problem_blank_title_raises(session: AsyncSession) -> None:
             image_caption=None,
             notes=None,
             category_ids=[],
+            validator_type=ProblemValidatorType.STANDARD,
         )
 
 
@@ -237,6 +247,7 @@ async def test_create_problem_rejects_disallowed_markdown(session: AsyncSession)
             image_caption=None,
             notes=None,
             category_ids=[],
+            validator_type=ProblemValidatorType.STANDARD,
         )
 
 
@@ -351,6 +362,7 @@ async def test_search_resolves_owner_and_free_text_authors(session: AsyncSession
         image_caption=None,
         notes=None,
         category_ids=[],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.flush()
 
@@ -380,8 +392,12 @@ async def test_problem_list_item_marks_custom_validator_problems(session: AsyncS
     author = await _make_user(session)
     language = await _make_language(session)
     plain_problem = await _make_problem(session, author.id, title="Plain")
-    validator_problem = await _make_problem(session, author.id, title="Interactive")
-    candidate_problem = await _make_problem(session, author.id, title="Candidate")
+    validator_problem = await _make_problem(
+        session, author.id, title="Interactive", validator_type=ProblemValidatorType.INTERACTIVE
+    )
+    candidate_problem = await _make_problem(
+        session, author.id, title="Candidate", validator_type=ProblemValidatorType.INTERACTIVE
+    )
     session.add(
         ArenaProblemCustomValidator(
             problem_id=validator_problem.id,
@@ -447,10 +463,10 @@ async def test_problem_list_uses_page_scoped_enrichment_queries(
         is_admin=False,
     )
 
-    assert len(sql_statements) == 5
-    count_sql, page_sql, category_sql, test_case_sql, validator_sql = [
-        statement.lower() for statement in sql_statements
-    ]
+    # Four, not five: the interactive marker now comes from the page query's own
+    # validator_type column instead of a separate validator lookup.
+    assert len(sql_statements) == 4
+    count_sql, page_sql, category_sql, test_case_sql = [statement.lower() for statement in sql_statements]
     assert "arena_problem_ratings" not in count_sql
     assert "arena_test_cases" not in count_sql
     assert "arena_problem_custom_validators" not in count_sql
@@ -464,7 +480,6 @@ async def test_problem_list_uses_page_scoped_enrichment_queries(
         assert large_column not in page_sql
     assert " in (" in category_sql
     assert " in (" in test_case_sql
-    assert " in (" in validator_sql
 
     item = pagination.items[0]
     assert item.rating is None
@@ -497,6 +512,7 @@ async def test_category_and_filter(session: AsyncSession) -> None:
         image_caption=None,
         notes=None,
         category_ids=[cat_a.id, cat_b.id],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await admin_problem_service.create_problem(
         session,
@@ -514,6 +530,7 @@ async def test_category_and_filter(session: AsyncSession) -> None:
         image_caption=None,
         notes=None,
         category_ids=[cat_a.id],
+        validator_type=ProblemValidatorType.STANDARD,
     )
     await session.flush()
 
@@ -528,6 +545,79 @@ async def test_category_and_filter(session: AsyncSession) -> None:
     )
     assert pagination.total == 1
     assert pagination.items[0].title == "Both"
+
+
+@pytest.mark.asyncio
+async def test_enabled_filter(session: AsyncSession) -> None:
+    author = await _make_user(session)
+    enabled_problem = await admin_problem_service.create_problem(
+        session,
+        caller_id=author.id,
+        title="Enabled Problem",
+        validator_type=ProblemValidatorType.STANDARD,
+        source=None,
+        hide_author_show_source=False,
+        time_limit_ms=1000,
+        memory_limit_kb=262144,
+        pids_limit=64,
+        output_limit_in_bytes=65536,
+        problem_statement="Hello world",
+        image_b64=None,
+        image_mime=None,
+        image_caption=None,
+        notes=None,
+        category_ids=[],
+    )
+    await admin_problem_service.create_problem(
+        session,
+        caller_id=author.id,
+        title="Disabled Problem",
+        validator_type=ProblemValidatorType.STANDARD,
+        source=None,
+        hide_author_show_source=False,
+        time_limit_ms=1000,
+        memory_limit_kb=262144,
+        pids_limit=64,
+        output_limit_in_bytes=65536,
+        problem_statement="Hello world",
+        image_b64=None,
+        image_mime=None,
+        image_caption=None,
+        notes=None,
+        category_ids=[],
+    )
+    enabled_problem.enabled = True
+    await session.flush()
+
+    pagination = await admin_problem_service.list_problems_paginated(
+        session,
+        page=1,
+        per_page=25,
+        enabled=True,
+        caller_id=author.id,
+        is_admin=True,
+    )
+    assert [item.title for item in pagination.items] == ["Enabled Problem"]
+
+    pagination = await admin_problem_service.list_problems_paginated(
+        session,
+        page=1,
+        per_page=25,
+        enabled=False,
+        caller_id=author.id,
+        is_admin=True,
+    )
+    assert [item.title for item in pagination.items] == ["Disabled Problem"]
+
+    pagination = await admin_problem_service.list_problems_paginated(
+        session,
+        page=1,
+        per_page=25,
+        caller_id=author.id,
+        is_admin=True,
+    )
+    titles = {item.title for item in pagination.items}
+    assert titles == {"Enabled Problem", "Disabled Problem"}
 
 
 # ── list_owners ──────────────────────────────────────────────────────────────

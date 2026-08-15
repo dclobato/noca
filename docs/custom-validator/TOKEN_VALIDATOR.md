@@ -61,8 +61,11 @@ the expected-output bytes.
 ## 2. Configuring a problem
 
 The token validator has no source file, language, compile step, runtime, or
-validator-specific setting. A normal problem without a custom interactive
-validator uses this path automatically.
+validator-specific setting. A problem uses this path when its stored validation
+strategy is `standard` — not merely because it happens to hold no validator
+source. A problem stored as `interactive` whose source was removed is *not*
+judged by the token comparator; it is refused as non-judgeable until an active
+valid revision exists.
 
 Each test case must contain both of these files:
 

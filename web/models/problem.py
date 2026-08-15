@@ -27,9 +27,11 @@ from shared.db_schema import test_cases as test_cases_table
 from shared.enumerations import (
     CustomValidatorActiveState,
     CustomValidatorCandidateState,
+    ProblemValidatorType,
     ProfilingStatus,
     Verdict,
 )
+from shared.services.validator_type_guard import guard_validator_type_immutability
 from web.database import Base
 
 if TYPE_CHECKING:
@@ -57,6 +59,8 @@ class Problem(Base):
     problem_image_mime: Mapped[str | None]
     problem_image_caption: Mapped[str | None]
     ordinal: Mapped[int]
+    validator_type: Mapped[ProblemValidatorType]
+    artifact_generation: Mapped[int]
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 
@@ -324,6 +328,10 @@ def _maintain_problem_model_invariants(
     instances: object,
 ) -> None:
     from web.models.contest import Contest
+
+    # A problem's stored strategy is immutable; refuse the flush before any of
+    # the ordinal maintenance below runs.
+    guard_validator_type_immutability(session, (Problem,))
 
     affected_contests: set[str] = set()
     affected_problems: set[str] = set()
