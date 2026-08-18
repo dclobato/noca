@@ -1,0 +1,46 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Shared optional Editorial pane for the Arena and Contest definition editors.
+  It deliberately mirrors the Markdown statement editor: the same shared
+  EasyMDE instance, preview pipeline, help, and content policy apply.
+#}
+{% set field_errors = field_errors | default({}) %}
+{% set editorial_error = field_errors.editorial | default("") %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header fw-semibold">Official editorial</div>
+    <div class="card-body">
+        <div class="mb-1">
+            <label class="form-label" for="editorial-md-editor">Editorial (Markdown)</label>
+            <textarea id="editorial-md-editor"
+                      name="editorial"
+                      form="edit-form"
+                      {% if editorial_error %}aria-describedby="editorial-server-error" aria-invalid="true"{% endif %}
+                      {% if first_error_field == "editorial" %}autofocus{% endif %}
+                      {% if not is_edit_allowed %}disabled{% endif %}>{{ editorial_value | default("") | e }}</textarea>
+            {% if editorial_error %}
+                <div class="invalid-feedback d-block" id="editorial-server-error">{{ editorial_error }}</div>
+            {% endif %}
+            <div class="form-text small">
+                Optional official explanation and solution guide. Only text and formatting; external links and images
+                are not allowed.
+            </div>
+            <div class="form-text small mt-1">
+                Support for <span class="fw-semibold">LaTeX</span> (
+                <span class="text-muted">$x^n + 3 = 0$</span>
+                ),
+                <span class="fw-semibold">Mermaid diagrams</span> (
+                <span class="text-muted font-monospace">```mermaid ...```</span>
+                ), and <span class="fw-semibold">NOCA directives</span>
+                <a href="#"
+                   class="ms-1"
+                   data-bs-toggle="modal"
+                   data-bs-target="#syntaxModal">View syntax examples</a>
+            </div>
+        </div>
+    </div>
+</div>

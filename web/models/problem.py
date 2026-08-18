@@ -54,6 +54,7 @@ class Problem(Base):
     output_limit_in_bytes: Mapped[int]
     author: Mapped[str | None]
     notes: Mapped[str | None]
+    editorial: Mapped[str | None]
     color: Mapped[str]
     problem_image_base64: Mapped[str | None]
     problem_image_mime: Mapped[str | None]

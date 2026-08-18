@@ -43,7 +43,7 @@
             {% if past_contests %}
                 <div class="row g-3 mb-5">
                     {% for contest in past_contests %}
-                        {% call contest_tile(contest, "Ended", "bg-secondary", "btn-outline-secondary") %}
+                        {% call contest_tile(contest, "Ended", "bg-secondary", "btn-outline-secondary", show_problem_set=contest.release_scoreboard_after_end) %}
                             <div>Start: {{ contest.local_start_time.strftime("%Y-%m-%d %H:%M") }} ({{ contest.contest_timezone }})</div>
                             <div>End: {{ contest.local_end_time.strftime("%Y-%m-%d %H:%M") }} ({{ contest.contest_timezone }})</div>
                         {% endcall %}

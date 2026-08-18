@@ -1,14 +1,14 @@
 // NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+// Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 /**
- * Web problem statement editor.
+ * Web problem Markdown editors.
  *
- * Wraps the shared statement-editor core with the web-only PDF/MD source
- * switching for the problem create/edit form.
+ * Wraps the shared editor core with Web's PDF/MD statement switching and builds
+ * the optional database-backed editorial as a second independent instance.
  * Layout: file upload field (top) + EasyMDE Markdown editor (bottom) — both always
  * visible. When a PDF file is selected, the editor is disabled. When a .md file is
  * selected, its content is loaded into the editor and the file input is cleared.
@@ -33,6 +33,7 @@
   var form        = document.getElementById('edit-form');
 
   var editor = null;
+  var editorialEditor = null;
 
   function setSource(v) {
     if (sourceInput) sourceInput.value = v;
@@ -40,6 +41,10 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     editor = window.NocaStatementEditor.create();
+    editorialEditor = window.NocaStatementEditor.create({
+      textareaId: 'editorial-md-editor',
+      changeEventName: 'noca:problem-editorial-changed'
+    });
 
     // Initial state
     if (isEdit && hasPdf) {
@@ -109,6 +114,7 @@
         if (sourceInput && sourceInput.value === 'md') {
           editor.syncToTextarea();
         }
+        if (editorialEditor) editorialEditor.syncToTextarea();
       });
     }
   });

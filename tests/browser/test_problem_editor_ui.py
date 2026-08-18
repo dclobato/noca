@@ -125,7 +125,7 @@ def test_creating_a_problem_collects_the_definition_only(page: Page) -> None:
     assert page.locator("#tc-add-row-btn").count() == 0
     assert page.locator('input[name="tc_bulk_zip"]').count() == 0
     assert page.locator('input[name="validator_source_file"]').count() == 0
-    for tab in ("metadata", "statement"):
+    for tab in ("metadata", "statement", "editorial"):
         assert page.locator(f'[data-tab-value="{tab}"]').count() == 1, tab
 
 
@@ -156,7 +156,7 @@ def test_the_category_picker_exposes_combobox_state(page: Page) -> None:
 # ── The tab round-trip ───────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("tab", ["statement", "metadata"])
+@pytest.mark.parametrize("tab", ["statement", "editorial", "metadata"])
 def test_the_open_pane_is_recorded_for_the_save(page: Page, tab: str) -> None:
     """A retired controller wrote "content" for every pane but Limits.
 
@@ -202,13 +202,13 @@ def test_the_strategy_badge_is_not_an_input(page: Page) -> None:
 
 
 @requires_web_slug
-def test_the_contest_editor_renders_its_three_panes(page: Page) -> None:
-    """Contest keeps a separate Limits pane; Arena folds limits into Metadata."""
+def test_the_contest_editor_renders_its_four_panes(page: Page) -> None:
+    """Contest adds Editorial and keeps a separate Limits pane."""
     web_login(page)
     page.goto(f"{WEB_URL}/c/{WEB_SLUG}/admin/problems/new/interactive", wait_until="domcontentloaded")
     page.wait_for_selector("#problem-edit-tabs")
 
-    for tab in ("metadata", "statement", "limits"):
+    for tab in ("metadata", "statement", "editorial", "limits"):
         assert page.locator(f'[data-tab-value="{tab}"]').count() == 1, tab
     for gone in ("test-cases", "sample-interactions"):
         assert page.locator(f'[data-tab-value="{gone}"]').count() == 0, gone

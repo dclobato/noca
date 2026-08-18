@@ -72,6 +72,7 @@ problems = Table(
     ),
     Column("author", String(256), nullable=True),
     Column("notes", String(512), nullable=True),
+    Column("editorial", Text, nullable=True, comment="Optional editor-only Markdown solution guide."),
     Column("color", String(7), nullable=False, comment="Balloon color, e.g. '#ff0000'"),
     Column("problem_image_base64", Text, nullable=True, comment="BASE-64 encoded image for the statement."),
     Column(

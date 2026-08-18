@@ -31,11 +31,11 @@ A package is written in one of two profiles, and they are **not** interchangeabl
 
 | Profile | Contains | Importable |
 | --- | --- | --- |
-| `full` | `problem.json` with every version-2 key, statement, image, **all** test cases with explanations, sample interactions, validator source | **Yes** |
+| `full` | `problem.json` with every version-2 key, statement, optional editorial, image, **all** test cases with explanations, sample interactions, validator source | **Yes** |
 | `public` | statement, image, **public** test cases with their explanations, sample interactions | **No** |
 
 The `public` profile is a **contestant-facing statement bundle**. It deliberately carries no
-`problem.json`, no secret test case, no limits, no notes, and no validator source, so it cannot be
+`problem.json`, editorial, secret test case, limits, notes, or validator source, so it cannot be
 re-imported — feeding one to an importer fails with `problem.json not found in ZIP.` That is the
 intended behavior, not a defect.
 
@@ -113,6 +113,17 @@ Only version 2 is written. A `full` export therefore refuses two problems it can
 
 `public` bundles are unaffected: they carry no `problem.json`, so they carry no strategy metadata.
 
+### Additive editorial metadata
+
+Editorial support does not change the format version. The optional `editorial`
+property and `editorial.md` member add content without changing the meaning of
+any version-1 or version-2 field. Older readers already ignore unknown metadata
+properties and safe unknown members.
+
+The editorial digest is nested in the `editorial` object instead of the
+top-level `sha256` manifest. This keeps the legacy manifest exact for older
+version-2 readers, while updated readers still verify the editorial bytes.
+
 ## Directory layout
 
 The package is rooted at the archive root — there is **no enclosing top-level directory**. Files
@@ -125,6 +136,7 @@ live at the root or in one of the reserved subfolders `in/`, `out/`, `explanatio
 /
 ├── problem.json         ← required
 ├── statement.md         ← required
+├── editorial.md         (optional — full packages only)
 ├── image.<ext>          (optional — gif, png, jpg, jpeg or webp)
 ├── validator/           (optional — interactive problems)
 │   └── validator.py     ← e.g. validator.py, validator.cpp
@@ -151,6 +163,7 @@ live at the root or in one of the reserved subfolders `in/`, `out/`, `explanatio
 /
 ├── problem.json                    ← required
 ├── statement.md or statement.pdf   ← one required
+├── editorial.md                    (optional — full packages only)
 ├── image.<ext>                     (optional — gif, png, jpg, jpeg or webp)
 ├── validator/                      (optional — interactive problems)
 │   └── validator.py                ← e.g. validator.py, validator.cpp
@@ -206,6 +219,7 @@ members are ignored, so a newer producer's extra files do not make a package unr
 | Total uncompressed | 512 MiB |
 | `statement.pdf` | 32 MiB |
 | `statement.md` | 512 KiB |
+| `editorial.md` | 512 KiB |
 | Each explanation | 512 KiB |
 | Each interaction transcript / explanation | 512 KiB |
 | Illustration image | 2 MiB |
@@ -223,7 +237,7 @@ any ratio a decompression bomb would.
 ## `problem.json` fields
 
 `problem.json` is a single JSON object at the package root. A `full` export writes **every**
-version-1 key, including keys the exporting domain cannot store — as `null`, `false`, or `{}`
+version-2 key, including keys the exporting domain cannot store — as `null`, `false`, or `{}`
 rather than omitted, so a consumer never has to guess whether absence means "unset" or
 "unsupported by the producer".
 
@@ -234,6 +248,10 @@ rather than omitted, so a consumer never has to guess whether absence means "uns
   "title": "A + B",
   "author": "John Doe",
   "notes": "Internal management note.",
+  "editorial": {
+    "member": "editorial.md",
+    "sha256": "…64 hex chars…"
+  },
   "source": "ICPC 2025",
   "license": "CC BY-SA 4.0",
   "color": "#4287f5",
@@ -276,6 +294,7 @@ rather than omitted, so a consumer never has to guess whether absence means "uns
 | `title` | string | **yes** | — | Non-empty after trim. Max **256** characters. |
 | `author` | string \| null | no | `null` | Free-text authorship, max **256**. On Arena, absent means the importing user is recorded as both owner and author. |
 | `notes` | string \| null | no | `null` | Internal management note, max **512**. |
+| `editorial` | object \| null | no | `null` | Declares the optional `editorial.md` solution guide and its independent SHA-256 digest. |
 | `source` | string \| null | no | `null` | Origin of the problem, max **256**. Stored by Arena only; always parsed and always exported. |
 | `license` | string \| null | no | `null` | License shown on the public problem page, max **256**. Arena only. |
 | `color` | `#rrggbb` \| null | no | `null` | Balloon color. Stored by Contest only; always parsed and always exported. When absent, a Contest import picks an unused `BALLOON_COLORS` entry. |
@@ -298,8 +317,8 @@ the other. Strings are **type-checked**: a JSON number for `notes` is an error, 
 
 ### Null versus absent
 
-A **nullable** field (`author`, `notes`, `source`, `license`, `color`, `statement_language`,
-`image`, `image_caption`, `custom_validator`) accepts an explicit `null`, which means the same as
+A **nullable** field (`author`, `notes`, `editorial`, `source`, `license`, `color`,
+`statement_language`, `image`, `image_caption`, `custom_validator`) accepts an explicit `null`, which means the same as
 omitting it.
 
 A field that has an empty value of its own — `categories`, `sample_testcases`, `language_limits`,
@@ -331,6 +350,29 @@ so a package with no public cases shows a contestant no worked examples at all.
 instead of sample test cases, and the zero-public-cases invariant is enforced by the reader rather
 than left to each domain to remember.
 
+### `editorial`
+
+The optional editorial is an official explanation and solution guide stored as
+Markdown:
+
+```json
+"editorial": {
+  "member": "editorial.md",
+  "sha256": "…64 lowercase hex characters…"
+}
+```
+
+The `member` value must be exactly `editorial.md`. The digest covers the exact
+raw bytes stored in that member. Updated readers reject a missing declared
+member, a digest mismatch, invalid UTF-8, content larger than 512 KiB, or
+Markdown that violates the statement restrictions. An `editorial.md` member
+without an `editorial` declaration is ignored with an `undeclared_editorial`
+warning. This preserves compatibility with older or third-party packages that
+used that safe filename for unrelated content without silently importing it.
+
+Missing or `null` means the problem has no editorial. Full exports always write
+either the object or `null`; public bundles never include `editorial.md`.
+
 ### `sha256`
 
 ```json
@@ -341,11 +383,16 @@ Lowercase 64-character hex digests over the **exact raw bytes stored in each ZIP
 computed *before* test-case newline normalization, so a package can be verified without
 interpreting what its members mean.
 
-The map covers every recognized payload member **except `problem.json` itself**, which would
-otherwise have to hash the file containing its own digest.
+The map covers every legacy recognized payload member except `problem.json`
+itself and `editorial.md`. The problem JSON cannot hash the file containing its
+own digest; the editorial uses `editorial.sha256` so older version-2 readers can
+ignore the additive member without treating the main manifest as over-complete.
 
 - A **present** map must cover exactly the recognized payload set and match the streamed contents.
   Missing entries, extra entries, and mismatches are all hard errors.
+- A redundant `editorial.md` entry is accepted when its digest matches. New
+  exports omit it to preserve compatibility with older version-2 readers and
+  use `editorial.sha256` as the authoritative declaration.
 - An **absent** map imports with an `integrity_manifest_missing` warning, because older packages
   predate the manifest.
 
@@ -598,7 +645,8 @@ as a flash on the import page.
 
 Warnings: `macos_metadata`, `orphan_explanation`, `ignored_interactive_output`,
 `interactions_dropped`, `unknown_categories`, `disallowed_language_limits`,
-`integrity_manifest_missing`, `validator_extension_mismatch`.
+`integrity_manifest_missing`, `undeclared_editorial`,
+`validator_extension_mismatch`.
 
 Errors: `validator/` members with no `custom_validator` metadata; non-empty `sample_testcases` on
 an interactive problem; a referenced file that is missing; any invalid recognized field; every
@@ -656,7 +704,7 @@ languages named in `language_limits`. Those are decided at import.
 
 | Constant | Value | Defined in |
 | --- | --- | --- |
-| `FORMAT_VERSION` | 1 | `shared/services/problem_package/constants.py` |
+| `FORMAT_VERSION` | 2 | `shared/services/problem_package/constants.py` |
 | `MAX_UPLOAD_BYTES` | 256 MiB | `shared/services/problem_package/constants.py` |
 | `MAX_ARCHIVE_MEMBERS` | 10 000 | `shared/services/problem_package/constants.py` |
 | `MAX_MEMBER_UNCOMPRESSED_BYTES` | 64 MiB | `shared/services/problem_package/constants.py` |
@@ -682,6 +730,7 @@ languages named in `language_limits`. Those are decided at import.
 noca-sample-problem-a-plus-b.zip
 ├── problem.json
 ├── statement.md
+├── editorial.md
 ├── in/001.in    out/001.out    explanation/001.txt   ← public
 ├── in/002.in    out/002.out
 └── in/003.in    out/003.out

@@ -91,19 +91,22 @@ def _extract_one(
 def verify_manifest(
     manifest: Mapping[str, str],
     extracted: Mapping[str, ExtractedMember],
+    *,
+    excluded_members: frozenset[str] = frozenset(),
 ) -> list[PackageWarning]:
     """Check a package's ``sha256`` map against what was actually extracted.
 
-    The map covers every recognized payload member **except** ``problem.json``
-    itself, which would otherwise have to hash the file containing its own
-    digest. A present map must cover exactly that set and match; an absent map
+    The map covers every recognized payload member except ``problem.json`` and
+    any explicitly excluded independently verified member. A present map must
+    cover exactly that ordinary set and match. A redundant entry for an excluded
+    member is tolerated only when it matches the extracted bytes. An absent map
     imports with a warning, since older packages predate the manifest.
 
     Raises:
         PackageError: If the map is present but incomplete, over-complete, or
             disagrees with the extracted bytes.
     """
-    expected_members = {name for name in extracted if name != PROBLEM_JSON_MEMBER}
+    expected_members = {name for name in extracted if name != PROBLEM_JSON_MEMBER and name not in excluded_members}
     if not manifest:
         return [
             PackageWarning(
@@ -117,10 +120,25 @@ def verify_manifest(
         raise PackageError(
             f"problem.json: 'sha256' must not cover {PROBLEM_JSON_MEMBER!r}, which contains the manifest itself."
         )
-    missing = sorted(expected_members - listed)
+    independently_verified = listed & excluded_members
+    for name in sorted(independently_verified):
+        extracted_member = extracted.get(name)
+        if extracted_member is None:
+            raise PackageError(
+                f"problem.json: 'sha256' covers independently verified member {name!r}, "
+                "but the archive member is missing."
+            )
+        if manifest[name] != extracted_member.digest:
+            raise PackageError(
+                f"Integrity check failed for {name!r}: top-level 'sha256' says "
+                f"{manifest[name]}, contents hash to {extracted_member.digest}."
+            )
+
+    ordinary_listed = listed - excluded_members
+    missing = sorted(expected_members - ordinary_listed)
     if missing:
         raise PackageError(f"problem.json: 'sha256' does not cover {', '.join(missing)}.")
-    extra = sorted(listed - expected_members)
+    extra = sorted(ordinary_listed - expected_members)
     if extra:
         raise PackageError(f"problem.json: 'sha256' lists members the package does not contain: {', '.join(extra)}.")
 

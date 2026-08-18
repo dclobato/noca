@@ -204,6 +204,7 @@ async def new_problem_submit(
     statement_file: UploadFile = File(None),
     statement_source: str = Form(""),
     md_content: str = Form(""),
+    editorial: str = Form(""),
     image: UploadFile = File(None),
     image_caption: str = Form(""),
     active_tab: str = Form(""),
@@ -286,6 +287,16 @@ async def new_problem_submit(
     else:
         errors.append("Problem statement is required.")
 
+    if editorial.strip():
+        editorial_errors = validate_md_content(editorial)
+        if editorial_errors:
+            _contest_admin_problem_edit._add_field_error(
+                errors,
+                field_errors,
+                "editorial",
+                f"Editorial: {editorial_errors[0]}",
+            )
+
     image_b64: str | None = None
     image_mime: str | None = None
     if image and image.filename:
@@ -342,6 +353,7 @@ async def new_problem_submit(
                     "has_pdf": False,
                     "has_md": statement_source == "md",
                     "md_content": md_content,
+                    "editorial_content": editorial,
                     "is_edit_allowed": _is_edit_allowed(ctx.contest),
                     "is_limits_edit_allowed": _is_limits_edit_allowed(ctx.contest),
                     "is_remove_allowed": False,
@@ -368,6 +380,7 @@ async def new_problem_submit(
         color=color,
         author=author.strip() or None,
         notes=notes.strip() or None,
+        editorial=editorial if editorial.strip() else None,
         time_limit_ms=tlms,
         memory_limit_kb=mlkb,
         pids_limit=pl,

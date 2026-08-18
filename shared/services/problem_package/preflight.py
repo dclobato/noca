@@ -22,6 +22,7 @@ from enum import StrEnum
 from shared.services.custom_validator import VALIDATOR_PACKAGE_DIR
 from shared.services.problem_image import EXT_TO_MIME
 from shared.services.problem_package.constants import (
+    EDITORIAL_MD_MEMBER,
     INTERACTION_EXPLAIN_RE,
     INTERACTION_RE,
     MACOS_JUNK_NAMES,
@@ -48,6 +49,7 @@ class MemberKind(StrEnum):
     PROBLEM_JSON = "problem_json"
     STATEMENT_MD = "statement_md"
     STATEMENT_PDF = "statement_pdf"
+    EDITORIAL = "editorial"
     TESTCASE_INPUT = "testcase_input"
     TESTCASE_OUTPUT = "testcase_output"
     EXPLANATION = "explanation"
@@ -209,6 +211,8 @@ def _classify(name: str, size: int) -> RecognizedMember | None:
         return RecognizedMember(name, MemberKind.STATEMENT_MD, None, size)
     if name == STATEMENT_PDF_MEMBER:
         return RecognizedMember(name, MemberKind.STATEMENT_PDF, None, size)
+    if name == EDITORIAL_MD_MEMBER:
+        return RecognizedMember(name, MemberKind.EDITORIAL, None, size)
 
     testcase = classify_testcase_member(name)
     if testcase is not None:

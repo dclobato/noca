@@ -6,8 +6,8 @@
 
 """The Contest problem *definition* Save.
 
-The definition editor saves what a problem is -- title, statement, illustration,
-categories, limits. What judging runs against moved to its own pages, so these
+The definition editor saves what a problem is -- title, statement, editorial,
+illustration, categories, limits. What judging runs against moved to its own pages, so these
 tests are mostly about what this Save no longer does: a form that arrives carrying
 test-case or validator fields must change neither.
 
@@ -213,6 +213,47 @@ async def test_saving_the_definition_leaves_the_test_cases_alone(
     assert (await _reload(session, problem_id)).title == "Renamed"
     assert len(await _cases(session, problem_id)) == 2
     assert _on_disk(problem_id) == before
+
+
+@pytest.mark.asyncio
+async def test_editorial_is_saved_and_blank_clears_it(
+    client: AsyncClient,
+    session: AsyncSession,
+    upcoming_contest: Contest,  # noqa: F811
+) -> None:
+    """The optional editorial is persisted with the Contest definition."""
+    problem = await _make_problem(session, upcoming_contest)
+
+    saved = await client.post(
+        _edit_url(problem.id),
+        data=_base_form() | {"editorial": "# Editorial\n\nAdd the values."},
+    )
+    assert saved.status_code == 303
+    assert (await _reload(session, problem.id)).editorial == "# Editorial\n\nAdd the values."
+
+    cleared = await client.post(_edit_url(problem.id), data=_base_form() | {"editorial": "   "})
+    assert cleared.status_code == 303
+    assert (await _reload(session, problem.id)).editorial is None
+
+
+@pytest.mark.asyncio
+async def test_invalid_editorial_reopens_its_tab_without_persisting(
+    client: AsyncClient,
+    session: AsyncSession,
+    upcoming_contest: Contest,  # noqa: F811
+) -> None:
+    """Editorial Markdown has the same content restrictions as the statement."""
+    problem = await _make_problem(session, upcoming_contest)
+
+    response = await client.post(
+        _edit_url(problem.id),
+        data=_base_form() | {"editorial": "[external](https://example.com)"},
+    )
+
+    assert response.status_code == 422
+    assert 'data-active-tab="editorial"' in response.text
+    assert 'id="editorial-server-error"' in response.text
+    assert (await _reload(session, problem.id)).editorial is None
 
 
 @pytest.mark.asyncio

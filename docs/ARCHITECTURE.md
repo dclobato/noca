@@ -9,7 +9,7 @@ Related references:
 - [autojudge/docs/AUTOJUDGE_INFRA.md](../autojudge/docs/AUTOJUDGE_INFRA.md) for worker isolation, queue protocol, and container execution details
 - [DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md](DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md) for the submission lifecycle
 - [CONTEST_BACKUP_FORMAT.md](CONTEST_BACKUP_FORMAT.md) for the contest
-  backup/restore ZIP format (version 2, restoring 1 and 2) and fidelity notes
+  backup/restore ZIP format (version 3, restoring 1, 2, and 3) and fidelity notes
 - [Interactive validator guide](custom-validator/INTERACTIVE_VALIDATOR.md) for
   authoring, exit codes, and applicable limits
 - [Output checker validator rationale](custom-validator/OUTPUT_CHECKER_VALIDATOR.md)
@@ -255,6 +255,23 @@ schema settles in one migration; nothing increments it yet. Its purpose is recov
 crash: for an *import*, the problem row's existence answers "did the transaction commit",
 but for an *edit* it cannot, since the problem exists either way.
 
+Both problem tables also carry an optional `editorial` text column. It stores
+the editor-only official explanation and solution guide as Markdown. Arena and
+Web edit it through the shared problem-definition editor and apply the same
+content restrictions and preview pipeline as Markdown statements; participant
+pages and public package bundles do not expose it. Arena additionally carries
+`arena_problems.editorial_release_policy` (`ArenaEditorialReleasePolicy`:
+`never` / `always` / `after_ac`, NOT NULL, default `never`), set from the same
+editor's Editorial tab. It records when the editorial should become visible to
+participants. The Arena problem detail page is the first (and so far only)
+reader: `never` or an empty editorial keeps the page unchanged, `always` shows
+an "Editorial" link between the prev/next problem buttons that opens a
+standalone Markdown viewer (`GET /problems/{arena_number}/editorial`, mirroring
+the existing validator-source viewer's minimal layout) in a new tab, and
+`after_ac` shows that same link only once the current user has an Accepted
+verdict on the problem — a gate the route re-checks itself rather than trusting
+the link's presence. Web has no equivalent column.
+
 Problem test-case content (both Web and Arena) lives on a single shared filesystem mount
 configured by `NOCA_PROBLEM_TESTCASE_DIR`, namespaced by identity domain:
 `<root>/contest/<problem_id>/NNN.in|out` for Web and `<root>/arena/<problem_id>/NNN.in|out`
@@ -276,10 +293,36 @@ presence, which is the only thing such a package says. A `checker` package is re
 the shared parser rather than by each importer, and only version 2 is written — so a `full` export
 refuses an interactive problem with no validator source, which version 2 cannot express.
 
-Contest **backups** are versioned independently and moved to version 2 with the same change, since
-strict row validation compares each archived row against the *live* table: a new column would
-otherwise make every existing archive unrestorable the day it lands. The restorer accepts versions
-1 and 2, requiring the strategy on version 2 and treating it as optional on version 1. Crucially,
+Editorials extend version 2 additively. `problem.json.editorial` names
+`editorial.md` and carries that member's SHA-256 digest. The editorial stays out
+of the legacy top-level manifest so deployed version-2 readers can ignore the
+unknown field and safe member without rejecting an over-complete manifest.
+
+Finished contests whose scoreboard has been released (`is_past` and
+`release_scoreboard_after_end` — the same gate as the team submissions download)
+expose their complete problem materials to **anonymous** callers:
+`GET /problem-set/{slug}.zip` (listed in Web's public auth allowlist) streams one
+ZIP with an `index.json` manifest plus each problem's full version-2 package
+spliced under `problems/{ordinal:03d}-{label}/`. Because the packages are built
+with `require_importable=False`, a contest holding an interactive problem whose
+validator source was removed still exports. The package-merge step lives in
+`shared/services/problem_package/merge.py` and is shared with contest backups.
+
+Since that endpoint is anonymous, it is Web's most exposed one: when
+`NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH` is set, `web/services/problem_set_cache.py`
+builds each contest's archive once, publishes it atomically (temp sibling +
+rename) with a `.sha256` sidecar, and serves the cached file while the sidecar
+digest matches; concurrent first-hit requests are serialized by a per-slug lock,
+and the gate check itself is one indexed query per request. Without the setting,
+every download is rebuilt — a development-only posture.
+
+Contest **backups** are versioned independently. Version 3 adds the nullable
+problem editorial column, while version 2 introduced the stored strategy. Strict
+row validation compares each archived row against the *live* table: a new column
+would otherwise make every existing archive unrestorable the day it lands. The
+restorer accepts versions 1, 2, and 3. Editorial is optional for versions 1 and
+2 and required as a row key in version 3; the strategy is required from version
+2 onward. Crucially,
 version 1 covers **two** archive shapes — those captured before the column existed, and those
 captured after it landed but before this bump, which carry the strategy under a version-1 label — so
 the rule is *explicit wins, infer only on absence*. One shared predicate serves both the restorer

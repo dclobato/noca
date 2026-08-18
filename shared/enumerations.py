@@ -143,6 +143,31 @@ class ProblemValidatorType(StrEnum):
     OUTPUT_CHECKER = "checker"
 
 
+class ArenaEditorialReleasePolicy(StrEnum):
+    """When an Arena problem's editorial becomes visible to participants.
+
+    Arena-only: the Web ``problems`` table has no equivalent column. This
+    value is captured and persisted by the editor, and gates the editorial
+    link on the Arena problem detail page (``arena/routes/problem_editorial.py``).
+    """
+
+    NEVER = "never"
+    ALWAYS = "always"
+    AFTER_AC = "after_ac"
+
+    @property
+    def label(self) -> str:
+        """Return the English display name of the policy."""
+        return _EDITORIAL_RELEASE_POLICY_LABELS[self]
+
+
+_EDITORIAL_RELEASE_POLICY_LABELS: dict[ArenaEditorialReleasePolicy, str] = {
+    ArenaEditorialReleasePolicy.NEVER: "Never",
+    ArenaEditorialReleasePolicy.ALWAYS: "Always",
+    ArenaEditorialReleasePolicy.AFTER_AC: "After AC",
+}
+
+
 class CustomValidatorActiveState(StrEnum):
     """State of the validator revision used for new submissions."""
 

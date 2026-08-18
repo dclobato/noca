@@ -24,6 +24,7 @@ from shared.services.problem_package.constants import (
     DEFAULT_OUTPUT_LIMIT_BYTES,
     DEFAULT_PIDS_LIMIT,
     DEFAULT_TIME_LIMIT_MS,
+    EDITORIAL_MD_MEMBER,
     LEGACY_FORMAT_VERSION,
     MAX_AUTHOR_CHARS,
     MAX_IMAGE_CAPTION_CHARS,
@@ -34,7 +35,7 @@ from shared.services.problem_package.constants import (
     SUPPORTED_FORMAT_VERSIONS,
 )
 from shared.services.problem_package.errors import PackageError
-from shared.services.problem_package.model import PackageLanguageLimit, PackageMetadata, ValidatorSpec
+from shared.services.problem_package.model import EditorialSpec, PackageLanguageLimit, PackageMetadata, ValidatorSpec
 
 _LIMIT_DEFAULTS = {
     "time_limit_ms": DEFAULT_TIME_LIMIT_MS,
@@ -96,6 +97,7 @@ def parse_metadata(meta: Mapping[str, Any]) -> PackageMetadata:
     return PackageMetadata(
         format_version=version,
         validator_type=_validator_type(meta, version, custom_validator),
+        editorial=_editorial_spec(meta.get("editorial")),
         title=_required_string(meta, "title", MAX_TITLE_CHARS),
         author=_string(meta, "author", MAX_AUTHOR_CHARS),
         notes=_string(meta, "notes", MAX_NOTES_CHARS),
@@ -178,6 +180,24 @@ def _validator_type(
             "problem.json: an 'interactive' problem must declare a 'custom_validator', but this package declares none."
         )
     return strategy
+
+
+def _editorial_spec(value: Any) -> EditorialSpec | None:
+    """Validate the optional, additive editorial declaration."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise PackageError(f"problem.json: 'editorial' must be an object or null; got {value!r}.")
+    member = value.get("member")
+    if member != EDITORIAL_MD_MEMBER:
+        raise PackageError(f"problem.json: editorial 'member' must be {EDITORIAL_MD_MEMBER!r}; got {member!r}.")
+    digest = value.get("sha256")
+    if not isinstance(digest, str):
+        raise PackageError("problem.json: editorial 'sha256' must be a 64-character hex string.")
+    normalized = digest.strip().lower()
+    if len(normalized) != 64 or not _is_hex(normalized):
+        raise PackageError("problem.json: editorial 'sha256' must be a 64-character hex string.")
+    return EditorialSpec(member=member, sha256=normalized)
 
 
 def _absent_or(meta: Mapping[str, Any], key: str) -> Any:

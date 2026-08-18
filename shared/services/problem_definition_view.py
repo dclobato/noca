@@ -7,7 +7,7 @@
 """Presentation model for the problem *definition* editor, shared by both modules.
 
 A problem is edited through two doors. This is the first: what the problem *is* --
-title, statement, illustration, categories, and (Contest only) resource limits --
+title, statement, editorial, illustration, categories, and (Contest only) resource limits --
 saved by one form with one Save. What judging runs against lives behind the
 second door, :mod:`shared.services.judgment_page_view`, on pages of its own.
 
@@ -16,7 +16,7 @@ transaction, so switching between them must not lose typed input and does not ne
 a round trip. Judgment data is the opposite on both counts, which is why it is not
 here.
 
-Both modules render the same statement pane, so it must stay free of
+Both modules render the same statement and editorial panes, so they must stay free of
 module-specific ``url_for`` route names: each module builds one
 :class:`ProblemDefinitionView` whose URLs are already resolved -- the arrangement
 :class:`shared.services.testcase_view.TestCaseRowView` uses for the row table.
@@ -36,10 +36,11 @@ from shared.services.editor_urls import editor_url
 #: Canonical definition panes, in display order.
 TAB_METADATA = "metadata"
 TAB_STATEMENT = "statement"
+TAB_EDITORIAL = "editorial"
 TAB_LIMITS = "limits"
 
 #: Every canonical value, in display order.
-ALL_TABS: tuple[str, ...] = (TAB_METADATA, TAB_STATEMENT, TAB_LIMITS)
+ALL_TABS: tuple[str, ...] = (TAB_METADATA, TAB_STATEMENT, TAB_EDITORIAL, TAB_LIMITS)
 
 #: Web's pre-split vocabulary, kept working so old links still land on a rendered
 #: pane. ``test-cases`` and ``sample-interactions`` are *not* aliases: they name pages

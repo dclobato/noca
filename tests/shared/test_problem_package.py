@@ -105,6 +105,109 @@ def test_decimal_string_limits_are_accepted(tmp_path: Path) -> None:
     assert package.metadata.time_limit_ms == 1500
 
 
+def test_missing_or_null_editorial_is_optional(tmp_path: Path) -> None:
+    """Both older packages and an explicit empty declaration import."""
+    missing = read(write_zip(tmp_path / "missing-key.zip", minimal_members(), metadata=minimal_metadata()))
+    explicit_null = read(
+        write_zip(tmp_path / "null-key.zip", minimal_members(), metadata=minimal_metadata(editorial=None))
+    )
+
+    assert missing.editorial is None
+    assert explicit_null.editorial is None
+
+
+def test_declared_editorial_is_verified_and_read(tmp_path: Path) -> None:
+    editorial = "# Editorial\n\nAdd both values.\n"
+    digest = hashlib.sha256(editorial.encode("utf-8")).hexdigest()
+    members = minimal_members(**{"editorial.md": editorial})
+    metadata = minimal_metadata(editorial={"member": "editorial.md", "sha256": digest})
+
+    package = read(write_zip(tmp_path / "editorial.zip", members, metadata=metadata))
+
+    assert package.editorial == editorial
+
+
+def test_blank_declared_editorial_normalizes_to_absent(tmp_path: Path) -> None:
+    editorial = "  \n"
+    members = minimal_members(**{"editorial.md": editorial})
+    metadata = minimal_metadata(
+        editorial={"member": "editorial.md", "sha256": hashlib.sha256(editorial.encode()).hexdigest()}
+    )
+
+    assert read(write_zip(tmp_path / "blank-editorial.zip", members, metadata=metadata)).editorial is None
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "editorial.md",
+        {},
+        {"member": "solution.md", "sha256": "0" * 64},
+        {"member": "editorial.md", "sha256": "not-a-digest"},
+    ],
+)
+def test_invalid_editorial_declarations_are_rejected(tmp_path: Path, declaration: object) -> None:
+    with pytest.raises(PackageError, match="editorial"):
+        read(
+            write_zip(
+                tmp_path / "invalid-editorial-declaration.zip",
+                minimal_members(),
+                metadata=minimal_metadata(editorial=declaration),
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        (b"\xff", "not valid UTF-8"),
+        ("[external](https://example.com)\n", "Invalid editorial.md"),
+    ],
+)
+def test_editorial_uses_statement_content_restrictions(
+    tmp_path: Path,
+    content: bytes | str,
+    message: str,
+) -> None:
+    raw = content if isinstance(content, bytes) else content.encode()
+    members = minimal_members(**{"editorial.md": content})
+    metadata = minimal_metadata(editorial={"member": "editorial.md", "sha256": hashlib.sha256(raw).hexdigest()})
+
+    with pytest.raises(PackageError, match=message):
+        read(write_zip(tmp_path / "invalid-editorial-content.zip", members, metadata=metadata))
+
+
+def test_editorial_size_is_bounded_like_a_markdown_statement(tmp_path: Path) -> None:
+    content = b"x" * (512 * 1024 + 1)
+    members = minimal_members(**{"editorial.md": content})
+    metadata = minimal_metadata(editorial={"member": "editorial.md", "sha256": hashlib.sha256(content).hexdigest()})
+
+    with pytest.raises(PackageError, match="editorial.md is .* the limit is 524288"):
+        read(write_zip(tmp_path / "oversized-editorial.zip", members, metadata=metadata))
+
+
+def test_undeclared_editorial_is_ignored_with_a_warning(tmp_path: Path) -> None:
+    """A pre-editorial package may safely carry an unrelated file by that name."""
+    members = minimal_members(**{"editorial.md": "# Editorial\n"})
+    package = read(write_zip(tmp_path / "orphan.zip", members, metadata=minimal_metadata()))
+
+    assert package.editorial is None
+    assert "undeclared_editorial" in {warning.code for warning in package.warnings}
+
+
+def test_declared_editorial_member_is_required(tmp_path: Path) -> None:
+    metadata = minimal_metadata(editorial={"member": "editorial.md", "sha256": "0" * 64})
+    with pytest.raises(PackageError, match="member is missing"):
+        read(write_zip(tmp_path / "missing.zip", minimal_members(), metadata=metadata))
+
+
+def test_editorial_digest_must_match(tmp_path: Path) -> None:
+    members = minimal_members(**{"editorial.md": "# Editorial\n"})
+    metadata = minimal_metadata(editorial={"member": "editorial.md", "sha256": "0" * 64})
+    with pytest.raises(PackageError, match="Integrity check failed for 'editorial.md'"):
+        read(write_zip(tmp_path / "mismatch.zip", members, metadata=metadata))
+
+
 def test_a_number_where_a_string_belongs_is_an_error(tmp_path: Path) -> None:
     with pytest.raises(PackageError, match="'notes' must be a string"):
         read(write_zip(tmp_path / "p.zip", minimal_members(), metadata=minimal_metadata(notes=42)))
@@ -162,6 +265,34 @@ def test_matching_manifest_produces_no_warning(tmp_path: Path) -> None:
     metadata = minimal_metadata(sha256=_digests(members))
 
     assert read(write_zip(tmp_path / "p.zip", members, metadata=metadata)).warnings == ()
+
+
+def test_redundant_editorial_entry_in_top_level_manifest_is_tolerated(tmp_path: Path) -> None:
+    editorial = "# Editorial\n"
+    members = minimal_members(**{"editorial.md": editorial})
+    digests = _digests(members)
+    metadata = minimal_metadata(
+        editorial={"member": "editorial.md", "sha256": digests["editorial.md"]},
+        sha256=digests,
+    )
+
+    package = read(write_zip(tmp_path / "redundant-editorial-digest.zip", members, metadata=metadata))
+
+    assert package.editorial == editorial
+    assert package.warnings == ()
+
+
+def test_bad_redundant_editorial_manifest_digest_has_an_accurate_error(tmp_path: Path) -> None:
+    editorial = "# Editorial\n"
+    members = minimal_members(**{"editorial.md": editorial})
+    digests = _digests(members)
+    metadata = minimal_metadata(
+        editorial={"member": "editorial.md", "sha256": digests["editorial.md"]},
+        sha256=digests | {"editorial.md": "0" * 64},
+    )
+
+    with pytest.raises(PackageError, match="top-level 'sha256' says"):
+        read(write_zip(tmp_path / "bad-redundant-editorial-digest.zip", members, metadata=metadata))
 
 
 def test_mismatched_manifest_is_rejected(tmp_path: Path) -> None:
@@ -555,6 +686,7 @@ def test_full_export_writes_every_version_two_key(tmp_path: Path) -> None:
         "hide_author_show_source",
         "statement_language",
         "validator_type",
+        "editorial",
         "time_limit_ms",
         "memory_limit_kb",
         "pids_limit",
@@ -569,6 +701,26 @@ def test_full_export_writes_every_version_two_key(tmp_path: Path) -> None:
     }
     assert set(metadata) == expected
     assert "problem.json" not in metadata["sha256"]
+    assert "editorial.md" not in metadata["sha256"]
+    editorial = metadata["editorial"]
+    assert editorial["member"] == "editorial.md"
+    with zipfile.ZipFile(destination) as archive:
+        editorial_bytes = archive.read("editorial.md")
+    assert editorial["sha256"] == hashlib.sha256(editorial_bytes).hexdigest()
+
+
+def test_editorial_extension_remains_readable_by_a_legacy_v2_manifest_reader(tmp_path: Path) -> None:
+    """An older reader can ignore both the unknown property and member."""
+    source = build_sample_problem_package(tmp_path / "sample.zip")
+    with read_problem_package(source) as staged:
+        destination = build_package(staged.package, tmp_path / "out.zip", profile="full")
+
+    with zipfile.ZipFile(destination) as archive:
+        names = set(archive.namelist())
+        metadata = json.loads(archive.read("problem.json"))
+
+    legacy_payload_names = names - {"problem.json", "editorial.md"}
+    assert set(metadata["sha256"]) == legacy_payload_names
 
 
 def test_public_profile_carries_only_the_contestant_bundle(tmp_path: Path) -> None:
@@ -579,6 +731,7 @@ def test_public_profile_carries_only_the_contestant_bundle(tmp_path: Path) -> No
     names = set(zipfile.ZipFile(destination).namelist())
     assert "problem.json" not in names
     assert "statement.md" in names
+    assert "editorial.md" not in names
     # Only the one public case (and its explanation) survives.
     assert {"in/001.in", "out/001.out", "explanation/001.txt"} <= names
     assert not any(name.startswith(("in/002", "out/002", "in/003", "out/003")) for name in names)
@@ -601,10 +754,12 @@ def test_export_import_export_is_lossless(tmp_path: Path) -> None:
     with read_problem_package(first) as staged:
         second = build_package(staged.package, tmp_path / "two.zip", profile="full")
         first_metadata = staged.package.metadata
+        first_editorial = staged.package.editorial
         first_cases = [(case.ordinal, case.is_sample, case.explanation) for case in staged.package.test_cases]
 
     with read_problem_package(second) as staged:
         assert staged.package.metadata == first_metadata
+        assert staged.package.editorial == first_editorial
         assert [(c.ordinal, c.is_sample, c.explanation) for c in staged.package.test_cases] == first_cases
 
 
@@ -762,6 +917,7 @@ def _fingerprint(package: ProblemPackage) -> dict[str, object]:
     return {
         "metadata": package.metadata,
         "statement": (package.statement.kind, _payload(package.statement.path, package.statement.text)),
+        "editorial": package.editorial,
         "cases": [
             (
                 case.ordinal,

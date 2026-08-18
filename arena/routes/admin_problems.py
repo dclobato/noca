@@ -21,13 +21,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.database import get_db
 from arena.dependencies.admin import require_arena_problem_editor
 from arena.models.arena_users import ArenaUser
-from arena.routes.admin_problem_common import get_problem_definition_or_403, get_problem_or_403
+from arena.routes.admin_problem_common import (
+    get_problem_definition_or_403,
+    get_problem_or_403,
+    problem_enablement_error,
+)
 from arena.routes.admin_problem_form_views import (
+    EDITORIAL_POLICY_COLORS,
+    EDITORIAL_POLICY_ICONS,
     edit_form_extras,
     effective_per_page,
     form_fields,
     html_response,
     is_admin,
+    parse_editorial_filter,
     parse_enabled_filter,
     problem_list_url,
     render_problem_form,
@@ -37,16 +44,12 @@ from arena.routes.admin_problem_form_views import (
 )
 from arena.routes.admin_problem_judgment_urls import judgment_page_url
 from arena.routes.admin_problem_new import creation_return_query, resolve_choice_or_redirect
-from arena.services import (
-    admin_problem_interaction_service,
-    admin_problem_service,
-    admin_problem_tc_service,
-)
+from arena.services import admin_problem_service
 from arena.services.pagination_service import parse_page
 from arena.services.statement_language_service import (
     safe_statement_language,
 )
-from shared.enumerations import ProblemValidatorType, StatementLanguage
+from shared.enumerations import ArenaEditorialReleasePolicy, StatementLanguage
 from shared.services.admin_audit import record_admin_action
 from shared.services.problem_definition_view import MOVED_TO_JUDGMENT
 from shared.services.valkey_service.queue_ops import enqueue_arena_submission_job
@@ -76,6 +79,7 @@ async def admin_problem_list(
     category_slugs: list[str] | None = Query(None),
     language: str = "",
     enabled: str = "",
+    editorial: str = "",
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -85,6 +89,7 @@ async def admin_problem_list(
     effective_language = safe_statement_language(language)
     effective_sort = _effective_problem_sort(sort_by, search)
     effective_enabled = parse_enabled_filter(enabled)
+    effective_editorial = parse_editorial_filter(editorial)
 
     pagination = await admin_problem_service.list_problems_paginated(
         session,
@@ -95,6 +100,7 @@ async def admin_problem_list(
         owner_id=owner_id if (is_adm and owner_id) else None,
         language=effective_language,
         enabled=effective_enabled,
+        editorial=effective_editorial or None,
         sort_by=effective_sort,
         caller_id=current_user.id,
         is_admin=is_adm,
@@ -117,6 +123,10 @@ async def admin_problem_list(
                 "language": effective_language.value if effective_language else "",
                 "statement_languages": list(StatementLanguage),
                 "selected_enabled": enabled if enabled in ("1", "0") else "",
+                "selected_editorial": effective_editorial,
+                "editorial_release_policies": list(ArenaEditorialReleasePolicy),
+                "editorial_policy_icons": EDITORIAL_POLICY_ICONS,
+                "editorial_policy_colors": EDITORIAL_POLICY_COLORS,
                 "owners": owners,
                 "all_categories": all_categories,
                 "current_user": current_user,
@@ -139,6 +149,7 @@ async def admin_problem_new(
     category_slugs: list[str] | None = Query(None),
     language: str = "",
     enabled: str = "",
+    editorial: str = "",
     next: str = Query(""),
     tab: str = Query(""),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
@@ -162,6 +173,7 @@ async def admin_problem_new(
         category_slugs=category_slugs,
         language=language,
         enabled=enabled,
+        editorial=editorial,
         next_path=safe_next,
     )
     strategy = resolve_choice_or_redirect(request, flash, validator_type, return_query)
@@ -177,6 +189,7 @@ async def admin_problem_new(
         category_slugs=category_slugs,
         language=language,
         enabled=enabled,
+        editorial=editorial,
     )
     return render_problem_form(
         request,
@@ -193,6 +206,8 @@ async def admin_problem_new(
             pids_limit=64,
             output_limit_in_bytes=65536,
             problem_statement="",
+            editorial="",
+            editorial_release_policy=ArenaEditorialReleasePolicy.NEVER.value,
             category_ids=[],
             image_caption="",
         ),
@@ -207,6 +222,7 @@ async def admin_problem_new(
             category_slugs=category_slugs,
             language=language,
             enabled=enabled,
+            editorial=editorial,
         ),
         current_user=current_user,
         next_url=safe_next,
@@ -231,6 +247,7 @@ async def admin_problem_edit(
     category_slugs: list[str] | None = Query(None),
     language: str = "",
     enabled: str = "",
+    editorial: str = "",
     next: str = Query(""),
     tab: str = Query(""),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
@@ -261,6 +278,7 @@ async def admin_problem_edit(
         category_slugs=category_slugs,
         language=language,
         enabled=enabled,
+        editorial=editorial,
     )
     return render_problem_form(
         request,
@@ -277,6 +295,8 @@ async def admin_problem_edit(
             pids_limit=problem.pids_limit,
             output_limit_in_bytes=problem.output_limit_in_bytes,
             problem_statement=problem.problem_statement,
+            editorial=problem.editorial or "",
+            editorial_release_policy=problem.editorial_release_policy.value,
             category_ids=selected_ids,
             image_caption=problem.problem_image_caption or "",
             notes=problem.notes or "",
@@ -295,6 +315,7 @@ async def admin_problem_edit(
             category_slugs=category_slugs,
             language=language,
             enabled=enabled,
+            editorial=editorial,
         ),
         problem_owner=problem_owner,
         current_user=current_user,
@@ -315,6 +336,7 @@ async def admin_problem_toggle_enabled(
     category_slugs: list[str] | None = Query(None),
     language: str = Query(""),
     enabled: str = Query(""),
+    editorial: str = Query(""),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -323,9 +345,7 @@ async def admin_problem_toggle_enabled(
     if not problem.enabled:
         # Enabling makes the problem visible and submittable, so it is one of the
         # execution gates where the shared judgeability contract applies.
-        gate_error = await admin_problem_tc_service.judgeability_error_for(session, problem)
-        if gate_error is None and problem.validator_type is ProblemValidatorType.INTERACTIVE:
-            gate_error = await admin_problem_interaction_service.interactive_testcase_error(session, problem.id)
+        gate_error = await problem_enablement_error(session, problem)
         if gate_error is not None:
             flash(f"Cannot enable this problem. {gate_error}", FlashCategory.DANGER)
             return RedirectResponse(request.url_for("arena_admin_problem_edit", problem_id=problem.id), 303)
@@ -344,6 +364,7 @@ async def admin_problem_toggle_enabled(
             category_slugs=category_slugs,
             language=language,
             enabled=enabled,
+            editorial=editorial,
             anchor=problem.id,
         ),
         status_code=303,
@@ -364,6 +385,7 @@ async def admin_problem_delete(
     category_slugs: list[str] = Form(default=[]),
     language: str = Form(""),
     enabled: str = Form(""),
+    editorial: str = Form(""),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
     session: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -400,6 +422,7 @@ async def admin_problem_delete(
             category_slugs=category_slugs,
             language=language,
             enabled=enabled,
+            editorial=editorial,
         ),
         status_code=303,
     )

@@ -27,6 +27,7 @@ from sqlalchemy import (
 from sqlalchemy import Enum as SAEnum
 
 from shared.enumerations import (
+    ArenaEditorialReleasePolicy,
     CustomValidatorActiveState,
     CustomValidatorCandidateState,
     ProblemValidatorType,
@@ -168,6 +169,15 @@ arena_problems = Table(
         comment="Whether the problem is available for arena use.",
     ),
     Column("problem_statement", Text, nullable=False),
+    Column("editorial", Text, nullable=True, comment="Optional editor-only Markdown solution guide."),
+    Column(
+        "editorial_release_policy",
+        SAEnum(ArenaEditorialReleasePolicy, values_callable=lambda e: [m.value for m in e]),
+        nullable=False,
+        default=ArenaEditorialReleasePolicy.NEVER,
+        server_default=ArenaEditorialReleasePolicy.NEVER.value,
+        comment="When the editorial is released to participants; not yet enforced.",
+    ),
     Column("problem_image_base64", Text, nullable=True, comment="BASE-64 encoded image for the statement."),
     Column(
         "problem_image_mime",

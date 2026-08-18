@@ -18,7 +18,14 @@ from fastapi_flash import FlashCategory, FlashDep
 
 from shared.services.editor_urls import editor_url
 from shared.services.imageprocessing_service import ImageProcessingError
-from shared.services.problem_definition_view import MOVED_TO_JUDGMENT, TAB_LIMITS, resolve_tab
+from shared.services.problem_definition_view import (
+    MOVED_TO_JUDGMENT,
+    TAB_EDITORIAL,
+    TAB_LIMITS,
+    TAB_METADATA,
+    TAB_STATEMENT,
+    resolve_tab,
+)
 from shared.services.problem_editor_save import (
     abandon_swap,
     lock_problem_row,
@@ -116,11 +123,12 @@ async def edit_problem_submit(
     statement_file: UploadFile = File(None),
     statement_source: str = Form("unchanged"),
     md_content: str = Form(""),
+    editorial: str = Form(""),
     image: UploadFile = File(None),
     image_caption: str = Form(""),
     clear_image: bool = Form(False),
 ) -> HTMLResponse | RedirectResponse:
-    """Save what the problem *is*: metadata, statement, categories, limits.
+    """Save what the problem *is*: metadata, statement, editorial, categories, limits.
 
     What judging runs against -- test cases, the validator, sample interactions --
     is edited on its own pages and applies as it is clicked. This Save briefly
@@ -236,6 +244,16 @@ async def edit_problem_submit(
     else:
         errors.append("Invalid statement source.")
 
+    if editorial.strip():
+        editorial_errors = validate_md_content(editorial)
+        if editorial_errors:
+            _add_field_error(
+                errors,
+                field_errors,
+                "editorial",
+                f"Editorial: {editorial_errors[0]}",
+            )
+
     image_b64: str | None = None
     image_mime: str | None = None
     if image and image.filename:
@@ -264,6 +282,7 @@ async def edit_problem_submit(
                 "image_caption": image_caption,
             },
             md_content=md_content,
+            editorial_content=editorial,
             has_pdf=statement_source == "unchanged" and not existing_has_md,
             has_md=(statement_source == "unchanged" and existing_has_md) or statement_source == "md",
             category_names_csv=category_names,
@@ -280,6 +299,7 @@ async def edit_problem_submit(
     problem.color = color
     problem.author = author.strip() or None
     problem.notes = notes.strip() or None
+    problem.editorial = editorial if editorial.strip() else None
     problem.time_limit_ms = tlms
     problem.memory_limit_kb = mlkb
     problem.pids_limit = pids_limit_value
@@ -375,15 +395,17 @@ def _validation_tab(
     """Open the pane containing the first actionable server-side error."""
     first_field = next(iter(field_errors), "")
     if first_field == "title":
-        return "metadata"
+        return TAB_METADATA
     if first_field == "md_content":
-        return "statement"
+        return TAB_STATEMENT
+    if first_field == "editorial":
+        return TAB_EDITORIAL
     if first_field in {"time_limit_ms", "memory_limit_kb", "pids_limit", "output_limit_in_bytes"}:
         return TAB_LIMITS
     if language_limit_errors:
         return TAB_LIMITS
     if any("statement" in error.lower() or "problem image" in error.lower() for error in errors):
-        return "statement"
+        return TAB_STATEMENT
     return submitted_tab or None
 
 

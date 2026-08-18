@@ -107,6 +107,7 @@ from web.routes.contest_tasks import router as contest_tasks_router
 from web.routes.contest_tasks_staff import router as contest_tasks_staff_router
 from web.routes.generaluser_dashboard import router as generaluser_dashboard_router
 from web.routes.health import router as health_router
+from web.routes.problem_set import router as problem_set_router
 from web.routes.profile import router as profile_router
 from web.routes.root import router as root_router
 from web.routes.uberadmin_contest_backup import router as uberadmin_contest_backup_router
@@ -157,6 +158,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("-" * 80)
     logger.info("Problem statements directory: %s", config.PROBLEM_STATEMENT_DIR)
     logger.info("Problem test case directory: %s", config.PROBLEM_TESTCASE_DIR)
+    if config.PUBLIC_PROBLEM_PACK_PATH is not None:
+        config.PUBLIC_PROBLEM_PACK_PATH.mkdir(parents=True, exist_ok=True)
+        logger.info("Public problem-set cache directory: %s", config.PUBLIC_PROBLEM_PACK_PATH)
+    else:
+        logger.info("Public problem-set cache disabled (NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH unset)")
     logger.info("| Initializing services |".center(80, "-"))
     log_settings(logger, settings)
     await wait_for_db(settings.db_url, timeout_s=settings.STARTUP_TIMEOUT_SECONDS, logger=logger)
@@ -515,6 +521,7 @@ app.mount("/static/webfonts", StaticFiles(directory=_SHARED_DIR / "static" / "we
 app.include_router(assets_router)
 app.include_router(login_logout_router)
 app.include_router(root_router)
+app.include_router(problem_set_router)
 app.include_router(health_router)
 
 # ###################################################################

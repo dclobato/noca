@@ -263,31 +263,167 @@ changes:
   staff roles, authorized teachers, problem owners with management permission,
   and unrelated users.
 
-### Make validation strategy immutable after problem creation
+### Make validation strategy immutable after problem creation (remaining gaps)
 
 **Status:** Pending.
 
-The author must select `standard`, `interactive`, or `checker` when creating a
-problem. After creation, the validation strategy is immutable. Changing to
-another strategy requires creating a new problem from scratch. The settled
-contract is documented in
-[Output checker](custom-validator/OUTPUT_CHECKER_VALIDATOR.md#package-representation).
+The core immutability guarantee for this contract is already implemented (see
+[Implemented](#implemented) below). Two bullets from the original contract
+remain open:
 
-Complete this backlog item by making these changes:
+- The `checker` strategy is exposed as a choice in the Web and Arena
+  problem-creation UI but kept on a disabled card, because checker validation
+  itself is not implemented yet (see "Preserve optional checker reference text
+  without interpreting it" above). Enable it once checker support lands.
+- Reject package data whose `validator_type` differs from the existing
+  problem's strategy. There is currently no package-based "update an existing
+  problem" import path at all — `import_problem_package` in both Web
+  (`web/services/problem_service/importing.py`) and Arena
+  (`arena/services/admin_problem_io_service.py`) only construct brand-new
+  problem rows — so this check has no code path to apply to yet. Implement it
+  alongside any future package-based update flow.
 
-- Add validation-strategy selection to the Web and Arena problem-creation
-  workflows.
-- Display the selected strategy as read-only in every problem-edit workflow.
-- Reject strategy changes in routes, APIs, shared services, and package update
-  operations rather than relying only on disabled UI controls.
-- Continue to support staged source, language, and semantics replacement within
-  the existing `interactive` or `checker` strategy.
-- Keep the problem's strategy unchanged when its validator source is removed,
-  and block submissions until another validator candidate becomes active.
-- Reject package data whose `validator_type` differs from the existing problem's
-  strategy.
-- Require future interactive packages to declare `validator_type: interactive`
-  with `custom_validator`, input-only secret cases, and optional sample
-  interactions. Preserve the current mapping for older package versions.
-- Add focused Web, Arena, service, and package tests for permitted replacement
-  and rejected cross-strategy changes.
+## Web
+
+Web backlog items cover behavior specific to the Web module.
+
+### Harden the public problem-set archive cache
+
+**Status:** Pending.
+
+`web/services/problem_set_cache.py` caches the anonymous `GET /problem-set/{slug}.zip`
+archive per contest so a burst of downloads costs one build instead of rebuilding on
+every hit (see `docs/ARCHITECTURE.md` and `web/docs/SERVICES.md`). Three follow-ups
+identified during code review remain open:
+
+- `_cache_hit` re-hashes the complete cached archive with SHA-256 on every request,
+  not just after a build. For a large contest archive this reintroduces an
+  O(archive size) disk-read and CPU cost on every anonymous hit, undercutting the
+  cache's purpose. Replace the full re-hash on each request with a cheap staleness
+  check (e.g. comparing `stat()` mtime/size against the values recorded at publish
+  time), falling back to a full digest recomputation only when that check is
+  inconclusive.
+- The per-slug `anyio.Lock` in `_build_locks` only serializes concurrent builds
+  within one process (noted in the module docstring). A multi-replica Web
+  deployment can still run one full build per replica simultaneously for a newly
+  released contest's first request. Replace it with the existing Valkey-backed
+  `shared/services/lock_service` for cross-process serialization, or explicitly
+  keep the current in-process-only behavior if the duplicate first-build cost is
+  judged acceptable.
+- `_build_locks: dict[str, anyio.Lock]` grows by one entry per distinct contest
+  slug ever requested, for the life of the process, with no eviction. Bounded in
+  practice by the number of distinct contests, but worth pruning (e.g. dropping an
+  entry once its build completes and is uncontended) for consistency with the rest
+  of the codebase's care about unbounded process-lifetime state (health-monitor
+  presence pruning, security-events reaper).
+
+Note: `NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH` caches on local disk, which is
+per-replica and does not survive a redeploy. Replacing it with an S3-compatible
+object-storage endpoint would give a persistent, replica-shared cache and could
+also subsume the cross-process locking gap above (e.g. via a conditional
+"put-if-absent" write) instead of adopting `shared/services/lock_service`.
+
+### Decouple problem-set/editorial release from scoreboard release
+
+**Status:** Pending — design confirmed, not yet implemented.
+
+`GET /problem-set/{slug}.zip` currently reuses `Contest.release_scoreboard_after_end`
+as its sole release gate (see "Harden the public problem-set archive cache" above
+and `docs/ARCHITECTURE.md`), so making a contest's scoreboard public also makes
+its full problem package — including every secret test case, validator source,
+and editorial — publicly downloadable, with no separate opt-out. This conflates
+two distinct admin decisions.
+
+Add a separate release flag (e.g. `Contest.release_problem_set_after_end`,
+independent of `release_scoreboard_after_end`) so an admin can publish the
+scoreboard without releasing the problem package and editorials, and gate
+`problem_set_download` (`web/routes/problem_set.py`) and the "Problem set" button
+on `contests.html` on the new flag instead of the scoreboard one. Add a migration,
+an admin control alongside the existing scoreboard-release toggle
+(`web/routes/contest_admin.py`), and tests covering every combination of the two
+flags.
+
+## Document rendering
+
+### Render HTML/Markdown to PDF on demand
+
+**Status:** Idea — not yet an accepted contract.
+
+NOCA has no server-side HTML/Markdown-to-PDF rendering today: problem
+statements are either an author-uploaded `statement.pdf` (validated, never
+rendered) or `statement.md` rendered client-side in the browser
+(`web/static/js/render-problem-statement.js`). A downloadable PDF of a
+Markdown statement, and the still-unimplemented contest logistics document
+conversion noted in `web/docs/SERVICES.md`, both need this capability.
+
+DMOJ's `pdfoid` (Selenium + headless Chrome + CDP `Page.printToPDF`) was
+evaluated and rejected as a direct dependency: it is a small, unmaintained,
+unauthenticated, AGPL-3.0 service with no request limits or sandboxing around
+the HTML it renders. The root `pyproject.toml` already depends on Playwright
+(currently only for browser tests), which exposes the same `page.pdf()`
+capability natively, is actively maintained, and is Apache-2.0 licensed.
+
+A future implementation should be a small dedicated service or worker built on
+Playwright rather than pdfoid, following the existing isolated-worker pattern
+(`autojudge`/`rating`/`aiassistant`): Valkey-queued jobs, no direct Python
+import into `web`/`arena`, and explicit limits on renderable input size and
+network access to prevent SSRF/DoS from untrusted statement content.
+
+### Server-side LaTeX/math rendering
+
+**Status:** Idea — not yet an accepted contract.
+
+Math in problem statements is rendered entirely client-side today: vendored
+KaTeX `auto-render` runs after `marked.parse()` + `DOMPurify.sanitize()`
+(`web/static/js/render-problem-statement.js`,
+`arena/static/js/problem-detail.js`, and `shared/static/js/render-tc-explanation.js`
+for test-case explanations). `shared/problem_statement_markdown.py` never
+inspects LaTeX delimiters — `$...$` / `\(...\)` pass through the sanitizer
+untouched and are only ever interpreted by the browser.
+
+Wikimedia's `mathoid` (Node.js/Express, wraps `mathoid-mathjax-node` plus
+native `librsvg` bindings) was evaluated and rejected for the same reason as
+`pdfoid` above: its last npm release was 2022-07-01, and adopting it means
+introducing a Node.js runtime that does not otherwise exist anywhere in NOCA
+(the `landingpage` module explicitly avoids one). It also does not solve a
+problem NOCA currently has — client-side KaTeX works, and the moment a
+Playwright-based PDF export (see above) exists, it renders the same
+client-side KaTeX correctly for free, since Playwright drives a real browser.
+
+Server-side math rendering is only worth revisiting for a narrower,
+not-yet-stated need such as MathML/speech output for accessibility or
+dropping the KaTeX bundle from clients. If that need materializes, prefer
+reusing the same Playwright sidecar proposed for PDF export (headless-browser
+KaTeX-to-SVG/MathML pre-rendering) over adding a second, stale, non-Python
+service, and cap input size/timeout regardless, since pathological TeX macros
+are a known DoS vector for MathJax-based renderers.
+
+## Implemented
+
+Items below were accepted contracts tracked in this document and have since
+landed. They are kept here, rather than deleted, as a pointer to the commit
+that implemented each one.
+
+### Make validation strategy immutable after problem creation (core guarantee)
+
+**Status:** Implemented.
+
+The core immutability guarantee — selecting `standard`, `interactive`, or
+`checker` at problem creation, exposing it as read-only afterward, and
+enforcing that at both the ORM and route/service level — landed in
+`f5575dd3` (`feat(problems): [phase 2] store the validation strategy
+explicitly`) and `5f76f393` (`feat(problems): [phase 5] choose the validation
+strategy before creating`):
+
+- `shared/services/validator_type_guard.py` enforces immutability through a
+  `before_flush` ORM guard, wired into both `web/models/problem.py` and
+  `arena/models/arena_problems.py`.
+- Web (`web/routes/contest_admin_problem_new.py`) and Arena
+  (`arena/routes/admin_problem_new.py`) problem-creation routes present a
+  validation-strategy chooser (`shared/services/validator_choice.py`); edit
+  forms show the strategy as fixed and read-only thereafter.
+- Focused tests live in `tests/shared/test_validator_type_immutability.py`.
+
+Two narrower bullets from the original contract remain open — tracked under
+"Make validation strategy immutable after problem creation (remaining gaps)"
+above.

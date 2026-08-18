@@ -93,6 +93,7 @@ async def test_a_standard_arena_problem_imports_into_contest_as_standard(session
         image_service=ImageProcessingService(),
         testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
     )
+    assert arena_side.problem.editorial == "# Editorial\n\nAdd the two values.\n"
     exported = await _arena_export(session, arena_side.problem.id, author)
     assert _metadata(exported).validator_type is ProblemValidatorType.STANDARD
 
@@ -106,6 +107,7 @@ async def test_a_standard_arena_problem_imports_into_contest_as_standard(session
     )
 
     assert imported.problem.validator_type is ProblemValidatorType.STANDARD
+    assert imported.problem.editorial == "# Editorial\n\nAdd the two values.\n"
 
 
 # ── Interactive problems keep their kind, and their inputs-only cases ─────────
@@ -253,17 +255,30 @@ async def test_a_standard_contest_problem_with_a_stale_validator_exports_as_stan
 
 def _standard_package() -> bytes:
     """A minimal standard package, written at version 2."""
+    import hashlib
     import io
     import json
     import zipfile
 
     buffer = io.BytesIO()
+    editorial = "# Editorial\n\nAdd the two values.\n"
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr(
             "problem.json",
-            json.dumps({"format_version": 2, "validator_type": "standard", "title": "Stale"}),
+            json.dumps(
+                {
+                    "format_version": 2,
+                    "validator_type": "standard",
+                    "title": "Stale",
+                    "editorial": {
+                        "member": "editorial.md",
+                        "sha256": hashlib.sha256(editorial.encode("utf-8")).hexdigest(),
+                    },
+                }
+            ),
         )
         archive.writestr("statement.md", "# Stale\n\nNo external links here.\n")
+        archive.writestr("editorial.md", editorial)
         archive.writestr("in/001.in", "1 2\n")
         archive.writestr("out/001.out", "3\n")
     return buffer.getvalue()

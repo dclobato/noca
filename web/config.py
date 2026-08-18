@@ -359,6 +359,16 @@ class Settings(BaseSettings):
             "(must be readable and writable). Web problems live under the 'contest/' subdir."
         ),
     )
+    PUBLIC_PROBLEM_PACK_PATH: Path | None = Field(
+        default=None,
+        validation_alias="NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH",
+        description=(
+            "Optional cache directory for the public post-contest problem-set archives. "
+            "Created at startup when set; each released contest's ZIP is built once, stored "
+            "here with a SHA-256 sidecar, and reused until the sidecar digest no longer "
+            "matches the file. When unset, archives are rebuilt on every download."
+        ),
+    )
 
     VALKEY_SERVER: str | None = Field(
         default="127.0.0.1", description="Base URL of the VALKEY server (used for validating problem test cases)"
@@ -463,6 +473,26 @@ class Settings(BaseSettings):
             return None
         if not Path(v).is_absolute():
             raise ValueError("NOCA_EMAIL_MBOX_LOG_DIR must be an absolute path.")
+        return v
+
+    @field_validator("PUBLIC_PROBLEM_PACK_PATH", mode="after")
+    @classmethod
+    def normalize_problem_pack_path(cls, v: Path | None) -> Path | None:
+        """Require an absolute path; an existing directory must be writable.
+
+        Unlike the storage directories, the cache directory is allowed not to
+        exist yet: Web creates it at startup. Only a path that already exists
+        must be a readable/writable directory.
+        """
+        if v is None:
+            return None
+        if not v.is_absolute():
+            raise ValueError("NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH must be an absolute path.")
+        if v.exists():
+            if not v.is_dir():
+                raise ValueError(f"NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH '{v}' is not a directory.")
+            if not os.access(v, os.R_OK) or not os.access(v, os.W_OK):
+                raise ValueError(f"Directory '{v}' must be readable and writable.")
         return v
 
     @model_validator(mode="after")

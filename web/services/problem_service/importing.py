@@ -115,6 +115,7 @@ async def import_problem_package(
         validator_type=package.metadata.validator_type,
         author=metadata.author,
         notes=metadata.notes,
+        editorial=package.editorial,
         color=color,
         time_limit_ms=metadata.time_limit_ms,
         memory_limit_kb=metadata.memory_limit_kb,

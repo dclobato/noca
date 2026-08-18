@@ -10,8 +10,9 @@ Built from code rather than committed as a binary so it cannot drift away from
 the reader: the same ZIP is served by the Arena and Contest import pages, and a
 round-trip test imports it through both importers.
 
-It is written through the shared writer, so it carries every version-1 key,
-a valid ``sha256`` manifest, and at least one public test case — exactly what a
+It is written through the shared writer, so it carries every version-2 key, an
+optional editorial with an independent digest, a valid legacy ``sha256``
+manifest, and at least one public test case — exactly what a
 package produced by a real export looks like. The fields deliberately span
 *both* domains (Arena's ``source`` / ``license`` / ``statement_language``, the
 Contest's ``color`` / ``language_limits``), because the format is their union
@@ -48,6 +49,11 @@ A single line with two integers, `a` and `b`, separated by a space.
 ## Output
 
 A single line with the value of `a + b`.
+"""
+
+_EDITORIAL: Final = """# Editorial
+
+Read the two integers, add them, and print the result. The algorithm runs in constant time and uses constant space.
 """
 
 #: (input, output, explanation, is_sample) for each packaged test case.
@@ -130,6 +136,7 @@ def _sample_package(cases: tuple[PackageTestCase, ...]) -> ProblemPackage:
         language_limits=_LANGUAGE_LIMITS,
         custom_validator=None,
         sha256={},
+        editorial=None,
     )
     return ProblemPackage(
         metadata=metadata,
@@ -139,4 +146,5 @@ def _sample_package(cases: tuple[PackageTestCase, ...]) -> ProblemPackage:
         validator=None,
         interactions=(),
         warnings=(),
+        editorial=_EDITORIAL,
     )

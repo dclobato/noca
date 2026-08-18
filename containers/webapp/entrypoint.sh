@@ -65,6 +65,14 @@ setup_runtime_user() {
     mkdir -p "$target_home" "$statement_dir" "$testcase_dir" /tmp/uv-cache
     chown -R "$target_uid:$target_gid" "$target_home" "$statement_dir" "$testcase_dir" /tmp/uv-cache
 
+    # Optional public problem-set cache: the directory is created by the app at
+    # startup; here we only make sure the runtime user owns it when configured.
+    local pack_dir="${NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH:-}"
+    if [[ -n "$pack_dir" ]]; then
+        mkdir -p "$pack_dir"
+        chown -R "$target_uid:$target_gid" "$pack_dir"
+    fi
+
     exec env HOME="$target_home" USER="$target_user" LOGNAME="$target_user" \
         setpriv --reuid="$target_uid" --regid="$target_gid" --clear-groups \
         "$0" "$@"

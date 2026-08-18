@@ -40,13 +40,14 @@ Use this endpoint for runtime health probes.
 | `GET /legal/terms` | `arena_terms_of_service` | — | `legal.py` |
 | `GET /legal/privacy` | `arena_privacy_policy` | — | `legal.py` |
 
-## Problem routes (`arena/routes/problems.py`, `arena/routes/problem_problem_sets.py`)
+## Problem routes (`arena/routes/problems.py`, `arena/routes/problem_editorial.py`, `arena/routes/problem_problem_sets.py`)
 
 | `url_for` call | Generated path | Notes |
 |---|---|---|
 | `request.url_for('arena_problem_list')` | `/problems` | Query: `search`, `sort_by` (`relevance`, `number_asc`, `number_desc`, `title_asc`, `title_desc`, `solvers_asc`, `solvers_desc`, `rating_asc`, `rating_desc`), `category_slugs`, `language`, `page`; omitted sort defaults to relevance while searching and number ascending otherwise |
 | `request.url_for('arena_problem_detail', arena_number=N)` | `/problems/{N}` | Query: `back_page`, `back_search`, `back_sort_by`, `back_category_slugs`, `back_language` |
 | `request.url_for('arena_problem_print', arena_number=N)` | `/problems/{N}/print` | Standalone print-friendly problem page (statement, samples, limits); requires auth |
+| `request.url_for('arena_problem_editorial_view', arena_number=N)` | `/problems/{N}/editorial` | Standalone Markdown editorial viewer, opened in a new tab from the detail page; requires auth; 404 unless the problem has an editorial and its `editorial_release_policy` gate passes (`always`, or `after_ac` with the current user already AC'd) |
 | `request.url_for('arena_problem_rating_history_public', arena_number=N)` | `/problems/{N}/rating-history` | Returns JSON `{history:[…]}` |
 | `request.url_for('arena_problem_statistics', arena_number=N)` | `/problems/{N}/statistics` | Per-problem statistics page |
 | `request.url_for('arena_problem_statistics_data', arena_number=N)` | `/problems/{N}/statistics.json` | Returns the precomputed statistics payload, or `{}` |
@@ -275,13 +276,13 @@ GET routes: `arena/routes/admin_users.py` · POST routes: `arena/routes/admin_us
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
-| `GET /admin/problems` | `arena_admin_problem_list` | Query: `search`, `sort_by` (`relevance`, `number_asc`, `number_desc`, `title_asc`, `title_desc`, `rating_asc`, `rating_desc`), `owner_id`, `category_slugs`, `language`, `enabled` (`1`/`0`, any other value means all statuses), `per_page`, `page`; omitted sort defaults to relevance while searching and number ascending otherwise | `admin_problems.py` |
+| `GET /admin/problems` | `arena_admin_problem_list` | Query: `search`, `sort_by` (`relevance`, `number_asc`, `number_desc`, `title_asc`, `title_desc`, `rating_asc`, `rating_desc`), `owner_id`, `category_slugs`, `language`, `enabled` (`1`/`0`, any other value means all statuses), `editorial` (`none`/`never`/`always`/`after_ac`, any other value means all), `per_page`, `page`; omitted sort defaults to relevance while searching and number ascending otherwise | `admin_problems.py` |
 | `GET /admin/problems/new` | `arena_admin_problem_new_choose` | Optional query: list-return state | `admin_problem_new.py` |
 | `GET /admin/problems/new/{validator_type}` | `arena_admin_problem_new` | `validator_type=`; optional query: list-return state, `tab=` | `admin_problems.py` |
 | `POST /admin/problems/new/{validator_type}` | `arena_admin_problem_create` | `validator_type=`; form `active_tab`. Definition only; HTML 422 on invalid fields, otherwise redirects to judgment | `admin_problem_save.py` |
 | `GET /admin/problems/{problem_id}/edit` | `arena_admin_problem_edit` | `problem_id=`, optional query: list-return state, `tab=` | `admin_problems.py` |
-| `POST /admin/problems/{problem_id}/edit` | `arena_admin_problem_update` | `problem_id=`; form `active_tab`. Definition only; HTML 422 opens the first invalid field | `admin_problem_save.py` |
-| `POST /admin/problems/{problem_id}/toggle-enabled` | `arena_admin_problem_toggle_enabled` | `problem_id=`, Query: `page`, `per_page`, `search`, `sort_by`, `owner_id`, `category_slugs`, `language`, `enabled` | `admin_problems.py` |
+| `POST /admin/problems/{problem_id}/edit` | `arena_admin_problem_update` | `problem_id=`; form `active_tab`, required `save_action` (`enable`/`disable`). Saves the definition and targets the publication state atomically; HTML 422 opens the first invalid field or reports a failed enablement gate | `admin_problem_save.py` |
+| `POST /admin/problems/{problem_id}/toggle-enabled` | `arena_admin_problem_toggle_enabled` | `problem_id=`, Query: `page`, `per_page`, `search`, `sort_by`, `owner_id`, `category_slugs`, `language`, `enabled`, `editorial` | `admin_problems.py` |
 | `POST /admin/problems/{problem_id}/delete` | `arena_admin_problem_delete` | `problem_id=`, Form: `password`, list-return state | `admin_problems.py` |
 | `POST /admin/problems/{problem_id}/rejudge-all` | `arena_admin_problem_rejudge_all` | `problem_id=`, Form: `password`, optional safe local `next_url` | `admin_problems.py` |
 | `GET /admin/problems/suggestions` | `arena_admin_problem_suggestions` | Required query: `field` (`author`, `license`, or `source`), literal `q` (2–256 characters); admins see all problems, while editors see enabled problems plus their own disabled drafts | `admin_problem_api.py` |

@@ -140,6 +140,10 @@
     gap: var(--arena-space-sm) var(--arena-space-md);
     margin-bottom: var(--arena-space-md);
 }
+.arena-problem-set-report-matrix-hint {
+    color: var(--arena-on-surface-variant);
+    font-size: 0.75rem;
+}
 .arena-problem-set-report-follow-up-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -210,6 +214,7 @@
 }
 .arena-problem-set-report-table-wrapper {
     overflow-x: auto;
+    overflow-y: hidden;
     border-block: 1px solid var(--arena-outline-variant);
 }
 .arena-problem-set-report-table {

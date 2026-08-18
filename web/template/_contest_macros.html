@@ -1,4 +1,4 @@
-{% macro contest_tile(contest, badge_label=None, badge_class=None, btn_class=None, show_login=True, show_languages=True, show_uberadmin_access=False, show_deactivate=False, show_export=False, show_remove=False, width=None) %}
+{% macro contest_tile(contest, badge_label=None, badge_class=None, btn_class=None, show_login=True, show_languages=True, show_uberadmin_access=False, show_deactivate=False, show_export=False, show_remove=False, width=None, show_problem_set=False) %}
     <div class="{{ 'col-12 col-md-6 col-lg-4' if width is none else width }}">
         <div class="card shadow-sm h-100">
             <div class="card-body d-flex flex-column">
@@ -26,9 +26,17 @@
                         {% endfor %}
                     </div>
                 {% endif %}
-                {% if show_login %}
-                    <a href="{{ request.url_for('contest_login_get', slug=contest.login_slug) }}"
-                       class="btn {{ btn_class if btn_class is not none else '' }} btn-sm mt-auto">Sign in</a>
+                {% if show_login or show_problem_set %}
+                    <div class="mt-auto d-flex flex-wrap gap-2">
+                        {% if show_login %}
+                            <a href="{{ request.url_for('contest_login_get', slug=contest.login_slug) }}"
+                               class="btn {{ btn_class if btn_class is not none else '' }} btn-sm">Sign in</a>
+                        {% endif %}
+                        {% if show_problem_set %}
+                            <a href="{{ request.url_for('problem_set_download', slug=contest.login_slug) }}"
+                               class="btn btn-outline-secondary btn-sm">Problem set</a>
+                        {% endif %}
+                    </div>
                 {% endif %}
                 {% if show_uberadmin_access %}
                     <div class="mt-1 d-flex flex-wrap gap-2">

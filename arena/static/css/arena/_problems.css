@@ -37,20 +37,20 @@
 .arena-badge-easy {
     color: var(--arena-easy);
     font-size: 0.8125rem;
-    font-family: 'Inter', sans-serif;
+    font-family: var(--noca-font-body);
 }
 
 .arena-badge-medium {
     color: var(--arena-medium);
     font-size: 0.8125rem;
-    font-family: 'Inter', sans-serif;
+    font-family: var(--noca-font-body);
 }
 
 .arena-badge-hard {
     color: var(--arena-hard);
     font-size: 0.8125rem;
     font-weight: 700;
-    font-family: 'Inter', sans-serif;
+    font-family: var(--noca-font-body);
 }
 
 /* ── Public problem list: rating progress bar colour scale ───────────────── */
@@ -76,7 +76,12 @@
 }
 
 .arena-custom-validator-legend-icon {
-    font-size: 1.2rem;
+    font-size: 1.125rem;
+    vertical-align: middle;
+}
+
+.arena-editorial-legend-icon {
+    font-size: 1.125rem;
     vertical-align: middle;
 }
 
@@ -113,7 +118,7 @@
 }
 
 .arena-favorite-btn:hover {
-    color: #dc3545;
+    color: var(--noca-danger);
 }
 
 .arena-favorite-btn:disabled {
@@ -122,7 +127,7 @@
 }
 
 .arena-favorite-icon--active {
-    color: #dc3545;
+    color: var(--noca-danger);
 }
 
 .arena-col-favorite {

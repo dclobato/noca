@@ -44,6 +44,7 @@ from shared.db_schema.arena import arena_submission_judgments as _arena_submissi
 from shared.db_schema.arena import arena_submissions as _arena_submissions
 from shared.db_schema.arena import arena_users as _users_table
 from shared.enumerations import (
+    ArenaEditorialReleasePolicy,
     ArenaRole,
     CustomValidatorActiveState,
     JudgmentStatus,
@@ -107,6 +108,8 @@ class ProblemListItem:
     rating: float | None
     categories: list[ProblemListCategory]
     has_custom_validator: bool
+    has_editorial: bool
+    editorial_release_policy: ArenaEditorialReleasePolicy
 
 
 def _now() -> datetime:
@@ -124,6 +127,7 @@ def _validate_problem_data(
     pids_limit: int,
     output_limit_in_bytes: int,
     problem_statement: str,
+    editorial: str | None,
 ) -> None:
     """Validate problem form data and raise ValueError on any violation.
 
@@ -156,6 +160,10 @@ def _validate_problem_data(
     md_errors = validate_md_content(problem_statement)
     if md_errors:
         raise ValueError(md_errors[0])
+    if editorial and editorial.strip():
+        editorial_errors = validate_md_content(editorial)
+        if editorial_errors:
+            raise ValueError(f"Editorial: {editorial_errors[0]}")
 
 
 async def _set_categories(
@@ -216,6 +224,7 @@ async def list_problems_paginated(
     owner_id: str | None = None,
     language: StatementLanguage | None = None,
     enabled: bool | None = None,
+    editorial: str | None = None,
     sort_by: str = "",
     caller_id: str,
     is_admin: bool,
@@ -232,6 +241,9 @@ async def list_problems_paginated(
         owner_id: Restrict to a specific owner (admin-only filter). None = no filter.
         language: Restrict to problems whose statement is in this language. None = no filter.
         enabled: Restrict to enabled (True) or disabled (False) problems. None = no filter.
+        editorial: Restrict by editorial state -- ``"none"`` for problems with no editorial
+            text, or one of ``"never"``/``"always"``/``"after_ac"`` for problems that have
+            editorial text under that release policy. None = no filter.
         sort_by: One of the ``VALID_SORTS`` values.
         caller_id: UUID of the requesting user.
         is_admin: When False, scopes the query to problems owned by ``caller_id``.
@@ -260,6 +272,14 @@ async def list_problems_paginated(
 
     if enabled is not None:
         filtered_problem_ids = filtered_problem_ids.where(ArenaProblem.enabled == enabled)
+
+    if editorial == "none":
+        filtered_problem_ids = filtered_problem_ids.where(ArenaProblem.editorial.is_(None))
+    elif editorial in ("never", "always", "after_ac"):
+        filtered_problem_ids = filtered_problem_ids.where(
+            ArenaProblem.editorial.is_not(None),
+            ArenaProblem.editorial_release_policy == ArenaEditorialReleasePolicy(editorial),
+        )
 
     if normalized_search:
         search_expressions = await prepare_problem_search(session, normalized_search)
@@ -320,6 +340,8 @@ async def list_problems_paginated(
             ArenaProblem.title,
             ArenaProblem.enabled,
             ArenaProblem.validator_type,
+            ArenaProblem.editorial,
+            ArenaProblem.editorial_release_policy,
             ArenaRatingProblem.rating.label("rating_value"),
         )
         .join(filtered_ids, filtered_ids.c.id == ArenaProblem.id)
@@ -350,6 +372,8 @@ async def list_problems_paginated(
                 rating=row.rating_value / 10.0 if row.rating_value is not None else None,
                 categories=categories.get(row.id, []),
                 has_custom_validator=row.validator_type is ProblemValidatorType.INTERACTIVE,
+                has_editorial=row.editorial is not None,
+                editorial_release_policy=row.editorial_release_policy,
             )
         )
 
@@ -439,6 +463,8 @@ async def create_problem(
     author: str | None = None,
     author_is_owner: bool = True,
     statement_language: StatementLanguage | None = None,
+    editorial: str | None = None,
+    editorial_release_policy: ArenaEditorialReleasePolicy = ArenaEditorialReleasePolicy.NEVER,
 ) -> ArenaProblem:
     """Create a new Arena problem in the disabled state.
 
@@ -478,6 +504,7 @@ async def create_problem(
         pids_limit,
         output_limit_in_bytes,
         problem_statement,
+        editorial,
     )
 
     now = _now()
@@ -496,6 +523,8 @@ async def create_problem(
         pids_limit=pids_limit,
         output_limit_in_bytes=output_limit_in_bytes,
         problem_statement=problem_statement,
+        editorial=editorial if editorial and editorial.strip() else None,
+        editorial_release_policy=editorial_release_policy,
         problem_image_base64=image_b64,
         problem_image_mime=image_mime if image_b64 else None,
         problem_image_caption=image_caption.strip() if image_caption else None,
@@ -534,6 +563,8 @@ async def update_problem(
     author_is_owner: bool = True,
     statement_language: StatementLanguage | None = None,
     validator_type: ProblemValidatorType | None = None,
+    editorial: str | None = None,
+    editorial_release_policy: ArenaEditorialReleasePolicy = ArenaEditorialReleasePolicy.NEVER,
 ) -> ArenaProblem:
     """Update mutable fields of an existing Arena problem.
 
@@ -573,6 +604,7 @@ async def update_problem(
         pids_limit,
         output_limit_in_bytes,
         problem_statement,
+        editorial,
     )
     problem.title = title.strip()
     problem.author = None if author_is_owner else author.strip() if author else None
@@ -584,6 +616,8 @@ async def update_problem(
     problem.pids_limit = pids_limit
     problem.output_limit_in_bytes = output_limit_in_bytes
     problem.problem_statement = problem_statement
+    problem.editorial = editorial if editorial and editorial.strip() else None
+    problem.editorial_release_policy = editorial_release_policy
     problem.updated_at = _now()
 
     # A new upload wins over the remove checkbox. Removing the image removes its

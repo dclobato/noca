@@ -4,6 +4,31 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [17.2.0] - 2026-08-18
+
+### Features
+
+- **arena:** Split problem-definition save into enable/disable actions
+- **problems:** Add optional editorials to Arena and Web
+- **arena:** Add editorial release policy to problem editor
+- **arena:** Merge TC columns and add editorial column/filter to admin problem list
+- **arena:** Gate editorial visibility on the problem detail page
+- **web:** Add public post-contest problem-set archive download
+
+### Bug Fixes
+
+- **arena:** Gate the definition Save's enable on the target state
+- **arena:** Fix scrollbar jitter and column alignment on problem set report
+- **ci:** Drop host port bindings from CI service containers
+
+### Documentation
+
+- Add PDF and server-side math rendering evaluation to backlog
+- Split immutable-validation-strategy backlog item into done/remaining
+- Add ROADMAP.md and problem-set archive follow-ups to backlog
+
+
+
 ## [17.1.0] - 2026-08-15
 
 ### Features

@@ -30,7 +30,12 @@ import arena.models.arena_users  # noqa: F401
 from arena.config import settings as arena_settings
 from arena.models.arena_problems import ArenaCategory, ArenaProblemCustomValidator
 from arena.services import admin_problem_service, admin_problem_tc_service
-from shared.enumerations import ArenaRole, CustomValidatorActiveState, ProblemValidatorType
+from shared.enumerations import (
+    ArenaEditorialReleasePolicy,
+    ArenaRole,
+    CustomValidatorActiveState,
+    ProblemValidatorType,
+)
 
 # ── Authorization tests ───────────────────────────────────────────────────────
 
@@ -221,6 +226,79 @@ async def test_problem_list_filters_by_enabled_status(session: AsyncSession) -> 
 
     assert "Visible Problem" in all_response.text
     assert "Hidden Problem" in all_response.text
+
+
+@pytest.mark.asyncio
+async def test_problem_list_filters_by_editorial(session: AsyncSession) -> None:
+    app = _build_admin_app(session)
+    judge = await _create_user(
+        session,
+        email="jeditorial@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+        can_edit=True,
+    )
+
+    async def _create(title: str, *, editorial: str | None, policy: ArenaEditorialReleasePolicy) -> None:
+        await admin_problem_service.create_problem(
+            session,
+            caller_id=judge.id,
+            title=title,
+            validator_type=ProblemValidatorType.STANDARD,
+            source=None,
+            hide_author_show_source=False,
+            time_limit_ms=1000,
+            memory_limit_kb=262144,
+            pids_limit=64,
+            output_limit_in_bytes=65536,
+            problem_statement="Statement",
+            image_b64=None,
+            image_mime=None,
+            image_caption=None,
+            notes=None,
+            category_ids=[],
+            editorial=editorial,
+            editorial_release_policy=policy,
+        )
+
+    await _create("No Editorial Item", editorial=None, policy=ArenaEditorialReleasePolicy.NEVER)
+    await _create("Never Editorial Item", editorial="Solution", policy=ArenaEditorialReleasePolicy.NEVER)
+    await _create("Always Editorial Item", editorial="Solution", policy=ArenaEditorialReleasePolicy.ALWAYS)
+    await _create("After AC Editorial Item", editorial="Solution", policy=ArenaEditorialReleasePolicy.AFTER_AC)
+    await session.commit()
+    token = _login_token(app, judge)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": token},
+    ) as client:
+        none_response = await client.get("/admin/problems", params={"editorial": "none"})
+        never_response = await client.get("/admin/problems", params={"editorial": "never"})
+        always_response = await client.get("/admin/problems", params={"editorial": "always"})
+        after_ac_response = await client.get("/admin/problems", params={"editorial": "after_ac"})
+        bogus_response = await client.get("/admin/problems", params={"editorial": "klingon"})
+
+    assert "No Editorial Item" in none_response.text
+    assert "Never Editorial Item" not in none_response.text
+    assert "Always Editorial Item" not in none_response.text
+    assert "After AC Editorial Item" not in none_response.text
+
+    assert "Never Editorial Item" in never_response.text
+    assert "No Editorial Item" not in never_response.text
+
+    assert "Always Editorial Item" in always_response.text
+    assert "No Editorial Item" not in always_response.text
+
+    assert "After AC Editorial Item" in after_ac_response.text
+    assert "No Editorial Item" not in after_ac_response.text
+
+    for title in (
+        "No Editorial Item",
+        "Never Editorial Item",
+        "Always Editorial Item",
+        "After AC Editorial Item",
+    ):
+        assert title in bogus_response.text
 
 
 @pytest.mark.asyncio
@@ -597,6 +675,7 @@ async def test_problem_update_redirects_to_list(session: AsyncSession) -> None:
                 "pids_limit": "64",
                 "output_limit_in_bytes": "65536",
                 "problem_statement": "updated stmt",
+                "save_action": "disable",
                 "return_page": "3",
                 "return_per_page": "50",
                 "return_search": "graphs",

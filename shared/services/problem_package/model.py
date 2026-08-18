@@ -56,6 +56,14 @@ class ValidatorSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class EditorialSpec:
+    """The optional ``editorial`` object declared in ``problem.json``."""
+
+    member: str
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class PackageMetadata:
     """Every ``problem.json`` key, already validated, normalized, and defaulted.
 
@@ -90,6 +98,7 @@ class PackageMetadata:
     language_limits: Mapping[str, PackageLanguageLimit]
     custom_validator: ValidatorSpec | None
     sha256: Mapping[str, str]
+    editorial: EditorialSpec | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +165,7 @@ class ProblemPackage:
     validator: PackagedValidator | None
     interactions: tuple[PackagedInteraction, ...]
     warnings: tuple[PackageWarning, ...]
+    editorial: str | None = None
 
     @property
     def is_interactive(self) -> bool:

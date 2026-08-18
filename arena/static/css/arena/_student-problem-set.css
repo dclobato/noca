@@ -100,8 +100,8 @@
 .arena-student-problem-set-table th,
 .arena-student-problem-set-table td { vertical-align: middle; }
 .arena-student-problem-set-table .arena-student-problem-set-number {
-    width: 4rem;
-    min-width: 4rem;
+    width: 5rem;
+    min-width: 5rem;
     text-align: right;
     white-space: nowrap;
 }

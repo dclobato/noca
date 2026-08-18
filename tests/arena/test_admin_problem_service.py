@@ -24,6 +24,7 @@ from arena.models.arena_problems import (
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_service
 from shared.enumerations import (
+    ArenaEditorialReleasePolicy,
     ArenaRole,
     CustomValidatorActiveState,
     CustomValidatorCandidateState,
@@ -618,6 +619,75 @@ async def test_enabled_filter(session: AsyncSession) -> None:
     )
     titles = {item.title for item in pagination.items}
     assert titles == {"Enabled Problem", "Disabled Problem"}
+
+
+@pytest.mark.asyncio
+async def test_editorial_filter(session: AsyncSession) -> None:
+    author = await _make_user(session)
+
+    async def _create(title: str, *, editorial: str | None, policy: ArenaEditorialReleasePolicy) -> ArenaProblem:
+        return await admin_problem_service.create_problem(
+            session,
+            caller_id=author.id,
+            title=title,
+            validator_type=ProblemValidatorType.STANDARD,
+            source=None,
+            hide_author_show_source=False,
+            time_limit_ms=1000,
+            memory_limit_kb=262144,
+            pids_limit=64,
+            output_limit_in_bytes=65536,
+            problem_statement="Hello world",
+            image_b64=None,
+            image_mime=None,
+            image_caption=None,
+            notes=None,
+            category_ids=[],
+            editorial=editorial,
+            editorial_release_policy=policy,
+        )
+
+    no_editorial = await _create("No Editorial", editorial=None, policy=ArenaEditorialReleasePolicy.NEVER)
+    never_problem = await _create(
+        "Never Editorial", editorial="Solution guide", policy=ArenaEditorialReleasePolicy.NEVER
+    )
+    always_problem = await _create(
+        "Always Editorial", editorial="Solution guide", policy=ArenaEditorialReleasePolicy.ALWAYS
+    )
+    after_ac_problem = await _create(
+        "After AC Editorial", editorial="Solution guide", policy=ArenaEditorialReleasePolicy.AFTER_AC
+    )
+    await session.flush()
+
+    async def _titles(editorial_filter: str) -> set[str]:
+        pagination = await admin_problem_service.list_problems_paginated(
+            session,
+            page=1,
+            per_page=25,
+            editorial=editorial_filter,
+            caller_id=author.id,
+            is_admin=True,
+        )
+        return {item.title for item in pagination.items}
+
+    assert await _titles("none") == {no_editorial.title}
+    assert await _titles("never") == {never_problem.title}
+    assert await _titles("always") == {always_problem.title}
+    assert await _titles("after_ac") == {after_ac_problem.title}
+
+    pagination = await admin_problem_service.list_problems_paginated(
+        session,
+        page=1,
+        per_page=25,
+        caller_id=author.id,
+        is_admin=True,
+    )
+    items_by_title = {item.title: item for item in pagination.items}
+    assert items_by_title[no_editorial.title].has_editorial is False
+    assert items_by_title[never_problem.title].has_editorial is True
+    assert items_by_title[never_problem.title].editorial_release_policy == ArenaEditorialReleasePolicy.NEVER
+    assert items_by_title[always_problem.title].editorial_release_policy == ArenaEditorialReleasePolicy.ALWAYS
+    assert items_by_title[after_ac_problem.title].editorial_release_policy == ArenaEditorialReleasePolicy.AFTER_AC
 
 
 # ── list_owners ──────────────────────────────────────────────────────────────

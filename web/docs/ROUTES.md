@@ -23,8 +23,16 @@ three fixed bands.
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/favicon.ico` | Returns app's favicon with public cache headers. |
-| `GET` | `/` | Public page listing all active running and upcoming contests, each with a link to its login page. No authentication required. |
+| `GET` | `/` | Public page listing all active running and upcoming contests, each with a link to its login page. Past contests whose scoreboard has been released also link to their public problem-set archive. No authentication required. |
 | `GET` | `/contests` | Public page listing all active running and upcoming contests, each with a link to its login page. No authentication required. |
+
+---
+
+## Public Problem Set (`web/routes/problem_set.py`)
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| `GET` | `/problem-set/{slug}.zip` | Downloads one ZIP bundling every problem of the contest as its full version-2 package (statement, all test cases, validator source, and `editorial.md` when set) plus a top-level `index.json` manifest. Public: no authentication required, but answers `404` unless the contest is active, over, and has `release_scoreboard_after_end` set; `409` when a problem's stored files are missing. When `NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH` is configured, the archive is built once per contest and served from that on-disk cache (integrity-verified via a `.sha256` sidecar); otherwise every download rebuilds it. |
 
 ---
 
@@ -44,8 +52,8 @@ trusted local health-check CIDRs bypass this limit.
 
 All non-public Web routes require a valid `noca_access_token` by default. The
 public allowlist is `/`, `/contests`, `/login`, `/c/{slug}/login`, `/health`,
-`/favicon.ico`, `/assets/*`, and `/static/*`. Route-local role checks remain
-the authoritative authorization layer after authentication.
+`/favicon.ico`, `/assets/*`, `/static/*`, and `/problem-set/*`. Route-local
+role checks remain the authoritative authorization layer after authentication.
 
 | Method | URL | Description |
 |--------|-----|-------------|

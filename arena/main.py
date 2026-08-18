@@ -72,6 +72,7 @@ from arena.routes.live import router as arena_live_router
 from arena.routes.notifications import router as arena_notifications_router
 from arena.routes.presence import ARENA_PRESENCE_DOMAIN
 from arena.routes.presence import router as arena_presence_router
+from arena.routes.problem_editorial import router as arena_problem_editorial_router
 from arena.routes.problem_problem_sets import router as arena_problem_problem_sets_router
 from arena.routes.problem_sets import router as arena_problem_sets_router
 from arena.routes.problem_sets_autocomplete import router as arena_problem_sets_autocomplete_router
@@ -712,6 +713,7 @@ app.include_router(arena_legal_router)
 app.include_router(arena_help_router)
 app.include_router(arena_problem_problem_sets_router)
 app.include_router(arena_problems_router)
+app.include_router(arena_problem_editorial_router)
 app.include_router(arena_users_router)
 app.include_router(arena_user_public_profile_router)
 app.include_router(arena_user_submission_status_router)

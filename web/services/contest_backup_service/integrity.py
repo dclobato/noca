@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -39,7 +39,7 @@ from shared.db_schema import (
 )
 from shared.enumerations import ALL_CONTEST_ROLES, ProblemValidatorType
 
-from .models import LEGACY_FORMAT_VERSION, ContestBackupError
+from .models import LEGACY_FORMAT_VERSION, PREVIOUS_FORMAT_VERSION, ContestBackupError
 from .row_validation import (
     as_mapping,
     index_rows,
@@ -148,7 +148,10 @@ def validate_backup_integrity(
 # archive unrestorable unless it is optional on the legacy branch. Version 2
 # requires them, so a v2 archive omitting one is refused as malformed rather than
 # quietly filled in.
-_LEGACY_OPTIONAL_PROBLEM_COLUMNS = {"validator_type", "artifact_generation"}
+_OPTIONAL_PROBLEM_COLUMNS_BY_VERSION = {
+    LEGACY_FORMAT_VERSION: {"validator_type", "artifact_generation", "editorial"},
+    PREVIOUS_FORMAT_VERSION: {"editorial"},
+}
 
 
 def _validate_problems(
@@ -169,7 +172,7 @@ def _validate_problems(
             problems,
             as_mapping(entry["problem"], "problem row"),
             "problem",
-            optional_columns=(_LEGACY_OPTIONAL_PROBLEM_COLUMNS if format_version == LEGACY_FORMAT_VERSION else set()),
+            optional_columns=_OPTIONAL_PROBLEM_COLUMNS_BY_VERSION.get(format_version, set()),
         )
         problem_id = required_id(problem, "problem")
         if problem_id in problem_by_id:

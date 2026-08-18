@@ -33,6 +33,7 @@
     var modal = new window.bootstrap.Modal(modalEl);
     var statementText = statementEl ? statementEl.value : '';
     var submitting = false;
+    var submitter = findSaveActionSubmitter(modalEl.getAttribute('data-save-action'));
 
     // EasyMDE only writes back into the textarea on submit, so track its live
     // value through the shared editor's change notification.
@@ -44,6 +45,7 @@
     if (titleEl) titleEl.addEventListener('input', clearConfirmation);
 
     form.addEventListener('submit', function (event) {
+      if (event.submitter) submitter = event.submitter;
       if (submitting || !select.value || !detectUrl) return;
       if (confirmedInput.value.indexOf(select.value + ':') === 0) return;
       event.preventDefault();
@@ -120,10 +122,28 @@
       confirmedInput.value = token;
       submitting = true;
       if (form.requestSubmit) {
-        form.requestSubmit();
+        form.requestSubmit(submitter || undefined);
       } else {
+        preserveSubmitterValue();
         form.submit();
       }
+    }
+
+    function findSaveActionSubmitter(action) {
+      var controls = form.elements;
+      for (var i = 0; i < controls.length; i += 1) {
+        if (controls[i].name === 'save_action' && controls[i].value === action) return controls[i];
+      }
+      return null;
+    }
+
+    function preserveSubmitterValue() {
+      if (!submitter || !submitter.name) return;
+      var input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = submitter.name;
+      input.value = submitter.value;
+      form.appendChild(input);
     }
 
     function parseLabels(raw) {

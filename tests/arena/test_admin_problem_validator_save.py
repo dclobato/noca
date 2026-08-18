@@ -129,6 +129,7 @@ def _base_form() -> dict[str, str]:
         "pids_limit": "64",
         "output_limit_in_bytes": "65536",
         "problem_statement": "stmt",
+        "save_action": "disable",
     }
 
 
@@ -319,7 +320,7 @@ async def test_the_definition_save_still_persists_categories(session: AsyncSessi
 
 
 def test_the_definition_panes_keep_their_card_order() -> None:
-    """Each definition pane keeps its card order, and the page has one Save.
+    """Each definition pane keeps its card order and explicit state actions.
 
     Test cases, the validator and sample interactions used to be panes here; they
     are pages of the judgment editor now, with their own layout tests.
@@ -332,7 +333,11 @@ def test_the_definition_panes_keep_their_card_order() -> None:
     assert metadata.index("Execution limits") < metadata.index("Publication details")
     assert metadata.index("Publication details") < metadata.index("Categories")
     assert statement.index("Problem statement") < statement.index("Problem illustration")
-    assert shell.count('type="submit"') == 1
+    assert 'name="save_action"' in shell
+    assert 'value="enable"' in shell
+    assert 'value="disable"' in shell
+    assert "Save and enable" in shell
+    assert "Save and disable" in shell
 
 
 def test_runtime_failed_validator_status_is_not_reported_as_unconfigured() -> None:

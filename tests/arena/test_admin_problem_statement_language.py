@@ -14,6 +14,7 @@ import warnings, and the admin list filter.
 import io
 import json
 import zipfile
+from pathlib import Path
 
 import pytest
 from _admin_problem_app import build_admin_app, create_user, login_token
@@ -46,6 +47,7 @@ def _create_form(**overrides: str) -> dict[str, str]:
         "pids_limit": "64",
         "output_limit_in_bytes": "65536",
         "problem_statement": _PT_STATEMENT,
+        "save_action": "disable",
     }
     data.update(overrides)
     return data
@@ -167,9 +169,21 @@ async def test_problem_update_stores_a_confirmed_language(session: AsyncSession)
         confirmed = await client.post(f"/admin/problems/{problem.id}/edit", data=payload)
 
     assert mismatch.status_code == 422
+    assert 'data-save-action="disable"' in mismatch.text
     assert confirmed.status_code == 303
     await session.refresh(problem)
     assert problem.statement_language == StatementLanguage.ES
+
+
+def test_language_confirmation_preserves_the_selected_save_action() -> None:
+    """Deferred submission must keep the enable/disable button's value."""
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "arena" / "static" / "js" / "arena-statement-language.js").read_text(encoding="utf-8")
+
+    assert "event.submitter" in script
+    assert "var controls = form.elements;" in script
+    assert "form.requestSubmit(submitter || undefined)" in script
+    assert "preserveSubmitterValue();" in script
 
 
 @pytest.mark.asyncio

@@ -39,6 +39,10 @@ def _build_app() -> FastAPI:
     async def _contest_private() -> dict[str, str]:
         return {"page": "contest-private"}
 
+    @app.get("/problem-set/demo.zip")
+    async def _problem_set() -> dict[str, str]:
+        return {"page": "problem-set"}
+
     return app
 
 
@@ -50,9 +54,11 @@ async def test_public_web_allowlist_does_not_require_auth() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/login")
         contest_response = await client.get("/c/demo/login")
+        problem_set_response = await client.get("/problem-set/demo.zip")
 
     assert response.status_code == 200
     assert contest_response.status_code == 200
+    assert problem_set_response.status_code == 200
 
 
 @pytest.mark.asyncio

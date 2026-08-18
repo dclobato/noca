@@ -25,7 +25,10 @@ from web.services.session_service import (
 )
 
 _WEB_PUBLIC_EXACT: frozenset[str] = frozenset({"/", "/contests", "/login", "/health", "/favicon.ico"})
-_WEB_PUBLIC_PREFIXES: tuple[str, ...] = ("/assets", "/static")
+# ``/problem-set`` is public: the route itself gates on the contest being over
+# with its scoreboard released, so unauthenticated visitors may download the
+# materials of a contest whose results are already public.
+_WEB_PUBLIC_PREFIXES: tuple[str, ...] = ("/assets", "/static", "/problem-set")
 
 
 def _is_public_web_path(path: str) -> bool:

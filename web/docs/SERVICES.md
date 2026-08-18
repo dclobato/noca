@@ -745,16 +745,18 @@ Internal structure:
 Main entrypoints:
 
 - `build_contest_backup(...)` — writes a temporary archive off the event loop at
-  `FORMAT_VERSION` 2, carrying each problem's `validator_type` and
-  `artifact_generation` in the payload rows and embedding version-2 problem
-  packages. It builds those packages with `require_importable=False`, so a
+  `FORMAT_VERSION` 3, carrying each problem's `validator_type`,
+  `artifact_generation`, and optional `editorial` in the payload rows and
+  embedding version-2 problem packages. It builds those packages with
+  `require_importable=False`, so a
   contest holding an interactive problem whose validator source was removed stays
   backupable; restore never parses the embedded `problem.json`, and the validator
   row is preserved verbatim in `problems.json`
 - `import_contest_backup(...) -> ContestImportResult` — validates, then restores
-  versions **1 and 2**, refusing anything else. Version 2 requires
-  `validator_type` and `artifact_generation`; version 1 treats them as optional
-  and applies *explicit wins, infer only on absence*, because archives written
+  versions **1, 2, and 3**, refusing anything else. Version 3 requires the
+  nullable `editorial` column. Versions 1 and 2 treat it as absent; version 2
+  requires `validator_type` and `artifact_generation`, while version 1 treats
+  them as optional and applies *explicit wins, infer only on absence*, because archives written
   between the column landing and the format bump carry the strategy while still
   being labelled version 1. The same predicate decides whether an `out/NNN.out`
   payload member is required, so expected output follows the strategy rather than
@@ -779,6 +781,53 @@ Notes:
 
 See the [contest backup format](../../docs/CONTEST_BACKUP_FORMAT.md) for the
 archive layout and fidelity notes.
+
+---
+
+## `problem_set_service.py`
+
+Purpose:
+- build the public post-contest problem-set archive: one ZIP bundling every
+  problem of a contest as its full version-2 package (statement, all test
+  cases — including secret ones, validator source, and `editorial.md` when
+  set) plus a top-level `index.json` manifest, for anonymous download once the
+  contest is over and its scoreboard has been released
+
+Main entrypoints:
+- `build_problem_set_archive(session, contest, dest_path, *, testcase_dir, statement_dir)` — writes the archive off the event loop; each embedded package is produced by `problem_service.build_problem_export(profile="full", require_importable=False)` and spliced under `problems/{ordinal:03d}-{label}/` via the shared `shared.services.problem_package.merge.append_package_folder`, so peak disk usage is the outer archive plus one problem package. Embedded packages are a convenience artifact, not a restore source of record: `require_importable=False` means an incomplete one (e.g. an interactive problem whose validator source was removed) exports fine but is **not** re-importable
+- `problem_set_filename(contest) -> str` — slug-derived download filename (`problem-set-<slug>.zip`)
+
+Reuse this module when:
+- exposing contest problem materials to the public after a contest ends
+- adding another multi-problem archive export (the merge helper is shared with `contest_backup_service`)
+
+Do not reimplement:
+- the ordinal-to-label bijection beyond the local `_problem_label` (the routes-layer `_label` cannot be imported without a service → routes cycle)
+- per-problem package assembly — always go through `build_problem_export`
+
+Notes:
+- the release gate (`contest.is_past and contest.release_scoreboard_after_end`) lives in the route (`web/routes/problem_set.py`), not here — callers are responsible for checking it first
+- a problem whose stored statement file is missing aborts the whole build with `PackageError` (the route answers 409) rather than serving a silently incomplete archive
+- `index.json` is a small manifest (`format_version` 1, `kind: "problem_set"`, contest slug/name, and per-problem `label`/`title`/`dir`) so consumers can list contents without opening every embedded package
+
+---
+
+## `problem_set_cache.py`
+
+Purpose:
+- keep the anonymous `GET /problem-set/{slug}.zip` endpoint from exhausting the database pool and disk under a burst: when `NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH` is configured, each contest's archive is built once and reused
+
+Main entrypoints:
+- `ensure_cached_archive(cache_dir, contest, build) -> Path` — returns a digest-verified cached archive, building it via the async `build` callable when missing or corrupted; concurrent builds for the same contest are serialized by a per-slug `anyio.Lock` with a double-checked cache test inside the lock
+- `cached_archive_path(cache_dir, contest) -> Path` — the deterministic per-contest location (`problem-set-<slug>.zip`)
+
+Do not reimplement:
+- the integrity contract: a `<name>.sha256` sidecar must match the file on disk, and publishing is atomic (temp sibling + `os.replace`), so no reader ever observes a half-written archive
+
+Notes:
+- there is no invalidation bookkeeping: the route re-checks the release gate per request, so un-releasing a contest stops serving immediately; force a rebuild by deleting the cached file
+- the cache directory is created at Web startup when configured; a relative or non-directory path is rejected by config validation
+- when the setting is unset the route rebuilds on every download (development mode)
 
 ---
 
@@ -1081,6 +1130,7 @@ Purpose:
 - ordered test-case mutations within a problem
 - deterministic append, move, and removal operations for ordinal-based collections
 - problem statement I/O (PDF and Markdown)
+- database-backed, editor-only problem editorials
 - problem illustration image round-trip through the package ZIP (the image itself is stored in
   the database as base64 + MIME + caption; see `shared/services/problem_image.py`)
 - problem and test case ZIP import/export
@@ -1170,7 +1220,7 @@ Additional entrypoints (ZIP):
   logical members, invalid ordinals, incomplete pairs, and invalid UTF-8
   explanations.
 - `problem_to_package(problem, testcase_dir, statement_dir, language_limits) -> ProblemPackage` — projects a contest problem onto the shared package contract, carrying its stored `validator_type` and attaching validator source **only** when that strategy is interactive, so a standard problem holding a stale validator row cannot produce a self-contradictory version-2 package; raises `PackageError` when no statement file is stored
-- `build_problem_export(problem, testcase_dir, statement_dir, destination, *, profile, language_limits=None, require_importable=True) -> Path` — writes the package ZIP to `destination` through the shared writer. `profile="full"` produces the importable package (every version-2 key including `validator_type`, all test cases, `sha256` manifest, validator source) and requires `language_limits`; it refuses an interactive problem with no validator source, which version 2 cannot express, unless the caller passes `require_importable=False` (only the contest backup exporter does); `profile="public"` produces the contestant statement bundle (statement, image, public cases with explanations, sample interactions) with no `problem.json`, so it is deliberately not importable. Raises `PackageError` when a stored file is missing — both exporters previously wrote `b""` instead, producing packages that re-imported with silently different semantics
+- `build_problem_export(problem, testcase_dir, statement_dir, destination, *, profile, language_limits=None, require_importable=True) -> Path` — writes through the shared version-2 package writer. A full package includes optional `editorial.md` with an independent nested digest, all test cases, the legacy `sha256` manifest, and validator source; a public package omits the editorial, private data, and `problem.json`. Full interactive exports still require validator source unless the Contest backup exporter passes `require_importable=False`.
 
 Reuse this module when:
 - adding contest-problem management features

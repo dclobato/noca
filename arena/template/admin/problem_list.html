@@ -118,6 +118,21 @@
                     </select>
                 </div>
                 <div>
+                    <label class="form-label form-label-sm mb-1" for="editorial">Editorial</label>
+                    <select class="form-select form-select-sm arena-filter-narrow"
+                            id="editorial"
+                            name="editorial">
+                        <option value="">All problems</option>
+                        <option value="none" {% if selected_editorial == "none" %}selected{% endif %}>No editorial</option>
+                        {% for policy in editorial_release_policies %}
+                            <option value="{{ policy.value }}"
+                                    {% if selected_editorial == policy.value %}selected{% endif %}>
+                                {{ policy.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
                     <label class="form-label form-label-sm mb-1" for="per_page">Per page</label>
                     <select class="form-select form-select-sm" id="per_page" name="per_page">
                         {% for n in [10, 25, 50, 100] %}
@@ -127,7 +142,7 @@
                 </div>
                 {% if sort_was_explicit %}<input type="hidden" name="sort_by" value="{{ sort_by }}">{% endif %}
                 {% include "_partials/filter_submit_button.html" %}
-                {% set _filters_active = search or language or selected_enabled or selected_owner_id or (selected_category_slugs | length > 0) or per_page != 25 or sort_by != 'number_asc' %}
+                {% set _filters_active = search or language or selected_enabled or selected_editorial or selected_owner_id or (selected_category_slugs | length > 0) or per_page != 25 or sort_by != 'number_asc' %}
                 {% with clear_url=request.url_for("arena_admin_problem_list"), filters_active=_filters_active %}
                     {% include "_partials/filter_clear_link.html" %}
                 {% endwith %}
@@ -145,6 +160,13 @@
             </div>
             <p class="text-muted small mb-2">
                 Problems marked with {{ render_icon(icon="published_with_changes", classes="arena-custom-validator-legend-icon", title="Custom validator") }} use a custom validator.
+            </p>
+            <p class="text-muted small mb-2">
+                Editorial release:
+                {% for policy in editorial_release_policies %}
+                    {{ render_icon(icon=editorial_policy_icons[policy.value], classes="arena-editorial-legend-icon", title=policy.label) }} {{ policy.label }}
+                    {% if not loop.last %}&middot;{% endif %}
+                {% endfor %}
             </p>
             {% with pagination=pagination, page_param="page", label="Problem list pagination", nav_margin="mb-2" %}
                 {% include "_partials/pagination.html" %}
@@ -180,9 +202,9 @@
                                 </a>
                             </th>
                             <th>Categories</th>
-                            <th class="text-end">Public TCs</th>
-                            <th class="text-end">Private TCs</th>
-                            <th class="text-end arena-col-sortable">
+                            <th class="text-end column-width-shrink">TCs</th>
+                            <th class="text-center column-width-shrink">Editorial</th>
+                            <th class="text-end column-width-shrink arena-col-sortable">
                                 <a href="{{ request.url.include_query_params(sort_by='rating_desc' if sort_by == 'rating_asc' else 'rating_asc', page=1) }}"
                                    class="arena-sort-link d-flex align-items-center justify-content-end gap-1">
                                     Difficulty
@@ -217,9 +239,15 @@
                                                      color:{{ cat.foreground_color }}">{{ cat.name }}</span>
                                     {% endfor %}
                                 </td>
-                                <td class="text-end">{{ row.public_tc_count }}</td>
-                                <td class="text-end">{{ row.private_tc_count }}</td>
-                                <td class="text-end">{{ "%.1f"|format(row.rating) if row.rating is not none else '—' }}</td>
+                                <td class="text-end column-width-shrink">{{ row.public_tc_count }}/{{ row.private_tc_count }}</td>
+                                <td class="text-center column-width-shrink">
+                                    {% if row.has_editorial %}
+                                        {{ render_icon(icon=editorial_policy_icons[row.editorial_release_policy.value], classes=editorial_policy_colors[row.editorial_release_policy.value], title="Editorial release: " ~ row.editorial_release_policy.label) }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td class="text-end column-width-shrink">{{ "%.1f"|format(row.rating) if row.rating is not none else '—' }}</td>
                                 <td class="arena-col-actions">
                                     <a href="{{ request.url_for('arena_admin_problem_edit', problem_id=row.id) }}{% if request.url.query %}?{{ request.url.query }}{% endif %}"
                                        class="btn arena-icon-button btn-sm"

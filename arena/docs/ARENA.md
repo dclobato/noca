@@ -287,7 +287,7 @@ Notable user fields already in use:
 |---|---|
 | `arena_problem_categories` | flat category taxonomy with color badges |
 | `arena_problem_category_map` | many-to-many problem/category link |
-| `arena_problems` | public number, limits, statement, owner, author, license, image, and enabled flag |
+| `arena_problems` | public number, limits, statement, optional editor-only editorial with a release policy (`never`/`always`/`after_ac`, default `never`, not yet enforced), owner, author, license, image, and enabled flag |
 | `arena_test_cases` | DB-stored input/output text, ordered by `ordinal`, with `is_sample` |
 | `arena_problem_ratings` | problem difficulty statistics and current rating |
 

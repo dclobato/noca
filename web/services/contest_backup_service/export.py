@@ -16,7 +16,6 @@ members are assembled by
 
 from __future__ import annotations
 
-import shutil
 import zipfile
 from datetime import UTC, datetime
 from functools import partial
@@ -26,6 +25,7 @@ from typing import Any
 import anyio
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.problem_package.merge import append_package_folder
 from shared.services.problem_package.upload import temporary_package_path
 from web.models.contest import Contest
 from web.services.problem_service import (
@@ -74,15 +74,7 @@ def _write_archive(
 def _append_problem_folder(dest_path: Path, prefix: str, package_path: Path) -> None:
     """Append one problem package and delete it before the next is built."""
     try:
-        with (
-            zipfile.ZipFile(dest_path, "a", compression=zipfile.ZIP_DEFLATED) as archive,
-            zipfile.ZipFile(package_path) as inner,
-        ):
-            for info in inner.infolist():
-                if info.is_dir():
-                    continue
-                with inner.open(info) as source, archive.open(f"{prefix}/{info.filename}", "w") as sink:
-                    shutil.copyfileobj(source, sink, length=1024 * 1024)
+        append_package_folder(dest_path, prefix, package_path)
     finally:
         package_path.unlink(missing_ok=True)
 

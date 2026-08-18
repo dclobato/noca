@@ -56,7 +56,7 @@ from web.services.contest_backup_service import (
     import_contest_backup,
 )
 from web.services.contest_backup_service.export import _append_problem_folder
-from web.services.contest_backup_service.models import LEGACY_FORMAT_VERSION
+from web.services.contest_backup_service.models import LEGACY_FORMAT_VERSION, PREVIOUS_FORMAT_VERSION
 from web.services.problem_service.files import save_md_statement, save_testcase_files
 
 LANGUAGE_ID = "python3"
@@ -865,12 +865,16 @@ def _downgrade_to_v1(source_path: Path, destination: Path, *, strip_strategy: bo
                     if strip_strategy:
                         entry["problem"].pop("validator_type", None)
                         entry["problem"].pop("artifact_generation", None)
+                    entry["problem"].pop("editorial", None)
                 data = json.dumps(payload).encode("utf-8")
             elif info.filename.endswith("problem.json"):
                 embedded = json.loads(data)
                 embedded["format_version"] = 1
                 embedded.pop("validator_type", None)
+                embedded.pop("editorial", None)
                 data = json.dumps(embedded).encode("utf-8")
+            elif info.filename.endswith("editorial.md"):
+                continue
             target.writestr(info.filename, data)
     return destination
 
@@ -948,7 +952,7 @@ async def test_a_v2_backup_omitting_the_strategy_is_refused(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("version", [0, 3, 99])
+@pytest.mark.parametrize("version", [0, 4, 99])
 async def test_an_unknown_backup_version_is_refused(
     session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path, version: int
 ) -> None:
@@ -968,6 +972,54 @@ async def test_an_unknown_backup_version_is_refused(
 
     with pytest.raises(ContestBackupError, match="Unsupported backup format version"):
         await _restore(session, bad_path, uberadmin, slug="bad", name="Bad")
+
+
+@pytest.mark.asyncio
+async def test_version_two_backup_without_editorial_restores_null(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """Version 2 predates the problem-row editorial column."""
+    contest = await _seed_contest(session, uberadmin)
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+    previous_path = tmp_path / "version-two.zip"
+
+    with zipfile.ZipFile(zip_path) as source, zipfile.ZipFile(previous_path, "w") as target:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename == "manifest.json":
+                manifest = json.loads(data)
+                manifest["format_version"] = PREVIOUS_FORMAT_VERSION
+                data = json.dumps(manifest).encode("utf-8")
+            elif info.filename.endswith("problems.json"):
+                payload = json.loads(data)
+                for entry in payload:
+                    entry["problem"].pop("editorial", None)
+                data = json.dumps(payload).encode("utf-8")
+            target.writestr(info.filename, data)
+
+    restored = await _restore(session, previous_path, uberadmin, slug="version-two", name="Version Two")
+    result = await session.execute(select(Problem).where(Problem.contest_id == restored.id))
+    assert [problem.editorial for problem in result.scalars()] == [None]
+
+
+@pytest.mark.asyncio
+async def test_current_backup_round_trips_editorial(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """Version 3 makes the nullable editorial column part of the strict row shape."""
+    contest = await _seed_contest(session, uberadmin)
+    problem = await session.scalar(select(Problem).where(Problem.contest_id == contest.id))
+    assert problem is not None
+    problem.editorial = "# Official solution\n\nUse a prefix sum."
+    await session.commit()
+
+    zip_path = await _export(session, contest, tmp_path)
+    restored = await _restore(session, zip_path, uberadmin, slug="editorial", name="Editorial")
+
+    restored_problem = await session.scalar(select(Problem).where(Problem.contest_id == restored.id))
+    assert restored_problem is not None
+    assert restored_problem.editorial == "# Official solution\n\nUse a prefix sum."
 
 
 @pytest.mark.asyncio

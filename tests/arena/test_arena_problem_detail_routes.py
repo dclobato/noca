@@ -35,14 +35,16 @@ from arena.models.arena_problem_sets import ArenaProblemSet
 from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.routes.legal import router as arena_legal_router
+from arena.routes.problem_editorial import router as arena_problem_editorial_router
 from arena.routes.problem_problem_sets import router as arena_problem_problem_sets_router
 from arena.routes.problems import router as arena_problems_router
 from arena.services import admin_problem_interaction_service, admin_problem_service, admin_problem_tc_service
 from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
 from arena.services.user_timezone_service import format_user_datetime
-from shared.db_schema.arena import arena_problem_set_problems
+from shared.db_schema.arena import arena_problem_set_problems, arena_problem_solvers
 from shared.enumerations import (
+    ArenaEditorialReleasePolicy,
     ArenaRole,
     CustomValidatorActiveState,
     ProblemValidatorType,
@@ -194,6 +196,7 @@ def _build_problem_detail_app(session: AsyncSession) -> FastAPI:
 
     app.include_router(arena_problem_problem_sets_router)
     app.include_router(arena_problems_router)
+    app.include_router(arena_problem_editorial_router)
     app.include_router(arena_legal_router)
     return app
 
@@ -319,6 +322,18 @@ async def _create_problem_set(
     session.add(problem_set)
     await session.commit()
     return arena_class, problem_set
+
+
+async def _mark_solved(session: AsyncSession, *, problem: ArenaProblem, user: ArenaUser) -> None:
+    """Record an AC for (problem, user) via ``arena_problem_solvers``."""
+    await session.execute(
+        arena_problem_solvers.insert().values(
+            problem_id=problem.id,
+            user_id=user.id,
+            solved_at=datetime.now(UTC),
+        )
+    )
+    await session.commit()
 
 
 @pytest.mark.asyncio
@@ -1031,3 +1046,129 @@ async def test_language_filter_survives_paging_and_the_detail_back_link(session:
     assert detail.status_code == 200
     back_hrefs = [part.split('"', 1)[0] for part in detail.text.split('href="')[1:] if "/problems?" in part]
     assert any("language=pt" in href and "page=2" in href for href in back_hrefs)
+
+
+@pytest.mark.asyncio
+async def test_problem_detail_omits_editorial_link_with_no_editorial_or_never(session: AsyncSession) -> None:
+    """A problem with no editorial, or an editorial with policy never, shows no link."""
+    app = _build_problem_detail_app(session)
+    author = await _create_user(
+        session,
+        name="No Editorial Author",
+        email="no-editorial-author@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    user = await _create_user(
+        session,
+        name="No Editorial User",
+        email="no-editorial-user@test.example",
+        role=ArenaRole.ARENA_USER,
+    )
+    no_editorial = await _create_enabled_problem(session, author, title="No Editorial")
+    never_shown = await _create_enabled_problem(session, author, title="Never Shown Editorial")
+    never_shown.editorial = "# Solution\nDo the thing."
+    never_shown.editorial_release_policy = ArenaEditorialReleasePolicy.NEVER
+    await session.commit()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, user)},
+    ) as client:
+        no_editorial_response = await client.get(f"/problems/{no_editorial.arena_number}")
+        never_response = await client.get(f"/problems/{never_shown.arena_number}")
+
+    for response in (no_editorial_response, never_response):
+        assert response.status_code == 200
+        assert "Editorial</a>" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_problem_detail_shows_editorial_link_when_always(session: AsyncSession) -> None:
+    """Policy 'always' shows the editorial link and the viewer route renders the content."""
+    app = _build_problem_detail_app(session)
+    author = await _create_user(
+        session,
+        name="Always Editorial Author",
+        email="always-editorial-author@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    user = await _create_user(
+        session,
+        name="Always Editorial User",
+        email="always-editorial-user@test.example",
+        role=ArenaRole.ARENA_USER,
+    )
+    problem = await _create_enabled_problem(session, author, title="Always Shown Editorial")
+    problem.editorial = "# Editorial\nUse a segment tree."
+    problem.editorial_release_policy = ArenaEditorialReleasePolicy.ALWAYS
+    await session.commit()
+    await session.refresh(problem)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, user)},
+    ) as client:
+        detail_response = await client.get(f"/problems/{problem.arena_number}")
+        editorial_url = f"/problems/{problem.arena_number}/editorial"
+        editorial_response = await client.get(editorial_url)
+
+    assert detail_response.status_code == 200
+    assert detail_response.text.count(f'href="http://testserver{editorial_url}"') == 2
+    assert 'target="_blank"' in detail_response.text
+    assert editorial_response.status_code == 200
+    assert "Use a segment tree." in editorial_response.text
+    assert "markdown-src" in editorial_response.text
+
+
+@pytest.mark.asyncio
+async def test_problem_detail_gates_editorial_link_after_ac(session: AsyncSession) -> None:
+    """Policy 'after_ac' hides the link until the user has an AC, and the route re-checks it."""
+    app = _build_problem_detail_app(session)
+    author = await _create_user(
+        session,
+        name="After AC Editorial Author",
+        email="after-ac-editorial-author@test.example",
+        role=ArenaRole.ARENA_JUDGE,
+    )
+    user = await _create_user(
+        session,
+        name="After AC Editorial User",
+        email="after-ac-editorial-user@test.example",
+        role=ArenaRole.ARENA_USER,
+    )
+    problem = await _create_enabled_problem(session, author, title="After AC Editorial")
+    problem.editorial = "# Editorial\nGreedy works here."
+    problem.editorial_release_policy = ArenaEditorialReleasePolicy.AFTER_AC
+    await session.commit()
+    await session.refresh(problem)
+    editorial_url = f"/problems/{problem.arena_number}/editorial"
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, user)},
+    ) as client:
+        before_ac_detail = await client.get(f"/problems/{problem.arena_number}")
+        # A direct GET must be refused server-side even though no link was ever shown.
+        before_ac_direct = await client.get(editorial_url)
+
+    assert before_ac_detail.status_code == 200
+    assert f'href="http://testserver{editorial_url}"' not in before_ac_detail.text
+    assert before_ac_direct.status_code == 404
+
+    await _mark_solved(session, problem=problem, user=user)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"arena_access_token": _login_token(app, user)},
+    ) as client:
+        after_ac_detail = await client.get(f"/problems/{problem.arena_number}")
+        after_ac_direct = await client.get(editorial_url)
+
+    assert after_ac_detail.status_code == 200
+    assert after_ac_detail.text.count(f'href="http://testserver{editorial_url}"') == 2
+    assert after_ac_direct.status_code == 200
+    assert "Greedy works here." in after_ac_direct.text

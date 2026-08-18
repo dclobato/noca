@@ -20,9 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arena.models.arena_problems import ArenaProblem
 from arena.models.arena_users import ArenaUser
-from arena.services import admin_problem_service
+from arena.services import (
+    admin_problem_interaction_service,
+    admin_problem_service,
+    admin_problem_tc_service,
+)
 from shared.db_schema import languages as languages_table
-from shared.enumerations import ArenaRole
+from shared.enumerations import ArenaRole, ProblemValidatorType
 
 
 async def get_problem_or_403(
@@ -56,6 +60,28 @@ async def get_problem_definition_or_403(
     if problem is None:
         raise HTTPException(status_code=404, detail="Problem not found")
     return problem
+
+
+async def problem_enablement_error(
+    session: AsyncSession,
+    problem: ArenaProblem,
+) -> str | None:
+    """Return why an Arena problem cannot be enabled, or ``None``.
+
+    Args:
+        session: Active async database session.
+        problem: Problem whose stored validation strategy is authoritative.
+
+    Returns:
+        str | None: An operator-facing reason, or ``None`` when enabling is safe.
+    """
+    error = await admin_problem_tc_service.judgeability_error_for(session, problem)
+    if error is None and problem.validator_type is ProblemValidatorType.INTERACTIVE:
+        error = await admin_problem_interaction_service.interactive_testcase_error(
+            session,
+            problem.id,
+        )
+    return error
 
 
 async def validator_languages(session: AsyncSession) -> list[Any]:

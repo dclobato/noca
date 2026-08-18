@@ -102,7 +102,7 @@
     border-block: 1px solid var(--arena-outline-variant);
 }
 .arena-problem-set-problems-table .arena-problem-number {
-    width: 6rem;
+    width: 5rem;
     white-space: nowrap;
 }
 .arena-problem-set-problems-table .arena-problem-feedback {

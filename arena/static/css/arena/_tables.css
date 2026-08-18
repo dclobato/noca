@@ -38,7 +38,7 @@
 .arena-table thead tr {
     border-bottom: 1px solid var(--arena-outline-variant);
     background-color: var(--arena-surface-container);
-    font-family: 'Inter', sans-serif;
+    font-family: var(--noca-font-body);
     font-size: 0.75rem;
     font-weight: 700;
     letter-spacing: 0.05em;
@@ -52,7 +52,7 @@
 
 .arena-table tbody tr {
     border-bottom: 1px solid var(--arena-surface-container);
-    font-family: 'Inter', sans-serif;
+    font-family: var(--noca-font-body);
 }
 
 .arena-table tbody tr:last-child {
@@ -84,6 +84,7 @@
 }
 
 .arena-table .arena-problem-number {
+    width: 5rem;
     font-variant-numeric: var(--noca-font-variant-numeric-tabular);
     text-align: right;
     white-space: nowrap;
@@ -172,7 +173,7 @@
 .arena-country-flag {
     width: 2rem;
     height: auto;
-    border-radius: 3px;
+    border-radius: var(--bs-border-radius-sm);
     border: 1px solid var(--arena-outline-variant);
     vertical-align: middle;
     object-fit: cover;

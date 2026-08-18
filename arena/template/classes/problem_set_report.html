@@ -223,7 +223,7 @@
                                         <strong>{{ '%.1f'|format(ac_percentage) }}%</strong>
                                     </td>
                                     {% for verdict in row.verdicts %}
-                                        <td class="text-center" data-label="Problem {{ loop.index }}">
+                                        <td class="text-end" data-label="Problem {{ loop.index }}">
                                             {% if verdict %}
                                                 <span class="badge {{ verdict_badge_classes.get(verdict, 'bg-secondary') }} font-monospace">{{ verdict }}</span>
                                             {% else %}
@@ -251,7 +251,7 @@
                                                 {% set ns.count = ns.count + 1 %}
                                             {% endif %}
                                         {% endfor %}
-                                        <td class="text-center">{{ ns.count }}</td>
+                                        <td class="text-end">{{ ns.count }}</td>
                                     {% endfor %}
                                     {% if report.snapshot_available %}<td></td>{% endif %}
                                 </tr>

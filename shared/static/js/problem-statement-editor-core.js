@@ -11,11 +11,11 @@
  * rendering, the EasyMDE instance with its restricted toolbar, the
  * `noca:problem-statement-changed` notification, and value/enabled/sync helpers.
  *
- * Exposes `window.NocaStatementEditor.create()`, which builds the EasyMDE editor
- * on `#stmt-md-editor` and returns a `StatementEditor` instance. When EasyMDE or
- * the textarea is missing, the returned instance wraps a null editor and all
- * methods degrade gracefully. Each module supplies only its own surrounding
- * logic (arena: submit sync; web: PDF/MD source switching).
+ * Exposes `window.NocaStatementEditor.create()`, which builds an EasyMDE editor
+ * for a configured textarea and returns a `StatementEditor` instance. Statement
+ * and editorial fields therefore use exactly the same toolbar and preview
+ * pipeline without sharing state. When EasyMDE or the textarea is missing, the
+ * returned instance wraps a null editor and all methods degrade gracefully.
  */
 (function () {
   'use strict';
@@ -34,8 +34,10 @@
     });
   }
 
-  function StatementEditor(mde) {
+  function StatementEditor(mde, textarea, changeEventName) {
     this.mde = mde;
+    this.textarea = textarea;
+    this.changeEventName = changeEventName;
   }
 
   var DEFAULT_TABLE_MARKDOWN = [
@@ -144,24 +146,24 @@
 
   StatementEditor.prototype.value = function () {
     if (this.mde) return this.mde.value();
-    var ta = document.getElementById('stmt-md-editor');
-    return ta ? ta.value : '';
+    return this.textarea ? this.textarea.value : '';
   };
 
   StatementEditor.prototype.setValue = function (text) {
     if (this.mde) this.mde.value(text || '');
+    else if (this.textarea) this.textarea.value = text || '';
   };
 
   StatementEditor.prototype.notifyChanged = function () {
-    document.dispatchEvent(new CustomEvent('noca:problem-statement-changed', {
+    if (!this.changeEventName) return;
+    document.dispatchEvent(new CustomEvent(this.changeEventName, {
       detail: { value: this.value() }
     }));
   };
 
   StatementEditor.prototype.syncToTextarea = function () {
     if (!this.mde) return;
-    var ta = document.getElementById('stmt-md-editor');
-    if (ta) ta.value = this.mde.value();
+    if (this.textarea) this.textarea.value = this.mde.value();
   };
 
   /**
@@ -190,9 +192,16 @@
   };
 
   // EasyMDE — restricted toolbar (text + formatting only; no link/image)
-  function create() {
-    var textarea = document.getElementById('stmt-md-editor');
-    if (!textarea || typeof EasyMDE === 'undefined') return new StatementEditor(null);
+  function create(options) {
+    options = options || {};
+    var textareaId = options.textareaId || 'stmt-md-editor';
+    var changeEventName = options.changeEventName === undefined
+      ? 'noca:problem-statement-changed'
+      : options.changeEventName;
+    var textarea = document.getElementById(textareaId);
+    if (!textarea || typeof EasyMDE === 'undefined') {
+      return new StatementEditor(null, textarea, changeEventName);
+    }
 
     var mde = new EasyMDE({
       element: textarea,
@@ -221,7 +230,7 @@
       }
     });
 
-    var editor = new StatementEditor(mde);
+    var editor = new StatementEditor(mde, textarea, changeEventName);
     mde.codemirror.on('change', function () {
       // `forceSync` updates the hidden form control before this later listener.
       // Surface the change so required-field validity does not retain its
@@ -240,6 +249,7 @@
     // Also re-measure once after layout settles, for the case where the editor's
     // own pane is the one open on load.
     window.setTimeout(function () { editor.refresh(); }, 0);
+    if (textarea.disabled) editor.setEnabled(false);
     return editor;
   }
 

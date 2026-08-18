@@ -1,4 +1,4 @@
-# Full Contest Backup Format (v2)
+# Full Contest Backup Format (v3)
 
 This document describes the portable ZIP archive produced by the Web
 `contest_backup_service` when an uberadmin exports a whole contest, and how the
@@ -19,7 +19,7 @@ per-problem package *file* layout only for bulky payload bytes.
 ## Archive layout
 
 The archive uses the following fixed top-level members and one directory for
-each problem; the layout is identical in both supported versions.
+each problem; the layout is compatible across all supported versions.
 
 ```
 contest-backup-<slug>-<YYYYMMDD-HHMMSS>.zip
@@ -42,13 +42,15 @@ contest-backup-<slug>-<YYYYMMDD-HHMMSS>.zip
 ├── tasks.json             every staff task row
 └── problems/<ordinal:03d>/  per-problem package payload from build_export_zip:
                              statement.md|pdf, in/NNN.in, out/NNN.out,
-                             (image.* / validator/ / interaction/ are ignored on
-                             import — those live losslessly in the JSON rows)
+                             optional editorial.md, and other package members
+                             (editorial, image, validator, and interactions are
+                             restored from the lossless JSON rows)
 ```
 
 Only the **statement** and **test-case input/output files** are read back from
 the per-problem folder on import; every other value (image base64, validator
-source, sample-interaction transcripts) is restored from the JSON rows.
+source, editorial Markdown, and sample-interaction transcripts) is restored from
+the JSON rows.
 
 ## Serialization contract
 
@@ -103,7 +105,7 @@ offline-cracking/reuse warning.
 
 The importer applies these gates before it creates database rows or files.
 
-1. **Manifest gate:** a supported `format_version` (1 or 2), presence of all
+1. **Manifest gate:** a supported `format_version` (1, 2, or 3), presence of all
    required JSON members, and every referenced per-problem folder.
 2. **Safe members:** reject path traversal, absolute names, drive letters,
    duplicate members, and excessive member counts.
@@ -129,10 +131,21 @@ The historical replay format intentionally excludes these operational assets.
 
 ## Versioning
 
-The archive is versioned by `format_version` (currently `2`, `FORMAT_VERSION` in
+The archive is versioned by `format_version` (currently `3`, `FORMAT_VERSION` in
 `web/services/contest_backup_service/models.py`). This server restores versions
-**1 and 2**; anything else is refused. Bump it on any breaking layout change and
+**1, 2, and 3**; anything else is refused. Bump it on any breaking layout change and
 update this document.
+
+### Version 3: problem editorials
+
+Version 3 adds the nullable `editorial` column to every problem row in
+`problems.json`. Strict row validation compares archived rows with the live
+table, so version 3 requires the column even when its value is `null`.
+
+Versions 1 and 2 predate the column. Their problem rows may omit `editorial`, in
+which case restore stores `NULL`. Embedded problem packages remain package
+format version 2 and may carry the additive `editorial` object and
+`editorial.md`; the database row remains the restore source of record.
 
 ### Version 2: the stored validation strategy
 
@@ -145,8 +158,9 @@ malformed rather than quietly filled in by inference.
 
 Row validation compares each row against the **live** table, so a column added to
 `problems` becomes one every archive is expected to carry. On the v1 branch,
-`validator_type` and `artifact_generation` are therefore treated as optional, and
-the fence takes its server default of `0`.
+`validator_type`, `artifact_generation`, and `editorial` are therefore optional;
+the fence takes its server default of `0`. Version 2 requires the strategy and
+fence but treats only `editorial` as optional.
 
 There are **two v1 shapes in the wild**, and conflating them corrupts data:
 

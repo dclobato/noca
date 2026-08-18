@@ -18,6 +18,7 @@ from fastapi import Request
 
 from shared.enumerations import ProblemValidatorType
 from shared.services.problem_definition_view import (
+    TAB_EDITORIAL,
     TAB_LIMITS,
     TAB_METADATA,
     TAB_STATEMENT,
@@ -31,6 +32,7 @@ from shared.services.problem_definition_view import (
 CONTEST_EDITOR_TABS: tuple[str, ...] = (
     TAB_METADATA,
     TAB_STATEMENT,
+    TAB_EDITORIAL,
     TAB_LIMITS,
 )
 
@@ -38,7 +40,7 @@ CONTEST_EDITOR_TABS: tuple[str, ...] = (
 def contest_editor_tabs(validator_type: ProblemValidatorType) -> tuple[str, ...]:
     """Return the panes the Contest definition editor renders.
 
-    The same three for every strategy: what a problem *is* does not depend on how
+    The same four for every strategy: what a problem *is* does not depend on how
     it is judged. Strategy-specific material -- the validator, sample interactions
     -- lives in the judgment-data editor, which renders its own pages.
 

@@ -68,7 +68,13 @@ from arena.services.submission_service import (
 from arena.services.user_timezone_service import format_user_datetime
 from shared.db_schema import languages as languages_table
 from shared.db_schema.arena import arena_submissions
-from shared.enumerations import ArenaNotificationKind, ArenaRole, ProblemValidatorType, StatementLanguage
+from shared.enumerations import (
+    ArenaEditorialReleasePolicy,
+    ArenaNotificationKind,
+    ArenaRole,
+    ProblemValidatorType,
+    StatementLanguage,
+)
 from shared.http_params import DbId
 from shared.language_registry import ace_mode_for_language_id, default_stub_for_language_id
 from shared.services.arena_notification_service import create_arena_notification
@@ -431,6 +437,14 @@ async def arena_problem_detail(
     )
     rating_history_url = str(request.url_for("arena_problem_rating_history_public", arena_number=arena_number))
 
+    show_editorial_link = bool(problem.editorial) and (
+        problem.editorial_release_policy is ArenaEditorialReleasePolicy.ALWAYS
+        or (problem.editorial_release_policy is ArenaEditorialReleasePolicy.AFTER_AC and solved_at is not None)
+    )
+    editorial_url = (
+        str(request.url_for("arena_problem_editorial_view", arena_number=arena_number)) if show_editorial_link else None
+    )
+
     prev_number, next_number = await problem_browse_service.get_adjacent_problem_numbers(session, arena_number)
     prev_problem_url: str | None = None
     next_problem_url: str | None = None
@@ -485,6 +499,7 @@ async def arena_problem_detail(
                 "problem_set_assignments": problem_set_assignments,
                 "problem_set_assignment_options": problem_set_assignment_options,
                 "has_custom_validator": problem.validator_type is ProblemValidatorType.INTERACTIVE,
+                "editorial_url": editorial_url,
                 "prev_problem_url": prev_problem_url,
                 "next_problem_url": next_problem_url,
                 "prev_problem_number": prev_number,

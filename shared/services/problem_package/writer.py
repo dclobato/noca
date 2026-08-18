@@ -15,7 +15,8 @@ version-2 key, including keys the exporting domain cannot store — written as
 ``null`` / ``false`` / ``{}`` rather than omitted, so a round trip through the
 other domain is describable. ``public`` is a contestant-facing statement bundle
 and deliberately **not** importable: no ``problem.json``, no secret cases, no
-limits, no notes, no validator source — and therefore no strategy metadata.
+limits, no notes, no validator source — and therefore no strategy metadata —
+or editorial, which remains editor-only.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from typing import Any, Literal
 from shared.enumerations import ProblemValidatorType
 from shared.services.custom_validator import packaged_validator_member
 from shared.services.problem_package.constants import (
+    EDITORIAL_MD_MEMBER,
     FORMAT_VERSION,
     PROBLEM_JSON_MEMBER,
     STATEMENT_MD_MEMBER,
@@ -59,7 +61,8 @@ def build_package(
             contestant-facing statement bundle.
         require_importable: Whether a ``full`` package must satisfy the version-2
             rules that make it re-importable. Only the contest backup exporter
-            passes ``False``; see :func:`_check_importable`.
+            and the public problem-set exporter pass ``False``; see
+            :func:`_check_importable`.
 
     Raises:
         PackageError: If a required stored file is missing, or if an importable
@@ -78,8 +81,12 @@ def build_package(
         _write_test_cases(archive, package, digests, profile=profile)
         _write_interactions(archive, package, digests)
         if profile == "full":
+            editorial_digest = _write_editorial(archive, package)
             _write_validator(archive, package, digests)
-            archive.writestr(PROBLEM_JSON_MEMBER, json.dumps(_problem_json(package, digests), indent=2))
+            archive.writestr(
+                PROBLEM_JSON_MEMBER,
+                json.dumps(_problem_json(package, digests, editorial_digest=editorial_digest), indent=2),
+            )
     return destination
 
 
@@ -114,6 +121,20 @@ def _write_statement(archive: zipfile.ZipFile, package: ProblemPackage, digests:
         _write_bytes(archive, member, statement.text.encode("utf-8"), digests)
         return
     _write_file(archive, member, statement.path, digests, what="statement")
+
+
+def _write_editorial(archive: zipfile.ZipFile, package: ProblemPackage) -> str | None:
+    """Write the optional editorial and return its independent digest."""
+    if package.editorial is None:
+        return None
+    editorial_digests: dict[str, str] = {}
+    _write_bytes(
+        archive,
+        EDITORIAL_MD_MEMBER,
+        package.editorial.encode("utf-8"),
+        editorial_digests,
+    )
+    return editorial_digests[EDITORIAL_MD_MEMBER]
 
 
 def _write_image(archive: zipfile.ZipFile, package: ProblemPackage, digests: dict[str, str]) -> None:
@@ -181,7 +202,12 @@ def _write_validator(archive: zipfile.ZipFile, package: ProblemPackage, digests:
     _write_bytes(archive, member, package.validator.source.encode("utf-8"), digests)
 
 
-def _problem_json(package: ProblemPackage, digests: dict[str, str]) -> dict[str, Any]:
+def _problem_json(
+    package: ProblemPackage,
+    digests: dict[str, str],
+    *,
+    editorial_digest: str | None,
+) -> dict[str, Any]:
     """Build the complete version-2 metadata object.
 
     Every key is present. A domain that cannot store a field writes its empty
@@ -195,6 +221,9 @@ def _problem_json(package: ProblemPackage, digests: dict[str, str]) -> dict[str,
     return {
         "format_version": FORMAT_VERSION,
         "validator_type": metadata.validator_type.value,
+        "editorial": (
+            {"member": EDITORIAL_MD_MEMBER, "sha256": editorial_digest} if editorial_digest is not None else None
+        ),
         "title": metadata.title,
         "author": metadata.author,
         "notes": metadata.notes,
@@ -229,8 +258,8 @@ def _problem_json(package: ProblemPackage, digests: dict[str, str]) -> dict[str,
             if package.validator is not None
             else None
         ),
-        # The manifest covers every payload member except problem.json itself,
-        # which would otherwise have to hash the file containing its own digest.
+        # The legacy manifest covers every ordinary payload member except
+        # problem.json. Editorial integrity lives in its additive nested object.
         "sha256": dict(sorted(digests.items())),
     }
 

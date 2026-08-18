@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>{{ brand_name }} - Problem {{ problem_label }} editorial</title>
+        <link rel="icon" type="image/x-icon" href="/favicon.ico">
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='bootstrap.min.css') }}">
+        <link href="{{ request.url_for('static_vendor', path='noca-fonts.css') }}"
+              rel="stylesheet">
+        <link href="{{ request.url_for('arena_static_css', path='arena.css') }}?v={{ app_version }}"
+              rel="stylesheet">
+    </head>
+    <body class="arena-validator-source-viewer">
+        <header class="border-bottom bg-body">
+            <div class="container-fluid px-4 py-3">
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <img src="{{ request.url_for('arena_static_img', path='logo-128x128.png') }}"
+                             width="42"
+                             height="42"
+                             alt=""
+                             aria-hidden="true">
+                        <span class="fw-semibold fs-5">{{ brand_name }}</span>
+                    </div>
+                    <div class="vr d-none d-sm-block"></div>
+                    <div class="lh-sm">
+                        <div class="fw-semibold">Problem {{ problem_label }}: {{ problem.title }}</div>
+                        <div class="text-body-secondary small">Editorial</div>
+                    </div>
+                </div>
+            </div>
+        </header>
+        <main class="bg-body-tertiary">
+            <div class="container py-4">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <div id="markdown-rendered"></div>
+                        <script id="markdown-src" type="text/plain">{{ editorial_content | e }}</script>
+                    </div>
+                </div>
+            </div>
+        </main>
+        <script src="{{ request.url_for('static_vendor', path='bootstrap.bundle.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"></script>
+        <script src="{{ request.url_for('static_shared_js', path='markdown-directives.js') }}?v={{ app_version }}"></script>
+        <script src="{{ request.url_for('arena_static_js', path='render-markdown.js') }}?v={{ app_version }}"></script>
+    </body>
+</html>

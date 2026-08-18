@@ -32,6 +32,7 @@ from shared.db_schema.arena import arena_problems as arena_problems_table
 from shared.db_schema.arena import arena_sample_interactions as arena_sample_interactions_table
 from shared.db_schema.arena import arena_test_cases as arena_test_cases_table
 from shared.enumerations import (
+    ArenaEditorialReleasePolicy,
     CustomValidatorActiveState,
     CustomValidatorCandidateState,
     ProblemValidatorType,
@@ -70,6 +71,8 @@ class ArenaProblem(ArenaBase):
     hide_author_show_source: Mapped[bool]
     enabled: Mapped[bool]
     problem_statement: Mapped[str]
+    editorial: Mapped[str | None]
+    editorial_release_policy: Mapped[ArenaEditorialReleasePolicy]
     problem_image_base64: Mapped[str | None]
     problem_image_mime: Mapped[str | None]
     problem_image_caption: Mapped[str | None]

@@ -63,6 +63,7 @@ MAX_MEMBER_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
 MAX_TOTAL_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
 MAX_PDF_BYTES = 32 * 1024 * 1024
 MAX_MARKDOWN_BYTES = 512 * 1024
+MAX_EDITORIAL_BYTES = MAX_MARKDOWN_BYTES
 MAX_EXPLANATION_BYTES = 512 * 1024
 # Owned by sample_interactions, which is what actually enforces it; re-exported
 # here so the ceilings table has one place to read.
@@ -81,6 +82,7 @@ MAX_TEST_CASE_ORDINAL = 1000
 PROBLEM_JSON_MEMBER = "problem.json"
 STATEMENT_MD_MEMBER = "statement.md"
 STATEMENT_PDF_MEMBER = "statement.pdf"
+EDITORIAL_MD_MEMBER = "editorial.md"
 
 TESTCASE_DIR_RE = re.compile(r"^(in|out)/0*([1-9]\d{0,3})(\.in|\.out|\.sol)?$", re.IGNORECASE)
 TESTCASE_FLAT_RE = re.compile(r"^0*([1-9]\d{0,3})\.(in|out|sol)$", re.IGNORECASE)

@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.config import settings as arena_settings
 from arena.models.arena_problems import ArenaProblem, ArenaProblemCustomValidator, ArenaTestCase
 from arena.services import admin_problem_service, admin_problem_tc_service
-from shared.enumerations import ArenaRole, ProblemValidatorType
+from shared.enumerations import ArenaEditorialReleasePolicy, ArenaRole, ProblemValidatorType
 from shared.services.testcase_files import get_problem_testcase_dir
 from tests.arena._admin_problem_app import build_admin_app, create_language, create_user, login_token
 
@@ -125,6 +125,7 @@ def _base_form() -> dict[str, str]:
         "statement_language": "en",
         "language_confirmed": "en",
         "active_tab": "test-cases",
+        "save_action": "disable",
     }
 
 
@@ -161,6 +162,207 @@ async def test_saving_the_definition_leaves_the_test_cases_alone(session: AsyncS
     assert (await _reload(session, problem_id)).title == "Renamed"
     assert len(await _cases(session, problem_id)) == 2
     assert _on_disk(problem_id) == before
+
+
+@pytest.mark.asyncio
+async def test_save_and_enable_updates_the_definition_and_publishes(session: AsyncSession) -> None:
+    """The affirmative submitter saves and targets the enabled state."""
+    client, judge_id = await _client(session, "arena-definition-enable@test.example")
+    problem_id = await _make_problem(session, judge_id)
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form() | {"title": "Published Problem", "save_action": "enable"},
+        )
+
+    assert response.status_code == 303
+    problem = await _reload(session, problem_id)
+    assert problem.title == "Published Problem"
+    assert problem.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_save_and_enable_refuses_a_problem_with_no_test_cases(session: AsyncSession) -> None:
+    """The judgeability gate applies to this Save, exactly as it does on the list."""
+    client, judge_id = await _client(session, "arena-definition-enable-gate@test.example")
+    problem_id = await _make_problem(session, judge_id, cases=0)
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form() | {"title": "Should Not Publish", "save_action": "enable"},
+        )
+
+    assert response.status_code == 422
+    assert "no test cases" in response.text
+    problem = await _reload(session, problem_id)
+    assert problem.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_save_and_enable_refuses_an_enabled_problem_that_lost_its_cases(
+    session: AsyncSession,
+) -> None:
+    """``save_action`` names a target state, so the gate is not transition-only.
+
+    Removing the last test case is allowed and leaves an enabled problem
+    unjudgeable. Gating only the disabled-to-enabled transition would let this
+    Save keep it published.
+    """
+    client, judge_id = await _client(session, "arena-definition-enable-stale@test.example")
+    problem_id = await _make_problem(session, judge_id, cases=0)
+    problem = await _reload(session, problem_id)
+    problem.enabled = True
+    await session.commit()
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form() | {"title": "Still Broken", "save_action": "enable"},
+        )
+
+    assert response.status_code == 422
+    assert "no test cases" in response.text
+    assert (await _reload(session, problem_id)).title == "Saved Problem"
+
+
+@pytest.mark.asyncio
+async def test_save_and_disable_still_works_for_an_unjudgeable_problem(session: AsyncSession) -> None:
+    """Disabling stays ungated, so a broken problem can still be edited and saved."""
+    client, judge_id = await _client(session, "arena-definition-disable-broken@test.example")
+    problem_id = await _make_problem(session, judge_id, cases=0)
+    problem = await _reload(session, problem_id)
+    problem.enabled = True
+    await session.commit()
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form() | {"title": "Unpublished Draft", "save_action": "disable"},
+        )
+
+    assert response.status_code == 303
+    problem = await _reload(session, problem_id)
+    assert problem.title == "Unpublished Draft"
+    assert problem.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_save_and_disable_updates_the_definition_and_unpublishes(session: AsyncSession) -> None:
+    """The negative submitter saves and targets the disabled state."""
+    client, judge_id = await _client(session, "arena-definition-disable@test.example")
+    problem_id = await _make_problem(session, judge_id)
+    problem = await _reload(session, problem_id)
+    problem.enabled = True
+    await session.commit()
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form() | {"title": "Private Draft", "save_action": "disable"},
+        )
+
+    assert response.status_code == 303
+    problem = await _reload(session, problem_id)
+    assert problem.title == "Private Draft"
+    assert problem.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_editorial_is_saved_and_blank_clears_it(session: AsyncSession) -> None:
+    """The optional editorial is stored with the rest of the definition."""
+    client, judge_id = await _client(session, "arena-definition-editorial@test.example")
+    problem_id = await _make_problem(session, judge_id)
+
+    async with client:
+        saved = await client.post(
+            _page(problem_id),
+            data=_base_form() | {"editorial": "# Editorial\n\nAdd the values."},
+        )
+        assert (await _reload(session, problem_id)).editorial == "# Editorial\n\nAdd the values."
+        cleared = await client.post(_page(problem_id), data=_base_form() | {"editorial": "   "})
+
+    assert saved.status_code == 303
+    assert cleared.status_code == 303
+    assert (await _reload(session, problem_id)).editorial is None
+
+
+@pytest.mark.asyncio
+async def test_editorial_release_policy_is_saved_and_defaults_to_never(session: AsyncSession) -> None:
+    """The release policy is stored with the rest of the definition and defaults to Never."""
+    client, judge_id = await _client(session, "arena-definition-editorial-policy@test.example")
+    problem_id = await _make_problem(session, judge_id)
+
+    assert (await _reload(session, problem_id)).editorial_release_policy == ArenaEditorialReleasePolicy.NEVER
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form() | {"editorial_release_policy": "after_ac"},
+        )
+
+    assert response.status_code == 303
+    assert (await _reload(session, problem_id)).editorial_release_policy == ArenaEditorialReleasePolicy.AFTER_AC
+
+
+@pytest.mark.asyncio
+async def test_invalid_editorial_release_policy_reopens_its_tab(session: AsyncSession) -> None:
+    """An unknown policy is rejected before save and reopens the Editorial tab."""
+    client, judge_id = await _client(session, "arena-definition-editorial-policy-invalid@test.example")
+    problem_id = await _make_problem(session, judge_id)
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form() | {"editorial_release_policy": "sometimes"},
+        )
+
+    assert response.status_code == 422
+    before_editorial = response.text.split('id="tab-editorial"')[0]
+    assert "show active" in before_editorial[-120:]
+    assert "Choose a valid editorial release policy." in response.text
+    assert (await _reload(session, problem_id)).editorial_release_policy == ArenaEditorialReleasePolicy.NEVER
+
+
+@pytest.mark.asyncio
+async def test_invalid_editorial_reopens_its_tab(session: AsyncSession) -> None:
+    """Editorial Markdown uses the statement sanitizer and reports beside its editor."""
+    client, judge_id = await _client(session, "arena-definition-editorial-invalid@test.example")
+    problem_id = await _make_problem(session, judge_id)
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form() | {"editorial": "[external](https://example.com)"},
+        )
+
+    assert response.status_code == 422
+    before_editorial = response.text.split('id="tab-editorial"')[0]
+    assert "show active" in before_editorial[-120:]
+    assert 'id="editorial-server-error"' in response.text
+    assert (await _reload(session, problem_id)).editorial is None
+
+
+@pytest.mark.asyncio
+async def test_save_and_enable_rejects_an_unjudgeable_problem_atomically(
+    session: AsyncSession,
+) -> None:
+    """A failed publication gate rolls back both state and definition edits."""
+    client, judge_id = await _client(session, "arena-definition-enable-invalid@test.example")
+    problem_id = await _make_problem(session, judge_id, cases=0)
+
+    async with client:
+        response = await client.post(
+            _page(problem_id),
+            data=_base_form() | {"title": "Must Not Persist", "save_action": "enable"},
+        )
+
+    assert response.status_code == 422
+    assert "Cannot enable this problem." in response.text
+    problem = await _reload(session, problem_id)
+    assert problem.title == "Saved Problem"
+    assert problem.enabled is False
 
 
 @pytest.mark.asyncio
@@ -253,3 +455,8 @@ async def test_the_editor_links_to_the_judgment_pages(session: AsyncSession) -> 
     assert response.status_code == 200
     assert f"/admin/problems/{problem_id}/judgment" in response.text
     assert "Judgment data" in response.text
+    assert response.text.count('name="save_action"') == 2
+    assert 'value="enable"' in response.text
+    assert 'value="disable"' in response.text
+    assert "Save and enable" in response.text
+    assert "Save and disable" in response.text

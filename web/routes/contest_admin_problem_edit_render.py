@@ -65,6 +65,7 @@ async def build_editor_context(
     field_errors: dict[str, str] | None = None,
     form_data: dict[str, Any] | None = None,
     md_content: str | None = None,
+    editorial_content: str | None = None,
     has_pdf: bool | None = None,
     has_md: bool | None = None,
     category_names_csv: str | None = None,
@@ -81,6 +82,7 @@ async def build_editor_context(
         field_errors: Validation messages keyed by form field name.
         form_data: Scalar values to render; the stored ones when omitted.
         md_content: Markdown to render in the editor; read from disk when omitted.
+        editorial_content: Editorial Markdown to render; stored content when omitted.
         has_pdf: Override for whether a PDF statement is shown.
         has_md: Override for whether a Markdown statement is shown.
         category_names_csv: Categories to render; the stored ones when omitted.
@@ -100,6 +102,8 @@ async def build_editor_context(
             )
 
     values = form_data if form_data is not None else stored_form_data(problem)
+    if editorial_content is None:
+        editorial_content = problem.editorial or ""
     resolved_field_errors = field_errors or {}
     profiling_limits_context = await _build_profiling_limits_context(request, ctx, problem, values)
 
@@ -109,6 +113,7 @@ async def build_editor_context(
         "has_pdf": disk_has_pdf if has_pdf is None else has_pdf,
         "has_md": disk_has_md if has_md is None else has_md,
         "md_content": md_content,
+        "editorial_content": editorial_content,
         "is_remove_allowed": _is_remove_allowed(ctx.contest),
         "remove_blocked_reason": _remove_blocked_reason(ctx.contest),
         "category_names_csv": (

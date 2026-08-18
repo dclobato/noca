@@ -38,6 +38,7 @@ from shared.services.problem_package.journal import (
     write_journal,
 )
 from shared.services.problem_package.model import (
+    EditorialSpec,
     PackageImage,
     PackageLanguageLimit,
     PackageMetadata,
@@ -77,6 +78,7 @@ __all__ = [
     "MAX_TITLE_CHARS",
     "MAX_UPLOAD_BYTES",
     "ArtifactPromotion",
+    "EditorialSpec",
     "ImportJournal",
     "JournalKind",
     "PackageError",

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -13,13 +13,20 @@ from dataclasses import dataclass, field
 from typing import Any
 
 #: Backup ZIP format version. Bump on any breaking layout change.
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 
-#: The older archive version this server still restores.
+#: The original archive version this server still restores.
 LEGACY_FORMAT_VERSION = 1
 
+#: The prior archive format, which carries strategy fields but predates editorial.
+PREVIOUS_FORMAT_VERSION = 2
+
 #: Every archive version this server restores.
-SUPPORTED_FORMAT_VERSIONS: tuple[int, ...] = (LEGACY_FORMAT_VERSION, FORMAT_VERSION)
+SUPPORTED_FORMAT_VERSIONS: tuple[int, ...] = (
+    LEGACY_FORMAT_VERSION,
+    PREVIOUS_FORMAT_VERSION,
+    FORMAT_VERSION,
+)
 
 #: Names of the JSON members that must be present in a valid backup archive.
 MANIFEST_MEMBER = "manifest.json"

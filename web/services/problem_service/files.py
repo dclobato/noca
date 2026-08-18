@@ -247,6 +247,7 @@ def problem_to_package(
         },
         custom_validator=None,
         sha256={},
+        editorial=None,
     )
 
     interactions = tuple(
@@ -274,6 +275,7 @@ def problem_to_package(
         ),
         interactions=interactions if interactive else (),
         warnings=(),
+        editorial=problem.editorial,
     )
 
 
@@ -294,7 +296,9 @@ def build_problem_export(
             contestant-facing statement bundle, which carries no ``problem.json``.
         language_limits: Required for the ``full`` profile, which exports them.
         require_importable: Whether a ``full`` package must be re-importable.
-            Only the contest backup exporter passes ``False``.
+            Only archive exporters whose package is a convenience artifact —
+            the contest backup exporter and the public problem-set exporter —
+            pass ``False``.
 
     Raises:
         PackageError: If a required stored file is missing, or if an importable

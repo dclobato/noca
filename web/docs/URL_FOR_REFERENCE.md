@@ -28,7 +28,7 @@ parameters.
 | `request.url_for('star', color='<hex>', letter='<letters>')` | `/assets/star/<hex>/<letters>` | `star` |
 | `request.url_for('medal', band='<band>')` | `/assets/medal/<band>` | `medal` |
 
-## Public / Auth Routes (`auth.py`, `root.py`)
+## Public / Auth Routes (`auth.py`, `root.py`, `problem_set.py`)
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
@@ -38,6 +38,7 @@ parameters.
 | `/logout` | `logout` | — | `auth.py` |
 | `GET /c/{slug}/login` | `contest_login_get` | `slug=` | `auth.py` |
 | `POST /c/{slug}/login` | `contest_login_post` | `slug=` | `auth.py` |
+| `GET /problem-set/{slug}.zip` | `problem_set_download` | `slug=` | `problem_set.py` |
 
 ## Health Route (`health.py`)
 

@@ -257,6 +257,19 @@ async def test_standard_path_stores_the_standard_strategy(client: AsyncClient, s
 
 
 @pytest.mark.asyncio
+async def test_create_stores_an_optional_editorial(client: AsyncClient, session: AsyncSession) -> None:
+    """Editorial content is accepted on the same definition form as the statement."""
+    response = await client.post(
+        "/c/chooser-contest/admin/problems/new/standard",
+        data=_create_form(editorial="# Editorial\n\nUse a prefix sum."),
+    )
+
+    assert response.status_code == 303
+    problem = (await session.execute(select(Problem).where(Problem.title == "Chosen Problem"))).scalar_one()
+    assert problem.editorial == "# Editorial\n\nUse a prefix sum."
+
+
+@pytest.mark.asyncio
 async def test_interactive_path_stores_interactive_without_any_validator_source(
     client: AsyncClient, session: AsyncSession
 ) -> None:
@@ -352,7 +365,7 @@ async def test_every_pane_stays_mounted_so_switching_tabs_cannot_lose_input(clie
     response = await client.get("/c/chooser-contest/admin/problems/new/standard")
 
     markup = response.text
-    for pane in ("tab-metadata", "tab-statement", "tab-limits"):
+    for pane in ("tab-metadata", "tab-statement", "tab-editorial", "tab-limits"):
         assert f'id="{pane}"' in markup
     # Exactly one pane starts active.
     assert markup.count("tab-pane fade show active") == 1

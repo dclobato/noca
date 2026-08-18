@@ -27,11 +27,11 @@
 {# Field rows: (name, type, required, domains). `domains` is "all", "arena" or "contest".
    Every version-2 key is parsed and exported by both domains; "arena"/"contest" marks
    which side actually *stores* it. Adding a package field means adding one row here. #}
-{% set package_fields = [("format_version", "integer (1 or 2; exports write 2)", false, "all"), ("validator_type", "\"standard\" or \"interactive\" (required in version 2)", false, "all"), ("title", "string (maximum 256 characters)", true, "all"), ("author", "string (maximum 256 characters) or null", false, "all"), ("notes", "string (maximum 512 characters) or null", false, "all"), ("time_limit_ms", "integer ≥ 1 (default 1000)", false, "all"), ("memory_limit_kb", "integer ≥ 1 (default 262144)", false, "all"), ("pids_limit", "integer ≥ 1 (default 64)", false, "all"), ("output_limit_in_bytes", "integer ≥ 1 (default 65536, never null)", false, "all"), ("categories", "array of strings", false, "all"), ("sample_testcases", "array of ascending ordinals", false, "all"), ("image", "filename string or null", false, "all"), ("image_caption", "string (maximum 512 characters) or null", false, "all"), ("custom_validator", "object — see below", false, "all"), ("sha256", "object — see below", false, "all"), ("source", "string (maximum 256 characters) or null", false, "arena"), ("hide_author_show_source", "boolean", false, "arena"), ("license", "string (maximum 256 characters) or null", false, "arena"), ("statement_language", "\"pt\", \"en\" or \"es\"", false, "arena"), ("color", "hex string e.g. #ff0000", false, "contest"), ("language_limits", "object — see below", false, "contest")] %}
+{% set package_fields = [("format_version", "integer (1 or 2; exports write 2)", false, "all"), ("validator_type", "\"standard\" or \"interactive\" (required in version 2)", false, "all"), ("title", "string (maximum 256 characters)", true, "all"), ("author", "string (maximum 256 characters) or null", false, "all"), ("notes", "string (maximum 512 characters) or null", false, "all"), ("editorial", "object or null — see below", false, "all"), ("time_limit_ms", "integer ≥ 1 (default 1000)", false, "all"), ("memory_limit_kb", "integer ≥ 1 (default 262144)", false, "all"), ("pids_limit", "integer ≥ 1 (default 64)", false, "all"), ("output_limit_in_bytes", "integer ≥ 1 (default 65536, never null)", false, "all"), ("categories", "array of strings", false, "all"), ("sample_testcases", "array of ascending ordinals", false, "all"), ("image", "filename string or null", false, "all"), ("image_caption", "string (maximum 512 characters) or null", false, "all"), ("custom_validator", "object — see below", false, "all"), ("sha256", "object — see below", false, "all"), ("source", "string (maximum 256 characters) or null", false, "arena"), ("hide_author_show_source", "boolean", false, "arena"), ("license", "string (maximum 256 characters) or null", false, "arena"), ("statement_language", "\"pt\", \"en\" or \"es\"", false, "arena"), ("color", "hex string e.g. #ff0000", false, "contest"), ("language_limits", "object — see below", false, "contest")] %}
 {% if package_sample_url %}
 <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
 <a href="{{ package_sample_url }}" class="btn btn-outline-primary btn-sm">Download sample package</a>
-<span class="text-muted small">A working “A + B” problem: statement, three test cases (one public), and per-language limits.</span>
+<span class="text-muted small">A working “A + B” problem: statement, editorial, three test cases (one public), and per-language limits.</span>
 </div>
 {% endif %}
 <p class="small fw-semibold mb-1">Directory layout (exported by NOCA)</p>
@@ -39,6 +39,7 @@
 <pre class="{{ pre_class }}">/
 ├── problem.json         ← required
 ├── statement.md         ← required
+├── editorial.md         (optional — full packages only)
 ├── image.png            (optional)
 ├── validator/           (optional — interactive problems)
 │   └── validator.py
@@ -58,6 +59,7 @@
 <pre class="{{ pre_class }}">/
 ├── problem.json                    ← required
 ├── statement.pdf or statement.md   ← one required
+├── editorial.md                    (optional — full packages only)
 ├── image.png                       (optional)
 ├── validator/                      (optional — interactive problems)
 │   └── validator.py
@@ -83,7 +85,7 @@ A flat test-case layout (<code>001.in</code> / <code>001.out</code> or
 <ul class="small mb-3">
 <li>
 A <strong>full</strong> package is what you import: <code>problem.json</code> with every
-field, the statement, all test cases, and the validator source.
+field, the statement, optional editorial, all test cases, and the validator source.
 </li>
 <li>
 A <strong>public</strong> bundle is the contestant-facing download — statement, image,
@@ -140,13 +142,33 @@ empty for an interactive problem.
 </p>
 <pre class="{{ pre_class }}">"sample_testcases": [1, 3]</pre>
 <h3 class="h6 text-uppercase text-muted mb-2">
+    <code>editorial</code>
+</h3>
+<p class="text-muted small mb-2">
+    Optional official explanation and solution guide. When present, it names the fixed
+    <code>editorial.md</code> member and carries that member's independent SHA-256 digest. The
+    editorial uses the same Markdown restrictions and 512 KiB limit as a Markdown statement.
+</p>
+<pre class="{{ pre_class }}">"editorial": {
+  "member": "editorial.md",
+  "sha256": "…64 hex chars…"
+}</pre>
+<p class="text-muted small mb-3">
+    Missing or <code>null</code> means no editorial. Public bundles never include it. The digest
+    is nested so older version-2 readers can ignore this additive field and safe archive member
+    without rejecting the legacy top-level manifest as over-complete. An undeclared
+    <code>editorial.md</code> is ignored with a warning for compatibility with older packages.
+</p>
+<h3 class="h6 text-uppercase text-muted mb-2">
     <code>sha256</code>
 </h3>
 <p class="text-muted small mb-3">
-    An integrity manifest over the exact bytes of every payload member except
-    <code>problem.json</code> itself. Written by every export; optional on import, where a package
+    An integrity manifest over the exact bytes of every legacy payload member except
+    <code>problem.json</code> itself. <code>editorial.md</code> is covered by
+    <code>editorial.sha256</code> instead. Written by every export; optional on import, where a package
     without one is accepted with a warning. When present it must cover exactly the package's
-    members and match them.
+    legacy members and match them. A redundant <code>editorial.md</code> entry is accepted only
+    when it matches; NOCA exports omit that entry for old-reader compatibility.
 </p>
 {% if not is_arena %}
     <h3 class="h6 text-uppercase text-muted mb-2">
@@ -186,6 +208,10 @@ empty for an interactive problem.
         <code>"custom_validator": null</code> and no <code>validator/</code> members;
         <code>"interactive"</code> requires a <code>custom_validator</code>. A package that
         contradicts itself is refused before anything is stored.
+    </li>
+    <li>
+        <strong>Editorial is an additive version-2 field.</strong> Older readers ignore the unknown
+        property and safe member; no new format version is required.
     </li>
     <li>
         <strong><code>"checker"</code> is reserved and rejected.</strong> Output checker validation is

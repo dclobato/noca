@@ -25,9 +25,10 @@ from arena.models.arena_users import ArenaUser
 from arena.routes.admin_problem_judgment_urls import with_query
 from arena.services import admin_problem_service
 from arena.services.admin_problem_tc_service import TestCaseView
-from shared.enumerations import ArenaRole, ProblemValidatorType, StatementLanguage
+from shared.enumerations import ArenaEditorialReleasePolicy, ArenaRole, ProblemValidatorType, StatementLanguage
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.problem_definition_view import (
+    TAB_EDITORIAL,
     TAB_METADATA,
     TAB_STATEMENT,
     ProblemDefinitionView,
@@ -182,6 +183,30 @@ def parse_enabled_filter(value: str) -> bool | None:
     return None
 
 
+_EDITORIAL_FILTER_VALUES = frozenset({"none", "never", "always", "after_ac"})
+
+
+def parse_editorial_filter(value: str) -> str:
+    """Return a valid editorial-filter value, or ``""`` when unrecognized (= all)."""
+    return value if value in _EDITORIAL_FILTER_VALUES else ""
+
+
+#: Maps each release policy value to the Material Symbols icon and Bootstrap
+#: text color shown on the problem list, so the mapping lives in one place
+#: instead of the template.
+EDITORIAL_POLICY_ICONS: dict[str, str] = {
+    ArenaEditorialReleasePolicy.NEVER.value: "block",
+    ArenaEditorialReleasePolicy.ALWAYS.value: "public",
+    ArenaEditorialReleasePolicy.AFTER_AC.value: "task_alt",
+}
+
+EDITORIAL_POLICY_COLORS: dict[str, str] = {
+    ArenaEditorialReleasePolicy.NEVER.value: "text-danger",
+    ArenaEditorialReleasePolicy.ALWAYS.value: "text-success",
+    ArenaEditorialReleasePolicy.AFTER_AC.value: "text-info",
+}
+
+
 def safe_next_path(next_url: str | None) -> str:
     """Return a same-origin path-only next URL, or an empty string."""
     if next_url and next_url.startswith("/") and not next_url.startswith("//"):
@@ -200,6 +225,7 @@ def problem_list_url(
     category_slugs: list[str] | None = None,
     language: str = "",
     enabled: str = "",
+    editorial: str = "",
     anchor: str | None = None,
 ) -> str:
     """Build a problem list URL preserving non-default filter/sort state."""
@@ -218,6 +244,8 @@ def problem_list_url(
         params["language"] = language
     if enabled:
         params["enabled"] = enabled
+    if editorial:
+        params["editorial"] = editorial
     qs_parts = urlencode(params)
     category_qs = urlencode({"category_slugs": category_slugs or []}, doseq=True)
     query_parts = [part for part in (qs_parts, category_qs) if part]
@@ -267,11 +295,13 @@ def form_fields(
     pids_limit: int | str,
     output_limit_in_bytes: int | str,
     problem_statement: str,
+    editorial: str,
     category_ids: list[str],
     image_caption: str,
     notes: str = "",
     license: str = "",
     statement_language: str = "",
+    editorial_release_policy: str = ArenaEditorialReleasePolicy.NEVER.value,
 ) -> dict[str, Any]:
     """Build the form context, retaining raw limit strings after rejection."""
     return {
@@ -285,11 +315,13 @@ def form_fields(
         "pids_limit": pids_limit,
         "output_limit_in_bytes": output_limit_in_bytes,
         "problem_statement": problem_statement,
+        "editorial": editorial,
         "category_ids": category_ids,
         "image_caption": image_caption,
         "notes": notes,
         "license": license,
         "statement_language": statement_language,
+        "editorial_release_policy": editorial_release_policy,
     }
 
 
@@ -303,6 +335,7 @@ def return_state(
     category_slugs: list[str] | None,
     language: str = "",
     enabled: str = "",
+    editorial: str = "",
 ) -> dict[str, Any]:
     """Build the hidden return-state dict that preserves list filters across the form."""
     return {
@@ -314,12 +347,13 @@ def return_state(
         "category_slugs": category_slugs or [],
         "language": language,
         "enabled": enabled,
+        "editorial": editorial,
     }
 
 
 #: Panes the Arena definition editor renders. Arena keeps its resource limits
 #: inside Metadata, so it has no Limits pane and must not accept ``?tab=limits``.
-ARENA_EDITOR_TABS: tuple[str, ...] = (TAB_METADATA, TAB_STATEMENT)
+ARENA_EDITOR_TABS: tuple[str, ...] = (TAB_METADATA, TAB_STATEMENT, TAB_EDITORIAL)
 
 
 def build_problem_form_view(
@@ -400,6 +434,7 @@ def render_problem_form(
     next_url: str | None = None,
     problem_owner: ArenaUser | None = None,
     language_conflict: dict[str, str] | None = None,
+    save_action: str = "",
     active_tab: str | None = None,
     errors: tuple[str, ...] = (),
     field_errors: dict[str, str] | None = None,
@@ -449,7 +484,9 @@ def render_problem_form(
         "current_user": current_user,
         "is_admin": is_admin(current_user),
         "statement_languages": list(StatementLanguage),
+        "editorial_release_policies": list(ArenaEditorialReleasePolicy),
         "language_conflict": language_conflict,
+        "save_action": save_action,
         "errors": errors,
         "field_errors": resolved_field_errors,
         "first_error_field": next(iter(resolved_field_errors), ""),

@@ -138,6 +138,7 @@ async def import_problem_package(
         pids_limit=metadata.pids_limit,
         output_limit_in_bytes=metadata.output_limit_in_bytes,
         problem_statement=package.statement.text,
+        editorial=package.editorial,
         image_b64=image_b64,
         image_mime=image_mime,
         image_caption=metadata.image_caption,
@@ -248,6 +249,7 @@ def _to_package(problem: ArenaProblem, owner_name: str, testcase_dir: Path) -> P
         language_limits={},
         custom_validator=None,
         sha256={},
+        editorial=None,
     )
     interactions = tuple(
         PackagedInteraction(interaction.transcript, interaction.explanation)
@@ -270,6 +272,7 @@ def _to_package(problem: ArenaProblem, owner_name: str, testcase_dir: Path) -> P
         ),
         interactions=interactions if interactive else (),
         warnings=(),
+        editorial=problem.editorial,
     )
 
 

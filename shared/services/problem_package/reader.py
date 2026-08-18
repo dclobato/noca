@@ -26,12 +26,13 @@ from shared.services.custom_validator import (
     packaged_validator_member,
     parse_packaged_validator,
 )
-from shared.services.problem_package.constants import LEGACY_FORMAT_VERSION
+from shared.services.problem_package.constants import EDITORIAL_MD_MEMBER, LEGACY_FORMAT_VERSION
 from shared.services.problem_package.content import (
     decode_test_case,
     image_mime_for,
     normalize_in_place,
     read_explanation,
+    read_markdown_editorial,
     read_markdown_statement,
     read_pdf_statement,
 )
@@ -39,6 +40,7 @@ from shared.services.problem_package.errors import (
     WARN_IGNORED_INTERACTIVE_OUTPUT,
     WARN_INTERACTIONS_DROPPED,
     WARN_ORPHAN_EXPLANATION,
+    WARN_UNDECLARED_EDITORIAL,
     WARN_VALIDATOR_EXTENSION_MISMATCH,
     PackageError,
     PackageWarning,
@@ -130,7 +132,13 @@ def _assemble(plan: ArchivePlan, extracted: dict[str, ExtractedMember]) -> Probl
     metadata = parse_metadata(decode_problem_json(extracted[problem_json.name].path.read_bytes()))
 
     warnings = list(plan.warnings)
-    warnings.extend(verify_manifest(metadata.sha256, extracted))
+    warnings.extend(
+        verify_manifest(
+            metadata.sha256,
+            extracted,
+            excluded_members=frozenset({EDITORIAL_MD_MEMBER}),
+        )
+    )
 
     validator, validator_warnings = _read_validator(metadata, extracted)
     warnings.extend(validator_warnings)
@@ -141,6 +149,7 @@ def _assemble(plan: ArchivePlan, extracted: dict[str, ExtractedMember]) -> Probl
     interactive = metadata.validator_type is ProblemValidatorType.INTERACTIVE
     interactions = _read_interactions(plan, extracted, interactive=interactive, warnings=warnings)
     statement = _read_statement(plan, extracted)
+    editorial = _read_editorial(plan, extracted, metadata, warnings)
     test_cases, case_warnings = _read_test_cases(plan, extracted, metadata, interactive=interactive)
     warnings.extend(case_warnings)
     image = _read_image(plan, extracted, metadata)
@@ -148,6 +157,7 @@ def _assemble(plan: ArchivePlan, extracted: dict[str, ExtractedMember]) -> Probl
     return ProblemPackage(
         metadata=metadata,
         statement=statement,
+        editorial=editorial,
         test_cases=test_cases,
         image=image,
         validator=validator,
@@ -165,6 +175,37 @@ def _read_statement(plan: ArchivePlan, extracted: dict[str, ExtractedMember]) ->
     if pdf is not None:
         return read_pdf_statement(extracted[pdf.name].path)
     raise PackageError("statement.md or statement.pdf is required in the ZIP.")
+
+
+def _read_editorial(
+    plan: ArchivePlan,
+    extracted: dict[str, ExtractedMember],
+    metadata: PackageMetadata,
+    warnings: list[PackageWarning],
+) -> str | None:
+    """Read and independently verify the declared optional editorial."""
+    member = plan.first(MemberKind.EDITORIAL)
+    declaration = metadata.editorial
+    if declaration is None:
+        if member is not None:
+            warnings.append(
+                PackageWarning(
+                    WARN_UNDECLARED_EDITORIAL,
+                    "The package carries editorial.md without an 'editorial' declaration in "
+                    "problem.json; the undeclared file was ignored.",
+                )
+            )
+        return None
+    if member is None:
+        raise PackageError("problem.json declares editorial.md, but the member is missing from the ZIP.")
+    extracted_member = extracted[member.name]
+    if extracted_member.digest != declaration.sha256:
+        raise PackageError(
+            "Integrity check failed for 'editorial.md': problem.json says "
+            f"{declaration.sha256}, contents hash to {extracted_member.digest}."
+        )
+    editorial = read_markdown_editorial(extracted_member.path)
+    return editorial if editorial.strip() else None
 
 
 def _read_validator(

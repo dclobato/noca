@@ -247,6 +247,15 @@
                 {% else %}
                     <span></span>
                 {% endif %}
+                {% if editorial_url %}
+                    <a href="{{ editorial_url }}"
+                       target="_blank"
+                       rel="noopener"
+                       class="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-1">
+                        {{ render_icon(icon="menu_book") }}
+                        Editorial
+                    </a>
+                {% endif %}
                 {% if next_problem_url %}
                     <a href="{{ next_problem_url }}"
                        class="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-1">
@@ -402,6 +411,15 @@
                     </a>
                 {% else %}
                     <span></span>
+                {% endif %}
+                {% if editorial_url %}
+                    <a href="{{ editorial_url }}"
+                       target="_blank"
+                       rel="noopener"
+                       class="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-1">
+                        {{ render_icon(icon="menu_book") }}
+                        Editorial
+                    </a>
                 {% endif %}
                 {% if next_problem_url %}
                     <a href="{{ next_problem_url }}"

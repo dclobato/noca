@@ -27,6 +27,7 @@ from shared.enumerations import ProblemValidatorType
 from shared.services.problem_definition_view import (
     ALL_TABS,
     MOVED_TO_JUDGMENT,
+    TAB_EDITORIAL,
     TAB_LIMITS,
     TAB_METADATA,
     TAB_STATEMENT,
@@ -60,7 +61,7 @@ def test_the_retired_content_value_still_lands_on_a_rendered_pane() -> None:
 
 def test_a_pane_the_module_does_not_render_falls_back() -> None:
     """Arena has no Limits pane, so `?tab=limits` must not select a missing pane."""
-    arena_tabs = frozenset({TAB_METADATA, TAB_STATEMENT})
+    arena_tabs = frozenset({TAB_METADATA, TAB_STATEMENT, TAB_EDITORIAL})
 
     assert resolve_tab(TAB_LIMITS, allowed=arena_tabs) == TAB_METADATA
 

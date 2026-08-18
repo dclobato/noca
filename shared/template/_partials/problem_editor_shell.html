@@ -26,6 +26,8 @@
     view             shared.services.problem_definition_view.ProblemDefinitionView
     save_label       text for the submit button
     save_disabled    bool
+    save_state_actions
+                     bool; render explicit enable/disable submitters instead
     cancel_label     text for the cancel/back link
 #}
 {% from "_macros.html" import render_icon with context %}
@@ -42,14 +44,33 @@
         </div>
     </div>
 {% endif %}
-{% set tab_labels = {"metadata": "Metadata", "statement": "Statement", "limits": "Limits"} %}
+{% set tab_labels = {"metadata": "Metadata", "statement": "Statement", "editorial": "Editorial", "limits": "Limits"} %}
 <div class="noca-problem-save-bar">
-    <button type="submit"
-            class="btn btn-primary"
-            form="edit-form"
-            {% if save_disabled %}disabled{% endif %}>
-        {{ render_icon(icon="check", classes="me-1") }}{{ save_label }}
-    </button>
+    {% if save_state_actions | default(false) %}
+        <button type="submit"
+                class="btn btn-primary text-nowrap"
+                name="save_action"
+                value="enable"
+                form="edit-form"
+                {% if save_disabled %}disabled{% endif %}>
+            {{ render_icon(icon="visibility", classes="me-1") }}Save and enable
+        </button>
+        <button type="submit"
+                class="btn btn-outline-danger text-nowrap"
+                name="save_action"
+                value="disable"
+                form="edit-form"
+                {% if save_disabled %}disabled{% endif %}>
+            {{ render_icon(icon="visibility_off", classes="me-1") }}Save and disable
+        </button>
+    {% else %}
+        <button type="submit"
+                class="btn btn-primary"
+                form="edit-form"
+                {% if save_disabled %}disabled{% endif %}>
+            {{ render_icon(icon="check", classes="me-1") }}{{ save_label }}
+        </button>
+    {% endif %}
     <a href="{{ view.cancel_url }}" class="btn btn-outline-secondary">{{ cancel_label | default("Cancel") }}</a>
     <span class="noca-problem-save-bar-spacer"></span>
     {% if view.judgment_url %}

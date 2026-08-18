@@ -17,6 +17,7 @@ from pypdf.errors import DependencyError, EmptyFileError, PdfReadError
 from shared.problem_statement_markdown import validate_md_content
 from shared.services.problem_image import EXT_TO_MIME
 from shared.services.problem_package.constants import (
+    MAX_EDITORIAL_BYTES,
     MAX_EXPLANATION_BYTES,
     MAX_MARKDOWN_BYTES,
     MAX_PDF_BYTES,
@@ -45,6 +46,21 @@ def read_markdown_statement(path: Path) -> PackageStatement:
     if errors:
         raise PackageError(f"Invalid statement.md: {'; '.join(errors)}")
     return PackageStatement(kind="md", path=path, text=text)
+
+
+def read_markdown_editorial(path: Path) -> str:
+    """Validate and decode ``editorial.md`` with the statement Markdown policy."""
+    size = path.stat().st_size
+    if size > MAX_EDITORIAL_BYTES:
+        raise PackageError(f"editorial.md is {size} bytes; the limit is {MAX_EDITORIAL_BYTES}.")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise PackageError(f"Invalid editorial.md: not valid UTF-8 ({exc}).") from exc
+    errors = validate_md_content(text)
+    if errors:
+        raise PackageError(f"Invalid editorial.md: {'; '.join(errors)}")
+    return text
 
 
 def read_pdf_statement(path: Path) -> PackageStatement:

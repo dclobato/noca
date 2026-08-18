@@ -55,6 +55,7 @@ def creation_return_query(
     category_slugs: list[str] | None,
     language: str,
     enabled: str,
+    editorial: str = "",
     next_path: str,
 ) -> str:
     """Build the query string that carries list-return state into a creation form.
@@ -71,6 +72,7 @@ def creation_return_query(
         category_slugs: Active category filters.
         language: Active statement-language filter.
         enabled: Active enabled/disabled filter.
+        editorial: Active editorial filter.
         next_path: Validated same-origin return path, or an empty string.
 
     Returns:
@@ -85,6 +87,7 @@ def creation_return_query(
         "owner_id": owner_id,
         "language": language,
         "enabled": enabled,
+        "editorial": editorial,
         "next": next_path,
     }
     params.extend((key, value) for key, value in scalars.items() if value)
@@ -136,6 +139,7 @@ async def admin_problem_new_choose(
     category_slugs: list[str] | None = Query(None),
     language: str = "",
     enabled: str = "",
+    editorial: str = "",
     next: str = Query(""),
     current_user: ArenaUser = Depends(require_arena_problem_editor),
 ) -> Response:
@@ -151,6 +155,7 @@ async def admin_problem_new_choose(
         category_slugs=category_slugs,
         language=language,
         enabled=enabled,
+        editorial=editorial,
         next_path=safe_next,
     )
     back_url = safe_next or problem_list_url(
@@ -163,6 +168,7 @@ async def admin_problem_new_choose(
         category_slugs=category_slugs,
         language=language,
         enabled=enabled,
+        editorial=editorial,
     )
 
     def form_url(strategy: ProblemValidatorType) -> str:

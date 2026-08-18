@@ -755,15 +755,21 @@ Canonical location:
 | `journal_recovery.py` | what recovery deletes, keeps, or restores for one stale journal |
 | `reconcile.py` | resolving stale journals at startup and before each import |
 | `upload.py` | chunked upload spooling, temp export paths, safe download filenames |
+| `merge.py` | `append_package_folder` — splices one built package ZIP into a containing archive (contest backups, public problem sets) |
 
 Main entrypoints:
 - `read_problem_package(zip_path)` — a context manager yielding a `StagedPackage`: the immutable
   `ProblemPackage` plus the staging area holding its payloads. Leaving the context removes every
   temporary path, which is why the live handle lives *outside* the frozen value object
 - `build_package(package, destination, *, profile, require_importable=True)` — writes `"full"`
-  (importable, every version-2 key) or `"public"` (contestant statement bundle, no `problem.json`)
+  (importable, every version-2 key and optional editorial) or `"public"`
+  (contestant statement bundle, no `problem.json` or editorial)
   to a path on disk. `require_importable=False` waives the version-2 completeness rules for a
-  caller whose package is not a restore source of record; only the contest backup exporter uses it
+  caller whose package is not a restore source of record; the contest backup exporter and the
+  public problem-set exporter use it
+- `append_package_folder(dest_path, prefix, package_path)` — copies every member of a built
+  per-problem package into the outer archive under `prefix`, chunked so a multi-problem archive's
+  peak disk usage stays at the outer archive plus one package
 - `ArtifactPromoter` — `stage` → `promote` → commit → `finish`, with `rollback` deleting exactly
   what was promoted when the commit fails
 - `EditArtifactSwap` / `commit_with_edit_swap(session, swap)` — the edit-aware counterpart:
@@ -799,6 +805,26 @@ rejected in `metadata.py`, before any `ProblemPackage` is returned, so neither d
 implements that check and the two cannot diverge on it.
 
 See [PROBLEM_PACKAGE_FORMAT.md](PROBLEM_PACKAGE_FORMAT.md) for the wire format.
+
+### Additive editorials in format version 2
+
+`PackageMetadata.editorial` holds an optional declaration naming the fixed
+`editorial.md` member and its SHA-256 digest; `ProblemPackage.editorial` holds
+the validated Markdown text. The content uses the statement Markdown policy and
+512 KiB ceiling.
+
+The editorial digest is intentionally independent of the legacy top-level
+manifest. A deployed version-2 reader ignores the unknown metadata property and
+safe member, then verifies the unchanged legacy manifest successfully. Updated
+readers exclude `editorial.md` from that manifest and verify its nested digest
+before either domain persists the text. Full exports include editorials; public
+bundles never do.
+
+An undeclared `editorial.md` is ignored with an `undeclared_editorial` warning,
+so a legacy package that used the safe filename remains readable without having
+its content silently imported as an official editorial. For third-party
+compatibility, readers also accept a redundant top-level manifest entry for
+`editorial.md` when that digest matches; NOCA exports never write one.
 
 ### No archive in RAM, in either direction
 
