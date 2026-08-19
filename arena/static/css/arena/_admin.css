@@ -158,7 +158,7 @@
     background: var(--arena-surface-container-lowest);
     border: 1px solid var(--arena-outline-variant);
     border-radius: var(--arena-radius);
-    box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.14);
+    box-shadow: 0 0.75rem 1.5rem var(--noca-shadow-tint);
 }
 
 .arena-autocomplete-option {

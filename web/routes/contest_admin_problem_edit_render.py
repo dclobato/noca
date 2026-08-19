@@ -23,12 +23,17 @@ from typing import Any
 import anyio
 from fastapi import Request
 
-from shared.enumerations import ProblemValidatorType
+from shared.enumerations import ProblemValidatorType, RoleEnum
+from shared.services.problem_editor_header import EditorNotice
 from web.config import settings
 from web.dependencies import ContestAdminContext
+from web.models.contest import Contest
 from web.models.problem import Problem
 from web.routes.contest_admin_problem_helpers import (
+    _is_edit_allowed,
+    _is_limits_edit_allowed,
     _is_remove_allowed,
+    _label,
     _remove_blocked_reason,
 )
 from web.routes.contest_admin_problem_limits_helpers import _build_profiling_limits_context
@@ -38,6 +43,58 @@ from web.services.problem_service import (
     get_md_statement_path,
     get_statement_path,
 )
+
+
+def _solution_test_url(request: Request, ctx: ContestAdminContext, problem: Problem) -> str:
+    """Return the non-scoring solution-test page, for the actors allowed to run one.
+
+    Args:
+        request: The active request.
+        ctx: The resolved contest-admin context.
+        problem: The problem being edited.
+
+    Returns:
+        str: The URL, or an empty string when this actor may not run a test.
+    """
+    allowed = {RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value}
+    if ctx.actor.role not in allowed:
+        return ""
+    page = request.url_for("contest_solution_tests", slug=ctx.contest.login_slug)
+    return f"{page}?problem_id={problem.id}"
+
+
+def editor_notices(contest: Contest, *, has_problem: bool) -> tuple[EditorNotice, ...]:
+    """Return the contest-state notices the editor's notice slot shows.
+
+    Args:
+        contest: The contest the problem belongs to.
+        has_problem: False while creating, when removal cannot be blocked yet.
+
+    Returns:
+        tuple[EditorNotice, ...]: Notices in display order, possibly empty.
+    """
+    notices: list[EditorNotice] = []
+    if not _is_edit_allowed(contest):
+        if contest.is_running:
+            reason = (
+                "Contest is running — only the Limits tab may be updated. Problem content and test cases stay locked."
+            )
+        elif contest.is_past:
+            reason = "Contest has ended — this problem cannot be edited."
+        elif not contest.active:
+            reason = "Contest is inactive — this problem cannot be edited."
+        else:
+            reason = "Problem editing is not allowed at this time."
+        notices.append(EditorNotice(text=reason, variant="alert-warning", icon="lock"))
+    elif has_problem and not _is_remove_allowed(contest):
+        notices.append(
+            EditorNotice(
+                text="Note: this problem cannot be removed while the contest is running.",
+                variant="alert-info",
+                icon="info",
+            )
+        )
+    return tuple(notices)
 
 
 def stored_form_data(problem: Problem) -> dict[str, Any]:
@@ -132,6 +189,10 @@ async def build_editor_context(
             validator_type=problem.validator_type,
             active_tab=active_tab,
             reselect_uploads=reselect_uploads,
+            problem_label=f"{_label(problem.ordinal)}. {problem.title}",
+            save_disabled=not _is_edit_allowed(ctx.contest) and not _is_limits_edit_allowed(ctx.contest),
+            solution_test_url=_solution_test_url(request, ctx, problem),
+            notices=editor_notices(ctx.contest, has_problem=True),
         ),
         "balloon_colors": BALLOON_COLORS,
         "is_interactive": problem.validator_type is ProblemValidatorType.INTERACTIVE,

@@ -12,7 +12,7 @@
     gap: 4px;
     padding: 2px 10px;
     border-radius: 999px;
-    background: #e9ecef;
+    background: var(--noca-surface-container);
     font-size: 0.82em;
 }
 
@@ -22,12 +22,12 @@
     border: none;
     background: none;
     padding: 0;
-    color: #6c757d;
+    color: var(--noca-on-surface-variant);
     line-height: 1;
 }
 
 .category-chip .remove-chip:hover {
-    color: #dc3545;
+    color: var(--noca-danger);
 }
 
 .category-suggestions {
@@ -36,13 +36,13 @@
     left: 0;
     right: 0;
     z-index: 1000;
-    background: #fff;
-    border: 1px solid #dee2e6;
+    background: var(--noca-surface-container-lowest);
+    border: 1px solid var(--noca-border);
     border-top: 0;
     border-radius: 0 0 0.25rem 0.25rem;
     max-height: 220px;
     overflow-y: auto;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 8px 20px var(--noca-shadow-tint-subtle);
 }
 
 .category-suggestions button {
@@ -50,7 +50,7 @@
     width: 100%;
     text-align: left;
     border: 0;
-    background: #fff;
+    background: var(--noca-surface-container-lowest);
     padding: 0.4rem 0.65rem;
     font-size: 0.875rem;
 }

@@ -27,6 +27,16 @@
     --noca-line-height: 1.5;
     --noca-heading-weight: 600;
 
+    /* ── Spacing ─────────────────────────────────────────────────────────
+       Standard vertical rhythm for block-level gaps, e.g. margins between
+       rendered-Markdown headings and tables and their neighbours. Modules
+       that need a coarser scale reference these values (see the --arena-*
+       aliases in arena/_tokens.css) rather than repeating the literals. */
+    --noca-space-sm: 0.5rem;
+    --noca-space-md: 1rem;
+    --noca-space-lg: 1.5rem;
+    --noca-space-xlg: 2rem;
+
     /* ── Neutral slate surface / text ramp ── */
     --noca-surface: #f8fafc;
     --noca-surface-container-lowest: #ffffff;
@@ -51,6 +61,31 @@
     --noca-danger: #dc2626;
     --noca-warning: #d97706;
     --noca-info: #0891b2;
+
+    /* ── Elevation tints ─────────────────────────────────────────────────────
+       DESIGN.md's depth language is translucent black over the surface, not a
+       palette hue, so a shadow needs a documented tint rather than a per-site
+       alpha. Three steps by intent -- resting, raised, detached -- and nothing
+       between them. Geometry (offset and blur) stays with the rule, because a
+       compact card and a projector panel earn different spreads of the same
+       tint; only the colour is centralised here. */
+    --noca-shadow-tint-subtle: rgb(0 0 0 / 5%);
+    --noca-shadow-tint: rgb(0 0 0 / 12%);
+    --noca-shadow-tint-strong: rgb(0 0 0 / 20%);
+
+    /* Scrim over photographic ground, where the tint carries legibility rather
+       than depth and therefore sits far darker than any elevation step. */
+    --noca-scrim: rgb(0 0 0 / 72%);
+    --noca-scrim-strong: rgb(0 0 0 / 80%);
+
+    /* ── Contest phase states ────────────────────────────────────────────────
+       Timeline and legend fills for the three phases of a contest clock. They
+       are aliases of the semantic ramp rather than new hues, and exist so the
+       dark-ground variants below are declared once here instead of as a
+       per-component theme override. */
+    --noca-state-live: var(--noca-brand);
+    --noca-state-frozen: var(--noca-warning);
+    --noca-state-silence: var(--noca-danger);
 
     /* ── Presentation tier ───────────────────────────────────────────────────
        The Animator reads at distance: a projector at the back of a room, a
@@ -114,6 +149,14 @@
     --noca-on-surface-variant: #94a3b8;
     --noca-outline: #475569;
     --noca-outline-variant: #334155;
+
+    /* A phase fill sits as a solid band on the dark canvas, where the
+       operational semantic hues read as muddy rather than as status. These
+       lighten the same three states for that ground; they are the only place
+       the ramp is re-pitched for the dark theme. */
+    --noca-state-live: color-mix(in srgb, var(--noca-brand) 62%, white);
+    --noca-state-frozen: color-mix(in srgb, var(--noca-warning) 55%, white);
+    --noca-state-silence: color-mix(in srgb, var(--noca-danger) 58%, white);
     --bs-body-bg: var(--noca-surface);
     --bs-body-color: var(--noca-on-surface);
 }

@@ -124,6 +124,12 @@ The editorial digest is nested in the `editorial` object instead of the
 top-level `sha256` manifest. This keeps the legacy manifest exact for older
 version-2 readers, while updated readers still verify the editorial bytes.
 
+`editorial.release_policy` is additive *within* that already-additive object, so
+it too needs no version bump: a reader that does not know the property ignores
+it, and a package that predates it parses with no policy at all. It is nested
+rather than top-level because the policy only means something when there is an
+editorial to release.
+
 ## Directory layout
 
 The package is rooted at the archive root — there is **no enclosing top-level directory**. Files
@@ -250,7 +256,8 @@ rather than omitted, so a consumer never has to guess whether absence means "uns
   "notes": "Internal management note.",
   "editorial": {
     "member": "editorial.md",
-    "sha256": "…64 hex chars…"
+    "sha256": "…64 hex chars…",
+    "release_policy": "after_ac"
   },
   "source": "ICPC 2025",
   "license": "CC BY-SA 4.0",
@@ -294,7 +301,7 @@ rather than omitted, so a consumer never has to guess whether absence means "uns
 | `title` | string | **yes** | — | Non-empty after trim. Max **256** characters. |
 | `author` | string \| null | no | `null` | Free-text authorship, max **256**. On Arena, absent means the importing user is recorded as both owner and author. |
 | `notes` | string \| null | no | `null` | Internal management note, max **512**. |
-| `editorial` | object \| null | no | `null` | Declares the optional `editorial.md` solution guide and its independent SHA-256 digest. |
+| `editorial` | object \| null | no | `null` | Declares the optional `editorial.md` solution guide, its independent SHA-256 digest, and the nested `release_policy` saying when it becomes visible to participants. |
 | `source` | string \| null | no | `null` | Origin of the problem, max **256**. Stored by Arena only; always parsed and always exported. |
 | `license` | string \| null | no | `null` | License shown on the public problem page, max **256**. Arena only. |
 | `color` | `#rrggbb` \| null | no | `null` | Balloon color. Stored by Contest only; always parsed and always exported. When absent, a Contest import picks an unused `BALLOON_COLORS` entry. |
@@ -358,7 +365,8 @@ Markdown:
 ```json
 "editorial": {
   "member": "editorial.md",
-  "sha256": "…64 lowercase hex characters…"
+  "sha256": "…64 lowercase hex characters…",
+  "release_policy": "after_ac"
 }
 ```
 
@@ -372,6 +380,29 @@ used that safe filename for unrelated content without silently importing it.
 
 Missing or `null` means the problem has no editorial. Full exports always write
 either the object or `null`; public bundles never include `editorial.md`.
+
+#### `editorial.release_policy`
+
+States **when** the editorial becomes visible to participants.
+
+| Value | Meaning |
+| --- | --- |
+| `"never"` | Editor-only. Participants never see it. |
+| `"always"` | Visible to every participant on the problem page. |
+| `"after_ac"` | Visible only once the participant has an Accepted verdict on the problem. |
+
+- Absent or `null` means `"never"` — the column default, and the behavior of every
+  package written before the property existed, so an older package imports unchanged.
+- Any other value is a **hard error**, like every other recognized key with an invalid
+  value. Whitespace is stripped before matching, so `"after_ac "` is accepted.
+- Only **Arena** stores it (`arena_problems.editorial_release_policy`). Contest parses
+  it and writes it back as `null`, because `problems` has no equivalent column — so the
+  policy does not survive a round trip through a Contest problem, while the editorial
+  text does.
+
+Losing this on a round trip is not cosmetic: an editorial that lands on `never` is
+invisible to participants, which silently undoes the author's decision on the importing
+install.
 
 ### `sha256`
 
@@ -669,6 +700,8 @@ invalid value is an error.
 | statement, explanations, interactions, validator | yes | yes | — | — |
 | `color` | **yes** | no | **`color`** | — (Contest picks one) |
 | `language_limits` | **yes** | no | **`language_limits`** | — |
+| `editorial` (text and `editorial.md`) | yes | yes | — | — |
+| `editorial.release_policy` | no | **yes** | — | **`release_policy`** (Contest exports `null`) |
 | `source`, `hide_author_show_source` | no | **yes** | — | **both** |
 | `license` | no | **yes** | — | **`license`** |
 | `statement_language` | no | **yes** | — | **`statement_language`** |

@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from shared.enumerations import ProblemValidatorType
+from shared.enumerations import ArenaEditorialReleasePolicy, ProblemValidatorType
 
 if TYPE_CHECKING:
     from shared.services.custom_validator import PackagedValidator
@@ -75,6 +75,12 @@ class PackageMetadata:
     version: version 2 states it, and a version-1 package has it derived from
     ``custom_validator`` presence by the parser. Consumers therefore never branch
     on the version to learn the strategy.
+
+    ``editorial_release_policy`` is flat here while the JSON nests it inside the
+    ``editorial`` object. The nesting is a wire-format choice -- the policy only
+    means anything when an editorial exists -- but ``EditorialSpec`` is the
+    integrity declaration, whose digest the *writer* computes, so an exporter
+    could not fill one in without inventing a hash.
     """
 
     format_version: int
@@ -99,6 +105,7 @@ class PackageMetadata:
     custom_validator: ValidatorSpec | None
     sha256: Mapping[str, str]
     editorial: EditorialSpec | None = None
+    editorial_release_policy: ArenaEditorialReleasePolicy | None = None
 
 
 @dataclass(frozen=True, slots=True)

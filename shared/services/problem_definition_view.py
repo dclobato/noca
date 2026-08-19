@@ -32,6 +32,7 @@ from dataclasses import dataclass
 
 from shared.enumerations import ProblemValidatorType
 from shared.services.editor_urls import editor_url
+from shared.services.problem_editor_header import EditorNotice, ProblemEditorHeaderView
 
 #: Canonical definition panes, in display order.
 TAB_METADATA = "metadata"
@@ -85,6 +86,7 @@ class ProblemDefinitionView:
         is_interactive: Whether that strategy is ``INTERACTIVE``. Derived once
             here so no template re-derives it and disagrees.
         is_create: True while creating.
+        header: The chrome both editor doors share -- title, action bar, badge.
         allow_pdf: Whether the statement pane offers PDF upload and preview
             (Contest keeps PDF-or-Markdown; Arena stays Markdown-only).
         tabs: The panes this editor renders, in display order.
@@ -99,14 +101,16 @@ class ProblemDefinitionView:
         statement_download_url: Contest PDF download URL, or None.
         validator_status_template: Module-relative validator status partial, for
             the read-only badge the Metadata pane shows.
-        strategy_label: Human-readable strategy name for the read-only badge.
         reselect_uploads: Labels of uploads a rejected submission carried, which
             the browser cannot restore and the author must choose again.
+        notices: Page-level notices for the shared notice slot -- why this
+            problem is read-only, what a contest's state forbids.
     """
 
     validator_type: ProblemValidatorType
     is_interactive: bool
     is_create: bool
+    header: ProblemEditorHeaderView
     allow_pdf: bool
     tabs: tuple[str, ...]
     active_tab: str
@@ -117,8 +121,8 @@ class ProblemDefinitionView:
     statement_view_url: str | None = None
     statement_download_url: str | None = None
     validator_status_template: str | None = None
-    strategy_label: str = ""
     reselect_uploads: tuple[str, ...] = ()
+    notices: tuple[EditorNotice, ...] = ()
 
     def tab_url(self, tab: str) -> str:
         """Return the editor URL that opens ``tab`` directly.

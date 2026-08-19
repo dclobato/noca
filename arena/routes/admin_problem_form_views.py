@@ -35,6 +35,12 @@ from shared.services.problem_definition_view import (
     label_for_strategy,
     resolve_tab,
 )
+from shared.services.problem_editor_header import (
+    EditorAction,
+    EditorLink,
+    ProblemEditorHeaderView,
+    publish_state_actions,
+)
 from shared.services.problem_image import process_problem_image_upload
 from shared.services.sample_interactions import (
     SampleInteractionRowView,
@@ -390,6 +396,13 @@ def build_problem_form_view(
             validator_type=validator_type,
             is_interactive=is_interactive,
             is_create=True,
+            header=ProblemEditorHeaderView(
+                title="New problem",
+                form_id="edit-form",
+                actions=(EditorAction(label="Create problem", icon="check", value=""),),
+                back_url=back_url,
+                strategy_label=label_for_strategy(validator_type),
+            ),
             allow_pdf=False,
             tabs=tabs,
             active_tab=resolved_tab,
@@ -397,25 +410,41 @@ def build_problem_form_view(
             cancel_url=back_url,
             # A problem must exist before it can have judgment data.
             judgment_url="",
-            strategy_label=label_for_strategy(validator_type),
             reselect_uploads=reselect_uploads,
         )
     problem_id = problem.id
+    judgment_url = with_query(
+        str(request.url_for("arena_admin_problem_judgment", problem_id=problem_id)), request.url.query
+    )
     return ProblemDefinitionView(
         validator_type=validator_type,
         is_interactive=is_interactive,
         is_create=False,
+        header=ProblemEditorHeaderView(
+            title=f"Edit problem #{problem.arena_number}",
+            form_id="edit-form",
+            subtitle=problem.title,
+            actions=publish_state_actions(),
+            back_url=back_url,
+            links=(
+                EditorLink(label="Judgment data", url=judgment_url, icon="rule"),
+                EditorLink(
+                    label="Download problem package",
+                    url=str(request.url_for("arena_admin_problem_export", problem_id=problem_id)),
+                    icon="download",
+                    icon_only=True,
+                ),
+            ),
+            strategy_label=label_for_strategy(validator_type),
+        ),
         allow_pdf=False,
         tabs=tabs,
         active_tab=resolved_tab,
         save_url=str(request.url_for("arena_admin_problem_update", problem_id=problem_id)),
         cancel_url=back_url,
         editor_base_url=str(request.url_for("arena_admin_problem_edit", problem_id=problem_id)),
-        judgment_url=with_query(
-            str(request.url_for("arena_admin_problem_judgment", problem_id=problem_id)), request.url.query
-        ),
+        judgment_url=judgment_url,
         validator_status_template="admin/_validator_status.html",
-        strategy_label=label_for_strategy(validator_type),
         reselect_uploads=reselect_uploads,
     )
 

@@ -139,7 +139,7 @@
                 </div>
             {% elif has_md %}
                 <div class="card-body">
-                    <div id="md-statement-rendered"></div>
+                    <div class="noca-markdown" data-noca-markdown="md-statement-src"></div>
                     <script id="md-statement-src" type="text/plain">{{ md_content | e }}</script>
                 </div>
             {% else %}
@@ -260,7 +260,7 @@
                             {% if explanation %}
                                 <div class="text-muted small mt-2">
                                     <div class="fw-semibold mb-1">Explanation of example #{{ loop.index }}:</div>
-                                    <div class="noca-tc-explanation" data-tc-explanation>{{ explanation | e }}</div>
+                                    <div class="noca-tc-explanation noca-markdown" data-noca-markdown>{{ explanation | e }}</div>
                                 </div>
                             {% endif %}
                         </div>
@@ -339,13 +339,8 @@
     {% if has_md %}
         <script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"
                 defer></script>
-        <script src="{{ request.url_for('static_js', path='render-problem-statement.js') }}?v={{ app_version }}r2"
-                defer></script>
     {% endif %}
-    {% if has_tc_explanation %}
-        <script src="{{ request.url_for('static_shared_js', path='render-tc-explanation.js') }}?v={{ app_version }}"
-                defer></script>
-    {% endif %}
+    {% if has_tc_explanation %}{% endif %}
     {% if current_user.role == RoleEnum.TEAM.value and contest.is_running %}
         <script src="{{ request.url_for('static_js', path='runs-submit-confirm.js') }}?v={{ app_version }}"
                 defer></script>

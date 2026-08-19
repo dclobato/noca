@@ -1,0 +1,74 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Title row and sticky action bar, shared by *both* problem editor doors.
+
+  An author switches between the definition editor and the judgment-data editor
+  constantly, so the two must not draw their own chrome: the title, the button
+  sizes and the trailing badge stay exactly where they were on the page the
+  author came from. Only the contents of the three groups differ.
+
+  The bar is sticky because the definition editor is one long form -- Save has to
+  stay reachable from any scroll position -- and the judgment pages keep it for
+  the same reason a page's own header would: leaving it behind on scroll is
+  precisely the inconsistency this partial exists to remove.
+
+  Required context:
+    header  shared.services.problem_editor_header.ProblemEditorHeaderView
+#}
+{% from "_macros.html" import render_icon with context %}
+{% if header.state_form_url %}
+    {# The judgment pages own no form of their own: every other action there posts
+       immediately from its own card. This one is rendered detached, exactly like
+       the definition editor's `#edit-form`, so the bar's markup is identical on
+       both doors. #}
+    <form id="{{ header.form_id }}"
+          method="post"
+          action="{{ header.state_form_url }}">
+        <input type="hidden"
+               name="next_url"
+               value="{{ header.state_form_return_url }}">
+    </form>
+{% endif %}
+<div class="d-flex flex-wrap column-gap-3 row-gap-1 align-items-baseline mb-3">
+    <h1 class="h4 mb-0">{{ render_icon(icon=header.icon, classes="me-1") }}{{ header.title }}</h1>
+    {% if header.subtitle %}<span class="text-body-secondary">{{ header.subtitle }}</span>{% endif %}
+</div>
+<div class="noca-problem-save-bar">
+    {% for action in header.actions %}
+        <button type="submit"
+                class="btn {{ action.variant }} text-nowrap"
+                form="{{ header.form_id }}"
+                {% if action.value %}name="save_action" value="{{ action.value }}"{% endif %}
+                {% if action.disabled %}disabled{% endif %}>
+            {{ render_icon(icon=action.icon, classes="me-1") }}{{ action.label }}
+        </button>
+    {% endfor %}
+    {% if header.back_url %}
+        {# Carries an icon like every other control in the row: a text-only button
+           is a couple of pixels shorter, which is visible when they sit side by
+           side. #}
+        <a href="{{ header.back_url }}" class="btn btn-outline-secondary">
+            {{ render_icon(icon="arrow_back", classes="me-1") }}{{ header.back_label }}
+        </a>
+    {% endif %}
+    <span class="noca-problem-save-bar-spacer"></span>
+    {% for link in header.links %}
+        <a href="{{ link.url }}"
+           class="btn btn-outline-secondary text-nowrap"
+           {% if link.icon_only %}title="{{ link.label }}" aria-label="{{ link.label }}"{% endif %}>
+            {% if link.icon %}{{ render_icon(icon=link.icon, classes="" if link.icon_only else "me-1") }}{% endif %}
+            {%- if not link.icon_only %}{{ link.label }}{% endif %}
+        </a>
+    {% endfor %}
+    {% if header.strategy_label %}
+        <span class="badge text-bg-secondary"
+              title="A problem's validation strategy is chosen once and cannot be changed.">
+            {{ render_icon(icon="lock", classes="me-1") }}{{ header.strategy_label }}
+        </span>
+    {% endif %}
+</div>

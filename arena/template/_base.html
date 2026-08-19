@@ -42,6 +42,8 @@
         <script src="{{ request.url_for('static_shared_js', path='theme-toggle.js') }}?v={{ app_version }}"></script>
         <script src="{{ request.url_for('static_shared_js', path='markdown-directives.js') }}?v={{ app_version }}"
                 defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='noca-markdown.js') }}?v={{ app_version }}"
+                defer></script>
         {% block extra_head %}{% endblock %}
     </head>
     <body>

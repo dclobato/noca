@@ -39,6 +39,11 @@ from shared.services.judgment_page_view import (
     build_judgment_readiness,
 )
 from shared.services.problem_definition_view import label_for_strategy
+from shared.services.problem_editor_header import (
+    EditorLink,
+    ProblemEditorHeaderView,
+    publish_state_actions,
+)
 from shared.services.problem_judgeability import ProblemJudgeabilityFacts
 from shared.services.sample_interactions import MAX_SAMPLE_INTERACTIONS
 
@@ -175,9 +180,36 @@ def _build_shell(
             badges["validator"] = "none yet"
         if interaction_count == 0:
             badges["interactions"] = "none yet"
+    definition_url = with_query(
+        str(request.url_for("arena_admin_problem_edit", problem_id=problem.id)), request.url.query
+    )
+    return_path = request.url_for(PAGE_ENDPOINTS[active_page], problem_id=problem.id).path
     return JudgmentShellView(
+        header=ProblemEditorHeaderView(
+            title=f"Judgment data — problem #{problem.arena_number}",
+            form_id="problem-state-form",
+            subtitle=problem.title,
+            icon="rule",
+            # Nothing on this page is pending, so these submitters only change
+            # publication state. They are worded and placed exactly as the
+            # definition editor's, because an author moving between the two doors
+            # must not have to re-find them.
+            actions=publish_state_actions(),
+            state_form_url=str(request.url_for("arena_admin_problem_set_enabled", problem_id=problem.id)),
+            state_form_return_url=return_path,
+            back_url=str(request.url_for("arena_admin_problem_list")),
+            links=(
+                EditorLink(label="Problem definition", url=definition_url, icon="edit"),
+                EditorLink(
+                    label="Download problem package",
+                    url=str(request.url_for("arena_admin_problem_export", problem_id=problem.id)),
+                    icon="download",
+                    icon_only=True,
+                ),
+            ),
+            strategy_label=label_for_strategy(problem.validator_type),
+        ),
         problem_label=f"#{problem.arena_number} {problem.title}",
-        strategy_label=label_for_strategy(problem.validator_type),
         validator_type=problem.validator_type,
         is_interactive=problem.validator_type is ProblemValidatorType.INTERACTIVE,
         is_edit_allowed=True,
@@ -188,10 +220,8 @@ def _build_shell(
             validator_status=validator_status,
             has_submissions=has_submissions,
             rejudge_url=str(request.url_for("arena_admin_problem_rejudge_all", problem_id=problem.id)),
-            rejudge_return_path=request.url_for(PAGE_ENDPOINTS[active_page], problem_id=problem.id).path,
+            rejudge_return_path=return_path,
         ),
-        definition_url=with_query(
-            str(request.url_for("arena_admin_problem_edit", problem_id=problem.id)), request.url.query
-        ),
+        definition_url=definition_url,
         problem_list_url=str(request.url_for("arena_admin_problem_list")),
     )

@@ -725,8 +725,30 @@ Regras de UX das páginas de julgamento:
   **Publication details**. Campos raros de notas e licença ficam em disclosure explícito,
   aberto automaticamente quando já possui algum valor.
 
+Regras de **cromo compartilhado** entre as duas portas (um autor alterna entre elas o
+tempo todo, então a página não pode mudar de forma):
+
+- As duas portas renderizam o mesmo cabeçalho (`_partials/problem_editor_header.html`):
+  título com ícone e subtítulo com o problema, seguido da barra fixa
+  (`.noca-problem-save-bar`) com os submitters de publicação, **Back**, e — encostado à
+  direita — o link para a outra porta, extras do módulo, o download do pacote e o badge
+  read-only da estratégia. Todos os botões usam o mesmo tamanho (sem `btn-sm`).
+- No Arena, **Save and enable** / **Save and disable** aparecem nas duas portas. Nas
+  páginas de julgamento não há formulário pendente: os botões postam
+  `POST /admin/problems/{id}/set-enabled` com o estado *alvo* e voltam para a mesma
+  página. O Contest não tem estado de publicação e simplesmente não passa submitters.
+- Avisos de página (erros, contest travado, "não pode ser removido") ficam em **um único
+  slot**, abaixo da barra e acima da faixa de abas, nas duas portas. Nada é renderizado
+  acima do título, senão o cromo de uma porta desce em relação ao da outra.
+- Nas duas portas a faixa de abas fica colada a um painel com borda
+  (`border border-top-0 rounded-bottom p-3 mb-3`); o `judgment_shell.html` renderiza o
+  corpo da página ativa dentro desse painel.
+- Cada módulo envolve as duas portas no mesmo container: Arena usa
+  `container-fluid px-3 py-3`, Contest usa `container py-5`.
+
 **Arquivos:**
-- **Templates compartilhados:** `shared/template/_partials/judgment_shell.html`,
+- **Templates compartilhados:** `shared/template/_partials/problem_editor_header.html`,
+  `problem_editor_shell.html`, `judgment_shell.html`,
   `judgment_testcases_page.html`, `judgment_validator_page.html`,
   `judgment_interactions_page.html`, `testcase_list_table.html`,
   `sample_interaction_list_table.html`
@@ -735,8 +757,9 @@ Regras de UX das páginas de julgamento:
   `tc-reorder-sortable.js`, `problem-edit-unsaved-guard.js`
 - **Rotas:** `web/routes/contest_admin_problem_judgment_tc.py` e
   `contest_admin_problem_judgment_pages.py`; `arena/routes/admin_problem_judgment.py`
-- **View models:** `shared/services/problem_definition_view.py` (definição) e
-  `shared/services/judgment_page_view.py` (julgamento)
+- **View models:** `shared/services/problem_definition_view.py` (definição),
+  `shared/services/judgment_page_view.py` (julgamento) e
+  `shared/services/problem_editor_header.py` (cromo comum às duas portas)
 
 ---
 ## Checklist de Implementação

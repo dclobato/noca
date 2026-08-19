@@ -45,6 +45,50 @@ While writing code for frontend on web module (HTML, CSS or JavaScript), check f
 
 While writing code for frontend on arena module (HTML, CSS or JavaScript), check for available styles in /arena/static/css/arena.css (and styles shared with web in /shared/static/css/common.css). Do not use inline styles. For JavaScript, check if any of the already available scripts can be reuse or repurposed (including shared scripts in /shared/static/js/). If a new script is required, no not store it inline in the HTML, but create a new file in /arena/static/js/ and include it properly in the HTML template.
 
+### Rendering Markdown (single pipeline — never reimplement)
+
+There is exactly ONE Markdown rendering pipeline in NOCA:
+`shared/static/js/noca-markdown.js`. It owns the whole sequence —
+`prepareMarkdown()` → `marked.parse()` → `DOMPurify.sanitize()` → DOM injection
+→ Mermaid → KaTeX → directives. **Never** write a new renderer, and never
+open-code any part of that sequence (no calling `marked.parse()`,
+`DOMPurify.sanitize()`, or `renderMathInElement()` from a page script).
+
+To render Markdown anywhere, bind declaratively — that is the entire contract:
+
+```html
+<!-- external source: entity-escaped inside a text/plain script blob -->
+<div class="noca-markdown" data-noca-markdown="statement-src"></div>
+<script id="statement-src" type="text/plain">{{ value | e }}</script>
+
+<!-- in place: the element already holds its own decoded source text -->
+<div class="noca-markdown" data-noca-markdown>{{ value | e }}</div>
+```
+
+The `noca-markdown` class is simultaneously the JS binding hook, the directive
+scope, and the CSS hook (`:where(.noca-markdown, .editor-preview)` in
+`shared/static/css/common.css`). Carrying the class is what gets a surface its
+table borders, cell padding, GFM column alignment, and heading/table spacing.
+
+Rules:
+
+- Both `_base.html` files already load the module; pages extending them need
+  only the container markup plus the vendor libs they use (`marked.min.js`,
+  `purify.min.js`, and `katex.min.js` + `auto-render.min.js` + `katex.min.css`
+  and/or `mermaid.tiny.min.js`). Standalone full-HTML pages must include
+  `noca-markdown.js` themselves.
+- Never add a container id to a selector list in CSS or JS. If you find yourself
+  enumerating containers, you are recreating the drift this pipeline replaced —
+  a surface silently lost KaTeX, table styling, and directives three separate
+  times because three hand-maintained lists disagreed.
+- Code that owns its own element (e.g. the EasyMDE preview) calls
+  `window.NocaMarkdown.toHtml()` / `.enhance()` / `.render()` / `.renderAll()`
+  instead of duplicating the pipeline.
+- Rendered-Markdown styling belongs in `shared/static/css/common.css` under the
+  shared selector, never in a per-module or per-page stylesheet.
+
+See `docs/SHARED_SERVICES.md` for the full contract.
+
 Before writing code, check PyPi for existing libraries that can be used to solve the problem at hand. Do not reinvent the wheel if a well-maintained library already exists for the functionality you need.
 
 Everytime you create/update/remove a route, update both ROUTES.md and URL_FOR_REFERENCE.md on arena/docs or web/docs

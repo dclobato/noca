@@ -26,6 +26,12 @@ from shared.services.problem_definition_view import (
     label_for_strategy,
     resolve_tab,
 )
+from shared.services.problem_editor_header import (
+    EditorAction,
+    EditorLink,
+    EditorNotice,
+    ProblemEditorHeaderView,
+)
 
 #: Tabs the Contest editor renders. Contest keeps a separate Limits pane, which
 #: stays editable while a contest is running.
@@ -63,6 +69,10 @@ def build_problem_form_view(
     validator_type: ProblemValidatorType,
     active_tab: str | None,
     reselect_uploads: tuple[str, ...] = (),
+    problem_label: str = "",
+    save_disabled: bool = False,
+    solution_test_url: str = "",
+    notices: tuple[EditorNotice, ...] = (),
 ) -> ProblemDefinitionView:
     """Return the view model for the Contest problem editor.
 
@@ -74,6 +84,11 @@ def build_problem_form_view(
         active_tab: Requested tab, from ``?tab=`` or an ``active_tab`` field.
         reselect_uploads: Labels of archives a rejected submission carried, which
             the browser cannot restore and the author must choose again.
+        problem_label: How the problem is named beside the heading.
+        save_disabled: Whether the contest's state forbids saving right now.
+        solution_test_url: Non-scoring solution-test page, for the actors allowed
+            to run one; empty otherwise.
+        notices: Page-level notices for the shell's notice slot.
 
     Returns:
         ProblemDefinitionView: The resolved view model.
@@ -88,6 +103,13 @@ def build_problem_form_view(
             validator_type=validator_type,
             is_interactive=is_interactive,
             is_create=True,
+            header=ProblemEditorHeaderView(
+                title="New problem",
+                form_id="edit-form",
+                actions=(EditorAction(label="Create problem", icon="check", disabled=save_disabled),),
+                back_url=cancel_url,
+                strategy_label=label_for_strategy(validator_type),
+            ),
             allow_pdf=True,
             tabs=tabs,
             active_tab=resolved_tab,
@@ -95,25 +117,38 @@ def build_problem_form_view(
             cancel_url=cancel_url,
             # A problem must exist before it can have judgment data.
             judgment_url="",
-            strategy_label=label_for_strategy(validator_type),
             reselect_uploads=reselect_uploads,
+            notices=notices,
         )
 
     statement_url = str(request.url_for("problem_statement", slug=slug, problem_id=problem_id))
+    judgment_url = str(request.url_for("problem_judgment_home", slug=slug, problem_id=problem_id))
+    links = [EditorLink(label="Judgment data", url=judgment_url, icon="rule")]
+    if solution_test_url:
+        links.append(EditorLink(label="Test a solution", url=solution_test_url, icon="science"))
     return ProblemDefinitionView(
         validator_type=validator_type,
         is_interactive=is_interactive,
         is_create=False,
+        header=ProblemEditorHeaderView(
+            title="Edit problem",
+            form_id="edit-form",
+            subtitle=problem_label,
+            actions=(EditorAction(label="Save changes", icon="check", disabled=save_disabled),),
+            back_url=cancel_url,
+            links=tuple(links),
+            strategy_label=label_for_strategy(validator_type),
+        ),
         allow_pdf=True,
         tabs=tabs,
         active_tab=resolved_tab,
         save_url=str(request.url_for("edit_problem_submit", slug=slug, problem_id=problem_id)),
         cancel_url=cancel_url,
         editor_base_url=str(request.url_for("edit_problem_form", slug=slug, problem_id=problem_id)),
-        judgment_url=str(request.url_for("problem_judgment_home", slug=slug, problem_id=problem_id)),
+        judgment_url=judgment_url,
         statement_view_url=statement_url,
         statement_download_url=f"{statement_url}?download=1",
         validator_status_template="admin/problems/_validator_status.html",
-        strategy_label=label_for_strategy(validator_type),
         reselect_uploads=reselect_uploads,
+        notices=notices,
     )

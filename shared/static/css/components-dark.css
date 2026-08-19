@@ -10,6 +10,14 @@
  * Markdown editor. Both are used by the web and arena modules, so the overrides
  * live here and load through common.css. Every rule is scoped to
  * [data-bs-theme="dark"], so light mode keeps the vendor defaults untouched.
+ *
+ * DESIGN-SYSTEM EXEMPTION: this file is listed in detector.ignoreFiles
+ * (.impeccable/config.json) for the design-system-color rule. A syntax
+ * highlighting theme carries its own palette by nature -- these values are
+ * highlight.js's published github-dark theme, reproduced so token colours stay
+ * mutually distinguishable -- and mapping them onto NOCA's UI chrome tokens
+ * would destroy the very distinctions the theme exists to make. Do not treat
+ * this as licence to hardcode colours in any other file.
  */
 
 /* ── highlight.js (github → github-dark) ─────────────────────────────────────

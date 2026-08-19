@@ -29,6 +29,7 @@ from arena.models.arena_problems import ArenaCategory, ArenaProblem
 from arena.services import admin_problem_service, admin_problem_tc_service
 from shared.db_schema import languages as languages_table
 from shared.enumerations import ArenaRole, CustomValidatorActiveState, ProblemValidatorType
+from shared.services.problem_editor_header import publish_state_actions
 from tests.arena.test_admin_problems import _build_admin_app, _create_user, _login_token
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +41,7 @@ _EDITOR_TEMPLATES = (
     _ROOT / "arena" / "template" / "_partials" / "problem_tab_metadata.html",
     _ROOT / "arena" / "template" / "_partials" / "problem_danger_zone.html",
     _ROOT / "shared" / "template" / "_partials" / "problem_editor_shell.html",
+    _ROOT / "shared" / "template" / "_partials" / "problem_editor_header.html",
     _ROOT / "shared" / "template" / "_partials" / "problem_statement_tab.html",
     _ROOT / "shared" / "template" / "_partials" / "problem_testcases_tab.html",
     _ROOT / "shared" / "template" / "_partials" / "problem_validator_card.html",
@@ -327,17 +329,19 @@ def test_the_definition_panes_keep_their_card_order() -> None:
     """
     metadata = (_ROOT / "arena" / "template" / "_partials" / "problem_tab_metadata.html").read_text(encoding="utf-8")
     statement = (_ROOT / "shared" / "template" / "_partials" / "problem_statement_tab.html").read_text(encoding="utf-8")
-    shell = (_ROOT / "shared" / "template" / "_partials" / "problem_editor_shell.html").read_text(encoding="utf-8")
+    header = (_ROOT / "shared" / "template" / "_partials" / "problem_editor_header.html").read_text(encoding="utf-8")
 
     assert metadata.index("Identity and attribution") < metadata.index("Execution limits")
     assert metadata.index("Execution limits") < metadata.index("Publication details")
     assert metadata.index("Publication details") < metadata.index("Categories")
     assert statement.index("Problem statement") < statement.index("Problem illustration")
-    assert 'name="save_action"' in shell
-    assert 'value="enable"' in shell
-    assert 'value="disable"' in shell
-    assert "Save and enable" in shell
-    assert "Save and disable" in shell
+    # The submitters themselves are now built in Python, so both doors word them
+    # identically; the shared header is what posts them.
+    assert 'name="save_action"' in header
+    labels = [action.label for action in publish_state_actions()]
+    values = [action.value for action in publish_state_actions()]
+    assert labels == ["Save and enable", "Save and disable"]
+    assert values == ["enable", "disable"]
 
 
 def test_runtime_failed_validator_status_is_not_reported_as_unconfigured() -> None:

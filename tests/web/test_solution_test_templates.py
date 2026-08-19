@@ -11,12 +11,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from jinja2 import ChainableUndefined, Environment, FileSystemLoader
 
 from shared.enumerations import RoleEnum
+from shared.services.problem_editor_header import EditorLink, ProblemEditorHeaderView
+from web.routes.contest_admin_problem_edit_render import _solution_test_url
 
 _ROOT = Path(__file__).resolve().parents[2]
 
@@ -206,18 +208,37 @@ def test_import_page_sets_the_same_expectation() -> None:
 
 
 def test_problem_edit_page_links_to_the_feature() -> None:
-    """A judge should reach solution tests from where they are already working."""
-    markup = (
-        _env()
-        .get_template("admin/problems/edit.html")
-        .render(
-            request=_Request(),
-            contest=_contest(),
-            problem=type("_Problem", (), {"id": "problem-1", "title": "P"})(),
-            current_user=type("_User", (), {"role": RoleEnum.JUDGE.value})(),
-            errors=[],
-            is_edit_allowed=True,
-        )
+    """A judge should reach solution tests from where they are already working.
+
+    The link moved into the editor's shared header, so it is now built as an
+    :class:`EditorLink` and rendered by the shared partial rather than written
+    into the Contest template.
+    """
+    header = ProblemEditorHeaderView(
+        title="Edit problem",
+        form_id="edit-form",
+        links=(EditorLink(label="Test a solution", url="/solution-tests?problem_id=problem-1", icon="science"),),
     )
+    markup = _env().get_template("_partials/problem_editor_header.html").render(request=_Request(), header=header)
     assert "Test a solution" in markup
     assert "problem_id=problem-1" in markup
+
+
+@pytest.mark.parametrize(
+    ("role", "expected"),
+    [
+        (RoleEnum.JUDGE.value, True),
+        (RoleEnum.ADMIN.value, True),
+        (RoleEnum.UBERADMIN.value, True),
+        (RoleEnum.TEAM.value, False),
+    ],
+)
+def test_only_privileged_actors_are_offered_a_solution_test(role: str, expected: bool) -> None:
+    """The role gate travelled with the link when it moved into the header."""
+    ctx = SimpleNamespace(contest=_contest(), actor=SimpleNamespace(role=role))
+    url = _solution_test_url(
+        cast(Any, _Request()),
+        cast(Any, ctx),
+        cast(Any, SimpleNamespace(id="problem-1")),
+    )
+    assert bool(url) is expected

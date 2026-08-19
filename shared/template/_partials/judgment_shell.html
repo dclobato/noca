@@ -5,33 +5,27 @@
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-  Header and navigation for the judgment-data editor, shared by both modules.
+  Chrome for the judgment-data editor, shared by both modules: the common header
+  (`problem_editor_header.html`) plus this door's readiness strip and navigation.
 
   The nav is made of real links, not tab toggles: judgment data lives on separate
   pages because a problem can hold many large test cases, and loading them all
   into one document to hide most of it helps nobody. Each page owns its own forms
   and its own state, so leaving one cannot silently discard another's.
 
+  It renders the active page's body itself, inside the same bordered pane the
+  definition editor's tab strip sits on: the nav is only half of that shape, and
+  leaving the other half to six module templates is what made the two doors look
+  different in the first place.
+
   Required context:
     shell  shared.services.judgment_page_view.JudgmentShellView
+           plus whatever context the active page's partial requires
 #}
 {% from "_macros.html" import render_icon with context %}
-<div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
-    <div class="d-flex flex-wrap gap-2 align-items-center">
-        <h1 class="h4 mb-0">Judgment data</h1>
-        <span class="text-muted">{{ shell.problem_label }}</span>
-    </div>
-    <div class="d-flex flex-wrap gap-2 align-items-center">
-        <a href="{{ shell.definition_url }}"
-           class="btn btn-outline-secondary btn-sm">
-            {{ render_icon(icon="edit", classes="me-1") }}Problem definition
-        </a>
-        <span class="badge text-bg-secondary"
-              title="A problem's validation strategy is chosen once and cannot be changed.">
-            {{ render_icon(icon="lock", classes="me-1") }}{{ shell.strategy_label }}
-        </span>
-    </div>
-</div>
+{% with header = shell.header %}
+    {% include "_partials/problem_editor_header.html" %}
+{% endwith %}
 {% if not shell.is_edit_allowed %}
     <div class="alert alert-warning d-flex align-items-start gap-2"
          role="alert">
@@ -68,7 +62,12 @@
         </div>
     {% endif %}
 </section>
-<ul class="nav nav-tabs mb-3 noca-tab-scroll">
+{% set page_partials = {
+    "test-cases": "_partials/judgment_testcases_page.html",
+    "validator": "_partials/judgment_validator_page.html",
+    "interactions": "_partials/judgment_interactions_page.html"
+} %}
+<ul class="nav nav-tabs mb-0 noca-tab-scroll">
     {% for page in shell.pages %}
         <li class="nav-item">
             <a class="nav-link {% if page.key == shell.active_page %}active{% endif %}"
@@ -80,6 +79,9 @@
         </li>
     {% endfor %}
 </ul>
+<div class="tab-content border border-top-0 rounded-bottom p-3 mb-3">
+    {% include page_partials[shell.active_page] %}
+</div>
 {% if shell.is_edit_allowed and readiness.has_submissions and readiness.rejudge_url and readiness.state == "ready" %}
     <div class="modal fade"
          id="judgment-rejudge-modal"

@@ -7,7 +7,7 @@
  */
 
 .auth-page-background {
-    background: linear-gradient(rgba(0, 0, 0, 0.80), rgba(0, 0, 0, 0.80)),
+    background: linear-gradient(var(--noca-scrim-strong), var(--noca-scrim-strong)),
     url('/static/img/login_bg.png') center center / cover no-repeat;
 }
 
@@ -16,8 +16,7 @@
 }
 
 .btn-glow:hover {
-/*    box-shadow: 0 0 15px 5px rgba(13, 110, 253, 0.6) !important; */
-    box-shadow: 0 0 15px 5px rgba(205, 25, 30, 0.6) !important;
+box-shadow: 0 0 15px 5px color-mix(in srgb, var(--noca-danger) 60%, transparent) !important;
     transform: scale(1.05) !important;
 }
 
@@ -26,7 +25,7 @@
 }
 
 .btn-logout {
-    border: 3px solid #dc3545;
+    border: 3px solid var(--noca-danger);
     border-radius: 1rem;
 }
 
@@ -38,7 +37,7 @@
 .noca-login-countdown {
     font-size: 2rem;
     font-variant-numeric: var(--noca-font-variant-numeric-tabular);
-    background: rgba(0, 0, 0, 0.72);
+    background: var(--noca-scrim);
 }
 
 #contest-countdown,

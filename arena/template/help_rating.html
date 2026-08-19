@@ -30,7 +30,7 @@
     FORM: The Verdict Board; candidate 4 of the grounded list; seed key 01ac1107.
     FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
     -->
-    <div class="arena-help-page container-fluid px-3 px-lg-4">
+    <div class="arena-help-page container-fluid px-3 px-lg-4" data-noca-math>
         <header class="arena-help-masthead">
             <h1 class="arena-help-masthead-title">Where your rating comes from</h1>
             <p class="arena-help-masthead-lede">
@@ -331,8 +331,6 @@
     <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
             defer></script>
     <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
-            defer></script>
-    <script src="{{ request.url_for('arena_static_js', path='render-katex.js') }}?v={{ app_version }}"
             defer></script>
     <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"></script>
     <script src="{{ request.url_for('static_shared_js', path='noca-echarts-theme.js') }}?v={{ app_version }}"></script>

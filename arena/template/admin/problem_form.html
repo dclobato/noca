@@ -72,19 +72,7 @@
                    id="language-confirmed"
                    value="">
         </form>
-        <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
-            <h1 class="h4 mb-0">
-                {{ render_icon(icon="assignment") }}
-                {{ 'New Problem' if mode == 'create' else 'Edit Problem #' ~ problem.arena_number }}
-            </h1>
-        </div>
-        {% for error in errors %}<div class="alert alert-danger py-2 small" role="alert">{{ error }}</div>{% endfor %}
-        {% with save_label = 'Save',
-            save_disabled = false,
-            save_state_actions = mode == 'edit',
-            cancel_label = 'Back' %}
-            {% include "_partials/problem_editor_shell.html" %}
-        {% endwith %}
+        {% include "_partials/problem_editor_shell.html" %}
         <div class="tab-content border border-top-0 rounded-bottom p-3 mb-3">
             <div class="tab-pane fade {% if view.active_tab == 'metadata' %}show active{% endif %}"
                  id="tab-metadata"
@@ -127,7 +115,7 @@
                                        for="editorial_release_policy_{{ policy.value }}">{{ policy.label }}</label>
                             {% endfor %}
                         </div>
-                        <div class="form-text small">When participants can see this problem's editorial. Not yet enforced.</div>
+                        <div class="form-text small">When participants can see this problem's editorial.</div>
                     </div>
                 </div>
                 {% with editorial_value = form.editorial %}
@@ -182,6 +170,8 @@
     </div>
 {% endblock %}
 {% block extra_script %}
+    <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"></script>
+    <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"></script>
     <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"></script>
     <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"></script>
     <script src="{{ request.url_for('static_vendor', path='easymde.min.js') }}"></script>

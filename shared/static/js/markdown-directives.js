@@ -15,13 +15,9 @@
 (function () {
   'use strict';
 
-  var CONTAINER_SELECTOR = [
-    '#md-statement-rendered',
-    '#legal-markdown-rendered',
-    '#ai-review-rendered',
-    '[data-tc-explanation]',
-    '.editor-preview'
-  ].join(', ');
+  // Every rendered-Markdown container carries `.noca-markdown` (see
+  // noca-markdown.js); EasyMDE owns `.editor-preview` and cannot carry it.
+  var CONTAINER_SELECTOR = '.noca-markdown, .editor-preview';
   var DIRECTIVE_PATTERN = /^:::\s+(table-border|table-align|align)\s+([a-z]+)\s*$/;
   var FENCE_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
   var LITERAL_DOLLAR_HTML = '<span class="noca-markdown-literal-dollar">$</span>';

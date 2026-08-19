@@ -11,6 +11,8 @@
               rel="stylesheet">
         <link href="{{ request.url_for('arena_static_css', path='arena.css') }}?v={{ app_version }}"
               rel="stylesheet">
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='katex.min.css') }}">
     </head>
     <body class="arena-validator-source-viewer">
         <header class="border-bottom bg-body">
@@ -36,7 +38,7 @@
             <div class="container py-4">
                 <div class="card shadow-sm">
                     <div class="card-body">
-                        <div id="markdown-rendered"></div>
+                        <div class="noca-markdown" data-noca-markdown="markdown-src"></div>
                         <script id="markdown-src" type="text/plain">{{ editorial_content | e }}</script>
                     </div>
                 </div>
@@ -45,7 +47,10 @@
         <script src="{{ request.url_for('static_vendor', path='bootstrap.bundle.min.js') }}"></script>
         <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"></script>
         <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"></script>
         <script src="{{ request.url_for('static_shared_js', path='markdown-directives.js') }}?v={{ app_version }}"></script>
-        <script src="{{ request.url_for('arena_static_js', path='render-markdown.js') }}?v={{ app_version }}"></script>
+        <script src="{{ request.url_for('static_shared_js', path='noca-markdown.js') }}?v={{ app_version }}"></script>
     </body>
 </html>

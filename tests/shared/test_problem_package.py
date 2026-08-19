@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from shared.enumerations import ArenaEditorialReleasePolicy
 from shared.services.problem_package import (
     DEFAULT_MEMORY_LIMIT_KB,
     DEFAULT_OUTPUT_LIMIT_BYTES,
@@ -184,6 +185,69 @@ def test_editorial_size_is_bounded_like_a_markdown_statement(tmp_path: Path) -> 
 
     with pytest.raises(PackageError, match="editorial.md is .* the limit is 524288"):
         read(write_zip(tmp_path / "oversized-editorial.zip", members, metadata=metadata))
+
+
+def _editorial_metadata(text: str, **extra: object) -> dict[str, Any]:
+    """Build metadata declaring ``editorial.md``, with optional extra keys on it."""
+    declaration: dict[str, Any] = {
+        "member": "editorial.md",
+        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+    }
+    declaration.update(extra)
+    return minimal_metadata(editorial=declaration)
+
+
+@pytest.mark.parametrize(
+    ("declared", "expected"),
+    [
+        ("never", ArenaEditorialReleasePolicy.NEVER),
+        ("always", ArenaEditorialReleasePolicy.ALWAYS),
+        ("after_ac", ArenaEditorialReleasePolicy.AFTER_AC),
+        (" after_ac ", ArenaEditorialReleasePolicy.AFTER_AC),
+    ],
+)
+def test_editorial_release_policy_is_parsed(
+    tmp_path: Path,
+    declared: str,
+    expected: ArenaEditorialReleasePolicy,
+) -> None:
+    editorial = "# Editorial\n\nAdd both values.\n"
+    members = minimal_members(**{"editorial.md": editorial})
+    metadata = _editorial_metadata(editorial, release_policy=declared)
+
+    package = read(write_zip(tmp_path / f"policy-{declared.strip()}.zip", members, metadata=metadata))
+
+    assert package.metadata.editorial_release_policy is expected
+
+
+@pytest.mark.parametrize("declared", [None, "absent"])
+def test_absent_or_null_release_policy_leaves_the_default_to_the_importer(tmp_path: Path, declared: str | None) -> None:
+    """A package written before the property existed must import unchanged."""
+    editorial = "# Editorial\n\nAdd both values.\n"
+    members = minimal_members(**{"editorial.md": editorial})
+    extra = {} if declared == "absent" else {"release_policy": None}
+    metadata = _editorial_metadata(editorial, **extra)
+
+    package = read(write_zip(tmp_path / f"policy-{declared}.zip", members, metadata=metadata))
+
+    assert package.metadata.editorial_release_policy is None
+
+
+@pytest.mark.parametrize("declared", [42, ["always"], "someday", ""])
+def test_invalid_release_policy_is_refused(tmp_path: Path, declared: object) -> None:
+    editorial = "# Editorial\n\nAdd both values.\n"
+    members = minimal_members(**{"editorial.md": editorial})
+    metadata = _editorial_metadata(editorial, release_policy=declared)
+
+    with pytest.raises(PackageError, match="release_policy"):
+        read(write_zip(tmp_path / "invalid-policy.zip", members, metadata=metadata))
+
+
+def test_release_policy_without_an_editorial_declaration_is_ignored(tmp_path: Path) -> None:
+    """The policy lives inside the editorial object; with no object there is none."""
+    package = read(write_zip(tmp_path / "no-editorial.zip", minimal_members(), metadata=minimal_metadata()))
+
+    assert package.metadata.editorial_release_policy is None
 
 
 def test_undeclared_editorial_is_ignored_with_a_warning(tmp_path: Path) -> None:

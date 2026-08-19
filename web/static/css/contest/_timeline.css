@@ -23,28 +23,18 @@
     background-color: var(--bs-secondary-bg-subtle);
 }
 
+/* Each phase names its state token; the token carries its own dark-ground
+   variant, so these rules do not repeat per theme. */
 .timeline-seg-live {
-    background-color: var(--noca-brand);
-}
-
-[data-bs-theme="dark"] .timeline-seg-live {
-    background-color: #51cf66;
+    background-color: var(--noca-state-live);
 }
 
 .timeline-seg-frozen {
-    background-color: #ffc107;
-}
-
-[data-bs-theme="dark"] .timeline-seg-frozen {
-    background-color: #fcc419;
+    background-color: var(--noca-state-frozen);
 }
 
 .timeline-seg-silence {
-    background-color: #cd191e;
-}
-
-[data-bs-theme="dark"] .timeline-seg-silence {
-    background-color: #ff6b6b;
+    background-color: var(--noca-state-silence);
 }
 
 .timing-timeline-legend {

@@ -23,10 +23,7 @@
     </nav>
 {% endblock %}
 {% block content %}
-    <div class="container py-5">
-        {% include "_partials/judgment_shell.html" %}
-        {% include "_partials/judgment_validator_page.html" %}
-    </div>
+    <div class="container py-5">{% include "_partials/judgment_shell.html" %}</div>
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for('static_shared_js', path='judgment-actions.js') }}?v={{ app_version }}"

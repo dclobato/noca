@@ -80,7 +80,7 @@
                     {% include "_partials/problem_image_figure.html" %}
                 {% endwith %}
                 {# Markdown statement #}
-                <div id="md-statement-rendered" class="mb-4 mt-4"></div>
+                <div class="noca-markdown mb-4 mt-4" data-noca-markdown="md-statement-src"></div>
                 <script id="md-statement-src" type="text/plain">{{ problem.problem_statement | e }}</script>
                 {# Resource limits #}
                 <div class="card shadow-sm mb-4">
@@ -144,7 +144,7 @@
                                 {% if tc.explanation %}
                                     <div class="text-muted small mt-2">
                                         <div class="fw-semibold mb-1">Explanation of example #{{ loop.index }}:</div>
-                                        <div class="arena-tc-explanation" data-tc-explanation>{{ tc.explanation | e }}</div>
+                                        <div class="arena-tc-explanation noca-markdown" data-noca-markdown>{{ tc.explanation | e }}</div>
                                     </div>
                                 {% endif %}
                             </div>
@@ -174,9 +174,7 @@
                 defer></script>
         <script src="{{ request.url_for('static_shared_js', path='markdown-directives.js') }}?v={{ app_version }}"
                 defer></script>
-        <script src="{{ request.url_for('arena_static_js', path='problem-detail.js') }}?v={{ app_version }}"
-                defer></script>
-        <script src="{{ request.url_for('static_shared_js', path='render-tc-explanation.js') }}?v={{ app_version }}"
+        <script src="{{ request.url_for('static_shared_js', path='noca-markdown.js') }}?v={{ app_version }}"
                 defer></script>
         <script src="{{ request.url_for('static_shared_js', path='print-page.js') }}?v={{ app_version }}"
                 defer></script>

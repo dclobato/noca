@@ -52,11 +52,15 @@
     --arena-medium:                   #3f4a3d;
     --arena-hard:                     #bb0213;
 
-    /* Spacing scale (4 px base) */
-    --arena-space-sm:   0.5rem;
-    --arena-space-md:   1rem;
-    --arena-space-lg:   2rem;
-    --arena-gutter:     1.5rem;
+    /* Spacing scale — aliases onto the shared --noca-space-* steps so web and
+       arena share one rhythm. The arena scale is NOT a 1:1 name match: arena's
+       sm/md/lg/gutter are 0.5 / 1 / 2 / 1.5 rem, so `lg` deliberately maps to
+       --noca-space-xlg and `gutter` to --noca-space-lg. Do not "correct" the
+       lg → xlg line to --noca-space-lg; that silently shrinks 39 rules. */
+    --arena-space-sm:   var(--noca-space-sm);
+    --arena-space-md:   var(--noca-space-md);
+    --arena-space-lg:   var(--noca-space-xlg);
+    --arena-gutter:     var(--noca-space-lg);
     --arena-max-width:  1140px;
 
     /* Border radius */
@@ -64,14 +68,14 @@
     --arena-radius-lg:  0.5rem;
 
     /* Card elevation (Level 2) */
-    --arena-card-shadow: 0 2px 2px rgba(0, 0, 0, 0.05);
+    --arena-card-shadow: 0 2px 2px var(--noca-shadow-tint-subtle);
 
     /* Sticky chrome heights — keep in sync with topbar/footer actual heights */
     --arena-topbar-height: 4rem;
     --arena-footer-height: 3.25rem;
     --arena-sidebar-width: 256px;
     --arena-sidebar-collapsed-width: 4.5rem;
-    --arena-content-padding-x: 1rem;
+    --arena-content-padding-x: var(--noca-space-md);
 }
 
 /* ============================================================

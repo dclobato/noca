@@ -46,7 +46,7 @@ from arena.services.statement_language_service import (
     detect_statement_language_async,
     parse_statement_language,
 )
-from shared.enumerations import ProblemValidatorType, StatementLanguage
+from shared.enumerations import ArenaEditorialReleasePolicy, ProblemValidatorType, StatementLanguage
 from shared.services.custom_validator import PackagedValidator, current_validator_source, stage_candidate
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.problem_image import export_image_filename, load_staged_image
@@ -139,6 +139,9 @@ async def import_problem_package(
         output_limit_in_bytes=metadata.output_limit_in_bytes,
         problem_statement=package.statement.text,
         editorial=package.editorial,
+        # An older package carries no policy at all, so it lands on the column
+        # default rather than on a guess about what its author intended.
+        editorial_release_policy=(metadata.editorial_release_policy or ArenaEditorialReleasePolicy.NEVER),
         image_b64=image_b64,
         image_mime=image_mime,
         image_caption=metadata.image_caption,
@@ -250,6 +253,7 @@ def _to_package(problem: ArenaProblem, owner_name: str, testcase_dir: Path) -> P
         custom_validator=None,
         sha256={},
         editorial=None,
+        editorial_release_policy=problem.editorial_release_policy,
     )
     interactions = tuple(
         PackagedInteraction(interaction.transcript, interaction.explanation)

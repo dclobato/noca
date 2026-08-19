@@ -151,13 +151,27 @@ empty for an interactive problem.
 </p>
 <pre class="{{ pre_class }}">"editorial": {
   "member": "editorial.md",
-  "sha256": "…64 hex chars…"
+  "sha256": "…64 hex chars…",
+  "release_policy": "after_ac"
 }</pre>
-<p class="text-muted small mb-3">
+<p class="text-muted small mb-2">
     Missing or <code>null</code> means no editorial. Public bundles never include it. The digest
     is nested so older version-2 readers can ignore this additive field and safe archive member
     without rejecting the legacy top-level manifest as over-complete. An undeclared
     <code>editorial.md</code> is ignored with a warning for compatibility with older packages.
+</p>
+<p class="text-muted small mb-3">
+    <code>release_policy</code> says when the editorial becomes visible to participants:
+    <code>"never"</code>, <code>"always"</code> or <code>"after_ac"</code> (once the participant has
+    an Accepted verdict on the problem). Absent or <code>null</code> means <code>"never"</code>, so
+    a package written before this property existed imports unchanged. Any other value is refused.
+    {% if is_arena %}
+        Arena stores it; a Contest package always writes <code>null</code>, because the Contest
+        problem table has no equivalent column.
+    {% else %}
+        Contest parses it and writes it back as <code>null</code>: only Arena has a column to store
+        it in, so the value does not survive a round trip through a Contest problem.
+    {% endif %}
 </p>
 <h3 class="h6 text-uppercase text-muted mb-2">
     <code>sha256</code>

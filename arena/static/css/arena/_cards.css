@@ -49,7 +49,7 @@
 
 .arena-ranking-choice-card:hover {
     border-color: var(--arena-primary);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 8px var(--noca-shadow-tint);
     color: var(--arena-on-surface);
 }
 

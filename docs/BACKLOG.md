@@ -352,7 +352,7 @@ flags.
 NOCA has no server-side HTML/Markdown-to-PDF rendering today: problem
 statements are either an author-uploaded `statement.pdf` (validated, never
 rendered) or `statement.md` rendered client-side in the browser
-(`web/static/js/render-problem-statement.js`). A downloadable PDF of a
+(`shared/static/js/noca-markdown.js`). A downloadable PDF of a
 Markdown statement, and the still-unimplemented contest logistics document
 conversion noted in `web/docs/SERVICES.md`, both need this capability.
 
@@ -375,9 +375,9 @@ network access to prevent SSRF/DoS from untrusted statement content.
 
 Math in problem statements is rendered entirely client-side today: vendored
 KaTeX `auto-render` runs after `marked.parse()` + `DOMPurify.sanitize()`
-(`web/static/js/render-problem-statement.js`,
-`arena/static/js/problem-detail.js`, and `shared/static/js/render-tc-explanation.js`
-for test-case explanations). `shared/problem_statement_markdown.py` never
+in the single shared pipeline (`shared/static/js/noca-markdown.js`), for every
+Markdown surface including test-case explanations.
+`shared/problem_statement_markdown.py` never
 inspects LaTeX delimiters — `$...$` / `\(...\)` pass through the sanitizer
 untouched and are only ever interpreted by the browser.
 
@@ -397,6 +397,54 @@ reusing the same Playwright sidecar proposed for PDF export (headless-browser
 KaTeX-to-SVG/MathML pre-rendering) over adding a second, stale, non-Python
 service, and cap input size/timeout regardless, since pathological TeX macros
 are a known DoS vector for MathJax-based renderers.
+
+### Add a `table-caption` Markdown directive
+
+**Status:** Idea — not yet an accepted contract.
+
+NOCA's shared Markdown pipeline supports three one-line directives —
+`::: table-border`, `::: table-align`, and `::: align` — all parsed and applied
+by `shared/static/js/markdown-directives.js`. A fourth directive,
+`::: table-caption <text>`, would render its text as a caption below the
+following table, in italics, at a smaller font size, and constrained to 75% of
+the available width.
+
+The change is small, but it is the first directive that *emits content* rather
+than toggling a presentation class on the block that follows it, so it needs
+three decisions the existing directives never had to make:
+
+- Every current directive takes a closed enum value (`DIRECTIVE_PATTERN` ends
+  `([a-z]+)\s*$`), which is what makes `parseDirective` a pure whitelist. A
+  caption takes free text, so the pattern must gain a separate alternative
+  rather than loosening the existing one — otherwise a typo in `align` stops
+  falling through to visible text.
+- Directives run last in the pipeline (step 7, after `DOMPurify.sanitize()` and
+  KaTeX). The marker paragraph's children are therefore already parsed,
+  sanitized, and math-rendered. The implementation must strip the
+  `::: table-caption ` prefix from the marker's first text node and reuse the
+  remaining children, never re-render `textContent` as `innerHTML`, which would
+  reintroduce unsanitized markup after the sanitizer has run.
+- The caption attaches *below* its table, unlike every existing directive, which
+  targets `nextElementSibling`. Decide whether the caption tracks the table's
+  `::: table-align` value or always centers. A sibling element cannot measure
+  the shrink-to-fit table it describes; a real `<caption>` child with
+  `caption-side: bottom` can, and `common.css` already excludes captions from
+  cell borders through `table > :not(caption)`.
+
+Implementing it would touch the directive parser and applier
+(`shared/static/js/markdown-directives.js`), one rule block under the shared
+`:where(.noca-markdown, .editor-preview)` selector in
+`shared/static/css/common.css`, the author-facing directive reference in
+`shared/template/_partials/markdown_syntax_modal.html`, and optionally the
+editor's table-starter action in
+`shared/static/js/problem-statement-editor-core.js`. No server-side, schema, or
+package changes are involved.
+
+Note that `tests/shared/test_markdown_directives.py` runs the script in a Node
+`vm` with stubbed globals and no DOM, so it covers `parseDirective` and
+`prepareMarkdown` but not `apply`. The parser half of this directive is
+unit-testable within the existing harness; the DOM half is not, without adding a
+DOM implementation as a development dependency.
 
 ## Implemented
 

@@ -73,7 +73,7 @@
     background:
         linear-gradient(145deg, rgb(var(--bs-primary-rgb) / 12%), transparent 65%),
         var(--noca-surface-container-low);
-    box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 10%);
+    box-shadow: 0 1rem 2.5rem var(--noca-shadow-tint);
 }
 
 .animator-index-clock::after {
@@ -118,7 +118,7 @@
     border: 1px solid rgb(255 255 255 / 14%);
     border-radius: var(--noca-radius-presentation-lg);
     background: linear-gradient(135deg, var(--noca-presentation-hero-from) 0%, var(--noca-presentation-hero-to) 100%);
-    box-shadow: 0 1.5rem 4rem rgb(0 0 0 / 18%);
+    box-shadow: 0 1.5rem 4rem var(--noca-shadow-tint-strong);
     color: white;
 }
 
@@ -165,7 +165,7 @@
 .animator-index-action:hover,
 .animator-index-action:focus-visible {
     transform: translateY(-0.25rem);
-    box-shadow: 0 0.75rem 2rem rgb(0 0 0 / 20%);
+    box-shadow: 0 0.75rem 2rem var(--noca-shadow-tint-strong);
 }
 
 .animator-index-action-label {

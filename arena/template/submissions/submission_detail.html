@@ -13,6 +13,8 @@
           href="{{ request.url_for('static_vendor', path='devicon.min.css') }}">
     <link rel="stylesheet"
           href="{{ request.url_for('static_vendor', path='highlight/styles/github.min.css') }}">
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='katex.min.css') }}">
 {% endblock %}
 {% block content %}
     <div class="arena-page-container arena-submission-detail"
@@ -178,7 +180,7 @@
                                     </span>
                                 {% endif %}
                             </h3>
-                            <div id="ai-review-rendered" class="small"></div>
+                            <div class="noca-markdown small" data-noca-markdown="ai-review-src"></div>
                             <script id="ai-review-src" type="text/plain">{{ ai_review.ai_response | e }}</script>
                             <p class="text-muted small mt-2 mb-0">
                                 Reviewed {{ arena_format_datetime(ai_review.ai_response_at, current_user) }}
@@ -556,7 +558,11 @@
                 defer></script>
         <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
                 defer></script>
-        <script src="{{ request.url_for('arena_static_js', path='submission-ai-review.js') }}?v={{ app_version }}"
+        <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"
                 defer></script>
     {% endif %}
 {% endblock %}

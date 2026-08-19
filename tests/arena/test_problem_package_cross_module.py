@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arena.config import settings as arena_settings
 from arena.models.arena_problems import ArenaProblemCustomValidator
 from arena.services import admin_problem_service
-from shared.enumerations import ProblemValidatorType
+from shared.enumerations import ArenaEditorialReleasePolicy, ProblemValidatorType
 from shared.services.custom_validator import stage_candidate
 from shared.services.imageprocessing_service import ImageProcessingService
 from shared.services.problem_package import PackageError, read_problem_package
@@ -94,8 +94,11 @@ async def test_a_standard_arena_problem_imports_into_contest_as_standard(session
         testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
     )
     assert arena_side.problem.editorial == "# Editorial\n\nAdd the two values.\n"
+    assert arena_side.problem.editorial_release_policy is ArenaEditorialReleasePolicy.AFTER_AC
     exported = await _arena_export(session, arena_side.problem.id, author)
-    assert _metadata(exported).validator_type is ProblemValidatorType.STANDARD
+    arena_metadata = _metadata(exported)
+    assert arena_metadata.validator_type is ProblemValidatorType.STANDARD
+    assert arena_metadata.editorial_release_policy is ArenaEditorialReleasePolicy.AFTER_AC
 
     imported = await import_problem_from_zip(
         session,
@@ -108,6 +111,12 @@ async def test_a_standard_arena_problem_imports_into_contest_as_standard(session
 
     assert imported.problem.validator_type is ProblemValidatorType.STANDARD
     assert imported.problem.editorial == "# Editorial\n\nAdd the two values.\n"
+
+    # The editorial text crosses the boundary; its release policy cannot. Contest
+    # has no column for it, so a Contest re-export states that plainly as null
+    # rather than inventing a policy the problem never carried.
+    round_tripped = await _contest_export(session, contest, imported.problem.id)
+    assert _metadata(round_tripped).editorial_release_policy is None
 
 
 # ── Interactive problems keep their kind, and their inputs-only cases ─────────
@@ -273,6 +282,7 @@ def _standard_package() -> bytes:
                     "editorial": {
                         "member": "editorial.md",
                         "sha256": hashlib.sha256(editorial.encode("utf-8")).hexdigest(),
+                        "release_policy": "after_ac",
                     },
                 }
             ),

@@ -39,8 +39,8 @@
             <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-3 mb-3 pb-2 border-bottom">
                 <h2 class="h6 mb-0" id="batch-feedback-statement-heading">Problem statement</h2>
             </div>
-            <div id="md-statement-rendered"
-                 class="arena-batch-feedback-statement-body"></div>
+            <div class="noca-markdown arena-batch-feedback-statement-body"
+                 data-noca-markdown="md-statement-src"></div>
             <script id="md-statement-src" type="text/plain">{{ data.problem_statement | e }}</script>
         </section>
         {% set feedback_types = data.verdict_counts
@@ -220,8 +220,6 @@
     <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
             defer></script>
     <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
-            defer></script>
-    <script src="{{ request.url_for('arena_static_js', path='problem-detail.js') }}?v={{ app_version }}"
             defer></script>
     <script src="{{ request.url_for('static_vendor', path='highlight/highlight.min.js') }}"></script>
     {% for lang in data.distinct_highlight_languages %}

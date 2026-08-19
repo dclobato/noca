@@ -270,7 +270,10 @@ standalone Markdown viewer (`GET /problems/{arena_number}/editorial`, mirroring
 the existing validator-source viewer's minimal layout) in a new tab, and
 `after_ac` shows that same link only once the current user has an Accepted
 verdict on the problem — a gate the route re-checks itself rather than trusting
-the link's presence. Web has no equivalent column.
+the link's presence. Web has no equivalent column. The policy travels with the
+problem package (as `problem.json.editorial.release_policy`), so moving a problem
+between Arena installs preserves it rather than silently resetting it to `never`,
+which would leave the editorial present but invisible.
 
 Problem test-case content (both Web and Arena) lives on a single shared filesystem mount
 configured by `NOCA_PROBLEM_TESTCASE_DIR`, namespaced by identity domain:
@@ -296,7 +299,12 @@ refuses an interactive problem with no validator source, which version 2 cannot 
 Editorials extend version 2 additively. `problem.json.editorial` names
 `editorial.md` and carries that member's SHA-256 digest. The editorial stays out
 of the legacy top-level manifest so deployed version-2 readers can ignore the
-unknown field and safe member without rejecting an over-complete manifest.
+unknown field and safe member without rejecting an over-complete manifest. The
+Arena release policy rides inside that same object as `release_policy`, additive
+within an already-additive field and therefore still no version bump; it is
+nested there because a policy only means something when there is an editorial to
+release. Absent means `never`, an unknown value is refused, and Contest — which
+has no such column — parses it and exports it back as `null`.
 
 Finished contests whose scoreboard has been released (`is_past` and
 `release_scoreboard_after_end` — the same gate as the team submissions download)

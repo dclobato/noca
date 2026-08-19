@@ -18,7 +18,7 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-from shared.enumerations import ProblemValidatorType
+from shared.enumerations import ArenaEditorialReleasePolicy, ProblemValidatorType
 from shared.services.problem_package.constants import (
     DEFAULT_MEMORY_LIMIT_KB,
     DEFAULT_OUTPUT_LIMIT_BYTES,
@@ -94,10 +94,12 @@ def parse_metadata(meta: Mapping[str, Any]) -> PackageMetadata:
     """
     version = check_format_version(meta)
     custom_validator = _validator_spec(meta.get("custom_validator"))
+    editorial = meta.get("editorial")
     return PackageMetadata(
         format_version=version,
         validator_type=_validator_type(meta, version, custom_validator),
-        editorial=_editorial_spec(meta.get("editorial")),
+        editorial=_editorial_spec(editorial),
+        editorial_release_policy=_editorial_release_policy(editorial),
         title=_required_string(meta, "title", MAX_TITLE_CHARS),
         author=_string(meta, "author", MAX_AUTHOR_CHARS),
         notes=_string(meta, "notes", MAX_NOTES_CHARS),
@@ -198,6 +200,43 @@ def _editorial_spec(value: Any) -> EditorialSpec | None:
     if len(normalized) != 64 or not _is_hex(normalized):
         raise PackageError("problem.json: editorial 'sha256' must be a 64-character hex string.")
     return EditorialSpec(member=member, sha256=normalized)
+
+
+def _editorial_release_policy(value: Any) -> ArenaEditorialReleasePolicy | None:
+    """Validate the optional release policy nested in the editorial declaration.
+
+    The policy says *when* an editorial becomes visible to participants. It is
+    additive within the already-additive ``editorial`` object, so an older
+    package that never carried it parses as ``None`` and the importer applies its
+    own default rather than guessing.
+
+    Only Arena stores the value, but it is parsed on both sides: the format is
+    the union of both domains, and a Contest import that silently dropped it on
+    the floor is exactly how the policy went missing on an Arena round trip.
+
+    Returns:
+        ArenaEditorialReleasePolicy | None: The declared policy, or ``None`` when
+        the package declares no editorial or omits the key.
+
+    Raises:
+        PackageError: On a mistyped or unknown value. A recognized key with an
+            invalid value is an error here, as it is everywhere else in this
+            parser -- only unrecognized *members* are ignored.
+    """
+    if not isinstance(value, dict):
+        return None
+    raw = value.get("release_policy")
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise PackageError(f"problem.json: editorial 'release_policy' must be a string; got {raw!r}.")
+    try:
+        return ArenaEditorialReleasePolicy(raw.strip())
+    except ValueError as exc:
+        known = ", ".join(repr(member.value) for member in ArenaEditorialReleasePolicy)
+        raise PackageError(
+            f"problem.json: unknown editorial 'release_policy' {raw!r}; expected one of {known}."
+        ) from exc
 
 
 def _absent_or(meta: Mapping[str, Any], key: str) -> Any:

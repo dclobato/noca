@@ -33,8 +33,8 @@
     width: 1%;
     min-width: 3rem;
     padding-right: 0.75rem;
-    border-right: 1px solid #dee2e6;
-    color: #6c757d;
+    border-right: 1px solid var(--noca-border);
+    color: var(--noca-on-surface-variant);
     text-align: right;
     vertical-align: top;
     user-select: none;

@@ -221,8 +221,19 @@ def _problem_json(
     return {
         "format_version": FORMAT_VERSION,
         "validator_type": metadata.validator_type.value,
+        # The release policy is nested here because it only means anything when
+        # an editorial exists. A domain with no such column writes it as null,
+        # like every other key it cannot store.
         "editorial": (
-            {"member": EDITORIAL_MD_MEMBER, "sha256": editorial_digest} if editorial_digest is not None else None
+            {
+                "member": EDITORIAL_MD_MEMBER,
+                "sha256": editorial_digest,
+                "release_policy": (
+                    metadata.editorial_release_policy.value if metadata.editorial_release_policy is not None else None
+                ),
+            }
+            if editorial_digest is not None
+            else None
         ),
         "title": metadata.title,
         "author": metadata.author,

@@ -1,5 +1,9 @@
 {% extends "_base.html" %}
 {% block title_suffix %}&mdash; {{ title }}{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet"
+          href="{{ request.url_for('static_vendor', path='katex.min.css') }}">
+{% endblock %}
 {% block content %}
     <div class="container py-5">
         <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
@@ -10,7 +14,7 @@
         </div>
         <div class="card shadow-sm">
             <div class="card-body">
-                <div id="legal-markdown-rendered"></div>
+                <div class="noca-markdown" data-noca-markdown="legal-markdown-src"></div>
                 <script id="legal-markdown-src" type="text/plain">{{ markdown_content | e }}</script>
             </div>
         </div>
@@ -21,6 +25,10 @@
             defer></script>
     <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
             defer></script>
-    <script src="{{ request.url_for('arena_static_js', path='render-legal-markdown.js') }}?v={{ app_version }}"
+    <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='auto-render.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='mermaid.tiny.min.js') }}"
             defer></script>
 {% endblock %}

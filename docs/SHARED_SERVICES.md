@@ -548,6 +548,39 @@ author did not ask for.
 
 ---
 
+## `problem_editor_header.py`
+
+Purpose: the chrome *both* problem-editor doors render -- the title row and the
+sticky action bar -- so that moving between the definition editor and the
+judgment-data editor does not move the title, resize the buttons or shift the
+page margins. The two doors used to draw their own headers, and an author
+switching between them saw a different page shape each time.
+
+`ProblemEditorHeaderView` is a frozen dataclass holding the title, subtitle, the
+`EditorAction` submitters, a Back link, trailing `EditorLink`s (the cross-link to
+the other door, a module extra such as Contest's "Test a solution", the
+problem-package download) and the read-only strategy badge. Both
+`ProblemDefinitionView` and `JudgmentShellView` carry one, and
+`_partials/problem_editor_header.html` is the only template that renders it.
+
+An action is a **submitter**, not a link, because both doors post. The definition
+editor submits the detached `#edit-form` its panes attach to; the judgment editor
+has no such form, so the partial renders its own from `state_form_url` and the
+buttons attach to that. `form_id` names whichever applies, so the partial does not
+branch on which door it is drawing.
+
+`publish_state_actions()` words the enable/disable pair once, because Arena offers
+that same choice from both doors and two templates would drift. Contest passes no
+actions from its judgment editor at all: it has no publication state to set there,
+and the bar simply holds the Back link and the trailing group.
+
+`EditorNotice` feeds one notice slot, rendered by the definition shell between the
+action bar and the pane strip -- the same place the judgment shell puts its
+read-only reason. A notice rendered *above* the title would push one door's chrome
+below the other's, which is the drift this module exists to remove.
+
+---
+
 ## `judgment_page_view.py`
 
 Purpose: the presentation contract for the *judgment-data* editor -- what judging
@@ -555,10 +588,12 @@ runs against. Test cases, the custom validator and sample interactions are pages
 rather than panes, because a problem can carry many large cases and every action
 on existing data posts immediately.
 
-- `JudgmentShellView` — the chrome each page renders inside: the problem label,
-  the read-only strategy badge, the page navigation, the consolidated
+- `JudgmentShellView` — the chrome each page renders inside: the shared
+  `ProblemEditorHeaderView`, the page navigation, the consolidated
   `JudgmentReadinessView`, and the links back to the definition editor and the
-  problem list. Modules can attach a permission-checked rejudge URL and safe
+  problem list. The shell also renders the active page's body itself, inside the
+  same bordered pane the definition editor's tab strip sits on, so the two doors
+  cannot end up with differently shaped content areas. Modules can attach a permission-checked rejudge URL and safe
   local return path to the readiness model; a module without that operation
   renders status and guidance without an action.
 - `build_judgment_readiness(...)` — derives `ready`, `pending`, or `incomplete`
@@ -1176,8 +1211,42 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
   include Flatpickr vendor assets.
 - `highlight-row.js`: highlights a list row/item matching the URL hash fragment
   after a CRUD redirect. Used by web and arena admin list pages.
-- `render-tc-explanation.js`: renders sample test-case explanations as Markdown
-  + KaTeX on problem-detail pages.
+- `noca-markdown.js`: **the single Markdown rendering pipeline for every NOCA
+  surface** -- problem statements (Web and Arena, page and print), sample
+  test-case explanations, Arena editorials, legal documents, AI reviews, and
+  class batch feedback. It runs, in order: `NocaMarkdownDirectives.prepareMarkdown()`
+  -> `marked.parse()` -> `DOMPurify.sanitize()` -> DOM injection -> Mermaid ->
+  KaTeX `renderMathInElement()` -> `NocaMarkdownDirectives.apply()`. Pages never
+  ship their own copy of that sequence; they bind declaratively and the module
+  renders every match on load:
+
+  ```html
+  <!-- external source: entity-escaped inside a text/plain script blob -->
+  <div class="noca-markdown" data-noca-markdown="statement-src"></div>
+  <script id="statement-src" type="text/plain">{{ value | e }}</script>
+
+  <!-- in place: the element already holds its own decoded source text -->
+  <div class="noca-markdown" data-noca-markdown>{{ value | e }}</div>
+  ```
+
+  The two modes differ only in entity handling: script-blob content is left
+  escaped by the HTML parser and is decoded before parsing, while text held
+  directly by an element is already decoded and must not be decoded twice. The
+  `noca-markdown` class is also the CSS hook -- `shared/static/css/common.css`
+  styles rendered Markdown through `:where(.noca-markdown, .editor-preview)`
+  alone, so a new surface gets table borders, cell padding, GFM column
+  alignment, and heading/table spacing by carrying the class rather than by
+  being added to a hand-maintained selector list. Every optional dependency is
+  feature-detected; a page missing Mermaid or KaTeX still renders Markdown, and
+  a page missing `marked` leaves its containers untouched rather than blanking
+  them. `window.NocaMarkdown` also exposes `toHtml()`, `enhance()`, `render()`,
+  and `renderAll()` for callers that own their own element -- which is how the
+  EasyMDE preview stays on this pipeline (see `problem-statement-editor-core.js`).
+
+  `_base.html` in both web and arena loads this module, so pages that extend it
+  need only the container markup plus the vendor libraries they use; the
+  standalone full-HTML pages (problem print views, the Arena editorial viewer)
+  include it themselves.
 - `problem-edit-unsaved-guard.js`: warns before leaving with unsaved changes --
   the definition editor's Save form, and each judgment page's typed-rows form,
   which is the only state on those pages the server has not already seen.
@@ -1224,7 +1293,10 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
 - `markdown-directives.js`: applies NOCA's one-line Markdown directives to rendered
   Markdown and EasyMDE previews, converting supported directives into presentation
   classes and removing the directive paragraph; unsupported or misplaced directives
-  remain visible so authors can correct them.
+  remain visible so authors can correct them. It also owns `prepareMarkdown()`,
+  the pre-parse pass `noca-markdown.js` runs first. Directives are recognized
+  inside `.noca-markdown` and `.editor-preview` containers -- the same hook the
+  renderer and the shared CSS use, so the three cannot drift apart.
 - `print-page.js`: binds any `[data-print-page]` control to the browser's print
   dialog; used by the standalone print-friendly problem pages in web and arena.
 - `row-href.js`: makes list/table rows navigable through their row link, skipping

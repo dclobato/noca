@@ -11,8 +11,7 @@
 {% block title_suffix %}— Problem #{{ problem.arena_number }} validator{% endblock %}
 {% block nav_admin_problems %}active{% endblock %}
 {% block content %}
-    {% include "_partials/judgment_shell.html" %}
-    {% include "_partials/judgment_validator_page.html" %}
+    <div class="container-fluid px-3 py-3">{% include "_partials/judgment_shell.html" %}</div>
 {% endblock %}
 {% block extra_script %}
     <script src="{{ request.url_for("static_shared_js", path="judgment-actions.js") }}?v={{ app_version }}"></script>

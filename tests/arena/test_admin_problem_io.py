@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import tempfile
@@ -22,9 +23,14 @@ from arena.config import settings as arena_settings
 from arena.models.arena_problems import ArenaCategory, ArenaProblemCustomValidator
 from arena.models.arena_users import ArenaUser
 from arena.services import admin_problem_io_service, admin_problem_service, admin_problem_tc_service
-from shared.enumerations import ArenaRole, CustomValidatorCandidateState, StatementLanguage
+from shared.enumerations import (
+    ArenaEditorialReleasePolicy,
+    ArenaRole,
+    CustomValidatorCandidateState,
+    StatementLanguage,
+)
 from shared.services.imageprocessing_service import ImageProcessingService
-from shared.services.problem_package import read_problem_package
+from shared.services.problem_package import PackageError, read_problem_package
 from shared.services.sample_problem_package import build_sample_problem_package as _write_sample_package
 from shared.services.testcase_files import get_testcase_path
 from web.models.language import Language
@@ -812,3 +818,117 @@ async def test_import_refuses_a_validator_whose_language_is_not_active(session: 
             image_service=ImageProcessingService(),
             testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
         )
+
+
+# ── Editorial release policy ──────────────────────────────────────────────────
+
+
+def _editorial_package(release_policy: str | None) -> bytes:
+    """Build a package carrying an editorial, optionally stating its policy."""
+    editorial = "# Editorial\n\nAdd the two values.\n"
+    declaration: dict[str, object] = {
+        "member": "editorial.md",
+        "sha256": hashlib.sha256(editorial.encode("utf-8")).hexdigest(),
+    }
+    if release_policy is not None:
+        declaration["release_policy"] = release_policy
+    meta = dict(_VALID_META)
+    meta["editorial"] = declaration
+    return _build_raw_package(
+        {
+            "problem.json": json.dumps(meta),
+            "statement.md": "# X\n\nbody\n",
+            "editorial.md": editorial,
+            "in/001.in": "1\n",
+            "out/001.out": "1\n",
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_editorial_release_policy_survives_an_export_import_round_trip(session: AsyncSession) -> None:
+    """The regression: an exported policy must not silently revert to 'never'.
+
+    An editorial that imports as ``never`` is invisible to participants, so
+    losing the policy quietly undoes the author's decision on the other install.
+    """
+    author = await _make_author(session)
+    created = (
+        await _import_zip(
+            session,
+            zip_bytes=_editorial_package("after_ac"),
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
+    assert created.editorial_release_policy is ArenaEditorialReleasePolicy.AFTER_AC
+
+    problem = await admin_problem_service.get_problem(session, created.id, caller_id=author.id, is_admin=False)
+    assert problem is not None
+
+    exported = _export_zip(problem, author.nome, arena_settings.PROBLEM_TESTCASE_DIR)
+    meta = json.loads(zipfile.ZipFile(io.BytesIO(exported)).read("problem.json").decode("utf-8"))
+    assert meta["editorial"]["release_policy"] == "after_ac"
+
+    reimported = await _import_zip(
+        session,
+        zip_bytes=exported,
+        caller_id=author.id,
+        image_service=ImageProcessingService(),
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+    assert reimported.problem.editorial_release_policy is ArenaEditorialReleasePolicy.AFTER_AC
+
+
+@pytest.mark.asyncio
+async def test_a_package_without_a_release_policy_imports_as_never(session: AsyncSession) -> None:
+    """Packages written before the property existed keep their old behavior."""
+    author = await _make_author(session)
+
+    result = await _import_zip(
+        session,
+        zip_bytes=_editorial_package(None),
+        caller_id=author.id,
+        image_service=ImageProcessingService(),
+        testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+    )
+
+    assert result.problem.editorial is not None
+    assert result.problem.editorial_release_policy is ArenaEditorialReleasePolicy.NEVER
+
+
+@pytest.mark.asyncio
+async def test_import_refuses_an_unknown_release_policy(session: AsyncSession) -> None:
+    author = await _make_author(session)
+
+    with pytest.raises(PackageError, match="release_policy"):
+        await _import_zip(
+            session,
+            zip_bytes=_editorial_package("someday"),
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_problem_without_an_editorial_exports_a_null_editorial(session: AsyncSession) -> None:
+    """The policy is nested, so no editorial means no object to carry it."""
+    author = await _make_author(session)
+    created = (
+        await _import_zip(
+            session,
+            zip_bytes=_language_package("en"),
+            caller_id=author.id,
+            image_service=ImageProcessingService(),
+            testcase_dir=arena_settings.PROBLEM_TESTCASE_DIR,
+        )
+    ).problem
+    problem = await admin_problem_service.get_problem(session, created.id, caller_id=author.id, is_admin=False)
+    assert problem is not None
+
+    exported = _export_zip(problem, author.nome, arena_settings.PROBLEM_TESTCASE_DIR)
+    meta = json.loads(zipfile.ZipFile(io.BytesIO(exported)).read("problem.json").decode("utf-8"))
+
+    assert meta["editorial"] is None

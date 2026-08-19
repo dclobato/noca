@@ -30,6 +30,7 @@ from typing import Literal
 
 from shared.enumerations import ProblemValidatorType
 from shared.services.custom_validator import ValidatorStatusView
+from shared.services.problem_editor_header import ProblemEditorHeaderView
 from shared.services.problem_judgeability import ProblemJudgeabilityFacts, judgeability_error
 
 #: Canonical judgment page keys, in navigation order.
@@ -86,9 +87,8 @@ class JudgmentShellView:
     """Everything the judgment-data chrome needs, for either module.
 
     Attributes:
-        problem_label: How the problem is named in the header.
-        strategy_label: Human-readable validation strategy, shown read-only: a
-            strategy is chosen when the problem is created and never changes.
+        header: The chrome both editor doors share -- title, action bar, badge.
+        problem_label: How the problem is named in flash and modal copy.
         validator_type: The stored strategy itself, for the pages' own branching.
         is_interactive: Whether that strategy is interactive.
         is_edit_allowed: Whether mutations are offered at all. A Contest that has
@@ -101,8 +101,8 @@ class JudgmentShellView:
         problem_list_url: Back to the problem list.
     """
 
+    header: ProblemEditorHeaderView
     problem_label: str
-    strategy_label: str
     validator_type: ProblemValidatorType
     is_interactive: bool
     is_edit_allowed: bool

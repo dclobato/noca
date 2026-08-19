@@ -371,6 +371,58 @@ async def admin_problem_toggle_enabled(
     )
 
 
+@router.post("/problems/{problem_id}/set-enabled", name="arena_admin_problem_set_enabled")
+async def admin_problem_set_enabled(
+    request: Request,
+    problem_id: str,
+    flash: FlashDep,
+    save_action: str = Form(""),
+    next_url: str = Form(""),
+    current_user: ArenaUser = Depends(require_arena_problem_editor),
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    """Set a problem's publication state from the judgment-data editor.
+
+    The judgment pages carry the same publish-state submitters the definition
+    editor does, but they have no pending form to save: every other action there
+    posts on its own. So this names the *target* state instead of toggling, which
+    also keeps a double submit idempotent.
+
+    Args:
+        request: The active request.
+        problem_id: The problem being published or withdrawn.
+        flash: Flash-message sink.
+        save_action: The target state, ``enable`` or ``disable``.
+        next_url: Same-origin path to return to; falls back to the problem list.
+        current_user: The acting problem editor.
+        session: Open Arena session.
+
+    Returns:
+        Response: A redirect back to the page the author acted from.
+    """
+    problem = await get_problem_or_403(problem_id, current_user, session)
+    back_url = safe_next_path(next_url) or problem_list_url(request, anchor=problem.id)
+    if save_action not in {"enable", "disable"}:
+        flash("Choose Save and enable or Save and disable.", FlashCategory.DANGER)
+        return RedirectResponse(url=back_url, status_code=303)
+
+    enable = save_action == "enable"
+    if enable:
+        # Enabling makes the problem visible and submittable, so the shared
+        # judgeability contract applies to the target state rather than to the
+        # transition: a problem can lose its last test case while enabled.
+        gate_error = await problem_enablement_error(session, problem)
+        if gate_error is not None:
+            flash(f"Cannot enable this problem. {gate_error}", FlashCategory.DANGER)
+            return RedirectResponse(url=back_url, status_code=303)
+
+    problem.enabled = enable
+    await session.commit()
+    state = "enabled" if enable else "disabled"
+    flash(f"Problem #{problem.arena_number} {state}.", FlashCategory.SUCCESS)
+    return RedirectResponse(url=back_url, status_code=303)
+
+
 @router.post("/problems/{problem_id}/delete", name="arena_admin_problem_delete")
 async def admin_problem_delete(
     request: Request,

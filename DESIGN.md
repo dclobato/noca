@@ -22,6 +22,7 @@ colors:
   dark-on-surface: "#e2e8f0"
   presentation-hero-from: "#174f80"
   presentation-hero-to: "#101c36"
+  presentation-hero-glow: "#5ea8e0"
   on-presentation-hero: "#dbe9f6"
 typography:
   display:
@@ -207,6 +208,14 @@ Semantic colors communicate operational outcomes and required attention.
 - **Information cyan** (`#0891b2`) marks informational state without competing
   with the brand.
 
+Contest phase fills reuse that ramp rather than introducing hues of their own:
+`--noca-state-live` (brand), `--noca-state-frozen` (amber), and
+`--noca-state-silence` (red) colour the timeline and its legend. On the dark
+canvas a solid band of the operational hue reads muddy rather than as status,
+so those three tokens — and only those three — are re-pitched lighter for the
+dark theme. Components name the state token and never branch on theme
+themselves.
+
 ### Presentation
 
 One deep field exists for the public presentation surfaces, and only for them.
@@ -217,6 +226,10 @@ One deep field exists for the public presentation surfaces, and only for them.
   reads as an illuminated object rather than as ordinary dark chrome.
 - **Harbour light** (`#dbe9f6`) is its supporting text — a cool tint drawn from
   the field's own hue, never neutral gray on colored ground.
+- **Harbour glow** (`#5ea8e0`) is the field's single light source, applied as
+  one soft radial in the upper left so the panel reads as lit rather than as a
+  flat rectangle. It is drawn from the field's own hue, never white, and it
+  never appears as a fill, a border, or text.
 
 This ramp is fixed in both themes. A hero is a lit panel, not a themed surface,
 so it does not invert when the viewer switches to light.
@@ -319,8 +332,31 @@ and a clear reading order.
 
 Operational surfaces are flat by default. Tonal layering and one-pixel outlines
 establish most hierarchy. Standard cards use a sharp ambient shadow of
-`0 2px 2px rgb(0 0 0 / 5%)`; overlays and menus can use deeper shadows when
+`0 2px 2px` at the subtle tint; overlays and menus can use deeper shadows when
 they must detach from surrounding content.
+
+### Elevation tints
+
+NOCA's depth language is translucent black over the surface, never a palette
+hue. Because a shadow's colour is therefore not a palette entry, it is carried
+by three tints named for intent, not for opacity:
+
+- **Subtle** (`rgb(0 0 0 / 5%)`, `--noca-shadow-tint-subtle`) is the resting
+  card and any surface that is raised but not detached.
+- **Standard** (`rgb(0 0 0 / 12%)`, `--noca-shadow-tint`) is a hover lift or a
+  surface that has left the page plane.
+- **Strong** (`rgb(0 0 0 / 20%)`, `--noca-shadow-tint-strong`) is a detached
+  overlay, a floating control, or a presentation panel over a deep field.
+
+Geometry stays with the rule that uses the tint, because a compact admin card
+and a projector panel earn different offsets and blurs of the same colour. A
+shadow always carries both an offset and a soft blur; a zero-offset halo is
+decoration, not depth.
+
+Scrims are a separate axis. `--noca-scrim` (72%) and `--noca-scrim-strong`
+(80%) darken photographic ground so text stays legible on it. They are far
+darker than any elevation step because they buy contrast, not height, and must
+never be used to express depth.
 
 Presentation and public discovery surfaces may use broader ambient shadows and
 larger tonal fields. These effects are contextual amplification, not a new
@@ -328,6 +364,10 @@ visual identity, and must not migrate into dense administrative workflows.
 
 **The Flat-by-Default Rule.** Use depth to explain containment, interactivity,
 or presentation hierarchy. Never add shadow as decoration alone.
+
+**The Tint Rule.** A shadow's colour comes from the three tints above. A new
+opacity in a rule is drift; if a surface needs a depth the ramp cannot express,
+add a step here first.
 
 ## Shapes
 

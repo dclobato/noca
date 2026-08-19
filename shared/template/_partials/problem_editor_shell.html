@@ -5,8 +5,8 @@
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-  Sticky save bar and pane strip for the problem *definition* editor, shared by
-  both modules.
+  Chrome for the problem *definition* editor, shared by both modules: the common
+  header (`problem_editor_header.html`) plus this door's pane strip.
 
   Every pane stays mounted and every control attaches to the detached
   `#edit-form` by `form="edit-form"`, so Bootstrap only toggles visibility --
@@ -14,23 +14,34 @@
   panes are a handful of fields belonging to one transaction; judgment data is
   neither, and lives on its own pages behind the "Judgment data" link.
 
-  The strategy badge is deliberately read-only markup and never an input: a
-  problem's strategy is immutable after creation, so the editor offers no way to
-  change it.
-
   It also carries the "re-select these uploads" notice, because that is a property
   of the whole save rather than of any one pane, and the archive an author lost may
   belong to a tab they are not currently looking at.
 
   Required context:
-    view             shared.services.problem_definition_view.ProblemDefinitionView
-    save_label       text for the submit button
-    save_disabled    bool
-    save_state_actions
-                     bool; render explicit enable/disable submitters instead
-    cancel_label     text for the cancel/back link
+    view  shared.services.problem_definition_view.ProblemDefinitionView
 #}
 {% from "_macros.html" import render_icon with context %}
+{% with header = view.header %}
+    {% include "_partials/problem_editor_header.html" %}
+{% endwith %}
+{# One notice slot, in the same place on both doors: under the action bar, above
+   the pane strip. Anything rendered above the title would move the chrome of one
+   door relative to the other's, which is exactly the drift this shell removes. #}
+{% for error in errors | default([]) %}
+    <div class="alert alert-danger d-flex align-items-start gap-2"
+         role="alert">
+        {{ render_icon(icon="error", classes="flex-shrink-0 mt-1") }}
+        <div>{{ error }}</div>
+    </div>
+{% endfor %}
+{% for notice in view.notices %}
+    <div class="alert {{ notice.variant }} d-flex align-items-start gap-2"
+         role="alert">
+        {% if notice.icon %}{{ render_icon(icon=notice.icon, classes="flex-shrink-0 mt-1") }}{% endif %}
+        <div>{{ notice.text }}</div>
+    </div>
+{% endfor %}
 {# A browser cannot repopulate a file input, so a rejected save loses every
    archive that was attached. Naming them is the mitigation: the alternative is an
    author who saves again and silently ships without the upload. #}
@@ -45,46 +56,6 @@
     </div>
 {% endif %}
 {% set tab_labels = {"metadata": "Metadata", "statement": "Statement", "editorial": "Editorial", "limits": "Limits"} %}
-<div class="noca-problem-save-bar">
-    {% if save_state_actions | default(false) %}
-        <button type="submit"
-                class="btn btn-primary text-nowrap"
-                name="save_action"
-                value="enable"
-                form="edit-form"
-                {% if save_disabled %}disabled{% endif %}>
-            {{ render_icon(icon="visibility", classes="me-1") }}Save and enable
-        </button>
-        <button type="submit"
-                class="btn btn-outline-danger text-nowrap"
-                name="save_action"
-                value="disable"
-                form="edit-form"
-                {% if save_disabled %}disabled{% endif %}>
-            {{ render_icon(icon="visibility_off", classes="me-1") }}Save and disable
-        </button>
-    {% else %}
-        <button type="submit"
-                class="btn btn-primary"
-                form="edit-form"
-                {% if save_disabled %}disabled{% endif %}>
-            {{ render_icon(icon="check", classes="me-1") }}{{ save_label }}
-        </button>
-    {% endif %}
-    <a href="{{ view.cancel_url }}" class="btn btn-outline-secondary">{{ cancel_label | default("Cancel") }}</a>
-    <span class="noca-problem-save-bar-spacer"></span>
-    {% if view.judgment_url %}
-        {# The other door. Test cases, the validator and the sample interactions
-           are edited there, one immediate action at a time. #}
-        <a href="{{ view.judgment_url }}" class="btn btn-outline-secondary">
-            {{ render_icon(icon="rule", classes="me-1") }}Judgment data
-        </a>
-    {% endif %}
-    <span class="badge text-bg-secondary"
-          title="A problem's validation strategy is chosen once and cannot be changed.">
-        {{ render_icon(icon="lock", classes="me-1") }}{{ view.strategy_label }}
-    </span>
-</div>
 <ul class="nav nav-tabs mb-0 noca-tab-scroll"
     id="problem-edit-tabs"
     role="tablist"

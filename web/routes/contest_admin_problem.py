@@ -26,6 +26,7 @@ from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.models.problem import Problem
 from web.routes import contest_admin_problem_edit as _contest_admin_problem_edit
 from web.routes import contest_admin_problem_limits as _contest_admin_problem_limits
+from web.routes.contest_admin_problem_edit_render import editor_notices
 from web.routes.contest_admin_problem_helpers import (
     _html,
     _is_edit_allowed,
@@ -156,6 +157,8 @@ async def new_problem_form(
                     problem_id=None,
                     validator_type=strategy,
                     active_tab=tab or None,
+                    save_disabled=not _is_edit_allowed(ctx.contest) and not _is_limits_edit_allowed(ctx.contest),
+                    notices=editor_notices(ctx.contest, has_problem=False),
                 ),
                 "languages": languages,
                 "limits_map": {},
@@ -347,6 +350,8 @@ async def new_problem_submit(
                             errors,
                             active_tab,
                         ),
+                        save_disabled=(not _is_edit_allowed(ctx.contest) and not _is_limits_edit_allowed(ctx.contest)),
+                        notices=editor_notices(ctx.contest, has_problem=False),
                     ),
                     "languages": languages,
                     "limits_map": {},

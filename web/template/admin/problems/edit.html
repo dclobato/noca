@@ -56,56 +56,14 @@
 {% endblock %}
 {% block content %}
     <div class="container py-5">
-        <div class="mb-4">
-            <h1 class="h3 mb-1">
-                {% if problem %}
-                    Edit Problem
-                {% else %}
-                    New Problem
-                {% endif %}
-            </h1>
-            <p class="text-muted mb-0">{{ contest.contest_name }}</p>
-            {% if problem and current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value] %}
-                <a class="btn btn-secondary btn-sm mt-2"
-                   href="{{ request.url_for('contest_solution_tests', slug=contest.login_slug) }}?problem_id={{ problem.id }}">
-                    {{ render_icon(icon="science") }}
-                    Test a solution
-                </a>
-            {% endif %}
-        </div>
-        {% for err in errors %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endfor %}
-        {% if not is_edit_allowed %}
-            <div class="alert alert-warning py-2 small">
-                {{ render_icon(icon="lock", classes="me-1") }}
-                {% if contest.is_running %}
-                    Contest is running — only the Limits tab may be updated. Problem content and test cases stay locked.
-                {% elif contest.is_past %}
-                    Contest has ended — this problem cannot be edited.
-                {% elif not contest.active %}
-                    Contest is inactive — this problem cannot be edited.
-                {% else %}
-                    Problem editing is not allowed at this time.
-                {% endif %}
-            </div>
-        {% endif %}
-        {% if problem and is_edit_allowed and not is_remove_allowed %}
-            <div class="alert alert-info py-2 small">
-                {{ render_icon(icon="info", classes="me-1") }}
-                Note: this problem cannot be removed while the contest is running.
-            </div>
-        {% endif %}
         {% if problem %}<input type="hidden" id="problem-id-hint" value="{{ problem.id }}">{% endif %}
         <form id="edit-form"
               method="post"
               action="{{ view.save_url }}"
               enctype="multipart/form-data">
         </form>
-        {% with save_label = 'Save changes' if problem else 'Create problem',
-            save_disabled = not is_edit_allowed and not is_limits_edit_allowed,
-            cancel_label = 'Cancel' %}
-            {% include "_partials/problem_editor_shell.html" %}
-        {% endwith %}
-        <div class="tab-content border border-top-0 rounded-bottom p-4 mb-4">
+        {% include "_partials/problem_editor_shell.html" %}
+        <div class="tab-content border border-top-0 rounded-bottom p-3 mb-3">
             <div class="tab-pane fade {% if view.active_tab == 'metadata' %}show active{% endif %}"
                  id="tab-metadata"
                  role="tabpanel"
@@ -171,6 +129,10 @@
     <script src="{{ request.url_for('static_shared_js', path='problem-edit-validate.js') }}?v={{ app_version }}"
             defer></script>
     <script src="{{ request.url_for('static_vendor', path='easymde.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='marked.min.js') }}"
+            defer></script>
+    <script src="{{ request.url_for('static_vendor', path='purify.min.js') }}"
             defer></script>
     <script src="{{ request.url_for('static_vendor', path='katex.min.js') }}"
             defer></script>

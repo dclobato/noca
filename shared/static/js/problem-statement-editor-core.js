@@ -20,18 +20,19 @@
 (function () {
   'use strict';
 
-  function renderLatex(preview) {
-    if (!preview || typeof renderMathInElement !== 'function') return;
-    renderMathInElement(preview, {
-      delimiters: [
-        { left: '$$', right: '$$', display: true },
-        { left: '$',  right: '$',  display: false },
-        { left: '\\(', right: '\\)', display: false },
-        { left: '\\[', right: '\\]', display: true }
-      ],
-      throwOnError: false,
-      ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'svg']
-    });
+  /**
+   * Run the shared post-parse passes (Mermaid, KaTeX, directives) on a preview.
+   *
+   * EasyMDE owns the preview element and its Markdown parser, so the preview
+   * cannot be a `data-noca-markdown` container. Delegating the passes keeps it
+   * on the same pipeline as published Markdown instead of a private copy.
+   *
+   * @param {Element} preview EasyMDE preview element.
+   * @returns {void}
+   */
+  function enhancePreview(preview) {
+    if (!preview || !window.NocaMarkdown) return;
+    window.NocaMarkdown.enhance(preview);
   }
 
   function StatementEditor(mde, textarea, changeEventName) {
@@ -221,11 +222,17 @@
       tabSize: 4,
       autosave: { enabled: false },
       previewRender: function (plainText, preview) {
-        var markdown = window.NocaMarkdownDirectives
-          ? window.NocaMarkdownDirectives.prepareMarkdown(plainText)
-          : plainText;
-        var html = this.parent.markdown(markdown);
-        setTimeout(function () { renderLatex(preview); }, 0);
+        // Prefer the shared pipeline so the preview matches published output
+        // exactly. It needs Marked on the page; a form that has not loaded it
+        // falls back to EasyMDE's bundled parser rather than previewing blank.
+        var html = window.NocaMarkdown && typeof marked !== 'undefined'
+          ? window.NocaMarkdown.toHtml(plainText)
+          : this.parent.markdown(
+            window.NocaMarkdownDirectives
+              ? window.NocaMarkdownDirectives.prepareMarkdown(plainText)
+              : plainText
+          );
+        setTimeout(function () { enhancePreview(preview); }, 0);
         return html;
       }
     });
@@ -253,10 +260,11 @@
     return editor;
   }
 
+  // `renderLatex` is intentionally not exported: post-parse passes now belong to
+  // the shared pipeline, so callers use `window.NocaMarkdown.enhance()` instead.
   window.NocaStatementEditor = {
     create: create,
     insertTable: insertTable,
-    insertParagraphAlignment: insertParagraphAlignment,
-    renderLatex: renderLatex
+    insertParagraphAlignment: insertParagraphAlignment
   };
 })();

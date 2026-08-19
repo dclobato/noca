@@ -32,6 +32,7 @@ from shared.services.judgment_page_view import (
     build_judgment_readiness,
 )
 from shared.services.problem_definition_view import label_for_strategy
+from shared.services.problem_editor_header import EditorLink, ProblemEditorHeaderView
 from shared.services.problem_judgeability import ProblemJudgeabilityFacts
 from shared.services.sample_interactions import MAX_SAMPLE_INTERACTIONS
 from web.config import settings
@@ -40,6 +41,7 @@ from web.models.problem import Problem
 from web.models.submission import Submission
 from web.routes.contest_admin_problem_helpers import (
     _is_edit_allowed,
+    _label,
     _read_testcase_preview_for,
     build_testcase_row_views,
 )
@@ -145,9 +147,21 @@ def _build_shell(
             badges["validator"] = "none yet"
         if interaction_count == 0:
             badges["interactions"] = "none yet"
+    problem_label = f"{_label(problem.ordinal)}. {problem.title}"
+    definition_url = str(request.url_for("edit_problem_form", slug=slug, problem_id=problem.id))
     return JudgmentShellView(
-        problem_label=f"{problem.label}. {problem.title}" if hasattr(problem, "label") else problem.title,
-        strategy_label=label_for_strategy(problem.validator_type),
+        header=ProblemEditorHeaderView(
+            title="Judgment data",
+            # Contest has no publication state to set from here, so the bar holds
+            # the same Back link and trailing group and simply no submitters.
+            form_id="",
+            subtitle=problem_label,
+            icon="rule",
+            back_url=str(request.url_for("manage_problems", slug=slug)),
+            links=(EditorLink(label="Problem definition", url=definition_url, icon="edit"),),
+            strategy_label=label_for_strategy(problem.validator_type),
+        ),
+        problem_label=problem_label,
         validator_type=problem.validator_type,
         is_interactive=problem.validator_type is ProblemValidatorType.INTERACTIVE,
         is_edit_allowed=_is_edit_allowed(ctx.contest),
@@ -163,7 +177,7 @@ def _build_shell(
             validator_status=validator_status,
             has_submissions=has_submissions,
         ),
-        definition_url=str(request.url_for("edit_problem_form", slug=slug, problem_id=problem.id)),
+        definition_url=definition_url,
         problem_list_url=str(request.url_for("manage_problems", slug=slug)),
     )
 

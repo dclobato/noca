@@ -4,6 +4,26 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [17.2.1] - 2026-08-19
+
+### Bug Fixes
+
+- **ci:** Skip CI workflow on version tag pushes
+- **arena:** Render LaTeX equations on problem editorial viewer
+- **arena:** Remove stale not-enforced note on editorial release policy
+- **arena:** Carry the editorial release policy through problem packages
+- **ci:** Restore CI on branch pushes
+
+### Refactoring
+
+- **shared:** Unify all Markdown and LaTeX rendering into one pipeline
+
+### Documentation
+
+- **backlog:** Record the `table-caption` Markdown directive idea
+
+
+
 ## [17.2.0] - 2026-08-18
 
 ### Features

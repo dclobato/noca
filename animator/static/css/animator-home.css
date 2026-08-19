@@ -68,7 +68,7 @@
     border: 1px solid rgb(255 255 255 / 16%);
     border-radius: var(--noca-radius-presentation);
     background: linear-gradient(145deg, var(--noca-presentation-hero-from) 0%, var(--noca-presentation-hero-to) 100%);
-    box-shadow: 0 1.5rem 4rem rgb(0 0 0 / 18%);
+    box-shadow: 0 1.5rem 4rem var(--noca-shadow-tint-strong);
     color: white;
 }
 
@@ -150,7 +150,7 @@
     border: 1px solid var(--noca-outline-variant);
     border-radius: var(--noca-radius-presentation);
     background: var(--noca-surface-container-low);
-    box-shadow: 0 0.7rem 2rem rgb(0 0 0 / 7%);
+    box-shadow: 0 0.7rem 2rem var(--noca-shadow-tint-subtle);
     color: var(--noca-on-surface);
     text-decoration: none;
     transition:
@@ -178,7 +178,7 @@
 .animator-home-card:hover,
 .animator-home-card:focus-visible {
     border-color: rgb(var(--bs-primary-rgb) / 55%);
-    box-shadow: 0 1.2rem 2.8rem rgb(0 0 0 / 13%);
+    box-shadow: 0 1.2rem 2.8rem var(--noca-shadow-tint);
     color: var(--noca-on-surface);
     transform: translateY(-0.25rem);
 }
