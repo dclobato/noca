@@ -76,14 +76,23 @@ The web module is a server-rendered FastAPI application with these main layers:
   `pyproject.toml`). They are served at `/static/vendor/img/flags/{code}.svg` by
   the `static_vendor` mount in the arena app.
 - The `/static/css` and `/static/js` mounts (both the app-specific and
-  `shared-*` variants, in both web and arena) use
-  `shared.static_files.ShortCacheStaticFiles` instead of plain `StaticFiles`,
-  stamping every response with `Cache-Control: public, max-age=300`. The
-  top-level bundles (`contest.css`, `arena.css`) are requested with a
-  `?v={app_version}` cache-busting query, but the CSS files they pull in via
-  `@import` (and the shared JS files referenced from templates) are not
-  individually versioned, so without a short max-age a CDN/browser could keep
-  serving a pre-deploy sub-file for hours after a release.
+  `shared-*` variants, in web, arena, animator, and healthmonitor) use
+  `shared.static_files.RevalidatedStaticFiles` instead of plain `StaticFiles`,
+  stamping every response with `Cache-Control: no-cache`. The top-level bundles
+  (`contest.css`, `arena.css`) are requested with a `?v={app_version}`
+  cache-busting query, but the CSS files they pull in via `@import` -- 40-odd of
+  them, including the `common.css` that owns the rendered-Markdown rules -- and
+  the shared JS files referenced from templates are not individually versioned.
+  A browser therefore refetches the top-level bundle, sees the same import URLs,
+  and reuses whatever it already had underneath. `no-cache` requires it to
+  revalidate first; `StaticFiles` answers an unchanged file with a bodiless
+  `304`, so the cost is a header exchange rather than a transfer. This replaced
+  a bounded `max-age=300`, which still left a five-minute window in which a
+  deployed page rendered against the previous release's stylesheet -- the
+  failure looks like table borders and heading gaps disappearing after an
+  upgrade. `no-cache` is not `no-store`: caching is allowed, checking first is
+  mandatory. `tests/shared/test_static_files_cache.py` pins both the directive
+  and the `304`.
 
 It owns:
 
@@ -310,6 +319,8 @@ The arena module is a second FastAPI server (default port 8001) that owns the pu
   `web/config.py`); omits contest-admin and judge-queue settings; Arena uses
   `NOCA_ARENA_APP_NAME` (default `"noca-arena"`) as its JWT issuer
 - `database.py`: SQLAlchemy async engine and session factory; `ArenaBase` shares `shared_metadata` so Alembic manages all tables in one migration history
+- `healthcheck.py`: container healthcheck entrypoint that probes the local
+  `/health` endpoint over loopback on `NOCA_ARENA_PORT`
 
 **Models (`arena/models/`)**:
 - `arena_users.py`: `ArenaUser`, `ArenaBackup2FA`, `ArenaLoginHistory` ORM models with password hashing, photo helpers, age calculation, and TOTP support
@@ -343,9 +354,13 @@ duplicate set of cycles writing the same `arena_*_rating*` tables.
   chain, importing the pure rate functions from `shared/services/arena_rating.py`
 - `worker.py`: `main` / `run_rating_worker` — boots the engine + `ValkeyRuntime`,
   installs SIGTERM/SIGINT handlers, and runs the three chained rating loops,
-  independent problem-stat and user-stat loops, the badge-assignment loop, and
-  the worker-presence loop together before graceful shutdown (console script
-  `noca-rating`)
+  independent problem-stat and user-stat loops, the badge-assignment loop, the
+  heartbeat-file loop, and the worker-presence loop together before graceful
+  shutdown (console script `noca-rating`)
+- `healthcheck.py`: container healthcheck entrypoint for heartbeat freshness
+  (`NOCA_RATING_HEARTBEAT_*`); the worker has no HTTP surface, so the Compose
+  probe reads the container-local heartbeat file rather than Valkey presence,
+  whose key is namespaced by a worker ID the probe process cannot reconstruct
 
 The worker publishes scheduler metadata to Valkey: the next scheduled cycle
 timestamp at `arena:rating:next_update` (ISO8601, absent while a cycle is
@@ -374,8 +389,10 @@ process and uses only shared infrastructure boundaries.
   shared schema
 - `worker.py`: `main` / `run_ai_worker` entrypoint for `noca-aiassistant`; runs
   the dequeue loop, stale-job reaper, batch flusher, OpenAI batch poller,
-  reconciler, and worker-presence loop together, plus the optional signed
-  command loop
+  reconciler, heartbeat-file loop, and worker-presence loop together, plus the
+  optional signed command loop
+- `healthcheck.py`: container healthcheck entrypoint for heartbeat freshness
+  (`NOCA_AI_HEARTBEAT_*`), on the same rationale as the rating worker's
 - `reconciler.py`: database-driven safety net that re-enqueues AI review jobs
   lost between the request route's PostgreSQL commit and its Valkey enqueue
 - `reviewer.py`: online OpenAI Responses API path used when the Arena user has

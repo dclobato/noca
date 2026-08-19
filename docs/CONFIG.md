@@ -486,6 +486,9 @@ keys for display.
 | `NOCA_RATING_WORKER_ID` | *(empty)* | Stable identity shown on the Arena admin dashboard. Defaults to `<fqdn>:<pid>` when empty. |
 | `NOCA_RATING_PRESENCE_INTERVAL_SECONDS` | `30` | Seconds between worker-presence updates in Valkey (1–300 s). |
 | `NOCA_RATING_PRESENCE_TTL_SECONDS` | `60` | TTL for the live worker marker (2–3600 s). Must exceed `NOCA_RATING_PRESENCE_INTERVAL_SECONDS`. |
+| `NOCA_RATING_HEARTBEAT_FILE` | `/tmp/rating-heartbeat` | Absolute path to the heartbeat file refreshed by the worker process. The Compose healthcheck reads this same path. |
+| `NOCA_RATING_HEARTBEAT_INTERVAL_SECONDS` | `10` | How often the worker refreshes the heartbeat file in seconds (1–300 s). |
+| `NOCA_RATING_HEARTBEAT_STALE_SECONDS` | `30` | Maximum allowed age of the heartbeat file before the container is considered unhealthy. Must be greater than `NOCA_RATING_HEARTBEAT_INTERVAL_SECONDS` (2–3600 s). |
 
 ---
 
@@ -527,6 +530,9 @@ in `_ai_review_cost` as integer microdollars.
 | `NOCA_AI_WORKER_ID` | *(empty)* | Stable identity shown on the Arena admin dashboard. Defaults to `<fqdn>:<pid>` when empty. |
 | `NOCA_AI_PRESENCE_INTERVAL_SECONDS` | `30` | Seconds between worker-presence updates in Valkey (1–300 s). |
 | `NOCA_AI_PRESENCE_TTL_SECONDS` | `60` | TTL for the live worker marker (2–3600 s). Must exceed `NOCA_AI_PRESENCE_INTERVAL_SECONDS`. |
+| `NOCA_AI_HEARTBEAT_FILE` | `/tmp/aiassistant-heartbeat` | Absolute path to the heartbeat file refreshed by the worker process. The Compose healthcheck reads this same path. |
+| `NOCA_AI_HEARTBEAT_INTERVAL_SECONDS` | `10` | How often the worker refreshes the heartbeat file in seconds (1–300 s). |
+| `NOCA_AI_HEARTBEAT_STALE_SECONDS` | `30` | Maximum allowed age of the heartbeat file before the container is considered unhealthy. Must be greater than `NOCA_AI_HEARTBEAT_INTERVAL_SECONDS` (2–3600 s). |
 | `NOCA_AI_WORKER_COMMAND_POLL_SECONDS` | `3.0` | Seconds between Valkey command-key polls (0.5–60 s). PostgreSQL pause state is also reconciled at startup, for each verified command, and every 60 seconds as a fallback. |
 | `NOCA_AI_WORKER_COMMAND_FRESHNESS_SECONDS` | `30.0` | Symmetric freshness window for accepting a signed command (1–300 s). |
 | `NOCA_AI_WORKER_COMMAND_NONCE_TTL_SECONDS` | `60` | TTL for the single-use command nonce (2–3600 s). Must exceed `NOCA_AI_WORKER_COMMAND_FRESHNESS_SECONDS`. |
@@ -752,6 +758,26 @@ Operational notes:
 - If `NOCA_JUDGE_IMAGE_PULL_POLICY=never` and the canonical images are not already present locally, the subsequent preflight still fails fast with the missing image list.
 
 ---
+
+## Backlog index generator (development only)
+
+Credentials for `scripts/generate_backlog_index.py`, which regenerates
+`docs/BACKLOG.md` from the Gitea issues labelled `backlog`. They are read by
+that script alone -- no application config class touches them, so they never
+affect a deployed instance.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `GITEA_TOKEN` | *(unset)* | Gitea personal access token. **Required**: the repository is private, so the issues API refuses anonymous reads. Read-only (`read:issue`) is sufficient -- the generator only issues GETs. |
+| `GITEA_URL` | `https://git.lobato.org:10880` | Instance base URL, when the repository is not on the default host. |
+
+The Gitea issues are the authoritative text of every backlog contract, and
+`docs/BACKLOG.md` is derived from them; see the header of that file. Amend the
+issue, then regenerate. `--check` re-renders and exits non-zero when the
+committed index no longer matches the issues, which is the form to run in CI.
+
+Put the token in `.env` (gitignored), never in `.env.full` or any other
+committed file.
 
 ## Browser UI checks (development only)
 

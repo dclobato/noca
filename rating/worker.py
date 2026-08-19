@@ -24,6 +24,7 @@ import logging
 import signal
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from typing import Any
 
 from rating.config import settings
@@ -54,6 +55,7 @@ from shared.services.valkey_service import (
     resolve_worker_id,
     worker_presence_loop,
 )
+from shared.services.worker_heartbeat import heartbeat_loop, remove_heartbeat, touch_heartbeat
 
 try:
     APP_VERSION = version("noca-rating")
@@ -164,6 +166,10 @@ async def run_rating_worker() -> None:
         settings.AFFILIATION_RATING_FACTOR,
     )
 
+    heartbeat_file = Path(settings.RATING_HEARTBEAT_FILE)
+    touch_heartbeat(heartbeat_file)
+    logger.info("- Heartbeat file: %s", heartbeat_file)
+
     stop_event = asyncio.Event()
     problem_done = asyncio.Event()
     user_done = asyncio.Event()
@@ -243,6 +249,11 @@ async def run_rating_worker() -> None:
                 reconcile_interval_seconds=settings.BADGE_RECONCILE_INTERVAL,
                 run_immediately=settings.COMPUTE_RATINGS_ON_STARTUP,
             ),
+            heartbeat_loop(
+                heartbeat_file,
+                interval_seconds=settings.RATING_HEARTBEAT_INTERVAL_SECONDS,
+                stop_event=stop_event,
+            ),
             worker_presence_loop(
                 valkey_runtime,
                 worker_class=WorkerClass.RATING,
@@ -255,6 +266,7 @@ async def run_rating_worker() -> None:
         )
     finally:
         logger.info("*" * 80)
+        remove_heartbeat(heartbeat_file)
         if pending_tasks:
             await asyncio.gather(*pending_tasks, return_exceptions=True)
         await valkey_runtime.delete(NEXT_RATING_UPDATE_KEY)

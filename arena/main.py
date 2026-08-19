@@ -135,7 +135,7 @@ from shared.services.valkey_service import (
     resolve_worker_id,
     worker_presence_loop,
 )
-from shared.static_files import ShortCacheStaticFiles
+from shared.static_files import RevalidatedStaticFiles
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
 from shared.timing import format_compact_duration
 
@@ -651,25 +651,25 @@ app.add_middleware(
 
 app.mount(
     "/static/css",
-    ShortCacheStaticFiles(directory=_ARENA_DIR / "static" / "css"),
+    RevalidatedStaticFiles(directory=_ARENA_DIR / "static" / "css"),
     name="arena_static_css",
 )
 
 app.mount(
     "/static/shared-css",
-    ShortCacheStaticFiles(directory=_SHARED_DIR / "static" / "css"),
+    RevalidatedStaticFiles(directory=_SHARED_DIR / "static" / "css"),
     name="static_shared_css",
 )
 
 app.mount(
     "/static/js",
-    ShortCacheStaticFiles(directory=_ARENA_DIR / "static" / "js"),
+    RevalidatedStaticFiles(directory=_ARENA_DIR / "static" / "js"),
     name="arena_static_js",
 )
 
 app.mount(
     "/static/shared-js",
-    ShortCacheStaticFiles(directory=_SHARED_DIR / "static" / "js"),
+    RevalidatedStaticFiles(directory=_SHARED_DIR / "static" / "js"),
     name="static_shared_js",
 )
 

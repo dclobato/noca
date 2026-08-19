@@ -519,7 +519,8 @@ The repository's implementation conventions are documented in
 [AGENTS.md](AGENTS.md), the detailed architecture is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and accepted-but-unimplemented
 work is tracked in [ROADMAP.md](ROADMAP.md), which links into
-[docs/BACKLOG.md](docs/BACKLOG.md) for full contract detail.
+[docs/BACKLOG.md](docs/BACKLOG.md) -- a generated index of the Gitea issues
+that hold each full contract.
 
 ## Code quality
 

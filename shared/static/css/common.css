@@ -388,19 +388,28 @@ code:not(pre code) {
     font-weight: 600;
 }
 
+/* Bootstrap gives `.table-responsive` only `overflow-x: auto`, and CSS then
+   computes the other axis from `visible` to `auto`: an element cannot scroll on
+   one axis and overflow visibly on the other. A table whose height lands on a
+   fraction (2419.875px) reports a scroll height one pixel taller than its client
+   height, so every such wrapper earned a full-height vertical scrollbar with one
+   pixel of travel -- visible on the Arena ranking pages, and on any other list
+   whose rows happen to sum to a fractional height.
+
+   Nothing here scrolls a `.table-responsive` vertically: the one table that
+   scrolls on both axes (the class full-report matrix) owns a separate wrapper
+   class precisely so its sticky header has a scrolling ancestor. So state the
+   intended axis instead of leaving it to be derived. Menus that must escape the
+   wrapper use Popper's `fixed` strategy rather than relying on this box. */
+.table-responsive {
+    overflow-y: hidden;
+}
+
 @media (max-width: 575.98px) {
     .noca-judgment-readiness-followup {
         width: 100%;
         align-items: flex-start;
         justify-content: space-between;
-    }
-
-    /* A positioned Bootstrap menu is clipped by the table's responsive overflow.
-       Let it join row flow on narrow screens so every action remains reachable. */
-    .noca-row-actions .dropdown-menu.show {
-        position: static !important;
-        transform: none !important;
-        margin-top: 0.25rem !important;
     }
 }
 

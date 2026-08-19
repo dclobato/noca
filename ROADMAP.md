@@ -2,9 +2,9 @@
 
 This document gives a high-level, module-by-module summary of accepted but
 not-yet-implemented work across NOCA. It is a reading guide, not the source of
-truth: every item links to its full contract, remaining scope, and status in
-[docs/BACKLOG.md](docs/BACKLOG.md), which you must consult before starting
-implementation work.
+truth: every item is indexed in [docs/BACKLOG.md](docs/BACKLOG.md), which links
+to the Gitea issue holding its full contract, remaining scope, and status. You
+must consult that issue before starting implementation work.
 
 ## Autojudge
 

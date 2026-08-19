@@ -37,7 +37,7 @@ from shared.enumerations import Environment
 from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
 from shared.services.startup_wait import wait_for_valkey
 from shared.services.valkey_service import ValkeyRuntime
-from shared.static_files import ShortCacheStaticFiles
+from shared.static_files import RevalidatedStaticFiles
 
 try:
     APP_VERSION = version("noca-healthmonitor")
@@ -155,25 +155,25 @@ app.add_middleware(
 
 app.mount(
     "/static/css",
-    ShortCacheStaticFiles(directory=_HEALTHMON_DIR / "static" / "css"),
+    RevalidatedStaticFiles(directory=_HEALTHMON_DIR / "static" / "css"),
     name="healthmon_static_css",
 )
 
 app.mount(
     "/static/shared-css",
-    ShortCacheStaticFiles(directory=_SHARED_DIR / "static" / "css"),
+    RevalidatedStaticFiles(directory=_SHARED_DIR / "static" / "css"),
     name="static_shared_css",
 )
 
 app.mount(
     "/static/js",
-    ShortCacheStaticFiles(directory=_HEALTHMON_DIR / "static" / "js"),
+    RevalidatedStaticFiles(directory=_HEALTHMON_DIR / "static" / "js"),
     name="healthmon_static_js",
 )
 
 app.mount(
     "/static/shared-js",
-    ShortCacheStaticFiles(directory=_SHARED_DIR / "static" / "js"),
+    RevalidatedStaticFiles(directory=_SHARED_DIR / "static" / "js"),
     name="static_shared_js",
 )
 

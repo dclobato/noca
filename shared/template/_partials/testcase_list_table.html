@@ -103,9 +103,16 @@
                                         {{ 'Edit' if is_edit_allowed else 'View' }}
                                     </a>
                                     <div class="dropdown">
+                                        {# The row lives inside `.table-responsive`, which is a scroll
+                                           container, and an absolutely positioned menu cannot escape one:
+                                           with a single test case the wrapper is shorter than the menu, so
+                                           opening it produced scroll instead of a menu. Popper's `fixed`
+                                           strategy positions the menu against the viewport, which an
+                                           ancestor's overflow does not clip. #}
                                         <button type="button"
                                                 class="btn btn-outline-secondary btn-sm dropdown-toggle text-nowrap"
                                                 data-bs-toggle="dropdown"
+                                                data-bs-config='{"popperConfig":{"strategy":"fixed"}}'
                                                 aria-expanded="false"
                                                 aria-label="More actions for test case {{ tc.ordinal }}">
                                             {{ render_icon(icon="more_horiz", classes="me-1") }}More

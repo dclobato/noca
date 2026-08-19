@@ -7,6 +7,8 @@
 - `uv run pytest`: run tests (full suite); use `uv run pytest tests/<module>` for one module's slice
 - `uv run pytest -n auto`: run tests in parallel via pytest-xdist (one Valkey logical DB per worker; supports up to 14 workers)
 - `uv run mypy web shared autojudge arena rating aiassistant healthmonitor animator`: type check
+  (`uv run mypy .` now covers the same surface: `tests/`, `scripts/`, `sample_question/` and
+  `migrations/` are excluded in `pyproject.toml`, so a crawl cannot disagree with CI)
 - `uv run python scripts/fetch_assets.py`: after fresh install, fetch shared web/arena assets
 - `uv run noca-web`: run web server
 - `uv run noca-arena`: run arena server
@@ -16,6 +18,9 @@
 - `uv run noca-healthmonitor`: run the health monitor server
 - `uv run noca-animator`: run the animator presentation server
 - `uv run djlint web/template --reformat`: format HTML templates
+- `uv run python scripts/generate_backlog_index.py`: regenerate `docs/BACKLOG.md`
+  from the Gitea issues labelled `backlog` (needs `GITEA_TOKEN`; `--check` verifies
+  the committed index is current)
 
 NOTE: The full test suite takes over 14 minutes serially, so keep the timeout above this value
 for `uv run pytest`; `uv run pytest -n auto` (pytest-xdist) finishes in around 5 minutes but

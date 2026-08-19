@@ -4,6 +4,25 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [17.3.0] - 2026-08-19
+
+### Features
+
+- **docker:** Add healthchecks for arena, rating, and aiassistant
+
+### Bug Fixes
+
+- **tooling:** Make `mypy .` check the project's typed surface
+- **static:** Revalidate CSS and JS instead of caching them for five minutes
+- **tables:** Stop responsive table wrappers from scrolling vertically
+- **scripts:** Skip Markdown headings when summarising backlog issues
+
+### Documentation
+
+- **changelog:** Give UI work its own changelog section
+
+
+
 ## [17.2.1] - 2026-08-19
 
 ### Bug Fixes
@@ -14,6 +33,12 @@ e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 - **arena:** Carry the editorial release policy through problem packages
 - **ci:** Restore CI on branch pushes
 
+### UI & Design
+
+- **design-system:** Tokenize every hardcoded color outside the palette
+- **design-system:** Add a shared spacing scale and widen Markdown block gaps
+- **problem-editor:** Give both editor doors one shared header and shape
+
 ### Refactoring
 
 - **shared:** Unify all Markdown and LaTeX rendering into one pipeline
@@ -21,8 +46,6 @@ e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 ### Documentation
 
 - **backlog:** Record the `table-caption` Markdown directive idea
-
-
 
 ## [17.2.0] - 2026-08-18
 

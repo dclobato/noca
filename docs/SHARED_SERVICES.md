@@ -1562,6 +1562,37 @@ Notes:
 
 ---
 
+## `worker_heartbeat.py`
+
+Purpose:
+- container-local liveness signal for the queue-consuming workers, which have no HTTP
+  surface a Docker healthcheck could probe
+- read by each worker's `healthcheck.py` module, which is what the Compose healthcheck runs
+
+Canonical location:
+- `shared/services/worker_heartbeat.py`
+
+Main entrypoints:
+- `touch_heartbeat(path) -> None` — creates missing parents and refreshes the mtime
+- `remove_heartbeat(path) -> None` — deletes it, tolerating an absent file or denied unlink
+- `heartbeat_is_fresh(path, *, max_age_seconds, now=None) -> bool` — the probe itself
+- `heartbeat_loop(path, *, interval_seconds, stop_event) -> None` — writes once immediately,
+  then on the interval until shutdown
+
+Notes:
+- the Valkey worker-presence record cannot serve as the healthcheck: it is namespaced by
+  worker ID, and a worker with no configured `NOCA_*_WORKER_ID` derives its ID from
+  `<fqdn>:<pid>` — a value the separate healthcheck process cannot reconstruct. The file is
+  local to the container, so the probe stays independent of Valkey, of PostgreSQL, and of
+  the worker's identity
+- a filesystem error is reported as stale rather than raised: a healthcheck that cannot read
+  the heartbeat has not observed a healthy worker
+- used by `rating` (`NOCA_RATING_HEARTBEAT_*`) and `aiassistant` (`NOCA_AI_HEARTBEAT_*`);
+  the autojudge predates it and keeps its own equivalent in `autojudge/heartbeat.py`
+  (`NOCA_JUDGE_HEARTBEAT_*`)
+
+---
+
 ## `email_service.py`
 
 Purpose:

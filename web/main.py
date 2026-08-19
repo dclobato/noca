@@ -59,7 +59,7 @@ from shared.services.valkey_service import (
     worker_presence_loop,
 )
 from shared.signal_names import describe_signal, signal_name
-from shared.static_files import ShortCacheStaticFiles
+from shared.static_files import RevalidatedStaticFiles
 from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
 from web.config import settings
 from web.database import create_engine, create_session_factory
@@ -500,16 +500,16 @@ app.add_middleware(
     ),
 )
 
-app.mount("/static/js", ShortCacheStaticFiles(directory=_WEB_DIR / "static" / "js"), name="static_js")
+app.mount("/static/js", RevalidatedStaticFiles(directory=_WEB_DIR / "static" / "js"), name="static_js")
 app.mount(
     "/static/shared-js",
-    ShortCacheStaticFiles(directory=_SHARED_DIR / "static" / "js"),
+    RevalidatedStaticFiles(directory=_SHARED_DIR / "static" / "js"),
     name="static_shared_js",
 )
-app.mount("/static/css", ShortCacheStaticFiles(directory=_WEB_DIR / "static" / "css"), name="static_css")
+app.mount("/static/css", RevalidatedStaticFiles(directory=_WEB_DIR / "static" / "css"), name="static_css")
 app.mount(
     "/static/shared-css",
-    ShortCacheStaticFiles(directory=_SHARED_DIR / "static" / "css"),
+    RevalidatedStaticFiles(directory=_SHARED_DIR / "static" / "css"),
     name="static_shared_css",
 )
 app.mount("/static/img", StaticFiles(directory=_WEB_DIR / "static" / "img"), name="static_img")

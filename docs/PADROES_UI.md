@@ -714,6 +714,14 @@ Regras de UX das páginas de julgamento:
 - Em cada caso de teste, **Edit** permanece visível. Download, substituição, troca entre
   amostra e secreto e remoção ficam no menu nomeado **More**; a remoção fica separada das
   ações não destrutivas.
+- Menus **dentro** de `.table-responsive` usam a estratégia `fixed` do Popper
+  (`data-bs-config='{"popperConfig":{"strategy":"fixed"}}'`). O wrapper é um container de
+  rolagem, então um menu posicionado de forma absoluta não escapa dele: com um único caso
+  de teste, abrir **More** gerava rolagem em vez de mostrar o menu. Posicionado contra a
+  viewport, ele não é recortado por `overflow` de ancestral.
+- `.table-responsive` rola **apenas na horizontal** (`overflow-y: hidden` em `common.css`).
+  O Bootstrap define só `overflow-x: auto` e o CSS deriva o outro eixo para `auto`; uma
+  tabela com altura fracionária ganhava uma barra de rolagem vertical de 1 px de curso.
 - A página de um caso usa breadcrumb explícito e Back/Cancel retorna à lista de casos na
   âncora `#tc-{id}`.
 - Alças de reordenação aceitam arrastar **e** setas Cima/Baixo quando focadas, mantêm o

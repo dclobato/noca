@@ -118,6 +118,22 @@ class Settings(BaseSettings):
         le=3600,
         description="TTL for the Valkey worker-presence live marker.",
     )
+    AI_HEARTBEAT_FILE: str = Field(
+        default="/tmp/aiassistant-heartbeat",
+        description="Absolute path touched periodically while the worker process is healthy.",
+    )
+    AI_HEARTBEAT_INTERVAL_SECONDS: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=300.0,
+        description="How often the worker refreshes its heartbeat file.",
+    )
+    AI_HEARTBEAT_STALE_SECONDS: float = Field(
+        default=30.0,
+        ge=2.0,
+        le=3600.0,
+        description="Maximum heartbeat-file age before the container is considered unhealthy.",
+    )
 
     # ------------------------------------------------------------------
     # OpenAI
@@ -307,6 +323,23 @@ class Settings(BaseSettings):
         freshness = info.data.get("AI_WORKER_COMMAND_FRESHNESS_SECONDS")
         if freshness is not None and v <= float(freshness):
             raise ValueError("AI_WORKER_COMMAND_NONCE_TTL_SECONDS must exceed AI_WORKER_COMMAND_FRESHNESS_SECONDS.")
+        return v
+
+    @field_validator("AI_HEARTBEAT_FILE")
+    @classmethod
+    def validate_heartbeat_file(cls, v: str) -> str:
+        """Require an absolute heartbeat path so the healthcheck resolves the same file."""
+        if not v.startswith("/"):
+            raise ValueError("NOCA_AI_HEARTBEAT_FILE must be an absolute path.")
+        return v
+
+    @field_validator("AI_HEARTBEAT_STALE_SECONDS")
+    @classmethod
+    def validate_heartbeat_stale(cls, v: float, info) -> float:  # type: ignore[no-untyped-def]
+        """Require the staleness threshold to exceed the refresh interval."""
+        interval = info.data.get("AI_HEARTBEAT_INTERVAL_SECONDS")
+        if interval is not None and v <= float(interval):
+            raise ValueError("NOCA_AI_HEARTBEAT_STALE_SECONDS must be greater than NOCA_AI_HEARTBEAT_INTERVAL_SECONDS.")
         return v
 
     @property

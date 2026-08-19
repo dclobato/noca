@@ -22,6 +22,7 @@ import signal
 import sys
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 
 from openai import AuthenticationError, PermissionDeniedError
 from secrets_manager import SecretsConfig, SecretsManager
@@ -74,6 +75,7 @@ from shared.services.valkey_service.queue_ops import (
     dequeue_arena_ai_review_job_id,
     get_ai_review_job_hash,
 )
+from shared.services.worker_heartbeat import heartbeat_loop, remove_heartbeat, touch_heartbeat
 
 try:
     APP_VERSION = version("noca-aiassistant")
@@ -452,8 +454,6 @@ async def run_ai_worker() -> None:
     started_at = datetime.now(UTC)
 
     # ---- SecretsManager: load .env.crypto then initialise ----
-    from pathlib import Path
-
     from dotenv import load_dotenv
 
     crypto_env_file = Path(settings.AIASSISTANT_CRYPTO_ENV_FILE)
@@ -494,6 +494,11 @@ async def run_ai_worker() -> None:
     await valkey_runtime.start()
     logger.info("- Valkey runtime started")
     logger.info("- Worker id: %s", worker_id)
+
+    # ---- Heartbeat file ----
+    heartbeat_file = Path(settings.AI_HEARTBEAT_FILE)
+    touch_heartbeat(heartbeat_file)
+    logger.info("- Heartbeat file: %s", heartbeat_file)
 
     # ---- Signal handling ----
     stop_event = asyncio.Event()
@@ -594,6 +599,11 @@ async def run_ai_worker() -> None:
                 grace_s=settings.AI_RECONCILER_GRACE_SECONDS,
                 batch_size=settings.AI_RECONCILER_BATCH_SIZE,
             ),
+            heartbeat_loop(
+                heartbeat_file,
+                interval_seconds=settings.AI_HEARTBEAT_INTERVAL_SECONDS,
+                stop_event=stop_event,
+            ),
             worker_presence_loop(
                 valkey_runtime,
                 worker_class=WorkerClass.AIASSISTANT,
@@ -607,6 +617,7 @@ async def run_ai_worker() -> None:
         )
     finally:
         logger.info("*" * 80)
+        remove_heartbeat(heartbeat_file)
         # Suppressed: a Valkey failure while retiring presence must not skip the
         # runtime and database cleanup below. The prune pass bounds the durable
         # presence registry even where the optional health monitor (which runs

@@ -1,6 +1,6 @@
 [project]
 name = "noca-workspace"
-version = "17.2.1"
+version = "17.3.0"
 description = "We took the core principles of BOCA -- the backbone of Brazilian programming marathons -- and rebuilt it for the modern era. NOCA (Next Online Contest Administrator) introduces a streamlined developer experience using Python and FastAPI, providing a modular, Docker-based infrastructure that makes running a contest easier than ever."
 authors = [
     { name = "Daniel Correa Lobato", email = "daniel@lobato.org" }
@@ -112,7 +112,18 @@ known-first-party = ["web", "shared", "autojudge", "arena", "rating", "aiassista
 python_version = "3.14"
 strict = true
 plugins = ["sqlalchemy.ext.mypy.plugin"]
-exclude = ["migrations/"]
+# `mypy .` checks exactly the eight runtime modules -- the same surface the
+# documented `mypy web shared autojudge arena rating aiassistant healthmonitor
+# animator` covers -- so crawling the repo cannot disagree with CI about what is
+# type-clean. The excluded trees are outside that surface on purpose:
+#   migrations/      generated Alembic revisions
+#   tests/           test code, never part of the typed contract
+#   scripts/         operational one-offs and backfills
+#   sample_question/ contestant-facing sample programs, one per supported
+#                    language; several directories each hold a `main.py`, and a
+#                    crawl derived the module name from the file alone, so it
+#                    aborted on the duplicate before checking anything else.
+exclude = ["migrations/", "tests/", "scripts/", "sample_question/"]
 disable_error_code = ["import-untyped"]
 
 [[tool.mypy.overrides]]

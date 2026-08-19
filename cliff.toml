@@ -72,20 +72,26 @@ commit_parsers = [
 
   { message = "^feat",     group = "<!-- 0 -->Features" },
   { message = "^fix",      group = "<!-- 1 -->Bug Fixes" },
-  { message = "^perf",     group = "<!-- 2 -->Performance" },
-  { message = "^refactor", group = "<!-- 3 -->Refactoring" },
-  { message = "^docs",     group = "<!-- 4 -->Documentation" },
+  # `style` aqui não é espaço em branco: é trabalho de interface visível para
+  # quem usa o sistema (design system, layout, tipografia, consistência de
+  # telas). Por isso tem seção própria e vem logo depois das correções, em vez
+  # de ser tratado como ruído de manutenção como manda o padrão.
+  { message = "^style",    group = "<!-- 2 -->UI & Design" },
+  { message = "^perf",     group = "<!-- 3 -->Performance" },
+  { message = "^refactor", group = "<!-- 4 -->Refactoring" },
+  { message = "^docs",     group = "<!-- 5 -->Documentation" },
+  # Sem group explícito o git-cliff usa o próprio tipo como título ("Ci",
+  # "Build"), fora da ordenação dos demais.
+  { message = "^ci",       group = "<!-- 6 -->Build & CI" },
+  { message = "^build",    group = "<!-- 6 -->Build & CI" },
 
   # Ruído de manutenção fica fora do changelog público.
   # Troque skip=true por um group=... se quiser exibi-los.
   { message = "^test",  skip = true },
-  { message = "^ci",    skip = false },
-  { message = "^build", skip = false },
-  { message = "^style", skip = true },
   { message = "^chore", skip = true },
 
   # Qualquer outra coisa: não perde nada
-  { message = "^.*", group = "<!-- 5 -->Other" },
+  { message = "^.*", group = "<!-- 7 -->Other" },
 ]
 
 # Casa com suas tags v<versão>

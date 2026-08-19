@@ -1,0 +1,51 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+"""Container healthcheck entrypoint for the arena service."""
+
+from __future__ import annotations
+
+import json
+import urllib.request
+
+
+def healthcheck_is_healthy() -> bool:
+    """Return whether the local arena health endpoint reports a healthy state.
+
+    The probe always targets loopback, but follows ``NOCA_ARENA_PORT`` so a
+    reconfigured port does not silently mark the container unhealthy. Loading
+    the settings is part of the probe on purpose: a configuration the arena
+    process itself could not load is an unhealthy container. Any failure --
+    including an unloadable configuration -- is reported as unhealthy rather
+    than raised.
+
+    Returns:
+        ``True`` when the local ``/health`` endpoint responds with HTTP 200 and
+        a status of ``ok``; otherwise ``False``.
+    """
+    try:
+        from arena.config import settings
+
+        url = f"http://127.0.0.1:{settings.PORT}/health"
+        with urllib.request.urlopen(url, timeout=5) as response:
+            payload = json.load(response)
+            status = payload.get("status")
+            return response.status == 200 and isinstance(status, str) and status == "ok"
+    except Exception:
+        return False
+
+
+def main() -> int:
+    """Run the container healthcheck process.
+
+    Returns:
+        Process exit code expected by Docker healthchecks.
+    """
+    return 0 if healthcheck_is_healthy() else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

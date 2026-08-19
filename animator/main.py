@@ -50,7 +50,7 @@ from shared.services.valkey_service import (
     resolve_worker_id,
     worker_presence_loop,
 )
-from shared.static_files import ShortCacheStaticFiles
+from shared.static_files import RevalidatedStaticFiles
 
 try:
     APP_VERSION = version("noca-animator")
@@ -221,27 +221,27 @@ app.add_middleware(
 
 app.mount(
     "/static/css",
-    ShortCacheStaticFiles(directory=_ANIMATOR_DIR / "static" / "css"),
+    RevalidatedStaticFiles(directory=_ANIMATOR_DIR / "static" / "css"),
     name="animator_static_css",
 )
 app.mount(
     "/static/js",
-    ShortCacheStaticFiles(directory=_ANIMATOR_DIR / "static" / "js"),
+    RevalidatedStaticFiles(directory=_ANIMATOR_DIR / "static" / "js"),
     name="animator_static_js",
 )
 app.mount(
     "/static/img",
-    ShortCacheStaticFiles(directory=_ANIMATOR_DIR / "static" / "img"),
+    RevalidatedStaticFiles(directory=_ANIMATOR_DIR / "static" / "img"),
     name="animator_static_img",
 )
 app.mount(
     "/static/shared-css",
-    ShortCacheStaticFiles(directory=_SHARED_DIR / "static" / "css"),
+    RevalidatedStaticFiles(directory=_SHARED_DIR / "static" / "css"),
     name="static_shared_css",
 )
 app.mount(
     "/static/shared-js",
-    ShortCacheStaticFiles(directory=_SHARED_DIR / "static" / "js"),
+    RevalidatedStaticFiles(directory=_SHARED_DIR / "static" / "js"),
     name="static_shared_js",
 )
 app.mount("/static/vendor", StaticFiles(directory=_SHARED_DIR / "static" / "vendor"), name="static_vendor")
