@@ -19,16 +19,6 @@
                 defer></script>
     {% endif %}
 {% endblock %}
-{% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            <li class="breadcrumb-item">
-                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-            </li>
-            <li class="breadcrumb-item active" aria-current="page">Runs</li>
-        </ol>
-    </nav>
-{% endblock %}
 {% block content %}
     <div class="px-4 py-4">
         <div class="mb-4">
@@ -113,7 +103,9 @@
                      role="status"
                      aria-live="polite"></div>
                 <div class="mb-2">
-                    <small class="text-muted">Will update in <span id="refresh-timer" data-htmx-wrapper="runs-list-wrapper">60</span> seconds</small>
+                    <small class="text-muted">Will update in <span id="refresh-timer"
+       class="noca-tabular-nums"
+       data-htmx-wrapper="runs-list-wrapper">60</span> seconds</small>
                 </div>
             {% endif %}
             {% include "contest/runs_list.html" %}
@@ -168,10 +160,21 @@
             </div>
         </div>
     {% endif %}
+    {% if not access_blocked %}
+        <button type="button"
+                id="runs-back-to-top"
+                class="btn btn-primary noca-back-to-top-btn"
+                aria-label="Return to top"
+                title="Return to top">{{ render_icon(icon="arrow_upward") }}</button>
+    {% endif %}
 {% endblock %}
 {% block extra_script %}
     {% if not access_blocked and not contest.is_past %}
         <script src="{{ request.url_for('static_js', path='refresh-timer.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
+    {% if not access_blocked %}
+        <script src="{{ request.url_for('static_js', path='back-to-top.js') }}?v={{ app_version }}"
                 defer></script>
     {% endif %}
     {% if (not access_blocked and not contest.is_past) or queued_submission_id %}

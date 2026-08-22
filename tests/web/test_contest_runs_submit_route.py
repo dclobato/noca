@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
 from shared.db_schema import contest_languages as contest_languages_table
-from shared.enumerations import RoleEnum
 from shared.services.geolocation import GeolocationDetails, GeolocationIP
 from web.dependencies import ContestContext, get_contest_context
 from web.models.contest import Contest
@@ -26,6 +25,7 @@ from web.models.problem import Problem
 from web.models.users import UberAdmin, User
 from web.routes.contest_runs_review import router as contest_runs_review_router
 from web.services.authentication_service import AuthAction, AuthenticationService
+from web.template_globals import register_template_globals
 
 TEST_JWT_SECRET = "test-secret-key-for-runs-submit-route"
 
@@ -63,8 +63,7 @@ def _build_app(session: AsyncSession, ctx: ContestContext) -> tuple[FastAPI, Aut
     shared_dir = Path(__file__).resolve().parents[2] / "shared"
     templates = Jinja2Templates(directory=web_dir / "template")
     templates.env.globals["app_version"] = "test"
-    templates.env.globals["RoleEnum"] = RoleEnum
-    templates.env.globals["role_labels"] = {role.value: role.value.title() for role in RoleEnum}
+    register_template_globals(templates)
     templates.env.globals["contest_minutes"] = lambda seconds: None if seconds is None else seconds // 60
     setup_flash(templates)
     app.state.templates = templates

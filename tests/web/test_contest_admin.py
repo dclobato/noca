@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -19,6 +19,9 @@ from web.routes.contest_admin_helpers import (
 )
 
 _ADD_CONTEST_TEMPLATE = Path(__file__).resolve().parents[2] / "web" / "template" / "uberadmin" / "add_contest.html"
+_CONTEST_SUCCESS_TEMPLATE = (
+    Path(__file__).resolve().parents[2] / "web" / "template" / "uberadmin" / "_contest_creation_success.html"
+)
 
 
 def _build_running_contest() -> Contest:
@@ -111,6 +114,7 @@ def test_create_contest_modal_copy_mentions_languages_editable_until_start() -> 
 
 def test_create_contest_template_owner_fields_share_rows_and_email_button() -> None:
     template = _ADD_CONTEST_TEMPLATE.read_text(encoding="utf-8")
+    success_template = _CONTEST_SUCCESS_TEMPLATE.read_text(encoding="utf-8")
 
     assert 'class="col-12 col-sm-8"' in template
     assert 'name="owner_fullname"' in template
@@ -119,4 +123,24 @@ def test_create_contest_template_owner_fields_share_rows_and_email_button() -> N
     assert template.count('class="col-12 col-sm-6"') >= 2
     assert 'name="owner_email"' in template
     assert 'name="owner_password"' in template
-    assert "send_contest_credentials_email" in template
+    assert "Generated Credentials" not in template
+    assert "send_contest_credentials_email" in success_template
+
+
+def test_create_contest_review_contains_every_form_group() -> None:
+    """The final confirmation must summarize more than the language set."""
+    template = _ADD_CONTEST_TEMPLATE.read_text(encoding="utf-8")
+
+    for heading in ("Identification", "When &amp; timing", "Rules", "Owner"):
+        assert heading in template
+    for summary_id in (
+        "confirm-contest-name",
+        "confirm-start-time",
+        "confirm-duration",
+        "confirm-show-limits",
+        "confirm-publication",
+        "confirm-language-list",
+        "confirm-owner-username",
+        "confirm-owner-password",
+    ):
+        assert f'id="{summary_id}"' in template

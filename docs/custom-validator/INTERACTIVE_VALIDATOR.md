@@ -642,11 +642,15 @@ Interactive solution tests use `solution_test_case_results`, with a non-null
 They follow the same last-case-only, two-attempt retention policy and the same
 transcript and stderr capture limits as submission judgments.
 
-The aligned contract requires solution-test attempts to retain both process
-exit codes and signals, both stderr excerpts, the transcript, contestant
-measurements, and the clean validator verdict or typed crash reason. The current
-schema retains only part of that validator-side detail; completing parity is an
-implementation backlog item. Solution-test diagnostics are visible only to the
+Solution-test attempts retain the same contract as
+`submission_interactive_attempts`: both process exit codes and signals, both
+stderr excerpts, the transcript, contestant measurements, the enforced-limit
+outcome, and the clean validator verdict or typed crash reason. The
+validator-side columns (`validator_exit_code`, `validator_signal`,
+`validator_stderr_excerpt`, `limit_outcome`, `validator_verdict`,
+`crash_reason`) apply table-wide on `solution_test_case_results`, not only to
+interactive rows — ordinary case rows simply leave them NULL, since they never
+run against a validator. Solution-test diagnostics are visible only to the
 Contest administrators and judges authorized to access that solution-test run.
 
 ### Visibility and validator source

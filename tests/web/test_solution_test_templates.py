@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -19,8 +19,13 @@ from jinja2 import ChainableUndefined, Environment, FileSystemLoader
 from shared.enumerations import RoleEnum
 from shared.services.problem_editor_header import EditorLink, ProblemEditorHeaderView
 from web.routes.contest_admin_problem_edit_render import _solution_test_url
+from web.template_globals import template_globals
 
 _ROOT = Path(__file__).resolve().parents[2]
+
+
+class _Url:
+    path = "/"
 
 
 class _Request:
@@ -28,6 +33,7 @@ class _Request:
 
     query_params: dict[str, str] = {}
     scope: dict[str, Any] = {}
+    url = _Url()
 
     def url_for(self, name: str, **params: Any) -> str:
         path = params.get("path")
@@ -40,10 +46,9 @@ def _env() -> Environment:
         undefined=ChainableUndefined,
         autoescape=True,
     )
-    env.globals["RoleEnum"] = RoleEnum
+    env.globals.update(template_globals())
     env.globals["app_version"] = "test"
     env.globals["get_flashed_messages"] = lambda **kwargs: []
-    env.globals["role_labels"] = {role.value: role.value.title() for role in RoleEnum}
     env.globals["contest_minutes"] = lambda seconds: None if seconds is None else seconds // 60
     return env
 
@@ -56,6 +61,7 @@ def _contest() -> Any:
             "id": "contest-1",
             "login_slug": "slug",
             "contest_name": "Contest",
+            "chief_judge_id": None,
             "is_running": False,
             "is_past": False,
             "active": True,
@@ -71,10 +77,9 @@ def _render_dashboard(role: RoleEnum) -> str:
         .get_template("contest/dashboard.html")
         .render(
             request=_Request(),
-            current_user=type("_User", (), {"role": role.value})(),
+            current_user=type("_User", (), {"id": "user-1", "role": role.value})(),
             contest=_contest(),
             counters=None,
-            can_view_tasks=False,
         )
     )
 
@@ -103,6 +108,25 @@ def test_dashboard_card_tracks_the_reports_card_gate() -> None:
     for role in (RoleEnum.STAFF, RoleEnum.TEAM, RoleEnum.USER):
         markup = _render_dashboard(role)
         assert ("Reports" in markup) == ("Solution tests" in markup)
+
+
+def test_user_dashboard_only_exposes_score() -> None:
+    """The USER role must not receive links to modules its routes forbid."""
+    markup = _render_dashboard(RoleEnum.USER)
+
+    assert markup.count('class="noca-dashboard-card') == 1
+    assert "/contest_score" in markup
+    for hidden_title in (
+        "Problems",
+        "Clarifications",
+        "Runs",
+        "Tasks",
+        "Problem set archive",
+        "Reports",
+        "Solution tests",
+        "Administration",
+    ):
+        assert hidden_title not in markup
 
 
 def test_solution_test_history_rows_link_to_the_detail_page() -> None:
@@ -184,6 +208,109 @@ def test_solution_test_case_results_match_the_submission_review_table() -> None:
     assert "Submission output" in markup
     assert "actual output" in markup
     assert "colspan" not in markup
+    assert "Validator exit / signal" not in markup
+
+
+def test_solution_test_interactive_case_renders_validator_diagnostics() -> None:
+    """Validator exit/signal, crash reason or clean verdict, limit outcome, and
+    validator stderr all render for an interactive row; the ordinary row above
+    never reaches this markup since it stays gated on attempt_number."""
+    case = SimpleNamespace(
+        id="case-1",
+        ordinal=1,
+        attempt_number=2,
+        verdict=SimpleNamespace(value="RE"),
+        wall_time_ms=12,
+        memory_kb=2048,
+        exit_code=1,
+        exit_signal=None,
+        input_excerpt=None,
+        expected_output_excerpt=None,
+        stdout_excerpt=None,
+        stderr_excerpt=None,
+        transcript=None,
+        test_case_deleted=False,
+        validator_exit_code=None,
+        validator_signal=11,
+        validator_stderr_excerpt="validator crashed here",
+        limit_outcome=None,
+        validator_verdict=None,
+        crash_reason=SimpleNamespace(value="SIGNAL"),
+    )
+    run = SimpleNamespace(
+        id="run-1",
+        is_terminal=True,
+        status=SimpleNamespace(value="done"),
+        verdict=SimpleNamespace(value="RE"),
+        finished_at=None,
+        max_wall_time_ms=12,
+        max_memory_kb=2048,
+        error_message=None,
+        compile_log=None,
+        case_results=[case],
+    )
+    markup = (
+        _env()
+        .get_template("contest/_solution_test_status.html")
+        .render(request=_Request(), contest=_contest(), run=run)
+    )
+
+    assert "Validator exit / signal" in markup
+    assert "11" in markup
+    assert "Crash reason / clean verdict" in markup
+    assert "SIGNAL" in markup
+    assert "Validator stderr" in markup
+    assert "validator crashed here" in markup
+    assert "Limit outcome" not in markup
+
+
+def test_solution_test_mle_case_suppresses_the_validators_clean_verdict() -> None:
+    """A contestant-side memory limit can leave the validator's own exit reading
+    stale at AC; showing it next to the enforced limit would read as a pass."""
+    case = SimpleNamespace(
+        id="case-1",
+        ordinal=1,
+        attempt_number=1,
+        verdict=SimpleNamespace(value="MLE"),
+        wall_time_ms=12,
+        memory_kb=262144,
+        exit_code=None,
+        exit_signal=9,
+        input_excerpt=None,
+        expected_output_excerpt=None,
+        stdout_excerpt=None,
+        stderr_excerpt=None,
+        transcript=None,
+        test_case_deleted=False,
+        validator_exit_code=0,
+        validator_signal=None,
+        validator_stderr_excerpt=None,
+        limit_outcome="MLE",
+        validator_verdict=SimpleNamespace(value="AC"),
+        crash_reason=None,
+    )
+    run = SimpleNamespace(
+        id="run-1",
+        is_terminal=True,
+        status=SimpleNamespace(value="done"),
+        verdict=SimpleNamespace(value="MLE"),
+        finished_at=None,
+        max_wall_time_ms=12,
+        max_memory_kb=262144,
+        error_message=None,
+        compile_log=None,
+        case_results=[case],
+    )
+    markup = (
+        _env()
+        .get_template("contest/_solution_test_status.html")
+        .render(request=_Request(), contest=_contest(), run=run)
+    )
+
+    assert "Limit outcome" in markup
+    assert "MLE" in markup
+    assert "Crash reason / clean verdict" in markup
+    assert "AC" not in markup
 
 
 def test_export_page_states_what_is_not_archived() -> None:

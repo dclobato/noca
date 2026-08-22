@@ -7,9 +7,10 @@
 
   Renders the ordered interactive-validator conversation for one attempt.
   Expects `attempt`: a mapping with `transcript` ({lines: [{dir, line, partial}], truncated}),
-  the two stderr excerpts, exit codes/signals, crash_reason, and `test_case_ordinal`
-  (the case that parametrized the attempt; null on rows written before the
-  per-test-case model, which ran one conversation for the whole submission).
+  the two stderr excerpts, exit codes/signals, crash_reason, validator_verdict,
+  limit_outcome, and `test_case_ordinal` (the case that parametrized the
+  attempt; null on rows written before the per-test-case model, which ran one
+  conversation for the whole submission).
 #}
 <h3 class="h6">
     {% if attempt.test_case_ordinal is not none %}
@@ -27,10 +28,25 @@
     <dd class="col-sm-7">
         {{ attempt.validator_exit_code if attempt.validator_exit_code is not none else '—' }} / {{ attempt.validator_signal if attempt.validator_signal is not none else '—' }}
     </dd>
-    <dt class="col-sm-5">Crash reason</dt>
+    <dt class="col-sm-5">Crash reason / clean verdict</dt>
     <dd class="col-sm-7">
-        {{ attempt.crash_reason.value if attempt.crash_reason else '—' }}
+        {% if attempt.crash_reason %}
+            {{ attempt.crash_reason.value }}
+        {% elif attempt.validator_verdict and not attempt.limit_outcome %}
+            {# The validator's own clean exit reading is suppressed once an enforced
+               limit (MLE/OLE/contestant TLE) decided the case, since a validator that
+               never saw the limit hit can still report AC. #}
+            {{ attempt.validator_verdict.value }}
+        {% else %}
+            —
+        {% endif %}
     </dd>
+    {% if attempt.limit_outcome %}
+        <dt class="col-sm-5">Limit outcome</dt>
+        <dd class="col-sm-7">
+            {{ attempt.limit_outcome }}
+        </dd>
+    {% endif %}
 </dl>
 {% with transcript = attempt.transcript %}
     {% include "_partials/transcript_table.html" %}

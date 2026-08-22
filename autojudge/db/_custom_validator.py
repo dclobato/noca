@@ -283,6 +283,17 @@ class _CustomValidatorMixin(_DatabaseBase):
         # The run itself is marked FAILED when the validator never exits cleanly;
         # the row still records the attempt, so a crash is stored as RE.
         verdict = result.classification.verdict or Verdict.RE
+        validator_verdict = None
+        if result.crash_reason is None and result.validator_exit_code is not None:
+            validator_verdict = {
+                0: Verdict.AC,
+                1: Verdict.WA,
+                2: Verdict.TLE,
+                4: Verdict.PE,
+            }.get(result.validator_exit_code, Verdict.RE)
+        limit_outcome = verdict.value if verdict in {Verdict.MLE, Verdict.OLE} else None
+        if verdict == Verdict.TLE and result.watchdog_stalled_side == "contestant":
+            limit_outcome = Verdict.TLE.value
         await self._conn.execute(
             solution_test_case_results.insert().values(
                 id=str(uuid.uuid4()),
@@ -301,6 +312,12 @@ class _CustomValidatorMixin(_DatabaseBase):
                 stdout_excerpt=None,
                 stderr_excerpt=decode_for_text_column(result.contestant_stderr_excerpt),
                 transcript=result.transcript.as_dict() if result.transcript is not None else None,
+                validator_exit_code=result.validator_exit_code,
+                validator_signal=result.validator_signal,
+                validator_stderr_excerpt=decode_for_text_column(result.validator_stderr_excerpt),
+                limit_outcome=limit_outcome,
+                validator_verdict=validator_verdict,
+                crash_reason=result.crash_reason,
                 created_at=_utcnow(),
             )
         )

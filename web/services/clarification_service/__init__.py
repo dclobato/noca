@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -22,11 +22,24 @@ from .lifecycle import (
     answer_clarification,
     create_announcement,
     create_clarification,
+    mark_clarification_answers_read,
     release_clarification,
     toggle_hidden_clarification,
 )
-from .permissions import can_answer_clarifications, can_force_release_clarifications
-from .queries import ClarificationSort, get_clarification, list_clarifications, normalize_clarification_sort
+from .permissions import (
+    can_answer_clarifications,
+    can_create_announcement,
+    can_force_release_clarifications,
+    can_request_clarification,
+)
+from .queries import (
+    ClarificationSort,
+    count_pending_clarifications,
+    count_unread_clarification_answers,
+    get_clarification,
+    list_clarifications,
+    normalize_clarification_sort,
+)
 from .views import ClarificationView
 
 __all__ = [
@@ -44,11 +57,16 @@ __all__ = [
     "acquire_clarification",
     "answer_clarification",
     "can_answer_clarifications",
+    "can_create_announcement",
     "can_force_release_clarifications",
+    "can_request_clarification",
+    "count_pending_clarifications",
+    "count_unread_clarification_answers",
     "create_announcement",
     "create_clarification",
     "get_clarification",
     "list_clarifications",
+    "mark_clarification_answers_read",
     "normalize_clarification_sort",
     "release_clarification",
     "toggle_hidden_clarification",

@@ -1,6 +1,6 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -70,12 +70,95 @@
     overflow-wrap: anywhere;
 }
 
+/* Runs verdict cell: `min-height` on a <td> itself is not reliably respected
+   by every browser's table layout algorithm, so the cell's content is
+   wrapped in this block-level flex container instead -- the same fix the
+   scoreboard's problem cells already use for the identical reason. Its floor
+   (2.75rem) clears the tallest branch, the 42px balloon image, so every row
+   in the table reaches the same height regardless of which of the column's
+   several possible states -- dash, badge, badge + balloon, or a review-action
+   button -- actually renders. */
+.noca-verdict-cell-inner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    min-height: 2.75rem;
+}
+
+/* Reports page header: eyebrow + title band reuses the dashboard identity
+   band's tonal brand surface (contest/dashboard.html) so Reports opens with
+   the same "operationally important" weight as the rest of the admin shell,
+   instead of the breadcrumb being the only cue the page has a subject. */
+.noca-reports-header-icon {
+    color: var(--noca-brand);
+    font-size: 1.5rem;
+}
+
+.noca-reports-header-stat {
+    font-weight: 700;
+    color: var(--noca-brand-container);
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+}
+
+/* Report section headings: a brand-colored icon plus a short brand
+   underline, mirroring the arena report card-title convention (colored
+   icon, divider beneath) so each section in the report suite reads as a
+   clear break while scrolling instead of blending into the next. */
+.noca-report-heading {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding-bottom: 0.375rem;
+    border-bottom: 2px solid var(--noca-brand);
+}
+
+.noca-report-icon {
+    color: var(--noca-brand);
+}
+
+/* Report table headers/footers: DESIGN.md's table-header component
+   (surface-container tone + muted text) via Bootstrap's own --bs-table-*
+   custom properties, which every cell already reads unconditionally.
+   Bootstrap's `table-light` looked right at a glance but pins those same
+   properties to fixed light hex values scoped to itself -- it never
+   follows data-bs-theme, so a header/footer row stayed light-on-light-gray
+   after switching to the dark theme while the rest of the table (using the
+   base .table class's theme-reactive defaults) went dark around it. */
+.noca-reports-thead {
+    --bs-table-bg: var(--noca-surface-container);
+    --bs-table-color: var(--noca-on-surface-variant);
+}
+
+/* Problem Summary is the report suite's anchor table: its Total column
+   carries the page's key totals, so it earns the one bolded, brand-colored
+   numeral column — restrained to this single table per the Signal Rarity
+   Rule rather than repeated on every table's own total column. */
+.noca-reports-key-total {
+    color: var(--noca-brand-container);
+    font-weight: 700;
+}
+
+/* Report captions: cap prose to a readable measure (same 65ch idea as
+   arena's problem-set-report description) instead of stretching to the
+   flex column's full shrink-to-fit width, which otherwise grows to fit an
+   unwrapped caption and reads far wider than the table it describes. */
+.noca-reports-caption {
+    max-width: 65ch;
+    margin-inline: auto;
+}
+
 /* Problem legend (Reports): up to 3 problems per line */
 .noca-legend-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.5rem 1.5rem;
     max-width: 48rem;
+}
+
+.noca-legend-grid > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 /* Narrow, wrapping team-name column (Reports: Runs by Team and Problem) */
@@ -105,16 +188,303 @@
     height: 21.875rem;
 }
 
-/* Edit Metadata — section group headings */
+/* Fallback message shown inside a chart container until ECharts replaces it;
+   stays visible if the chart script fails to load or throws. */
+.noca-chart-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    margin: 0;
+}
+
+/* Contest metadata forms */
 .noca-section-heading {
-    font-size: 1.5rem;
+    margin-bottom: 1.25rem;
+    color: var(--noca-on-surface);
+    font-family: var(--noca-font-heading);
+    font-size: var(--noca-type-headline);
     font-weight: 600;
-    text-transform: uppercase;
-    color: var(--bs-secondary-color);
-    border-left: 2px solid var(--bs-primary);
-    border-top: 4px solid var(--bs-primary);
-    padding-left: 1rem;
-    margin-bottom: 1rem;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+}
+
+.noca-contest-form-section + .noca-contest-form-section {
+    margin-top: 2.5rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--noca-outline-variant);
+}
+
+.noca-rule-toggle-list {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.noca-rule-toggle {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+        "label control"
+        "help control";
+    column-gap: 1rem;
+    align-items: center;
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--noca-outline-variant);
+    border-radius: var(--bs-border-radius);
+    background-color: var(--noca-surface-container-low);
+}
+
+.noca-rule-toggle legend {
+    grid-area: label;
+    width: auto;
+    margin: 0;
+    color: var(--noca-on-surface);
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.noca-rule-toggle .form-text {
+    grid-area: help;
+}
+
+.noca-rule-toggle .btn-group {
+    grid-area: control;
+}
+
+.noca-contest-wizard-nav .progress {
+    height: 0.25rem;
+    background-color: var(--noca-surface-container-high);
+}
+
+.noca-contest-wizard-nav .progress-bar {
+    width: 25%;
+    background-color: var(--noca-brand);
+    transition: width 0.25s ease-out;
+}
+
+.noca-contest-wizard-nav .progress-bar[data-step="2"] {
+    width: 50%;
+}
+
+.noca-contest-wizard-nav .progress-bar[data-step="3"] {
+    width: 75%;
+}
+
+.noca-contest-wizard-nav .progress-bar[data-step="4"] {
+    width: 100%;
+}
+
+.noca-contest-wizard-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    color: var(--noca-on-surface-variant);
+    font-size: var(--noca-type-label);
+    font-weight: 700;
+    list-style: none;
+}
+
+.noca-contest-wizard-steps li {
+    text-align: center;
+}
+
+.noca-contest-wizard-steps li.is-active {
+    color: var(--noca-on-surface);
+}
+
+[data-contest-wizard].is-ready [data-wizard-panel]:not(.is-active) {
+    display: none;
+}
+
+.noca-wizard-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--noca-outline-variant);
+}
+
+.noca-contest-review-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.noca-contest-review-section h6 {
+    margin-bottom: 0.75rem;
+    color: var(--noca-on-surface);
+    font-family: var(--noca-font-heading);
+}
+
+.noca-contest-review-section dl,
+.noca-created-credential-list {
+    display: grid;
+    gap: 0.625rem;
+    margin: 0;
+}
+
+.noca-contest-review-section dl > div,
+.noca-created-credential-list > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+    gap: 1rem;
+}
+
+.noca-contest-review-section dt,
+.noca-created-credential-list dt {
+    color: var(--noca-on-surface-variant);
+    font-size: var(--noca-type-label);
+    font-weight: 600;
+}
+
+.noca-contest-review-section dd,
+.noca-created-credential-list dd {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.noca-contest-success {
+    max-width: 52rem;
+}
+
+.noca-contest-success-header {
+    max-width: 42rem;
+    margin: 0 auto 2rem;
+}
+
+.noca-contest-success-icon {
+    color: var(--bs-success);
+    font-size: 3rem;
+    line-height: 1;
+}
+
+.noca-contest-success-card {
+    border-color: var(--noca-outline-variant);
+}
+
+.noca-contest-path {
+    max-width: 100%;
+    padding: 0.375rem 0.625rem;
+    border-radius: var(--bs-border-radius-sm);
+    background-color: var(--noca-surface-container);
+    overflow-wrap: anywhere;
+}
+
+.noca-created-credential-list {
+    gap: 0;
+    border-block: 1px solid var(--noca-outline-variant);
+}
+
+.noca-created-credential-list > div {
+    padding: 0.875rem 0;
+}
+
+.noca-created-credential-list > div + div {
+    border-top: 1px solid var(--noca-outline-variant);
+}
+
+.noca-created-credential-list code {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.noca-contest-edit-sections {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.noca-contest-edit-section {
+    border: 1px solid var(--noca-outline-variant);
+    border-radius: var(--bs-border-radius);
+    background-color: var(--noca-surface-container-lowest);
+}
+
+.noca-contest-edit-section > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    cursor: pointer;
+    list-style: none;
+}
+
+.noca-contest-edit-section > summary::-webkit-details-marker {
+    display: none;
+}
+
+.noca-contest-edit-section > summary h2 {
+    margin: 0;
+    color: var(--noca-on-surface);
+    font-family: var(--noca-font-heading);
+    font-size: var(--noca-type-title);
+    font-weight: 600;
+}
+
+.noca-edit-section-caret {
+    flex-shrink: 0;
+    transition: transform 0.2s ease-out;
+}
+
+.noca-contest-edit-section:not([open]) .noca-edit-section-caret {
+    transform: rotate(-90deg);
+}
+
+.noca-contest-edit-section-body {
+    padding: 0 1.25rem 1.25rem;
+    border-top: 1px solid var(--noca-outline-variant);
+}
+
+.noca-contest-edit-section-body > .noca-contest-form-section {
+    padding-top: 1.25rem;
+}
+
+@media (max-width: 575.98px) {
+    .noca-contest-wizard-steps {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .noca-contest-wizard-steps li {
+        text-align: left;
+    }
+
+    .noca-rule-toggle {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "label"
+            "help"
+            "control";
+        row-gap: 0.5rem;
+    }
+
+    .noca-contest-review-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .noca-created-credential-list > div {
+        grid-template-columns: 1fr;
+        gap: 0.25rem;
+    }
+}
+
+@media (pointer: coarse) {
+    .noca-rule-toggle .btn,
+    .noca-wizard-actions .btn {
+        min-height: 2.75rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .noca-contest-wizard-nav .progress-bar,
+    .noca-edit-section-caret {
+        transition: none;
+    }
 }
 
 /* Collapse toggle caret — rotates when its control is collapsed */

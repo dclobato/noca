@@ -1285,6 +1285,10 @@ async def test_profile_submissions_tab_renders_realtime_hooks(session: AsyncSess
     assert "confetti-celebrate.js" in html
     assert "profile-submissions-live.js" in html
     assert html.index("confetti-celebrate.js") < html.index("profile-submissions-live.js")
+    # The shared SSE/poll watcher must load before the consumer that calls
+    # NocaSubmissionStatusWatcher.watch().
+    assert "submission-status-watcher.js" in html
+    assert html.index("submission-status-watcher.js") < html.index("profile-submissions-live.js")
 
 
 @pytest.mark.asyncio

@@ -1,27 +1,10 @@
 {% extends "_base.html" %}
+{% from "_macros.html" import admin_breadcrumb with context %}
 {% block title_suffix %}— Add User{% endblock %}
 {% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            {% if current_user.role == RoleEnum.UBERADMIN.value %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
-                </li>
-                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
-            {% else %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-                </li>
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
-                </li>
-            {% endif %}
-            <li class="breadcrumb-item">
-                <a href="{{ request.url_for('manage_users', slug=contest.login_slug) }}">Users</a>
-            </li>
-            <li class="breadcrumb-item active" aria-current="page">Add User</li>
-        </ol>
-    </nav>
+    {% call admin_breadcrumb(crumbs=[("Users", request.url_for('manage_users', slug=contest.login_slug))]) %}
+        Add User
+    {% endcall %}
 {% endblock %}
 {% block content %}
     <div class="container py-5">
@@ -78,27 +61,19 @@
                                         {% if is_locked %}disabled{% endif %}
                                         required>
                                     <option value="" disabled {% if not form_data.role %}selected{% endif %}>Select role…</option>
-                                    <option value="{{ RoleEnum.ADMIN.value }}"
-                                            {% if form_data.role == RoleEnum.ADMIN.value %}selected{% endif %}>
-                                        Admin
-                                    </option>
-                                    <option value="{{ RoleEnum.JUDGE.value }}"
-                                            {% if form_data.role == RoleEnum.JUDGE.value %}selected{% endif %}>
-                                        Judge
-                                    </option>
-                                    <option value="{{ RoleEnum.STAFF.value }}"
-                                            {% if form_data.role == RoleEnum.STAFF.value %}selected{% endif %}>
-                                        Staff
-                                    </option>
-                                    <option value="{{ RoleEnum.TEAM.value }}"
-                                            {% if form_data.role == RoleEnum.TEAM.value %}selected{% endif %}>
-                                        Team
-                                    </option>
-                                    <option value="{{ RoleEnum.USER.value }}"
-                                            {% if form_data.role == RoleEnum.USER.value %}selected{% endif %}>
-                                        User
-                                    </option>
+                                    {# Driven by ALL_CONTEST_ROLES so a role added to the enum
+                                       appears here without a template edit. UBERADMIN is absent
+                                       from that tuple, which is what keeps it unselectable. #}
+                                    {% for role in all_contest_roles %}
+                                        <option value="{{ role.value }}"
+                                                {% if form_data.role == role.value %}selected{% endif %}>
+                                            {{ role_labels.get(role.value, role.value) }}
+                                        </option>
+                                    {% endfor %}
                                 </select>
+                                <div class="form-text">
+                                    See <a href="#role-reference">Role reference</a> for what each role can reach and do.
+                                </div>
                             </div>
                             <div class="mb-3">
                                 <label for="site_id" class="form-label">Site</label>
@@ -142,6 +117,9 @@
                     </div>
                 </div>
             </div>
+            {% if not (success and credentials) %}
+                <div class="col-12 col-lg-5">{% include "admin/users/_role_reference.html" %}</div>
+            {% endif %}
             {% if success and credentials %}
                 <div class="col-12 col-lg-5">
                     <div class="card border-success shadow-sm">
@@ -222,3 +200,7 @@
         </div>
     </div>
 {% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_js', path='role-reference.js') }}?v={{ app_version }}"
+            defer></script>
+{% endblock extra_script %}

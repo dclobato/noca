@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -48,7 +48,7 @@ def build_blank_contest_form(default_start_time: str) -> dict[str, Any]:
         "start_time": default_start_time,
         "contest_timezone": "America/Sao_Paulo",
         "duration_minutes": "300",
-        "stop_updating_scoreboard": "290",
+        "stop_updating_scoreboard": "280",
         "stop_answers_after": "290",
         "clarifications_timeout_minutes": "20",
         "tasks_timeout_minutes": "10",
@@ -60,6 +60,7 @@ def build_blank_contest_form(default_start_time: str) -> dict[str, Any]:
         "allow_print_requests": True,
         "accept_pe": False,
         "ce_adds_penalty": False,
+        "release_problem_set_after_end": False,
         "owner_username": "",
         "owner_fullname": "",
         "owner_email": "",
@@ -154,6 +155,7 @@ async def create_contest_with_owner(
         allow_print_requests=validated.allow_print_requests,
         accept_pe=validated.accept_pe,
         ce_adds_penalty=validated.ce_adds_penalty,
+        release_problem_set_after_end=validated.release_problem_set_after_end,
         created_by_uberadmin_id=uberadmin.id,
         active=True,
     )

@@ -1,0 +1,65 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{# Contest destinations, as a full-width band between the navbar and the
+   breadcrumb.
+
+   These deliberately do NOT live inside the navbar. During a contest the people
+   using this are working under time pressure, and a row of small icons crammed
+   between the clock and the account controls -- with the administrative
+   destinations buried in a dropdown -- is slower to hit and slower to read than
+   a band that gives each destination a large icon, a full label, and a generous
+   target. The bar above stays for identity and the clock; navigation gets its
+   own row.
+
+   Every destination is visible: nothing is hidden behind a menu, so no
+   destination costs an extra click to discover. The band scrolls horizontally
+   on narrow screens rather than collapsing, which keeps the order stable.
+
+   Gates mirror the dashboard cards and `web/services/task_service/permissions.py`:
+   a judge sees Tasks only while they are this contest's chief judge. #}
+{% from "_macros.html" import render_icon with context %}
+{% set role = current_user.role %}
+{% set is_admin = role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] %}
+{# The current section is normally decided by path, not by endpoint name: eight
+   contest handlers are named `view`, so name matching lit up Administration on
+   every one of their pages. A route outside its section's URL prefix may set
+   `contest_nav_section` explicitly; submission review uses that to mark Runs.
+   The dashboard matches exactly because the contest root prefixes every other
+   destination. #}
+{% macro nav_item(endpoint, icon, label, exact=False) %}
+    {% set href = nav_url(request, endpoint, slug=contest.login_slug) %}
+    {% if href %}
+        {% set is_current = contest_nav_section|default(none) == endpoint or is_current_destination(request, href, exact) %}
+        <a class="noca-contest-nav-item {{ 'is-current' if is_current }}"
+           href="{{ href }}"
+           {% if is_current %}aria-current="page"{% endif %}>
+            {{ render_icon(icon=icon, filled=True, classes="noca-contest-nav-icon") }}
+            <span class="noca-contest-nav-label">{{ label }}</span>
+            {% if is_current %}<span class="visually-hidden">(current section)</span>{% endif %}
+        </a>
+    {% endif %}
+{% endmacro %}
+<nav class="noca-contest-nav" aria-label="Contest sections">
+    <div class="noca-contest-nav-track">
+        {% if role != RoleEnum.USER.value %}
+            {{ nav_item('contest_dashboard', 'grid_view', 'Dashboard', exact=True) }}
+        {% endif %}
+        {{ nav_item('contest_score', 'emoji_events', 'Score') }}
+        {% if role != RoleEnum.USER.value %}{{ nav_item('contest_problems', 'description', 'Problems') }}{% endif %}
+        {% if is_admin or role in [RoleEnum.JUDGE.value, RoleEnum.TEAM.value] %}
+            {{ nav_item('contest_clarifications', 'chat', 'Clarifications') }}
+            {{ nav_item('contest_runs', 'terminal', 'Runs') }}
+        {% endif %}
+        {% if noca_can_view_tasks(current_user, contest) %}{{ nav_item('contest_tasks', 'check_box', 'Tasks') }}{% endif %}
+        {% if is_admin or role == RoleEnum.JUDGE.value %}
+            {{ nav_item('contest_reports', 'bar_chart', 'Reports') }}
+            {{ nav_item('contest_solution_tests', 'science', 'Solution tests') }}
+        {% endif %}
+        {% if is_admin %}{{ nav_item('view', 'settings', 'Administration') }}{% endif %}
+    </div>
+</nav>

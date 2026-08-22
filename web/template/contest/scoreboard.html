@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon %}
 {% block title_suffix %}— Scoreboard{% endblock %}
@@ -5,19 +12,10 @@
     <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
             defer></script>
     <script src="{{ request.url_for('static_js', path='scoreboard.js') }}" defer></script>
-{% endblock %}
-{% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            <li class="breadcrumb-item">
-                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-            </li>
-            <li class="breadcrumb-item active" aria-current="page">Scoreboard</li>
-        </ol>
-    </nav>
+    <script src="{{ request.url_for('static_js', path='back-to-top.js') }}" defer></script>
 {% endblock %}
 {% block content %}
-    <div class="container-fluid py-4"
+    <div class="container-fluid px-4 py-4"
          {% if current_user.role == RoleEnum.TEAM.value %}data-own-team-id="{{ current_user.id }}"{% endif %}>
         <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
             <div>
@@ -25,7 +23,14 @@
                 <p class="text-muted mb-0 small">{{ contest.contest_name }}</p>
             </div>
             {% if snapshot %}
-                <div class="ms-auto small text-muted">
+                <div class="ms-auto small text-muted noca-tabular-nums">
+                    {% if contest.is_running and not snapshot.is_frozen %}
+                        <span class="noca-scoreboard-live-marker">
+                            <span class="noca-live-dot" aria-hidden="true"></span>
+                            Live
+                        </span>
+                        ·
+                    {% endif %}
                     Updated: {{ snapshot.generated_at | utc_to_local(contest.contest_timezone) }}
                 </div>
             {% endif %}
@@ -37,22 +42,19 @@
             </div>
         {% else %}
             {% if is_final_scoreboard %}
-                <div class="text-center mb-2">
-                    <span class="badge bg-success fs-6 d-inline-flex align-items-center justify-content-center">
-                        {{ render_icon(icon="emoji_events", filled=True, classes="me-1") }}Contest Final Scoreboard
-                    </span>
+                <div class="noca-scoreboard-status-band noca-scoreboard-status-band--final mb-3">
+                    {{ render_icon(icon="emoji_events", filled=True, classes="noca-status-band-icon") }}
+                    Contest Final Scoreboard
                 </div>
             {% elif contest.upcoming %}
-                <div class="text-center mb-2">
-                    <span class="badge bg-secondary fs-6 d-inline-flex align-items-center justify-content-center">
-                        {{ render_icon(icon="hourglass_empty", classes="me-1") }}Contest Not Started
-                    </span>
+                <div class="noca-scoreboard-status-band noca-scoreboard-status-band--upcoming mb-3">
+                    {{ render_icon(icon="hourglass_empty", classes="noca-status-band-icon") }}
+                    Contest Not Started
                 </div>
             {% elif snapshot.is_frozen %}
-                <div class="text-center mb-2">
-                    <span class="badge bg-warning text-dark fs-6 d-inline-flex align-items-center justify-content-center">
-                        {{ render_icon(icon="lock", filled=True, classes="me-1") }}SCOREBOARD FROZEN
-                    </span>
+                <div class="noca-scoreboard-status-band noca-scoreboard-status-band--frozen mb-3">
+                    {{ render_icon(icon="lock", filled=True, classes="noca-status-band-icon") }}
+                    Scoreboard Frozen
                 </div>
             {% endif %}
             {% if show_site_filter %}
@@ -105,11 +107,11 @@
                     <div id="scoreboard-live">
                     {% endif %}
                     {% if snapshot.standings %}
-                        <div class="card shadow-sm">
+                        <div class="card noca-scoreboard-card">
                             <div class="card-body p-0">
                                 <div class="table-responsive">
-                                    <table class="table table-sm table-bordered table-hover align-middle mb-0 w-100">
-                                        <thead class="table-dark">
+                                    <table class="table table-sm table-bordered table-hover align-middle mb-0 w-100 noca-scoreboard-table">
+                                        <thead>
                                             <tr>
                                                 <th class="text-center noca-col-3">#</th>
                                                 <th>Team</th>
@@ -140,26 +142,20 @@
                                                 {% set is_own_team = current_user.role == RoleEnum.TEAM.value and standing.team_id == current_user.id %}
                                                 <tr id="{{ standing.team_id }}"
                                                     class="{{ 'noca-own-team-row' if is_own_team else '' }}">
-                                                    <td class="text-center fw-semibold">{{ standing.rank }}</td>
+                                                    <td class="text-center fw-semibold noca-tabular-nums">{{ standing.rank }}</td>
                                                     <td>
                                                         {% set display_team_name = team_display_map.get(standing.team_id, standing.team_fullname) %}
-                                                        <a href="#"
-                                                           class="fw-semibold text-decoration-none team-link"
-                                                           data-bs-toggle="modal"
-                                                           data-bs-target="#teamPhotoModal"
-                                                           data-team-id="{{ standing.team_id }}"
-                                                           data-team-name="{{ display_team_name }} ({{ standing.team_name }})">
-                                                            {{ display_team_name }} <span class="text-muted small">({{ standing.team_name }})</span>
-                                                        </a>
+                                                        <div class="fw-semibold">{{ display_team_name }}</div>
+                                                        <div class="text-muted small fw-light noca-literal-text">{{ standing.team_name }}</div>
                                                     </td>
-                                                    <td class="text-center">
+                                                    <td class="text-center noca-tabular-nums">
                                                         {% if standing.problems_solved > 0 %}
                                                             <span class="fw-semibold">{{ standing.problems_solved }}</span>
                                                         {% else %}
                                                             <span class="text-muted">0</span>
                                                         {% endif %}
                                                     </td>
-                                                    <td class="text-center">
+                                                    <td class="text-center noca-tabular-nums">
                                                         {% if standing.problems_solved > 0 %}
                                                             <span class="fw-semibold">{{ standing.total_time }}'</span>
                                                         {% else %}
@@ -236,31 +232,11 @@
             {% endif %}
             {# end access_blocked #}
         </div>
-        {# Team photo modal #}
-        <div class="modal fade"
-             id="teamPhotoModal"
-             tabindex="-1"
-             aria-labelledby="teamPhotoModalLabel"
-             aria-hidden="true">
-            <div class="modal-dialog modal-sm modal-dialog-centered">
-                <div class="modal-content">
-                    <div class="modal-header py-2">
-                        <h6 class="modal-title mb-0" id="teamPhotoModalLabel"></h6>
-                        <button type="button"
-                                class="btn-close"
-                                data-bs-dismiss="modal"
-                                aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body p-2 text-center">
-                        <img id="teamPhotoImg" src="" alt="" class="img-fluid rounded">
-                    </div>
-                </div>
-            </div>
-        </div>
         {% if not access_blocked %}
             <button type="button"
                     id="scoreboard-back-to-top"
                     class="btn btn-primary noca-back-to-top-btn"
+                    aria-label="Return to top"
                     title="Return to top">{{ render_icon(icon="arrow_upward") }}</button>
         {% endif %}
     {% endblock %}

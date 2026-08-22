@@ -1,0 +1,139 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/*
+ * Contest login (/c/{slug}/login): a two-pane shell pairing the contest's own
+ * identity -- mark, name, slug, and live countdown -- with the hardened
+ * credential form shared with the UberAdmin login (.noca-auth-* form classes
+ * in _page.css). Flat token surfaces per DESIGN.md; no photographic ground.
+ */
+
+.noca-auth-page {
+    background-color: var(--noca-surface-container-low);
+}
+
+.noca-auth-shell {
+    display: grid;
+    width: 100%;
+    max-width: 56rem;
+    overflow: hidden;
+    border-radius: 0.5rem;
+    background-color: var(--noca-surface-container-lowest);
+    box-shadow: 0 2px 8px var(--noca-shadow-tint-subtle);
+    grid-template-columns: minmax(16rem, 0.85fr) minmax(0, 1.15fr);
+}
+
+.noca-auth-identity {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: var(--noca-space-xlg) var(--noca-space-xlg) 0;
+    background-color: var(--noca-brand-container);
+    color: var(--noca-on-brand);
+}
+
+.noca-auth-identity-title {
+    margin: 0;
+    color: inherit;
+    font-family: var(--noca-font-heading);
+    font-size: 2rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    text-wrap: balance;
+}
+
+.noca-auth-identity-slug {
+    margin: 0.35rem 0 0;
+    color: color-mix(in srgb, var(--noca-on-brand) 92%, transparent);
+    font-family: var(--noca-font-mono);
+    font-size: 0.875rem;
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+}
+
+.noca-auth-identity-countdown {
+    display: inline-block;
+    margin-top: var(--noca-space-lg);
+    padding: 0.75rem 1rem;
+    border-radius: 0.375rem;
+    background-color: color-mix(in srgb, black 18%, transparent);
+    color: var(--noca-on-brand);
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+    font-size: 1.15rem;
+    font-weight: 600;
+}
+
+/*
+ * Bleeds past the pane's own horizontal padding so the mark reads exactly as
+ * wide as the pane, then clips its bottom 30% -- the mark sits behind the
+ * fold rather than as a bounded illustration.
+ */
+.noca-auth-identity-mark-wrap {
+    margin: auto calc(-1 * var(--noca-space-xlg)) 0;
+    overflow: hidden;
+    aspect-ratio: 1 / 0.9;
+}
+
+.noca-auth-identity-mark {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.noca-auth-panel {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    padding: clamp(2rem, 5vw, 3rem);
+}
+
+@media (max-width: 767.98px) {
+    .noca-auth-shell {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .noca-auth-identity {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        padding: var(--noca-space-lg);
+    }
+
+    .noca-auth-identity-copy {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .noca-auth-identity-countdown {
+        margin-top: var(--noca-space-sm);
+    }
+
+    .noca-auth-identity-mark-wrap {
+        order: -1;
+        flex: 0 0 auto;
+        width: 2.75rem;
+        margin: 0 var(--noca-space-md) 0 0;
+        aspect-ratio: 1 / 1;
+    }
+
+    .noca-auth-identity-title {
+        font-size: 1.25rem;
+    }
+
+    .noca-auth-panel {
+        padding: var(--noca-space-lg);
+    }
+}
+
+@media (max-width: 575.98px) {
+    .noca-auth-page {
+        align-items: flex-start !important;
+    }
+}

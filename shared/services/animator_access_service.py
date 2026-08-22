@@ -386,6 +386,22 @@ async def revoke_secret(executor: _Executor, *, contest_id: str, secret_id: str)
     return bool(result.rowcount)
 
 
+async def revoke_all_secrets(executor: _Executor, *, contest_id: str) -> int:
+    """Revoke every operator secret owned by a contest.
+
+    Args:
+        executor: AsyncSession or AsyncConnection with an ``execute`` method.
+        contest_id: Contest whose global and site-scoped secrets are removed.
+
+    Returns:
+        Number of credentials revoked.
+    """
+    result = await executor.execute(  # type: ignore[attr-defined]
+        delete(site_secrets).where(site_secrets.c.contest_id == contest_id)
+    )
+    return max(0, int(result.rowcount or 0))
+
+
 async def resolve_scope(
     executor: _Executor,
     contest_id: str,

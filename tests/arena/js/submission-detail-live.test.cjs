@@ -12,13 +12,27 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
+// The consumer is meaningless without the shared engine it delegates to, so
+// both are loaded into one context exactly as the page loads them.
+const corePath = path.resolve(
+  __dirname,
+  "../../../shared/static/js/submission-status-watcher.js",
+);
+const coreScript = fs.readFileSync(corePath, "utf8");
 const scriptPath = path.resolve(
   __dirname,
   "../../../arena/static/js/submission-detail-live.js",
 );
 const script = fs.readFileSync(scriptPath, "utf8");
 
+// Timers the core scheduled (its reconcile debounce). Drained by flushPromises
+// so tests read as "let everything settle", as they did before the extraction.
+let pendingTimeouts = [];
+
 function flushPromises() {
+  const due = pendingTimeouts;
+  pendingTimeouts = [];
+  due.forEach((entry) => entry.callback());
   return new Promise((resolve) => setImmediate(resolve));
 }
 
@@ -80,6 +94,9 @@ function buildHarness({ confetti = true, root = true, snapshots = [] } = {}) {
     querySelector: (selector) => selectors.get(selector) || null,
   };
   let snapshotIndex = 0;
+  let timerId = 0;
+  const liveIntervals = new Map();
+  pendingTimeouts = [];
 
   class MockEventSource {
     constructor(url) {
@@ -106,7 +123,16 @@ function buildHarness({ confetti = true, root = true, snapshots = [] } = {}) {
     },
     URLSearchParams,
     console,
-    clearInterval: () => {},
+    AbortController,
+    clearInterval: (id) => liveIntervals.delete(id),
+    setTimeout: (callback) => {
+      timerId += 1;
+      pendingTimeouts.push({ id: timerId, callback });
+      return timerId;
+    },
+    clearTimeout: (id) => {
+      pendingTimeouts = pendingTimeouts.filter((entry) => entry.id !== id);
+    },
     document: {
       createElement: () => makeElement(),
       querySelector: (selector) => {
@@ -133,8 +159,10 @@ function buildHarness({ confetti = true, root = true, snapshots = [] } = {}) {
       };
     },
     setInterval: (callback, milliseconds) => {
-      intervals.push({ callback, milliseconds });
-      return intervals.length;
+      timerId += 1;
+      intervals.push({ id: timerId, callback, milliseconds });
+      liveIntervals.set(timerId, callback);
+      return timerId;
     },
     window: {
       ...(confetti ? {
@@ -147,8 +175,10 @@ function buildHarness({ confetti = true, root = true, snapshots = [] } = {}) {
     },
   });
 
+  vm.runInContext(coreScript, context);
   vm.runInContext(script, context);
   return {
+    pollIsLive: () => liveIntervals.size > 0,
     celebrations,
     eventSources,
     intervals,
@@ -257,7 +287,11 @@ test("an SSE-confirmed AC updates the verdict and celebrates", async () => {
   assert.equal(source.closed, true);
 });
 
-test("a polled AC waits for SSE before celebrating", async () => {
+test("a polled AC resolves and celebrates without SSE", async () => {
+  // The snapshot endpoint is the sole data source: a final verdict seen by the
+  // fallback poll resolves the watch on its own. Previously an `sseRefreshObserved`
+  // gate required a verdict `refresh` frame first, so a page whose SSE never
+  // delivered one rendered the verdict but polled forever and never celebrated.
   const accepted = {
     submission_id: "submission-1",
     is_final: true,
@@ -275,15 +309,9 @@ test("a polled AC waits for SSE before celebrating", async () => {
   await flushPromises();
 
   assert.equal(harness.verdictLabel.textContent, "Accepted");
-  assert.deepEqual(harness.celebrations, []);
-  assert.equal(source.closed, false);
-
-  source.onmessage({ data: "refresh" });
-  await flushPromises();
-  await flushPromises();
-
   assert.deepEqual(harness.celebrations, ["submission-1"]);
   assert.equal(source.closed, true);
+  assert.equal(harness.pollIsLive(), false, "the poll stops once the verdict is final");
 });
 
 test("an SSE-confirmed non-AC verdict never celebrates", async () => {

@@ -1194,6 +1194,11 @@ Frontend counterpart:
   (fetch/SSE/status/debounce/known-row highlight, overflow summary line, trailing-row
   fade); each app mounts it at `/static/shared-js` and supplies only a `renderRow`
   callback via `NocaLiveFeed.init(...)`
+- `shared/static/js/submission-status-watcher.js` is the browser counterpart of the
+  `arena/routes/user_submission_status.py` stream: it consumes those `refresh` pings,
+  refetches the authoritative status snapshot, and falls back to a poll. Both Arena
+  live-status pages use it via `NocaSubmissionStatusWatcher.watch(...)` and supply
+  only their own DOM updates (see the shared static JS section below)
 
 ---
 
@@ -1318,6 +1323,27 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
 - `noca-presence.js`: online-presence client — heartbeat POST to keep the current
   user marked online, plus online-dot polling over `.avatar-wrapper[data-user-id]`
   elements; consumed arena-side (paired with `shared/static/css/presence.css`).
+- `submission-status-watcher.js`: the SSE + poll + reconcile engine behind Arena's
+  two live submission-status surfaces (the profile submissions tab and the
+  submission detail page), which previously implemented the same protocol twice.
+  `NocaSubmissionStatusWatcher.watch(options) -> { stop }` takes `statusUrl`,
+  `eventsUrl`, the `ids` to watch, and an `onSnapshot(row)` callback; each page
+  supplies only its own DOM updates and its own confetti trigger. Contract:
+  - the status snapshot (`arena_user_submissions_status`) is the **sole data
+    source** — the SSE channel carries only `refresh` pings, never verdict data;
+  - `onSnapshot` drops an id from the watch set **only when it returns an explicit
+    `false`**; anything else keeps watching, so a consumer that forgets a `return`
+    cannot silently stop its own updates. The watcher tears down once the set
+    empties;
+  - a `refresh` ping and an SSE (re)connect are debounced (250 ms) and an
+    in-flight guard prevents overlapping reconciles;
+  - a `401`/`403` stops streaming and polling rather than reconnecting forever;
+  - the low-frequency poll (2500 ms) is not just a fallback: intermediate
+    `QUEUED`/`DISPATCHED`/`JUDGING` states publish no SSE event. Where
+    `EventSource` is unavailable the poll is the only channel and the watcher
+    reconciles once immediately;
+  - `stop()` and `pagehide` abort an in-flight reconcile (`AbortController`, plus
+    post-await re-checks where it is absent), so no callback runs after teardown.
 
 ---
 
@@ -1782,6 +1808,8 @@ Main entrypoints:
 - `revoke_secret(executor, *, contest_id, secret_id) -> bool` — contest-scoped so
   one contest cannot revoke another's credential by id; returns whether a row was
   removed
+- `revoke_all_secrets(executor, *, contest_id) -> int` — removes every global and
+  site-scoped credential for one contest and returns the number removed
 - `resolve_scope(executor, contest_id, token) -> ResolvedScope | None`
 
 Reuse this module when:
@@ -2200,6 +2228,10 @@ Key types and functions:
 - `bucket_visible_pending_submissions(submissions, judgments, *, freeze_at_seconds,
   viewer_sees_frozen)` — groups unresolved submissions by team/problem using the
   same freeze-visibility rule consumed by `compute_icpc` and animator pending lists
+- `penalizing_verdicts(accept_pe, ce_adds_penalty)` — returns the canonical
+  ordered `Verdict` members that count as failed attempts. Both `compute_icpc`
+  and participant-facing rules summaries consume this helper, so displayed
+  rules cannot drift from scoreboard behavior
 - `compute_icpc(contest, teams, problems, submissions, judgments, freeze_at_seconds, viewer_sees_frozen)` — pure standings calculation; honors per-contest `wa_penalty`, `accept_pe`, and `ce_adds_penalty`, the strict freeze predicate (`timestamp_seconds > freeze_at_seconds`), pending cells, position-based tied ranks, and first-balloon marking ordered by `(timestamp_seconds, created_at, id)`
 - `snapshot_to_dict(snapshot)` / `snapshot_from_dict(data)` — JSON-compatible cache serialization; tolerant of legacy payloads missing `team_fullname` or `is_first_balloon`
 

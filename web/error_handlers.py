@@ -19,6 +19,7 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashService
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from shared.enumerations import ALL_CONTEST_ROLES, RoleEnum
 from shared.error_handlers import (
     GENERIC_ERROR_CODES,
     BackendErrorConfig,
@@ -31,6 +32,9 @@ from shared.error_handlers import (
     request_accepts_html,
 )
 from shared.services.multipart_file_size import MultipartFileTooLargeError
+from web.services.contest_service import get_contest_by_id
+from web.services.session_service import get_validated_auth_token
+from web.template_globals import ROLE_LABELS
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,11 @@ def register_error_handlers(app: FastAPI) -> None:
 async def http_exception_response(request: Request, exc: Exception) -> Response:
     """Render browser-specific HTTP errors while preserving API responses."""
     http_exception = cast(StarletteHTTPException, exc)
+    if http_exception.status_code == 403:
+        forbidden_response = await _logged_in_forbidden_response(request)
+        if forbidden_response is not None:
+            return forbidden_response
+
     if (
         isinstance(http_exception, MultipartFileTooLargeError)
         and request_accepts_html(request)
@@ -100,6 +109,54 @@ async def http_exception_response(request: Request, exc: Exception) -> Response:
         )
 
     return await http_exception_handler(request, http_exception)
+
+
+async def _logged_in_forbidden_response(request: Request) -> Response | None:
+    """Redirect an authenticated actor away from a forbidden Web feature."""
+    result = get_validated_auth_token(request)
+    if result is None:
+        return None
+
+    try:
+        role = RoleEnum(result.aud)
+    except ValueError:
+        return None
+
+    destination = await _forbidden_dashboard_url(request, role, result.extra_data or {})
+    dashboard_name = "UberAdmin dashboard" if role == RoleEnum.UBERADMIN else "contest dashboard"
+    role_label = ROLE_LABELS[role.value]
+    FlashService(request).flash(
+        f"Access to this feature is forbidden for your {role_label} role. "
+        f"You have been returned to the {dashboard_name}.",
+        FlashCategory.DANGER,
+    )
+
+    if request.headers.get("HX-Request", "").lower() == "true":
+        return Response(status_code=403, headers={"HX-Redirect": destination})
+    return RedirectResponse(destination, status_code=303)
+
+
+async def _forbidden_dashboard_url(
+    request: Request,
+    role: RoleEnum,
+    token_data: dict[str, object],
+) -> str:
+    """Return the dashboard URL appropriate for an authenticated role."""
+    if role == RoleEnum.UBERADMIN:
+        return str(request.url_for("uberadmin_dashboard"))
+
+    if role not in ALL_CONTEST_ROLES:
+        return str(request.url_for("contests_list"))
+
+    contest_id = token_data.get("contest_id")
+    if not isinstance(contest_id, str) or not contest_id:
+        return str(request.url_for("contests_list"))
+
+    async with request.app.state.db_session() as session:
+        contest = await get_contest_by_id(session, contest_id)
+    if contest is None or not contest.active:
+        return str(request.url_for("contests_list"))
+    return str(request.url_for("contest_dashboard", slug=contest.login_slug))
 
 
 def _safe_browser_return_url(request: Request) -> str:

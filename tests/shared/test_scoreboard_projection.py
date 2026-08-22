@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -24,6 +24,7 @@ from shared.services.scoreboard_projection import (
     ScoreboardSnapshot,
     compute_icpc,
     ordinal_to_label,
+    penalizing_verdicts,
     snapshot_from_dict,
     snapshot_to_dict,
 )
@@ -120,6 +121,20 @@ def test_ordinal_to_label_multi_letters() -> None:
 # ---------------------------------------------------------------------------
 # Normal scoring
 # ---------------------------------------------------------------------------
+
+
+def test_penalizing_verdicts_follow_contest_options() -> None:
+    """PE and CE independently follow their contest scoring switches."""
+    base = (Verdict.WA, Verdict.RE, Verdict.TLE, Verdict.MLE, Verdict.OLE)
+
+    assert penalizing_verdicts(accept_pe=False, ce_adds_penalty=False) == (*base, Verdict.PE)
+    assert penalizing_verdicts(accept_pe=False, ce_adds_penalty=True) == (
+        *base,
+        Verdict.CE,
+        Verdict.PE,
+    )
+    assert penalizing_verdicts(accept_pe=True, ce_adds_penalty=False) == base
+    assert penalizing_verdicts(accept_pe=True, ce_adds_penalty=True) == (*base, Verdict.CE)
 
 
 def test_icpc_single_team_single_ac() -> None:

@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon %}
 {% block title_suffix %}- Submission Review{% endblock %}
@@ -327,7 +334,7 @@
                                 <tr>
                                     <th class="text-muted fw-normal small">Judge 1</th>
                                     <td>
-                                        {% if is_judge and not is_chief_judge and not has_confirmed %}
+                                        {% if is_judge and not noca_is_chief_judge(current_user, contest) and not has_confirmed %}
                                             <span class="text-muted">—</span>
                                         {% elif panel.judge_1.verdict %}
                                             {{ verdict_badge(panel.judge_1.verdict.value) }}
@@ -344,7 +351,7 @@
                                 <tr>
                                     <th class="text-muted fw-normal small">Judge 2</th>
                                     <td>
-                                        {% if is_judge and not is_chief_judge and not has_confirmed %}
+                                        {% if is_judge and not noca_is_chief_judge(current_user, contest) and not has_confirmed %}
                                             <span class="text-muted">—</span>
                                         {% elif panel.judge_2.verdict %}
                                             {{ verdict_badge(panel.judge_2.verdict.value) }}
@@ -361,7 +368,7 @@
                                 <tr>
                                     <th class="text-muted fw-normal small">Chief Judge</th>
                                     <td>
-                                        {% if is_judge and not is_chief_judge and not has_confirmed %}
+                                        {% if is_judge and not noca_is_chief_judge(current_user, contest) and not has_confirmed %}
                                             <span class="text-muted">—</span>
                                         {% elif panel.chief_judge.verdict %}
                                             {{ verdict_badge(panel.chief_judge.verdict.value) }}
@@ -446,7 +453,7 @@
                                         {% for v in verdicts %}<option value="{{ v.value }}">{{ verdict_labels.get(v.value, v.value) }}</option>{% endfor %}
                                     </select>
                                 </div>
-                                {% if is_decisive_confirmer %}
+                                {% if noca_confirmation_is_decisive(current_user, contest) %}
                                     <button type="button"
                                             class="btn btn-danger w-100"
                                             data-bs-toggle="modal"
@@ -457,7 +464,7 @@
                             </form>
                         </div>
                     </div>
-                    {% if is_decisive_confirmer %}
+                    {% if noca_confirmation_is_decisive(current_user, contest) %}
                         <div class="modal fade"
                              id="chiefConfirmModal"
                              tabindex="-1"
@@ -472,7 +479,7 @@
                                                 aria-label="Close"></button>
                                     </div>
                                     <div class="modal-body">
-                                        {% if is_chief_judge %}
+                                        {% if noca_is_chief_judge(current_user, contest) %}
                                             As the contest chief judge, your confirmation is final and will immediately set the final verdict.
                                         {% else %}
                                             As a contest admin, your confirmation is final and will immediately set the final verdict.

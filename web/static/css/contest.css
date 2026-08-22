@@ -1,5 +1,5 @@
 /* NOCA -- Next Online Contest Administrator */
-/* Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org> */
+/* Copyright (c) 2026 The NOCA Authors (see AUTHORS) */
 /* This program is distributed in the hope that it will be useful, */
 /* but WITHOUT ANY WARRANTY; without even the implied warranty of */
 /* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. */
@@ -9,6 +9,10 @@
 
 @import url('./contest/_fonts.css');
 @import url('./contest/_page.css');
+@import url('./contest/_dashboard.css');
+@import url('./contest/_chrome.css');
+@import url('./contest/_auth-flow.css');
+@import url('./contest/_gateway.css');
 @import url('./contest/_forms.css');
 @import url('./contest/_code.css');
 @import url('./contest/_layout.css');
@@ -20,14 +24,15 @@
 @import url('./contest/_dark.css');
 
 .animator-medal-input {
-    max-width: 5rem;
+    min-width: 2.5rem;
+    max-width: 3.5rem;
 }
 
 .animator-medal-heading {
     display: inline-flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.125rem;
+    gap: 0.25rem;
     white-space: nowrap;
 }
 
@@ -39,4 +44,23 @@
 .animator-medal-heading-label {
     font-size: 0.75rem;
     line-height: 1;
+}
+
+.animator-medal-example {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.25rem 1.5rem;
+    padding-inline-start: 1.5rem;
+}
+
+@media (max-width: 575.98px) {
+    .animator-medal-example {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (pointer: coarse) {
+    .animator-settings-layout :where(.btn-sm, .form-control-sm, .form-select-sm) {
+        min-height: 2.75rem;
+    }
 }

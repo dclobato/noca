@@ -37,7 +37,8 @@ contest-backup-<slug>-<YYYYMMDD-HHMMSS>.zip
 ├── judgments.json         FULL judgment history (incl. SUPERSEDED/FAILED); each
 │                          entry nests test_results, confirmations, overrides,
 │                          interactive_attempts, and submission_judgment_audit
-├── clarifications.json    every clarification row (incl. soft-hide fields);
+├── clarifications.json    every clarification row (incl. soft-hide fields and
+│                          the requesting team's `answer_read_at` marker);
 │                          `problem_id` is null for general, contest-wide ones
 ├── tasks.json             every staff task row
 └── problems/<ordinal:03d>/  per-problem package payload from build_export_zip:

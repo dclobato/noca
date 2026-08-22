@@ -229,7 +229,7 @@
                                 <td>
                                     {{ row.title }}
                                     {% if row.has_custom_validator %}
-                                        {{ render_icon(icon="published_with_changes", classes="text-info", title="This problem uses a custom validator") }}
+                                        {{ render_icon(icon="published_with_changes", classes="text-info", title="This problem uses a custom validator", label="This problem uses a custom validator") }}
                                     {% endif %}
                                 </td>
                                 <td>
@@ -242,7 +242,7 @@
                                 <td class="text-end column-width-shrink">{{ row.public_tc_count }}/{{ row.private_tc_count }}</td>
                                 <td class="text-center column-width-shrink">
                                     {% if row.has_editorial %}
-                                        {{ render_icon(icon=editorial_policy_icons[row.editorial_release_policy.value], classes=editorial_policy_colors[row.editorial_release_policy.value], title="Editorial release: " ~ row.editorial_release_policy.label) }}
+                                        {{ render_icon(icon=editorial_policy_icons[row.editorial_release_policy.value], classes=editorial_policy_colors[row.editorial_release_policy.value], title="Editorial release: " ~ row.editorial_release_policy.label, label="Editorial release: " ~ row.editorial_release_policy.label) }}
                                     {% else %}
                                         —
                                     {% endif %}

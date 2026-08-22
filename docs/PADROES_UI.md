@@ -7,10 +7,45 @@ Este documento descreve padrões de UI e boilerplates reutilizáveis usados no p
 - [Admin List Page](#admin-list-page)
 - [Paginação](#paginação)
 - [Linhas de tabela clicáveis](#linhas-de-tabela-clicáveis)
+- [Card de ação no dashboard (POST)](#card-de-ação-no-dashboard-post)
 - [Coluna de Tabela Ordenável (sort_by)](#coluna-de-tabela-ordenável-sort_by)
 - [Autocomplete com Estado Pendente](#autocomplete-com-estado-pendente)
 - [Destaque de Linha após CRUD](#destaque-de-linha-após-crud)
 - [Upload de Imagem com Cropper](#upload-de-imagem-com-cropper)
+- [Ícones do Material Symbols e acessibilidade](#ícones-do-material-symbols-e-acessibilidade)
+
+---
+
+## Ícones do Material Symbols e acessibilidade
+
+Os nomes de ligatura do Material Symbols são texto real. O `render_icon` oculta
+ícones decorativos da árvore de acessibilidade por padrão para impedir que nomes
+como `folder_zip` sejam incluídos no nome acessível do conteúdo ao redor.
+
+- Use `render_icon(icon="...")` sem configuração adicional quando houver um
+  rótulo visível próximo ao ícone.
+- Defina `aria-label` no `button` ou `a` quando o controle contiver somente um
+  ícone. O atributo `title` pode manter uma dica visual, mas não substitui o nome
+  acessível do controle.
+- Nos macros de Web e Arena, use `label="..."` somente quando um ícone não
+  interativo transmitir informação sem um rótulo visível. O macro gera
+  `role="img"` e `aria-label` nesse caso.
+- Ao gerar Material Symbols diretamente em HTML ou JavaScript, inclua
+  `aria-hidden="true"` no elemento do ícone decorativo.
+
+O exemplo abaixo mantém o ícone da ação decorativo e nomeia o botão:
+
+```jinja2
+<button type="button" aria-label="Remove site">
+    {{ render_icon(icon="delete") }}
+</button>
+```
+
+O exemplo abaixo expõe um status representado somente pelo ícone:
+
+```jinja2
+{{ render_icon(icon="done_all", label="Solved", title="Solved") }}
+```
 
 ---
 
@@ -232,6 +267,72 @@ Siga estas regras para manter a navegação previsível e acessível:
 - `arena/template/problems/problem_list.html`
 - `arena/template/classes/registered.html`
 - `arena/template/ranking/users.html`
+
+---
+
+## Card de ação no dashboard (POST)
+
+O grid do dashboard administrativo é uniforme: cada célula é um card do mesmo
+tamanho. A maioria apenas navega e usa `dashboard_card`, que renderiza um
+`<a href>`. Um card que **executa** uma ação (publicar, revogar, revelar) não
+pode ser um link — precisa de um `<form method="post">`. Para isso existe
+`dashboard_action_card`, em `web/template/_macros.html`.
+
+```jinja2
+{% from "_macros.html" import dashboard_action_card, dashboard_card %}
+
+{{ dashboard_action_card(request.url_for('contest_admin_release_scoreboard', slug=contest.login_slug),
+                         "emoji_events",
+                         "Release Final Scoreboard",
+                         "Reveal pending results",
+                         "Release the final scoreboard? This will reveal all pending results and cannot be undone.") }}
+
+{# Ação que expõe material: campo oculto, régua lateral e kicker. #}
+{{ dashboard_action_card(request.url_for('some_publish_route', slug=contest.login_slug),
+                         "warning",
+                         "Release Problem Set",
+                         "Statements, test cases & editorials",
+                         "Publish the problem set? ... with no login.",
+                         hidden_fields={'release': 'yes'},
+                         tone="consequential",
+                         kicker="Becomes public") }}
+```
+
+Parâmetros:
+
+| Parâmetro | Papel |
+| --- | --- |
+| `action` | URL do POST (sempre via `request.url_for`) |
+| `icon` | Material Symbol, renderizado preenchido em `fs-1` |
+| `title` / `subtitle` | Texto do card, iguais aos de `dashboard_card` |
+| `confirm_text` | Vira `data-confirm` no `<form>` |
+| `hidden_fields` | Mapa `nome -> valor` de `<input type="hidden">` |
+| `tone` | `None`, `"consequential"` ou `"live"` — `"live"` *estende* `"consequential"` (aplica as duas classes `noca-card-consequential noca-card-live`), não é um valor irmão |
+| `kicker` | Palavra curta acima do título, nomeando a consequência |
+| `filled` | Peso do ícone, repassado a `render_icon`; `True` por padrão (os três usos atuais são ações consequentes) |
+
+Regras:
+
+- **A página precisa carregar `confirm-submit.js`** (`static_js`). O macro declara
+  a confirmação como `data-confirm`; o listener delegado desse script é quem a
+  honra. Sem ele, a confirmação simplesmente não aparece — e o clique executa a
+  ação direto.
+- Nunca use `onsubmit="return confirm(...)"`. Além de ser JavaScript inline, a
+  mensagem fica escapada como literal JavaScript (um nome de contest interpolado
+  ali quebra as aspas) e fora do texto de template que uma futura tradução
+  alcançaria.
+- `tone` marca a ação cuja consequência não é navegacional: `"consequential"`
+  para a que *vai* expor algo, `"live"` para a que está expondo agora. Ambos
+  desenham a régua lateral de `noca-card-consequential` (ver
+  `web/static/css/contest/_page.css`); `"live"` troca a cor.
+- O `kicker` existe para que o sinal nunca dependa só de cor: régua + palavra +
+  ícone de aviso são três canais independentes, e o card sobrevive a escala de
+  cinza, cores forçadas e leitor de tela.
+- Não acrescente `bg-white` a um card: o `!important` do Bootstrap derrota o
+  override de tema escuro em `web/static/css/contest/_dark.css`.
+
+**Exemplo real:** `web/template/admin/dashboard.html` — os cards de liberação do
+placar final e do conjunto de problemas.
 
 ---
 
@@ -1088,7 +1189,7 @@ Use este padrão quando:
 │ Template (Jinja2)                       │
 │ - user_profile.html                     │
 │ - input[name="foto"] ou [name="team"]   │
-│ - Modal Bootstrap com cropImage         │
+│ - _partials/crop_modal.html (Bootstrap) │
 │ - div#cropPreview (dims ∝ aspecto)      │
 │ - preview src="/user/{id}/photo?v=..."  │
 └────────────┬────────────────────────────┘
@@ -1217,42 +1318,15 @@ URL mude automaticamente após upload ou remoção.
   </div>
 </div>
 
-<div class="modal fade" id="cropModal" tabindex="-1"
-     aria-labelledby="cropModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="cropModalLabel">Adjust Photo</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div class="modal-body">
-        <div class="row g-3">
-          <div class="col-md-8">
-            <img id="cropImage" style="max-width: 100%; display: block;" alt="Image to crop">
-          </div>
-          <div class="col-md-4">
-            <p class="fw-semibold small mb-1">Preview</p>
-            {% if current_user.role == "t" %}
-            <div id="cropPreview"
-                 style="width: 224px; height: 140px; overflow: hidden;
-                        border: 1px solid #dee2e6;"></div>
-            {% else %}
-            <div id="cropPreview"
-                 style="width: 140px; height: 210px; overflow: hidden;
-                        border: 1px solid #dee2e6;"></div>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary btn-sm"
-                data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary btn-sm"
-                id="cropConfirm">Confirm crop</button>
-      </div>
-    </div>
-  </div>
-</div>
+{# O modal de corte vive em `_partials/crop_modal.html` e e compartilhado por
+   `profile/user_profile.html` e `admin/users/edit.html`; nunca duplique a
+   marcacao. Passe `crop_role` com o RoleEnum do usuario cuja foto sera
+   cortada -- ele escolhe o aspecto da caixa de preview. O `<img id="cropImage">`
+   do partial ja traz `src` de placeholder (`static_img` -> `crop-placeholder.svg`),
+   substituido pelo Cropper.js antes de o modal abrir. #}
+{% with crop_role = current_user.role %}
+  {% include "_partials/crop_modal.html" %}
+{% endwith %}
 
 {% if current_user.com_foto %}
 <div class="modal fade" id="removePhotoModal" tabindex="-1"
@@ -1422,22 +1496,187 @@ Esta é a rota única de remoção de foto.
 
 ### 5. Exibir avatar em outras páginas (navbar)
 
-**Arquivo:** `web/template/_base.html`
+**Arquivo:** `web/template/_partials/_identity_avatar.html`
 
 ```jinja2
-{% if current_user.role != "ua" %}
-<a href="/profile" class="d-flex align-items-center" title="{{ current_user.username }}">
-  <img src="/user/{{ current_user.id }}/avatar?v={{ current_user.dta_foto or '0' }}"
-       width="40" height="40"
-       class="rounded-circle object-fit-cover"
-       style="border: 1px solid rgba(255,255,255,.25);"
-       alt="{{ current_user.username }}">
-</a>
-{% endif %}
+{% with identity_user = current_user,
+    identity_size_class = "noca-avatar-navbar noca-navbar-avatar",
+    identity_icon_class = "noca-navbar-identity-icon",
+    identity_pixels = 32 %}
+    {% include "_partials/_identity_avatar.html" %}
+{% endwith %}
 ```
 
-Esse é o ponto mais importante da migração: a navbar deve sempre apontar para
-`/user/{current_user.id}/avatar`.
+A identidade visual do usuário nunca é escrita à mão numa página. Um único
+partial renderiza o avatar ou fallback na navbar e na faixa de identidade do
+dashboard do contest, para que as duas superfícies não divirjam.
+
+O partial decide entre duas formas:
+
+- Para qualquer papel exceto UberAdmin, ele renderiza um `<img>` apontando para
+  `/user/{current_user.id}/avatar?v={{ media_cache_version }}`. Esse continua
+  sendo o endpoint canônico de avatar.
+- Para UberAdmin, ele renderiza um `shield_person` dentro de um círculo com a
+  cor da marca (`.noca-identity-fallback`), sem requisitar
+  `/user/{id}/avatar`. UberAdmins não têm registro de mídia.
+
+Essa diferença é somente de apresentação. Não existe coluna de avatar nem
+armazenamento de mídia para UberAdmin.
+
+O papel, incluindo o rótulo, ícone, e cor do badge, também tem uma única fonte:
+`web/template_globals.py` declara os três mapas, e o macro `role_pill` em
+`_macros.html` lê os três juntos. O macro usa o predicado autoritativo
+`is_chief_judge()` por meio do global `noca_is_chief_judge` para aplicar o
+rótulo **Chief Judge** e definir a autoridade equivalente na lista de runs. Não
+redeclare mapas ou regras de autorização em uma página.
+
+Globals de autorização em Jinja usam o prefixo `noca_` e apontam diretamente
+para predicados puros dos serviços. Use-os quando o template já possui todos os
+argumentos, como `current_user` e `contest`. Esse grupo inclui
+`noca_is_chief_judge`, `noca_can_view_tasks`,
+`noca_can_answer_clarifications`, `noca_can_create_announcement`, e
+`noca_can_confirm_verdict`. O global `noca_confirmation_is_decisive` segue a
+mesma regra para a autoridade de confirmação de veredito.
+
+Mantenha um booleano no contexto da rota quando a decisão combina estado
+carregado ou calculado durante a requisição, como lock ativo, confirmação já
+registrada, julgamento finalizado, disponibilidade do Valkey, ou resultado de
+query. Não registre esse estado como global e não substitua um view model
+composto por uma chamada parcial ao predicado de papel.
+
+Na navbar, o avatar e o nome formam o botão de um menu suspenso de conta do
+Bootstrap.
+O badge de papel permanece visível ao lado do botão para manter a autoridade
+operacional legível sem abrir o menu. O menu segue estas regras:
+
+- O botão tem nome acessível que inclui o nome de usuário, além de
+  `aria-haspopup`, `aria-controls`, e `aria-expanded` gerenciado pelo Bootstrap.
+- O menu mostra **Signed in as**, o nome de usuário, o link **Profile**, e a ação
+  **Logout**.
+- **Logout** é sempre um `<form method="post">`; nunca use um link ou `GET`.
+- O Bootstrap Bundle carregado por `_base.html` fornece abertura, clique fora,
+  tecla **Escape**, e retorno de foco. Não crie JavaScript específico para esse
+  menu.
+- Em telas estreitas, o nome pode ser ocultado visualmente no botão, mas
+  continua no nome acessível e no resumo do menu.
+
+---
+
+### 5.1. Navegação do contest (faixa abaixo da navbar)
+
+**Arquivos:** `web/template/_partials/_contest_nav.html` e
+`web/static/css/contest/_chrome.css`
+
+Os destinos de um contest ficam em uma faixa abaixo da navbar. A faixa oferece
+a cada destino um ícone grande (`1.75rem`), um rótulo completo, e uma área de
+clique generosa.
+
+A faixa segue estas regras:
+
+- Todos os destinos permanecem visíveis, sem menu de overflow.
+- Em telas estreitas, a faixa rola horizontalmente sem alterar a ordem dos
+  destinos. `contest-nav.js` traz o item atual para a área visível.
+- O destino atual usa peso da fonte, preenchimento tonal, uma régua de `3px`, e
+  `aria-current="page"`. A indicação nunca depende somente de cor.
+- A seção atual é decidida pelo caminho, não pelo nome do endpoint, porque oito
+  handlers de contest se chamam `view` e o escopo da requisição expõe o nome da
+  função. Uma página cujo caminho não pertence ao prefixo do destino define
+  `contest_nav_section` no contexto da rota; a revisão de submissão usa
+  `contest_runs` para manter **Runs** marcado.
+- A entrada **Tasks** usa
+  `noca_can_view_tasks(current_user, contest)`, que aponta para o predicado
+  autoritativo `can_view_tasks()`. A navbar e o dashboard chamam esse mesmo
+  global; a rota não calcula nem injeta um booleano paralelo. Não replique a
+  combinação de papel e chief judge no template.
+
+### Referência de papéis (Role reference)
+
+Uma tela que faz alguém **escolher** um papel mostra o que aquele papel poderá
+alcançar e fazer. O padrão está em
+`web/template/admin/users/_role_reference.html`, com dois consumidores hoje —
+Add User e Batch Import. Eles têm layouts diferentes, e a diferença é a regra:
+
+- **Add User** (`admin/users/add.html`) põe o card na coluna
+  `col-12 col-lg-5`, que nessa página só é preenchida depois do sucesso pelo
+  card de credenciais. Um dos dois renderiza, nunca os dois.
+- **Batch Import** (`admin/users/batch_import.html`) põe o card em `col-12`,
+  largura total, porque ali a coluna direita já é do card de formato de arquivo.
+  Não copie o layout de barra lateral para uma página cuja coluna direita já
+  está ocupada — escolha pela página, não por hábito.
+
+Regras comuns:
+
+- As duas matrizes vêm do global `role_matrix`, alimentado por
+  `web/access_matrix/`. O template **não** monta lista de papéis nem de
+  capacidades à mão: enumerar de novo é exatamente a duplicação que o pacote
+  substituiu.
+- Toda lista de papéis na tela itera `all_contest_roles`: o `<select>` do Add
+  User com `role_labels`, e a linha de valores aceitos do Batch Import com os
+  valores em minúsculas. Um papel novo no enum aparece nas duas sem editar
+  template.
+- `role_reference_intro` troca a frase de abertura. O padrão ("Pick a role
+  above…") pressupõe um seletor logo acima do card; o Batch Import **não tem
+  controle `#role`**, então precisa sobrescrever — mandar o leitor usar um
+  controle inexistente é pior do que não explicar nada.
+- `web/static/js/role-reference.js` destaca a linha/coluna do papel selecionado
+  via `data-noca-actor`. Ele depende de um `#role` e simplesmente não faz nada
+  onde não existe, então o Batch Import nem carrega o script. É melhoria
+  progressiva: sem JavaScript as tabelas continuam completas e legíveis.
+- O destaque usa `--bs-primary-bg-subtle`, que já é sensível ao tema; não
+  acrescente regra em `_dark.css` para ele.
+- A tabela de capacidades é longa: o scroll é limitado por
+  `.noca-role-reference-scroll` com cabeçalho `sticky`, para o card não passar
+  muito da altura do conteúdo ao lado.
+
+Esse card é informativo. As regras continuam sendo aplicadas pelas rotas,
+pelos `permissions.py` e pelo hook `before_flush`; a página não decide nada.
+
+A navbar contém a identidade e o relógio. O relógio usa `1.5rem`, peso `700`, e
+algarismos tabulares, sem caixa nem borda.
+
+Dentro de um contest, o landmark da navbar usa o nome **Contest** para se
+distinguir da faixa **Contest sections**. Fora de um contest, ele usa
+**Primary navigation**. O link **Skip to main content** aponta para
+`#main-content`, que precisa manter `tabindex="-1"` para receber foco após a
+navegação.
+
+Uma página só usa breadcrumb quando possui um nível que a faixa não mostra. As
+seções de primeiro nível, como Score, Problems, Clarifications, Runs, Tasks, e
+Solution tests, não usam breadcrumb porque ele repetiria a faixa.
+
+---
+
+### 5.2. Chrome fixo no topo (navbar, faixa, e breadcrumb)
+
+**Arquivos:** `web/template/_base.html`, `web/static/css/contest/_chrome.css`, e
+`web/static/js/sticky-chrome.js`
+
+A navbar, a faixa de navegação do contest, e a barra de breadcrumb permanecem no
+topo da janela durante a rolagem. As três são fixadas **como uma única unidade**:
+`_base.html` envolve as três em `.noca-sticky-chrome`, que é o único elemento com
+`position: sticky`.
+
+Não fixe essas barras individualmente. Cada uma precisaria de um `top` igual à
+altura de tudo o que está acima dela, e essas alturas mudam com a largura da
+viewport, com a presença de um contest no escopo, e com a presença de breadcrumb
+na página. Um único envoltório não tem nenhum desses deslocamentos para manter.
+Pelo mesmo motivo, a navbar não usa `sticky-top` do Bootstrap: isso fixaria
+apenas ela e deixaria as outras duas rolarem por baixo.
+
+O envoltório tem fundo opaco (`--noca-surface`) porque o fundo próprio do
+breadcrumb é `transparent` por padrão, e o conteúdo da página apareceria através
+dele. Em viewports muito baixas (`max-height: 32rem`), o chrome volta ao fluxo
+normal, porque fixá-lo deixaria apenas uma faixa de conteúdo visível.
+
+`sticky-chrome.js` publica a altura medida do chrome em
+`--noca-chrome-height` no elemento raiz. Use essa variável em qualquer elemento
+que precise ficar abaixo do chrome; `scroll-padding-top` já a usa, de modo que
+âncoras e `scrollIntoView()` param abaixo das barras. `_base.html` carrega o
+script de forma síncrona logo após o chrome e antes de `<main>`, para publicar a
+medida antes que o navegador encontre um alvo de fragmento inicial. A variável
+vale `0` quando o chrome não está fixado. Um elemento `position: sticky` próprio
+da página, como a barra de salvar do editor de problemas, define
+`top: var(--noca-chrome-height, 0px)` em vez de `top: 0`.
 
 ---
 
@@ -1446,7 +1685,8 @@ Esse é o ponto mais importante da migração: a navbar deve sempre apontar para
 - [ ] CSS do Cropper.js em `{% block extra_head %}`, condicionado ao role
 - [ ] Input de arquivo com `name="foto"` (não-team) ou `name="team"` (team)
 - [ ] Form com `enctype="multipart/form-data"` e `action="/user/{{ current_user.id }}/photo"`
-- [ ] Modal com IDs exatos: `cropModal`, `cropImage`, `cropPreview`, `cropConfirm`
+- [ ] Modal incluído de `_partials/crop_modal.html` com `{% with crop_role = ... %}` (nunca duplicar a marcação), mantendo os IDs exatos `cropModal`, `cropImage`, `cropPreview`, `cropConfirm`
+- [ ] `<img id="cropImage">` com `src` de placeholder real (`static_img` → `crop-placeholder.svg`), nunca sem `src`
 - [ ] `div#cropPreview` com dimensões proporcionais ao aspecto do role
 - [ ] `image-cropper.js` e `cropper.min.js` carregados no final do body, **sem `defer`**, após o Bootstrap Bundle
 - [ ] `GET /user/{user_id}/avatar` (navbar) e `GET /user/{user_id}/photo` (profile page) com `Cache-Control: private` para identicons e `public` para fotos reais

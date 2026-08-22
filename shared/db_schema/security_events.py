@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -21,7 +21,12 @@ security_events = Table(
     Column("event_type", String(96), nullable=False),
     Column("severity", String(24), nullable=False),
     Column("actor_user_id", String(36), nullable=True),
-    Column("actor_label", String(320), nullable=True),
+    Column(
+        "actor_label",
+        String(320),
+        nullable=True,
+        comment="Human-readable login of the actor, snapshotted at event time (email/username).",
+    ),
     Column("identifier_hash", String(64), nullable=True),
     Column("client_ip", String(64), nullable=True),
     Column("source_port", Integer, nullable=True),

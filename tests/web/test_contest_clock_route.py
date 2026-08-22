@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -50,9 +50,14 @@ async def test_contest_clock_always_returns_json(
     assert response.headers["content-type"] == "application/json"
     payload = response.json()
     assert isinstance(payload["server_now_ms"], int)
+    start_ms = int(running_contest.start_time.timestamp() * 1000)
     assert payload == {
         "server_now_ms": payload["server_now_ms"],
-        "start_ms": int(running_contest.start_time.timestamp() * 1000),
+        "start_ms": start_ms,
         "end_ms": int(running_contest.end_time.timestamp() * 1000),
+        # The navbar derives the contest phase locally between polls, so the
+        # freeze and answer-silence moments travel with the clock.
+        "freeze_ms": start_ms + running_contest.stop_updating_scoreboard * 60_000,
+        "blind_ms": start_ms + running_contest.stop_answers_after * 60_000,
         "state": "running",
     }

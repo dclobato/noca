@@ -1,0 +1,85 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<section class="noca-contest-form-section">
+    {% if show_section_heading is not defined or show_section_heading %}
+        <h2 class="noca-section-heading">Rules</h2>
+    {% endif %}
+    <div class="row g-4">
+        <div class="col-12 col-xl-5">
+            <div class="mb-3">
+                <label for="wa_penalty" class="form-label">Wrong-answer penalty</label>
+                <div class="input-group">
+                    <input type="number"
+                           class="form-control"
+                           id="wa_penalty"
+                           name="wa_penalty"
+                           value="{{ form_data.wa_penalty }}"
+                           min="0"
+                           {% if is_locked %}disabled{% endif %}
+                           required>
+                    <span class="input-group-text">minutes</span>
+                </div>
+                <div class="form-text">Added for each penalized attempt before a problem is accepted.</div>
+            </div>
+            <div>
+                <label for="max_problem_file_size_bytes" class="form-label">Maximum problem file size</label>
+                <div class="input-group">
+                    <input type="number"
+                           class="form-control"
+                           id="max_problem_file_size_bytes"
+                           name="max_problem_file_size_bytes"
+                           value="{{ form_data.max_problem_file_size_bytes }}"
+                           min="0"
+                           placeholder="0 = no limit"
+                           aria-describedby="max_problem_file_size_bytes_help"
+                           {% if is_locked %}disabled{% endif %}
+                           required>
+                    <span class="input-group-text">bytes</span>
+                </div>
+                <div class="form-text" id="max_problem_file_size_bytes_help">Enter 0 for no file-size limit.</div>
+            </div>
+        </div>
+        <div class="col-12 col-xl-7">
+            <div class="noca-rule-toggle-list">
+                {% set rules = [
+                                    ("accept_pe", "Accept presentation errors", "Count a presentation error (PE) verdict as accepted.", form_data.accept_pe, true),
+                                    ("show_limits", "Show problem limits", "Show time and memory limits to teams on problem pages.", form_data.show_limits, true),
+                                    ("ce_adds_penalty", "Penalize compilation errors", "Count a compilation error (CE) toward the wrong-answer penalty.", form_data.ce_adds_penalty, true),
+                                    ("autojudge_only", "Use AutoJudge verdicts as final", "Finalize the machine verdict without a judge confirmation step.", form_data.autojudge_only, true),
+                                    ("allow_print_requests", "Allow print requests", "Let teams submit source files for staff to print during the contest.", form_data.allow_print_requests, false)
+                                ] %}
+                {% for field_name, rule_label, rule_help, is_enabled, lock_after_start in rules %}
+                    <fieldset class="noca-rule-toggle" aria-describedby="{{ field_name }}_help">
+                        <legend>{{ rule_label }}</legend>
+                        <p class="form-text mb-2" id="{{ field_name }}_help">{{ rule_help }}</p>
+                        <div class="btn-group btn-group-sm"
+                             role="group"
+                             aria-label="{{ rule_label }}">
+                            <input class="btn-check"
+                                   type="radio"
+                                   id="{{ field_name }}_yes"
+                                   name="{{ field_name }}"
+                                   value="yes"
+                                   {% if is_enabled %}checked{% endif %}
+                                   {% if is_locked and lock_after_start %}disabled{% endif %}>
+                            <label class="btn btn-outline-secondary" for="{{ field_name }}_yes">Enabled</label>
+                            <input class="btn-check"
+                                   type="radio"
+                                   id="{{ field_name }}_no"
+                                   name="{{ field_name }}"
+                                   value="no"
+                                   {% if not is_enabled %}checked{% endif %}
+                                   {% if is_locked and lock_after_start %}disabled{% endif %}>
+                            <label class="btn btn-outline-secondary" for="{{ field_name }}_no">Disabled</label>
+                        </div>
+                    </fieldset>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</section>

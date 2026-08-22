@@ -1,31 +1,14 @@
 {% extends "_base.html" %}
+{% from "_macros.html" import admin_breadcrumb with context %}
 {% block title_suffix %}— Batch Import{% endblock %}
 {% block extra_head %}
     <script src="{{ request.url_for('static_js', path='batch-import-users.js') }}?v={{ app_version }}"
             defer></script>
 {% endblock %}
 {% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            {% if current_user.role == RoleEnum.UBERADMIN.value %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
-                </li>
-                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
-            {% else %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-                </li>
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
-                </li>
-            {% endif %}
-            <li class="breadcrumb-item">
-                <a href="{{ request.url_for('manage_users', slug=contest.login_slug) }}">Users</a>
-            </li>
-            <li class="breadcrumb-item active" aria-current="page">Batch Import</li>
-        </ol>
-    </nav>
+    {% call admin_breadcrumb(crumbs=[("Users", request.url_for('manage_users', slug=contest.login_slug))]) %}
+        Batch Import
+    {% endcall %}
 {% endblock %}
 {% block content %}
     <div class="container py-5">
@@ -199,8 +182,14 @@ charlie,Charlie James,staff,weakpassword,,Campus B,Lab 2</pre>
                                     <td>
                                         <code>role</code>
                                     </td>
+                                    {# Driven by ALL_CONTEST_ROLES so a role added to the enum
+                                       is documented here without a template edit. The importer
+                                       lower-cases before matching (`parse_import_role`), so the
+                                       lower-cased enum values are exactly what a file may carry. #}
                                     <td>
-                                        <code>admin</code>, <code>judge</code>, <code>staff</code>, <code>team</code>, <code>user</code>
+                                        {%- for role in all_contest_roles -%}
+                                            <code>{{ role.value | lower }}</code>{{ ", " if not loop.last else "" }}
+                                        {%- endfor -%}
                                     </td>
                                 </tr>
                                 <tr>
@@ -242,6 +231,14 @@ charlie,Charlie James,staff,weakpassword,,Campus B,Lab 2</pre>
                         </p>
                     </div>
                 </div>
+            </div>
+            {# Full width: unlike the Add User form, this page's right column is
+               already taken by the file-format card, and every row of the import
+               file carries a role choice this reference informs. #}
+            <div class="col-12">
+                {% with role_reference_intro = "What each value of the file's role column will be able to reach and do." %}
+                    {% include "admin/users/_role_reference.html" %}
+                {% endwith %}
             </div>
         </div>
     </div>

@@ -59,6 +59,7 @@ class Contest(Base):
     accept_pe: Mapped[bool]
     ce_adds_penalty: Mapped[bool]
     release_scoreboard_after_end: Mapped[bool]
+    release_problem_set_after_end: Mapped[bool]
     animator_enabled: Mapped[bool]
     global_gold_cutoff: Mapped[int | None]
     global_silver_cutoff: Mapped[int | None]

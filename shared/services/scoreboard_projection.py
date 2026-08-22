@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -182,6 +182,24 @@ class ScoreboardSnapshot:
 _CREATED_AT_FLOOR = datetime.min.replace(tzinfo=UTC)
 
 
+def penalizing_verdicts(accept_pe: bool, ce_adds_penalty: bool) -> tuple[Verdict, ...]:
+    """Return verdicts that count as failed attempts under contest rules.
+
+    Args:
+        accept_pe: Whether presentation errors count as accepted submissions.
+        ce_adds_penalty: Whether compilation errors count as penalizing attempts.
+
+    Returns:
+        Penalizing verdicts in their canonical display order.
+    """
+    verdicts = [Verdict.WA, Verdict.RE, Verdict.TLE, Verdict.MLE, Verdict.OLE]
+    if ce_adds_penalty:
+        verdicts.append(Verdict.CE)
+    if not accept_pe:
+        verdicts.append(Verdict.PE)
+    return tuple(verdicts)
+
+
 def submission_sort_key(submission: SubmissionInput) -> tuple[int, datetime, str]:
     """Return the canonical submission ordering key.
 
@@ -280,6 +298,7 @@ def compute_icpc(
     wa_penalty = int(contest.wa_penalty)
     accept_pe = bool(contest.accept_pe)
     ce_adds_penalty = bool(contest.ce_adds_penalty)
+    failed_verdicts = penalizing_verdicts(accept_pe, ce_adds_penalty)
 
     ordered_submissions = sorted(submissions, key=submission_sort_key)
     subs_by_team_problem: dict[tuple[str, str], list[SubmissionInput]] = defaultdict(list)
@@ -334,11 +353,6 @@ def compute_icpc(
                     continue
 
                 is_accepted = verdict == Verdict.AC or (accept_pe and verdict == Verdict.PE)
-                is_failed = (
-                    verdict in (Verdict.WA, Verdict.RE, Verdict.TLE, Verdict.MLE, Verdict.OLE)
-                    or (ce_adds_penalty and verdict == Verdict.CE)
-                    or (not accept_pe and verdict == Verdict.PE)
-                )
 
                 if is_accepted:
                     solved = True
@@ -346,7 +360,7 @@ def compute_icpc(
                     solved_submission_id = str(submission.id)
                     break
 
-                if is_failed:
+                if verdict in failed_verdicts:
                     failed_attempts += 1
 
             penalty = failed_attempts * wa_penalty if solved else 0

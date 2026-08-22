@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -39,6 +39,13 @@ def _templates(request: Request) -> Jinja2Templates:
     return request.app.state.templates  # type: ignore[no-any-return]
 
 
+def _safe_uberadmin_next_url(next_url: str | None) -> str:
+    """Return a same-origin login destination or the UberAdmin dashboard."""
+    if next_url and next_url.startswith("/") and not next_url.startswith("//") and "\\" not in next_url:
+        return next_url
+    return "/uberadmin"
+
+
 async def _actor_from_token(request: Request, session: AsyncSession, token: str) -> tuple[str | None, str | None]:
     """Resolve a Web access token to the local actor id and login when possible.
 
@@ -74,21 +81,48 @@ async def login_get(
     request: Request,
     next_url: str = "/uberadmin",
 ) -> HTMLResponse:
+    next_url = _safe_uberadmin_next_url(next_url)
     return _templates(request).TemplateResponse(
         request,
         "auth/uberadmin_login.html",
-        {"next_url": next_url},
+        {
+            "next_url": next_url,
+            "identifier": "",
+            "login_error": None,
+            "identifier_invalid": False,
+            "password_invalid": False,
+        },
     )
 
 
 @router.post("/login", response_model=None)
 async def login_post(
     request: Request,
-    flash: FlashDep,
     identifier: str = Form(""),
     password: str = Form(""),
     next_url: str = Form("/uberadmin"),
 ) -> HTMLResponse | RedirectResponse:
+    identifier = identifier.strip()
+    next_url = _safe_uberadmin_next_url(next_url)
+    if not identifier or not password:
+        if not identifier and not password:
+            login_error = "Enter your username and password."
+        elif not identifier:
+            login_error = "Enter your username."
+        else:
+            login_error = "Enter your password."
+        return _templates(request).TemplateResponse(
+            request,
+            "auth/uberadmin_login.html",
+            {
+                "next_url": next_url,
+                "identifier": identifier,
+                "login_error": login_error,
+                "identifier_invalid": not identifier,
+                "password_invalid": not password,
+            },
+        )
+
     auth_service = request.app.state.auth_service
     async with request.app.state.db_session() as session:
         throttle_settings = _rate_limit_settings()
@@ -116,15 +150,21 @@ async def login_post(
                 metadata={"action": "login", "reason": throttle_check.reason},
             )
             await session.commit()
-            flash("Too many failed attempts. Try again later.", FlashCategory.DANGER)
+            retry_after_seconds = throttle_check.retry_after_seconds or settings.AUTH_RATE_LIMIT_LOCKOUT_SECONDS
+            retry_after_minutes = max(1, (retry_after_seconds + 59) // 60)
+            retry_unit = "minute" if retry_after_minutes == 1 else "minutes"
             return _templates(request).TemplateResponse(
                 request,
                 "auth/uberadmin_login.html",
-                {"next_url": next_url},
-                status_code=429,
-                headers={
-                    "Retry-After": str(throttle_check.retry_after_seconds or settings.AUTH_RATE_LIMIT_LOCKOUT_SECONDS)
+                {
+                    "next_url": next_url,
+                    "identifier": identifier,
+                    "login_error": (f"Too many failed attempts. Try again in {retry_after_minutes} {retry_unit}."),
+                    "identifier_invalid": False,
+                    "password_invalid": False,
                 },
+                status_code=429,
+                headers={"Retry-After": str(retry_after_seconds)},
             )
         try:
             ip_address = NetworkService.get_ip_from_request(request)
@@ -155,9 +195,17 @@ async def login_post(
                 metadata={"action": "login", "reason": failure.reason},
             )
             await session.commit()
-            flash("Invalid username/password.", FlashCategory.DANGER)
-            redirect_to = str(request.url_for("login_get").include_query_params(next_url=next_url))
-            return RedirectResponse(url=redirect_to, status_code=303)
+            return _templates(request).TemplateResponse(
+                request,
+                "auth/uberadmin_login.html",
+                {
+                    "next_url": next_url,
+                    "identifier": identifier,
+                    "login_error": "The username or password is incorrect.",
+                    "identifier_invalid": True,
+                    "password_invalid": True,
+                },
+            )
         await reset_auth_throttle(
             request,
             throttle_identity,
@@ -319,8 +367,14 @@ def _rate_limit_settings() -> AuthRateLimitSettings:
     )
 
 
-@router.get("/logout")
+@router.post("/logout")
 async def logout(request: Request, flash: FlashDep) -> RedirectResponse:
+    """Log the current user out.
+
+    POST rather than GET: the control sits a few pixels from the profile link in
+    the navbar, and a GET logout is also prefetchable by browsers and extensions,
+    so an ordinary link hover could end a five-hour authenticated session.
+    """
     token = request.cookies.get("noca_access_token")
     async with request.app.state.db_session() as session:
         redirect_url = await build_logout_redirect_url(request, session)

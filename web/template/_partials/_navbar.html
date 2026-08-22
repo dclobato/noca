@@ -1,0 +1,125 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{# Contest top navigation. `_base.html` owns page structure; this file owns the bar.
+
+   Role identity comes from the shared `role_pill` macro and the
+   `_identity_avatar.html` partial, both of which the contest dashboard also
+   uses, so the two surfaces describe a role identically by construction.
+
+   Navigation is NOT here: it lives in `_contest_nav.html`, a full-width band
+   below this one, because a row of small icons squeezed between the clock and
+   the account controls is slower to hit and to read during a contest than a row
+   that can afford large icons and full labels.
+
+   The bar is sticky because the countdown is the reason it exists: a judge
+   adjudicating a scrolled Runs table needs the clock without scrolling back to
+   the top of the page. Stickiness is owned by `.noca-sticky-chrome` in
+   `_base.html`, which pins this bar, the navigation band and the breadcrumb as
+   one unit -- Bootstrap's `sticky-top` here would pin only this bar and let the
+   other two scroll away underneath it. Nothing here is absolutely positioned --
+   the clock sits in the flex flow and truncates, so it cannot slide under the
+   brand or the identity cluster at narrow widths. #}
+{% from "_macros.html" import render_icon, role_pill with context %}
+{% set in_contest = contest is defined and contest %}
+{# `nav_url` rather than `url_for` for the same reason the destinations use it:
+   a single-router test application does not mount the brand's target. In the
+   real application every branch resolves. #}
+{% if in_contest %}
+    {% set brand_href = nav_url(request, 'contest_dashboard', slug=contest.login_slug) %}
+{% elif current_user.role == RoleEnum.UBERADMIN.value %}
+    {% set brand_href = nav_url(request, 'uberadmin_dashboard') %}
+{% else %}
+    {% set brand_href = nav_url(request, 'contests_list') %}
+{% endif %}
+<nav class="navbar bg-dark noca-navbar"
+     data-bs-theme="dark"
+     aria-label="{{ 'Contest' if in_contest else 'Primary navigation' }}">
+    <div class="container-fluid gap-2 gap-lg-3">
+        <a class="navbar-brand noca-navbar-brand order-0"
+           href="{{ brand_href or '#' }}"
+           aria-label="{{ brand_name }} — {{ contest.contest_name if in_contest else 'home' }}">
+            <img src="/assets/balloon/2f9e41"
+                 width="27"
+                 height="36"
+                 alt=""
+                 aria-hidden="true"
+                 class="noca-navbar-balloon">
+            <span>{{ brand_name }}</span>
+        </a>
+        {% if in_contest %}
+            {# The clock is what this bar exists for: for a contestant it is the most
+               important thing on the screen. It earns that with size, weight and
+               contrast -- plain text, no container. Operational chrome is flat by
+               default, and a box around the countdown would be decoration that adds
+               nothing the type is not already saying. The phase rides beside it,
+               because "how long is left" and "what phase are we in" are one question. #}
+            <div class="noca-navbar-clock order-1 order-lg-3">
+                <div class="noca-navbar-clock-line">
+                    <span id="contest-phase" class="noca-navbar-phase" hidden></span>
+                    <span id="contest-countdown"
+                          data-clock-url="{{ nav_url(request, 'contest_clock', slug=contest.login_slug) }}"
+                          class="noca-navbar-countdown noca-tabular-nums"
+                          aria-live="off"
+                          aria-atomic="true">Updating...</span>
+                </div>
+                <div class="noca-navbar-contest-name text-truncate"
+                     title="{{ contest.contest_name }}">{{ contest.contest_name }}</div>
+            </div>
+        {% endif %}
+        <div class="d-flex align-items-center gap-2 noca-navbar-identity order-2 order-lg-4">
+            {{ role_pill(current_user, contest=contest if in_contest else None, compact=True) }}
+            <div class="dropdown">
+                <button type="button"
+                        id="noca-navbar-account-toggle"
+                        class="d-inline-flex align-items-center gap-2 noca-navbar-profile dropdown-toggle"
+                        data-bs-toggle="dropdown"
+                        aria-expanded="false"
+                        aria-haspopup="true"
+                        aria-controls="noca-navbar-account-menu"
+                        aria-label="Account menu for {{ current_user.username }}">
+                    {% with identity_user = current_user,
+                        identity_size_class = "noca-avatar-navbar noca-navbar-avatar",
+                        identity_icon_class = "noca-navbar-identity-icon",
+                        identity_pixels = 32 %}
+                        {% include "_partials/_identity_avatar.html" %}
+                    {% endwith %}
+                    <span class="noca-navbar-username text-truncate">{{ current_user.username }}</span>
+                </button>
+                <ul id="noca-navbar-account-menu"
+                    class="dropdown-menu dropdown-menu-end noca-navbar-account-menu"
+                    aria-labelledby="noca-navbar-account-toggle">
+                    <li class="noca-navbar-account-summary">
+                        <span class="noca-navbar-account-label">Signed in as</span>
+                        <strong class="d-block text-truncate">{{ current_user.username }}</strong>
+                    </li>
+                    <li>
+                        <hr class="dropdown-divider">
+                    </li>
+                    <li>
+                        <a class="dropdown-item d-flex align-items-center gap-2"
+                           href="{{ nav_url(request, 'profile_get') or '#' }}">
+                            {{ render_icon("person") }}
+                            <span>Profile</span>
+                        </a>
+                    </li>
+                    <li>
+                        {# POST, not a link: GET logout is prefetchable by browsers and
+                           extensions. #}
+                        <form method="post" action="{{ nav_url(request, 'logout') or '#' }}">
+                            <button type="submit"
+                                    class="dropdown-item d-flex align-items-center gap-2 noca-navbar-account-logout">
+                                {{ render_icon("logout") }}
+                                <span>Logout</span>
+                            </button>
+                        </form>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</nav>

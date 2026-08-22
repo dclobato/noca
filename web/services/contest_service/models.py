@@ -82,3 +82,4 @@ class ValidatedContestMetadata:
     allow_print_requests: bool
     accept_pe: bool
     ce_adds_penalty: bool
+    release_problem_set_after_end: bool

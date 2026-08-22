@@ -1,0 +1,35 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{# Signed-in user's face, or the UberAdmin stand-in.
+
+   UberAdmins have no photo and no avatar row, so they get a `shield_person`
+   glyph in a brand circle rather than a request to `/user/{id}/avatar` that
+   could only 404. Both surfaces that show an identity -- the navbar and the
+   contest dashboard band -- include this partial, so the fallback cannot drift
+   between them. This is presentation only: no UberAdmin avatar is stored.
+
+   Callers set `identity_user`, and optionally `identity_size_class` (extra
+   classes for both branches), `identity_icon_class` (icon size for the fallback
+   branch), and `identity_pixels` (the image's intrinsic size, so the browser
+   reserves the right box before the avatar loads). #}
+{% from "_macros.html" import render_icon %}
+{% set _size_class = identity_size_class | default("") %}
+{% if identity_user.role != RoleEnum.UBERADMIN.value %}
+    {# Literal path rather than `url_for`: `docs/PADROES_UI.md` fixes this endpoint as
+       the navbar's avatar source, and the route lives in a router that page-level
+       test apps do not mount. #}
+    <img src="/user/{{ identity_user.id }}/avatar?v={{ identity_user.media_cache_version }}"
+         class="rounded-circle object-fit-cover {{ _size_class }}"
+         alt=""
+         width="{{ identity_pixels | default(40) }}"
+         height="{{ identity_pixels | default(40) }}">
+{% else %}
+    <span class="rounded-circle d-inline-flex align-items-center justify-content-center {{ _size_class }} noca-identity-fallback">
+        {{ render_icon(icon="shield_person", filled=True, classes=[identity_icon_class | default("fs-1") ]) }}
+    </span>
+{% endif %}

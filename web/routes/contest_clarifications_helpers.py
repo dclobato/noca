@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -50,10 +50,3 @@ async def _build_user_map(session: AsyncSession, contest: Contest) -> dict[str, 
 
 def _needs_user_map(actor: UberAdmin | User) -> bool:
     return isinstance(actor, UberAdmin) or actor.role == RoleEnum.ADMIN
-
-
-def _team_access_blocked(actor: UberAdmin | User, contest: Contest) -> bool:
-    """Teams may only access clarifications once the contest has started."""
-    if isinstance(actor, UberAdmin) or actor.role != RoleEnum.TEAM:
-        return False
-    return not (contest.is_running or contest.is_past)

@@ -6,43 +6,296 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
-.auth-page-background {
-    background: linear-gradient(var(--noca-scrim-strong), var(--noca-scrim-strong)),
-    url('/static/img/login_bg.png') center center / cover no-repeat;
-}
-
 .auth-page {
-    background-color: var(--bs-tertiary-color);
+    background-color: var(--noca-surface-container-low);
 }
 
-.btn-glow:hover {
-box-shadow: 0 0 15px 5px color-mix(in srgb, var(--noca-danger) 60%, transparent) !important;
-    transform: scale(1.05) !important;
+/*
+ * Dashboard navigation and action cards (`dashboard_card` /
+ * `dashboard_action_card` macros, and the hand-rolled Start Now / End Now
+ * contest controls). Shares the flat surface, hairline outline and
+ * shadow-lift hover of the public /contests gateway card (`.noca-gateway-card`
+ * in `_gateway.css`) rather than the previous `.btn-glow` treatment, whose
+ * danger-red hover halo and scale-up read as an error state on every card,
+ * including ordinary navigation tiles that had nothing to do with danger.
+ * Irreversible/consequential actions instead say so with the `noca-card-*`
+ * tone accent and kicker below -- never with a glow.
+ */
+.noca-dashboard-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 1.1rem;
+    border: 1px solid var(--noca-outline-variant);
+    border-radius: 0.5rem;
+    background: var(--noca-surface-container-lowest);
+    box-shadow: 0 2px 2px var(--noca-shadow-tint-subtle);
+    color: var(--noca-on-surface);
+    transition: box-shadow 160ms ease, transform 160ms ease;
 }
 
-.btn-glow {
-    transition: box-shadow 0.15s ease-in-out, transform 0.15s ease-in-out;
+.noca-dashboard-card:hover,
+.noca-dashboard-card:focus-visible {
+    box-shadow: 0 8px 20px var(--noca-shadow-tint);
+    transform: translateY(-0.15rem);
+    color: var(--noca-on-surface);
+    text-decoration: none;
 }
 
-.btn-logout {
-    border: 3px solid var(--noca-danger);
-    border-radius: 1rem;
+.noca-dashboard-card:focus-visible {
+    outline: 0.2rem solid rgb(var(--noca-brand-rgb) / 22%);
+    outline-offset: 0.125rem;
 }
+
+.noca-dashboard-card-icon {
+    color: var(--noca-brand);
+}
+
+.noca-dashboard-card--inactive {
+    border-inline-start: 0.25rem solid var(--noca-outline);
+    background: var(--noca-surface-container-low);
+    opacity: 0.75;
+}
+
+.noca-dashboard-card--inactive .noca-dashboard-card-icon {
+    color: var(--noca-on-surface-variant);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .noca-dashboard-card {
+        transition: none;
+    }
+}
+
+/*
+ * Contest problem list card (`problem_card` macro): a `.noca-dashboard-card`
+ * variant carrying a balloon image and a secondary download action. The card
+ * itself must stay `position: relative` so the title's `.stretched-link`
+ * pseudo-element is contained to the card rather than escaping to the
+ * nearest positioned ancestor up the page.
+ */
+.noca-problem-card {
+    position: relative;
+}
+
+.noca-problem-card-download {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    z-index: 2;
+}
+
+.noca-problem-card-balloon {
+    flex-shrink: 0;
+    height: 2.5rem;
+    width: auto;
+}
+
+/* Viewer-status accent: a left-border rule from the same three contest-phase
+   tokens the scoreboard status band uses (`--noca-state-live/frozen/silence`),
+   so "Accepted" reads as the same green here as it does everywhere else in
+   the product. `untried` gets no border -- it is the default, unremarkable
+   state and does not need a rule to say so. */
+.noca-problem-card--solved {
+    border-inline-start: 0.25rem solid var(--noca-state-live);
+}
+
+.noca-problem-card--pending {
+    border-inline-start: 0.25rem solid var(--noca-state-frozen);
+}
+
+.noca-problem-card--attempted {
+    border-inline-start: 0.25rem solid var(--noca-state-silence);
+}
+
+/* Viewer-status chip: a solid pill under the title, paired with the
+   left-border accent above. A light tint with dark text was tried first and
+   measured short of 4.5:1 for all three colors once the actual tinted
+   background (not a near-white approximation) was checked -- text this small
+   needs the floor met exactly, not roughly. Solid fill with white text is
+   the same `status-accepted` component shape DESIGN.md already defines, and
+   `--noca-warning` itself only clears 3.19:1 even as a solid fill, so
+   `pending` darkens it the same way the leader pill and the link color both
+   darken `--noca-brand` -- to a deep variant computed to clear the floor. */
+.noca-problem-card-status {
+    display: inline-flex;
+    align-self: flex-start;
+    align-items: center;
+    margin-top: 0.65rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 50rem;
+    font-size: var(--noca-type-label);
+    font-weight: 700;
+    color: var(--noca-on-brand);
+}
+
+.noca-problem-card-status--solved {
+    background-color: var(--noca-brand-container);
+}
+
+.noca-problem-card-status--pending {
+    background-color: color-mix(in srgb, var(--noca-warning) 80%, black);
+}
+
+.noca-problem-card-status--attempted {
+    background-color: var(--noca-danger);
+}
+
+.noca-problem-card-status--untried {
+    background-color: var(--noca-surface-container-low);
+    color: var(--noca-on-surface);
+}
+
+/*
+ * Dashboard action card whose consequence is not navigational -- it publishes
+ * or withdraws material rather than opening a page. The grid it sits in is
+ * otherwise uniform, so the signal is carried on three independent channels:
+ * a leading rule, a kicker word, and a warning icon in the markup. None of the
+ * three is colour alone, so the card survives greyscale, forced colours and a
+ * screen reader.
+ */
+.noca-card-consequential {
+    border-inline-start: 0.25rem solid var(--noca-state-frozen) !important;
+}
+
+.noca-card-consequential.noca-card-live {
+    border-inline-start-color: var(--noca-state-silence) !important;
+}
+
+.noca-card-kicker {
+    font-size: var(--noca-type-micro);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--noca-state-frozen);
+}
+
+.noca-card-live .noca-card-kicker {
+    color: var(--noca-state-silence);
+}
+
 
 .auth-card {
     width: 100%;
-    max-width: 420px;
+    max-width: 28rem;
+    border-radius: 0.5rem;
 }
 
-.noca-login-countdown {
-    font-size: 2rem;
-    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
-    background: var(--noca-scrim);
+.noca-auth-heading {
+    margin-bottom: var(--noca-space-lg);
 }
 
-#contest-countdown,
-#refresh-timer {
-    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+.noca-auth-eyebrow {
+    margin: 0;
+    color: var(--noca-brand);
+    font-family: var(--noca-font-mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+}
+
+.noca-auth-flash .container-fluid {
+    padding: 0 !important;
+}
+
+.noca-auth-flash .alert {
+    padding-block: var(--noca-space-sm) !important;
+}
+
+.noca-auth-mark {
+    display: block;
+    margin: 0 auto var(--noca-space-sm);
+}
+
+.auth-card .form-control,
+.noca-auth-password-toggle,
+.noca-auth-submit {
+    min-height: 2.75rem;
+}
+
+.noca-auth-password-toggle {
+    min-width: 4.5rem;
+    border-color: var(--noca-on-surface-variant);
+    color: var(--noca-on-surface-variant);
+}
+
+.noca-auth-submit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--noca-space-sm);
+    background-color: var(--noca-brand-container);
+    border-color: var(--noca-brand-container);
+    color: var(--noca-on-brand);
+}
+
+.noca-auth-submit:hover,
+.noca-auth-submit:active {
+    background-color: color-mix(in srgb, var(--noca-brand-container) 82%, black);
+    border-color: color-mix(in srgb, var(--noca-brand-container) 82%, black);
+    color: var(--noca-on-brand);
+}
+
+.noca-auth-submit:focus-visible {
+    box-shadow: 0 0 0 0.2rem rgb(var(--noca-brand-rgb) / 22%);
+}
+
+.noca-auth-support {
+    border-top: 1px solid var(--noca-outline-variant);
+}
+
+[data-bs-theme="light"] .noca-auth-support a {
+    color: color-mix(in srgb, var(--noca-brand-container) 88%, black);
+}
+
+.noca-auth-footer {
+    background-color: var(--noca-surface-container-lowest);
+    border-top: 1px solid var(--noca-outline-variant);
+    color: var(--noca-on-surface-variant);
+}
+
+.noca-auth-theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    text-decoration: none;
+}
+
+.noca-auth-theme-toggle:hover,
+.noca-auth-theme-toggle:focus-visible {
+    text-decoration: none;
+}
+
+.noca-auth-theme-icon {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.noca-auth-theme-icon--light {
+    display: none;
+}
+
+[data-bs-theme="dark"] .noca-auth-theme-icon--dark {
+    display: none;
+}
+
+[data-bs-theme="dark"] .noca-auth-theme-icon--light {
+    display: block;
+}
+
+@media (max-width: 575.98px) {
+    .auth-page {
+        align-items: flex-start !important;
+    }
+
+    .auth-card .card-body {
+        padding: var(--noca-space-lg) !important;
+    }
 }
 
 .noca-language-icons {
@@ -71,6 +324,120 @@ box-shadow: 0 0 15px 5px color-mix(in srgb, var(--noca-danger) 60%, transparent)
     object-fit: contain;
 }
 
+/*
+ * UberAdmin dashboard: the live-contest bucket is the operationally urgent
+ * one, so it gets its own tinted band instead of sitting as a peer of Past
+ * and Upcoming. The dot pulses to draw the eye without relying on colour
+ * alone -- the "Live" badge on each tile still carries the same meaning in
+ * text -- and stands still for anyone who asked for less motion.
+ */
+.noca-dashboard-live-band {
+    background-color: color-mix(in srgb, var(--noca-brand) 6%, var(--noca-surface));
+    border: 1px solid color-mix(in srgb, var(--noca-brand) 20%, transparent);
+    border-radius: 0.5rem;
+    padding: var(--noca-space-lg);
+}
+
+.noca-dashboard-live-band--empty {
+    background-color: transparent;
+    border-color: var(--noca-outline-variant);
+}
+
+/*
+ * Contest dashboard identity banner (`contest/dashboard.html`): reuses
+ * `.noca-dashboard-live-band`'s tonal brand surface for the signed-in user
+ * and role, so it reads as the same "operationally important" panel as the
+ * UberAdmin live band above, rather than a plain white card. Only the
+ * avatar, its icon-only fallback for UberAdmin, and the role pill are
+ * specific to this banner.
+ */
+.noca-dashboard-identity-band {
+    padding: var(--noca-space-lg) 1.75rem;
+}
+
+.noca-dashboard-identity-avatar {
+    width: 4.5rem;
+    height: 4.5rem;
+    flex-shrink: 0;
+    border: 2px solid var(--noca-surface-container-lowest);
+    box-shadow: 0 4px 12px var(--noca-shadow-tint);
+}
+
+/* Shared UberAdmin stand-in used by `_partials/_identity_avatar.html` on both
+   the navbar and the dashboard band, so the fallback cannot drift between the
+   two surfaces. Size comes from whichever avatar class the caller passes. */
+.noca-identity-fallback {
+    background-color: var(--noca-brand);
+    color: var(--noca-on-brand);
+}
+
+.noca-dashboard-role-badge {
+    padding: 0.3rem 0.7rem;
+    font-size: var(--noca-type-label);
+    letter-spacing: 0.02em;
+}
+
+/*
+ * The dashboard rules summary styles live in `_dashboard.css`: this partial
+ * is bounded (`test_contest_chrome_has_its_own_bounded_stylesheet`) and has
+ * no headroom for the banner's right-hand column.
+ */
+
+.noca-live-dot {
+    display: inline-block;
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background-color: var(--noca-state-live);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--noca-state-live) 55%, transparent);
+    animation: noca-live-pulse 2s ease-out infinite;
+}
+
+@keyframes noca-live-pulse {
+    0% {
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--noca-state-live) 45%, transparent);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0.5rem color-mix(in srgb, var(--noca-state-live) 0%, transparent);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .noca-live-dot {
+        animation: none;
+    }
+}
+
+.noca-dashboard-section-heading {
+    border-bottom: 1px solid var(--noca-outline-variant);
+}
+
+.noca-dashboard-section-heading h2 {
+    font-size: var(--noca-type-micro);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--noca-on-surface-variant);
+}
+
+/* Floating return-to-top control (`.noca-back-to-top-btn`, wired by
+   back-to-top.js) for pages whose content can grow tall enough that scrolling
+   back up by hand is tedious -- scoreboard, clarifications, runs. */
+.noca-back-to-top-btn {
+    position: fixed;
+    right: 1.5rem;
+    bottom: 1.5rem;
+    z-index: 1030;
+    width: 3rem;
+    height: 3rem;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    box-shadow: 0 2px 8px var(--noca-shadow-tint-strong);
+}
+
 /* Breadcrumb bar */
 .breadcrumb-bar {
     background: var(--bc-bg, transparent);
@@ -79,6 +446,17 @@ box-shadow: 0 0 15px 5px color-mix(in srgb, var(--noca-danger) 60%, transparent)
     font-weight: var(--bc-font-weight, inherit);
     text-align: var(--bc-align, left);
     border-bottom: var(--bc-border, none);
+}
+
+/*
+ * At the breadcrumb's small size, the regular body weight leaves the brand
+ * green link text feeling thin even once its color clears 4.5:1 -- weight is
+ * a legibility lever the contrast ratio itself does not capture. A step up to
+ * 600 firms the glyphs up without reaching for a bold that would compete with
+ * the active crumb's own emphasis.
+ */
+.breadcrumb-bar .breadcrumb-item a {
+    font-weight: 600;
 }
 
 :root {

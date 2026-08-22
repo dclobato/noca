@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -18,7 +18,7 @@ class ContestMetadataInput(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    contest_url: str = Field(min_length=1)
+    contest_url: str = ""
     start_time: str = Field(min_length=1)
     contest_timezone: str = Field(min_length=1)
     duration_minutes: int = Field(ge=1)
@@ -34,6 +34,7 @@ class ContestMetadataInput(BaseModel):
     allow_print_requests: bool
     accept_pe: bool
     ce_adds_penalty: bool
+    release_problem_set_after_end: bool
 
     def to_form_data(self, *, contest_name: str, login_slug: str) -> dict[str, Any]:
         """Serialize typed metadata back into template form values."""
@@ -56,6 +57,7 @@ class ContestMetadataInput(BaseModel):
             allow_print_requests=self.allow_print_requests,
             accept_pe=self.accept_pe,
             ce_adds_penalty=self.ce_adds_penalty,
+            release_problem_set_after_end=self.release_problem_set_after_end,
         )
 
 
@@ -79,6 +81,7 @@ def serialize_contest_metadata_form_data(
     allow_print_requests: bool,
     accept_pe: bool,
     ce_adds_penalty: bool,
+    release_problem_set_after_end: bool,
     language_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Serialize contest metadata fields into template form values."""
@@ -101,5 +104,6 @@ def serialize_contest_metadata_form_data(
         "allow_print_requests": allow_print_requests,
         "accept_pe": accept_pe,
         "ce_adds_penalty": ce_adds_penalty,
+        "release_problem_set_after_end": release_problem_set_after_end,
         "language_ids": language_ids or [],
     }

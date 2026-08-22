@@ -145,6 +145,7 @@ async def test_seed_interif_2026_creates_finished_animator_contest_and_admin(
     assert contest.is_past is True
     assert contest.active is True
     assert contest.release_scoreboard_after_end is True
+    assert contest.release_problem_set_after_end is True
     assert contest.owner_user_id == admin.id
     assert contest.chief_judge_id == result.judge.id
     assert admin.username == ADMIN_USERNAME

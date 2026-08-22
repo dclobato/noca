@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% from "_macros.html" import render_icon %}
 {% macro task_modal_button(t, finished=False, finish_url='', release_url='') %}
     <button type="button"
@@ -139,6 +146,7 @@
                                                           onsubmit="return confirm('Force release this task lock? The current holder will lose their hold.');">
                                                         <button type="submit"
                                                                 class="btn btn-outline-danger btn-sm noca-icon-btn"
+                                                                aria-label="Force release task"
                                                                 title="Force Release">
                                                             {{ render_icon(icon="lock_open") }}
                                                         </button>

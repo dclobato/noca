@@ -1,0 +1,380 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ── Sticky page chrome ───────────────────────────────────────────────
+   The navbar, the contest navigation band and the breadcrumb bar are pinned as
+   one unit: `_base.html` wraps all three in this element, so they keep their
+   natural order and none of them can scroll out from under the others.
+
+   Pinning them individually would mean giving each a `top` offset equal to the
+   height of everything above it -- and those heights change with the viewport
+   width, with whether a contest is in scope, and with whether the page has a
+   breadcrumb. One wrapper has no such offsets to maintain.
+
+   The wrapper carries an opaque background because the breadcrumb bar's own is
+   `transparent` by default, and page content scrolling behind a transparent bar
+   would show through it. */
+.noca-sticky-chrome {
+    position: sticky;
+    top: 0;
+    /* Above Bootstrap's `sticky-top` (1020) so a page's own sticky element
+       cannot cover the chrome, and below the skip link (1040). */
+    z-index: 1030;
+    background-color: var(--noca-surface);
+}
+
+/* A viewport that cannot show the chrome and a usable amount of page at the
+   same time is better off scrolling the chrome away: pinning it there would
+   leave a sliver of content in a landscape phone or a short split window. */
+@media (max-height: 32rem) {
+    .noca-sticky-chrome {
+        position: static;
+    }
+}
+
+/* Anchor jumps and `scrollIntoView()` land below the chrome instead of
+   underneath it. Declared on the scrolling element, so it applies to every
+   in-page target without any of them naming the chrome. The height is published
+   by `sticky-chrome.js` before the page's fragment targets are parsed; the
+   fallback keeps the rule inert if the script cannot publish a measurement. */
+:root {
+    scroll-padding-top: var(--noca-chrome-height, 0px);
+}
+
+/* The problem editor's save bar is sticky in its own right (it is shared with
+   Arena, whose chrome is not pinned). On this side it has to clear the chrome,
+   or it pins itself underneath it and the Save button is invisible on exactly
+   the long statements that made the bar sticky in the first place. */
+.noca-problem-save-bar {
+    top: var(--noca-chrome-height, 0px);
+}
+
+/* Slightly tighter than `.noca-dashboard-role-badge` so the dark navbar
+   keeps the same pill-with-icon idiom without crowding the account control. */
+.noca-navbar-role-badge {
+    padding: 0.25rem 0.6rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.02em;
+}
+
+.noca-navbar-role-icon {
+    font-size: 1rem;
+}
+
+/* ── Contest navigation band ─────────────────────────────────────────────────
+   A full-width row of destinations between the navbar and the breadcrumb.
+
+   It is a band rather than a strip of links inside the navbar because the
+   people using it are working under contest time pressure: a large icon, a full
+   label and a generous target are faster to find and to hit than a crowded row
+   of small icons, and nothing is hidden behind a menu. Every item is the same
+   size, so no destination is quietly demoted.
+
+   The band scrolls horizontally when it runs out of room instead of collapsing,
+   which keeps the order of the destinations stable at every width. */
+.noca-contest-nav {
+    max-width: 100%;
+    /* The track scrolls itself; without this its overflow reaches the document
+       and the whole page scrolls sideways by the track's padding. */
+    overflow-x: hidden;
+    background-color: var(--noca-surface-container);
+    border-bottom: 1px solid var(--noca-outline-variant);
+}
+
+.noca-contest-nav-track {
+    display: flex;
+    align-items: stretch;
+    gap: 0.25rem;
+    padding: 0 1rem;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--noca-outline) transparent;
+}
+
+.noca-contest-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    flex: 0 0 auto;
+    min-width: 5.5rem;
+    padding: 0.6rem 0.9rem 0.5rem;
+    border-bottom: 3px solid transparent;
+    /* Full contrast, not a muted grey: the muted token reaches only 4.23:1 on
+       this tonal band, and these labels are read under time pressure. Rank is
+       carried by weight and the marker rule instead of by dimming. */
+    color: var(--noca-on-surface);
+    font-weight: 600;
+    text-decoration: none;
+    text-align: center;
+    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out;
+}
+
+.noca-contest-nav-item:hover {
+    background-color: var(--noca-surface-container-high);
+    text-decoration: none;
+}
+
+.noca-contest-nav-item:focus-visible {
+    outline: 2px solid var(--noca-brand-on-surface);
+    outline-offset: -2px;
+}
+
+/* The current section is marked by weight, a tonal fill and a solid rule, so it
+   never depends on colour alone. The rule and the icon take the theme-aware
+   brand marker; the label stays at full text contrast. */
+.noca-contest-nav-item.is-current {
+    border-bottom-color: var(--noca-brand-on-surface);
+    background-color: var(--noca-surface-container-high);
+    font-weight: 700;
+}
+
+.noca-contest-nav-item.is-current .noca-contest-nav-icon {
+    color: var(--noca-brand-on-surface);
+}
+
+.noca-contest-nav-icon {
+    font-size: 1.75rem;
+    line-height: 1;
+}
+
+/* Weight is inherited from the item so the current section's 700 wins; setting
+   it here would override that and flatten the only weight signal. */
+.noca-contest-nav-label {
+    font-size: var(--noca-type-label);
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+}
+
+@media (max-width: 575.98px) {
+    /* On a phone the bar is three stacked rows unless the wordmark yields. The
+       balloon still identifies the product and the brand link keeps its
+       accessible name, so only the text is dropped. */
+    .noca-navbar-brand span {
+        display: none;
+    }
+
+    .noca-navbar-countdown {
+        font-size: 1.15rem;
+    }
+
+    .noca-contest-nav-track {
+        padding: 0 0.5rem;
+    }
+
+    .noca-contest-nav-item {
+        min-width: 4.75rem;
+        padding: 0.5rem 0.6rem 0.4rem;
+    }
+
+    .noca-contest-nav-icon {
+        font-size: 1.5rem;
+    }
+}
+
+/* The skip link only becomes visible on focus; when it does it must sit above
+   the sticky bar rather than behind it. */
+.noca-skip-link {
+    position: fixed;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 1040;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+    background-color: var(--noca-surface-lowest);
+    color: var(--noca-on-surface);
+    font-weight: 600;
+}
+
+/* ── Navbar layout ───────────────────────────────────────────────────────────
+   The navbar carries identity and the contest clock; destinations live in the
+   separate band above. Everything stays in flex flow so the clock negotiates
+   space with its neighbors instead of overlapping them at narrow widths. */
+.noca-navbar {
+    /* This bar is permanently dark, so its focus marker must not inherit the
+       page theme's dark-on-light brand variant. */
+    --noca-brand-on-surface: var(--noca-brand);
+
+    min-height: 4.5rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+}
+
+/* The row centres its clusters. Without this the clock -- the tallest item,
+   being two lines -- sets the row height and everything else hangs from the
+   top of it. */
+.noca-navbar > .container-fluid {
+    align-items: center;
+    min-height: 3.5rem;
+}
+
+.noca-navbar-balloon {
+    height: 2.25rem;
+    width: auto;
+}
+
+/* The clock takes the slack between the side clusters and centres its two lines
+   inside the full row height. `min-width: 0` lets the contest name truncate
+   instead of pushing the identity cluster off-screen. */
+.noca-navbar-clock {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-self: stretch;
+    justify-content: center;
+    align-items: center;
+    min-width: 0;
+    text-align: center;
+    line-height: 1.15;
+}
+
+/* The countdown is the single most consequential value on the page and used to
+   be its quietest text -- `small` at 50% opacity beside a 900-weight wordmark.
+   It leads now, and it does it with type alone: no panel, no border, no fill.
+   Operational chrome is flat by default, and a container here would be
+   decoration competing with the value inside it. */
+.noca-navbar-clock-line {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 0.5rem;
+    max-width: 100%;
+}
+
+.noca-navbar-countdown {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    color: #fff;
+    white-space: nowrap;
+}
+
+/* The contest name supports the countdown rather than competing with it: the
+   label step, dimmed, and truncating rather than pushing the identity cluster
+   off the row. */
+.noca-navbar-contest-name {
+    max-width: 100%;
+    margin-top: 0.1rem;
+    font-size: var(--noca-type-label);
+    line-height: 1.2;
+    color: rgb(255 255 255 / 78%);
+}
+
+/* The three phases reuse operational state tokens and carry text, so the marker
+   is never the only thing communicating contest state. */
+.noca-navbar-phase {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-shrink: 0;
+    align-self: center;
+    font-size: var(--noca-type-micro);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--noca-state-live);
+}
+
+.noca-navbar-phase::before {
+    content: "";
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    background-color: currentcolor;
+}
+
+.noca-navbar-phase[data-phase="frozen"] {
+    color: var(--noca-state-frozen);
+}
+
+.noca-navbar-phase[data-phase="silence"] {
+    color: var(--noca-state-silence);
+}
+
+/* Identity cluster: the account toggle carries the avatar (or the UberAdmin
+   stand-in) and, where there is room, the username. The detached menu uses
+   Bootstrap's disclosure behavior and keeps Profile and POST Logout together. */
+.noca-navbar-profile {
+    padding: 0.2rem 0.35rem;
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: inherit;
+    text-decoration: none;
+}
+
+.noca-navbar-profile:hover,
+.noca-navbar-profile:focus-visible,
+.noca-navbar-profile[aria-expanded="true"] {
+    border-color: rgb(255 255 255 / 24%);
+    background-color: rgb(255 255 255 / 10%);
+}
+
+.noca-navbar-profile:focus-visible {
+    outline: 2px solid var(--noca-brand-on-surface);
+    outline-offset: 2px;
+}
+
+.noca-navbar-profile::after {
+    color: rgb(255 255 255 / 72%);
+}
+
+.noca-navbar-avatar {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+}
+
+.noca-navbar-identity {
+    flex-shrink: 0;
+    min-width: 0;
+}
+
+/* The username is the UberAdmin's only distinguishing mark, but it is the first
+   thing to go when the row runs out of room. */
+.noca-navbar-username {
+    max-width: 10rem;
+    font-size: 0.8125rem;
+    color: rgb(255 255 255 / 78%);
+}
+
+@media (max-width: 575.98px) {
+    .noca-navbar-username {
+        display: none;
+    }
+}
+
+.noca-navbar-identity-icon {
+    font-size: 1.25rem;
+}
+
+.noca-navbar-account-menu {
+    min-width: 13rem;
+    padding-block: 0.4rem;
+    box-shadow: 0 4px 12px var(--noca-shadow-tint-strong);
+}
+
+.noca-navbar-account-summary {
+    max-width: 16rem;
+    padding: 0.4rem 1rem 0.3rem;
+}
+
+.noca-navbar-account-label {
+    color: var(--bs-secondary-color);
+    font-size: var(--noca-type-micro);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.noca-navbar-account-logout {
+    color: var(--bs-danger-text-emphasis);
+}

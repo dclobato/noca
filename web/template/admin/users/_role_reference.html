@@ -1,0 +1,123 @@
+{# Role reference: the declared access and capability matrices from
+   `web/access_matrix/`, rendered where an admin chooses a role so they can see
+   what that role will be able to do before granting it.
+
+   `role-reference.js` highlights the column matching the role selected in a
+   `#role` control, on pages that have one; it no-ops elsewhere, and with
+   JavaScript off the tables are still complete and readable either way.
+
+   Callers may set `role_reference_intro` to replace the default lead-in, which
+   assumes a role picker directly above the card:
+
+       {% with role_reference_intro = "…" %}
+           {% include "admin/users/_role_reference.html" %}
+       {% endwith %}
+#}
+{% from "_macros.html" import render_icon with context %}
+{% macro actor_pill(actor) %}
+    <span class="badge rounded-pill d-inline-flex align-items-center gap-1 noca-dashboard-role-badge {{ role_matrix.actor_badge_classes.get(actor.value, 'bg-secondary') }}">
+        {{ render_icon(icon=role_matrix.actor_icons.get(actor.value, "person") ,
+        filled=True,
+        classes=["fs-6"]) }}
+        {{ role_matrix.actor_labels.get(actor.value, actor.value) }}
+    </span>
+{% endmacro %}
+<div class="card shadow-sm noca-role-reference" id="role-reference">
+    <div class="card-header d-flex align-items-center gap-2">
+        {{ render_icon(icon="help", filled=False, classes=["fs-6"]) }}
+        <span class="fw-semibold">Role reference</span>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small">
+            {{ role_reference_intro or "Pick a role above to highlight it below." }}
+            These rules are enforced by the application, not by this page.
+        </p>
+        <h2 class="h6 mb-1">Which pages the role reaches</h2>
+        <div class="table-responsive noca-role-reference-scroll">
+            <table class="table table-sm table-hover align-middle mb-2 noca-role-matrix"
+                   id="role-access-matrix">
+                <caption class="visually-hidden">
+                    Contest pages each role can open, and in which contest states.
+                </caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Role</th>
+                        {% for area in role_matrix.access_areas %}
+                            <th scope="col" class="text-center" title="{{ area.description }}">{{ area.label }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for actor in role_matrix.access_actors %}
+                        <tr data-noca-actor="{{ actor.value }}">
+                            <th scope="row" class="fw-normal">{{ actor_pill(actor) }}</th>
+                            {% for area in role_matrix.access_areas %}
+                                {% set rule = area.rule_for(actor) %}
+                                <td class="text-center small {% if not rule.allowed %}text-muted{% endif %}"
+                                    title="{{ rule.level.description }}">{{ rule.label }}</td>
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <ul class="list-unstyled small text-muted mb-4">
+            {% for symbol, meaning in role_matrix.access_legend %}
+                <li>
+                    <code>{{ symbol }}</code>: {{ meaning }}
+                </li>
+            {% endfor %}
+        </ul>
+        <h2 class="h6 mb-1">What the role may do</h2>
+        <div class="table-responsive noca-role-reference-scroll">
+            <table class="table table-sm table-hover align-middle mb-2 noca-role-matrix"
+                   id="role-capability-matrix">
+                <caption class="visually-hidden">
+                    Actions each role may perform inside the contest pages it reaches.
+                </caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Capability</th>
+                        {% for actor in role_matrix.capability_actors %}
+                            <th scope="col" class="text-center" data-noca-actor="{{ actor.value }}">{{ actor_pill(actor) }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for group in role_matrix.capability_groups %}
+                        <tr class="table-light">
+                            <th scope="rowgroup"
+                                class="small text-uppercase fw-semibold"
+                                colspan="{{ role_matrix.capability_actors | length + 1 }}">{{ group.label }}</th>
+                        </tr>
+                        {% for capability in group.capabilities %}
+                            <tr>
+                                <th scope="row" class="fw-normal small">{{ capability.label }}</th>
+                                {% for actor in role_matrix.capability_actors %}
+                                    {% set grant = capability.grant_for(actor) %}
+                                    <td class="text-center small {% if not grant.allowed %}text-muted{% endif %}"
+                                        data-noca-actor="{{ actor.value }}">{{ grant.label }}</td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <ul class="list-unstyled small text-muted mb-3">
+            {% for symbol, meaning in role_matrix.capability_legend %}
+                <li>
+                    <code>{{ symbol }}</code>: {{ meaning }}
+                </li>
+            {% endfor %}
+        </ul>
+        <div class="alert alert-light border small mb-0">
+            <p class="mb-2">
+                <strong>Chief Judge is not a role.</strong> {{ role_matrix.chief_judge_note }}
+            </p>
+            <p class="mb-0">
+                <strong>Uber Admin cannot perform attributed work.</strong> {{ role_matrix.uberadmin_note }}
+            </p>
+        </div>
+    </div>
+</div>

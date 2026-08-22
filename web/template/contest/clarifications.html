@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon %}
 {% block title_suffix %}— Clarifications{% endblock %}
@@ -9,106 +16,92 @@
     <script src="{{ request.url_for('static_shared_js', path='highlight-row.js') }}?v={{ app_version }}"
             defer></script>
 {% endblock %}
-{% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            <li class="breadcrumb-item">
-                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-            </li>
-            <li class="breadcrumb-item active" aria-current="page">Clarifications</li>
-        </ol>
-    </nav>
-{% endblock %}
 {% block content %}
-    <div class="container-fluid py-5">
+    <div class="container-fluid px-4 py-5">
         <div class="mb-4">
             <h1 class="h3 mb-1">Clarifications</h1>
             <p class="text-muted mb-0">{{ contest.contest_name }}</p>
         </div>
-        {% if access_blocked %}
-            <div class="alert alert-info d-flex align-items-center gap-2">
-                {{ render_icon(icon="schedule") }}
-                Clarifications are only available after the contest starts.
+        {% include "contest/clarifications_list.html" %}
+        {% if current_user.role == RoleEnum.TEAM.value and not contest.is_past %}
+            <div class="mt-2 mb-4">
+                <small class="text-muted small">Will update in <span id="refresh-timer"
+       class="noca-tabular-nums"
+       data-htmx-wrapper="clarifications-list-wrapper">60</span> seconds</small>
             </div>
-        {% else %}
-            {% include "contest/clarifications_list.html" %}
-            {% if current_user.role == RoleEnum.TEAM.value and not contest.is_past %}
-                <div class="mt-2 mb-4">
-                    <small class="text-muted small">Will update in <span id="refresh-timer" data-htmx-wrapper="clarifications-list-wrapper">60</span> seconds</small>
-                </div>
-                <div class="card shadow-sm">
-                    <div class="card-header fw-semibold">Request Clarification</div>
-                    <div class="card-body">
-                        <form method="post"
-                              action="{{ request.url_for('contest_clarifications_new', slug=contest.login_slug) }}">
-                            <div class="row g-3 mb-3">
-                                <div class="col-md-3">
-                                    <label for="problem_id" class="form-label">Problem</label>
-                                    <select class="form-select" id="problem_id" name="problem_id">
-                                        <option value="" selected>General — no specific problem</option>
-                                        {% for p in problems %}<option value="{{ p.id }}">{{ problem_map[p.id] }}</option>{% endfor %}
-                                    </select>
-                                </div>
-                                <div class="col-md-9">
-                                    <label for="question" class="form-label">Question</label>
-                                    <textarea class="form-control"
-                                              id="question"
-                                              name="question"
-                                              rows="4"
-                                              maxlength="1024"
-                                              placeholder="Describe your question clearly..."
-                                              required></textarea>
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="col">
-                                    <button type="submit" class="btn btn-primary btn-sm">{{ render_icon(icon="send", classes="me-1") }}Submit</button>
-                                </div>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            {% endif %}
-            {% if current_user.role in (RoleEnum.ADMIN.value, RoleEnum.JUDGE.value) and contest.is_running %}
-                <div class="card shadow-sm mt-4">
-                    <div class="card-header fw-semibold">
-                        {{ render_icon(icon="campaign", filled=True, classes="me-1") }}Make Announcement
-                    </div>
-                    <div class="card-body">
-                        <form method="post"
-                              action="{{ request.url_for('contest_clarifications_announcement', slug=contest.login_slug) }}">
-                            <div class="row g-3 mb-3">
-                                <div class="col-md-3">
-                                    <label for="ann_problem_id" class="form-label">Problem</label>
-                                    <select class="form-select" id="ann_problem_id" name="problem_id">
-                                        <option value="" selected>General — no specific problem</option>
-                                        {% for p in problems %}<option value="{{ p.id }}">{{ problem_map[p.id] }}</option>{% endfor %}
-                                    </select>
-                                </div>
-                                <div class="col-md-9">
-                                    <label for="announcement" class="form-label">Announcement</label>
-                                    <textarea class="form-control"
-                                              id="announcement"
-                                              name="announcement"
-                                              rows="4"
-                                              maxlength="1024"
-                                              placeholder="Write the announcement text..."
-                                              required></textarea>
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="col">
-                                    <button type="submit" class="btn btn-warning btn-sm">
-                                        {{ render_icon(icon="campaign", filled=True, classes="me-1") }}Publish Announcement
-                                    </button>
-                                </div>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            {% endif %}
         {% endif %}
-        {# end access_blocked #}
+        {% if noca_can_request_clarification(current_user, contest) %}
+            <div class="card shadow-sm">
+                <div class="card-header fw-semibold">Request Clarification</div>
+                <div class="card-body">
+                    <form method="post"
+                          action="{{ request.url_for('contest_clarifications_new', slug=contest.login_slug) }}">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-3">
+                                <label for="problem_id" class="form-label">Problem</label>
+                                <select class="form-select" id="problem_id" name="problem_id">
+                                    <option value="" selected>General — no specific problem</option>
+                                    {% for p in problems %}<option value="{{ p.id }}">{{ problem_map[p.id] }}</option>{% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-9">
+                                <label for="question" class="form-label">Question</label>
+                                <textarea class="form-control"
+                                          id="question"
+                                          name="question"
+                                          rows="4"
+                                          maxlength="1024"
+                                          placeholder="Describe your question clearly..."
+                                          required></textarea>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col">
+                                <button type="submit" class="btn btn-primary btn-sm">{{ render_icon(icon="send", classes="me-1") }}Submit</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+        {% if noca_can_create_announcement(current_user, contest) %}
+            <div class="card shadow-sm mt-4">
+                <div class="card-header fw-semibold">
+                    {{ render_icon(icon="campaign", filled=True, classes="me-1") }}Make Announcement
+                </div>
+                <div class="card-body">
+                    <form method="post"
+                          action="{{ request.url_for('contest_clarifications_announcement', slug=contest.login_slug) }}">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-3">
+                                <label for="ann_problem_id" class="form-label">Problem</label>
+                                <select class="form-select" id="ann_problem_id" name="problem_id">
+                                    <option value="" selected>General — no specific problem</option>
+                                    {% for p in problems %}<option value="{{ p.id }}">{{ problem_map[p.id] }}</option>{% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-9">
+                                <label for="announcement" class="form-label">Announcement</label>
+                                <textarea class="form-control"
+                                          id="announcement"
+                                          name="announcement"
+                                          rows="4"
+                                          maxlength="1024"
+                                          placeholder="Write the announcement text..."
+                                          required></textarea>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col">
+                                <button type="submit" class="btn btn-warning btn-sm">
+                                    {{ render_icon(icon="campaign", filled=True, classes="me-1") }}Publish Announcement
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
     </div>
     {# Detail modal — outside HTMX-swappable region so it persists across list refreshes #}
     <div class="modal fade"
@@ -153,15 +146,22 @@
             </div>
         </div>
     </div>
+    <button type="button"
+            id="clarifications-back-to-top"
+            class="btn btn-primary noca-back-to-top-btn"
+            aria-label="Return to top"
+            title="Return to top">{{ render_icon(icon="arrow_upward") }}</button>
 {% endblock %}
 {% block extra_script %}
-    {% if not access_blocked and not contest.is_past %}
+    {% if not contest.is_past %}
         <script src="{{ request.url_for('static_js', path='refresh-timer.js') }}?v={{ app_version }}"
                 defer></script>
         <script src="{{ request.url_for('static_js', path='clarifications.js') }}?v={{ app_version }}"
                 defer></script>
-    {% elif not access_blocked %}
+    {% else %}
         <script src="{{ request.url_for('static_js', path='clarifications.js') }}?v={{ app_version }}"
                 defer></script>
     {% endif %}
+    <script src="{{ request.url_for('static_js', path='back-to-top.js') }}?v={{ app_version }}"
+            defer></script>
 {% endblock %}

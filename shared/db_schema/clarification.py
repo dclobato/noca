@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -44,6 +44,12 @@ clarifications = Table(
         comment="Seconds since contest start when the clarification was created.",
     ),
     Column("answered_at", DateTime(timezone=True), nullable=True, comment="Time when the clarification was answered"),
+    Column(
+        "answer_read_at",
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Time when the requesting team first saw the clarification answer",
+    ),
     Column(
         "answered_timestamp_seconds",
         Integer,

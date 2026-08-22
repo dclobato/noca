@@ -28,12 +28,17 @@ from web.models.problem import Problem, ProblemTestCase
 from web.models.users import UberAdmin
 from web.routes.problem_set import router as problem_set_router
 from web.services.problem_service.files import save_md_statement, save_testcase_files
-from web.services.problem_set_cache import cached_archive_path, ensure_cached_archive
+from web.services.problem_set_cache import (
+    cached_archive_path,
+    discard_cached_archive,
+    ensure_cached_archive,
+)
 from web.services.problem_set_service import (
     _problem_label,
     build_problem_set_archive,
     problem_set_filename,
 )
+from web.template_globals import register_template_globals
 
 
 async def _make_problem(
@@ -208,7 +213,19 @@ async def test_route_is_anonymous_and_gated(
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         missing = await client.get("/problem-set/no-such-contest.zip")
         running = await client.get(f"/problem-set/{running_contest.login_slug}.zip")
-        unreleased = await client.get(f"/problem-set/{stopped_contest.login_slug}.zip")
+        neither = await client.get(f"/problem-set/{stopped_contest.login_slug}.zip")
+
+        # Releasing the scoreboard alone must NOT publish the problem set: that
+        # conflation is exactly what the two flags decouple.
+        stopped_contest.release_scoreboard_after_end = True
+        await session.commit()
+        scoreboard_only = await client.get(f"/problem-set/{stopped_contest.login_slug}.zip")
+
+        # Problem set alone is enough; the scoreboard flag is irrelevant here.
+        stopped_contest.release_scoreboard_after_end = False
+        stopped_contest.release_problem_set_after_end = True
+        await session.commit()
+        problem_set_only = await client.get(f"/problem-set/{stopped_contest.login_slug}.zip")
 
         stopped_contest.release_scoreboard_after_end = True
         await session.commit()
@@ -216,7 +233,9 @@ async def test_route_is_anonymous_and_gated(
 
     assert missing.status_code == 404
     assert running.status_code == 404
-    assert unreleased.status_code == 404
+    assert neither.status_code == 404
+    assert scoreboard_only.status_code == 404
+    assert problem_set_only.status_code == 200
     assert released.status_code == 200
     assert released.headers["content-type"] == "application/zip"
     assert released.headers["content-disposition"] == 'attachment; filename="problem-set-stopped-contest.zip"'
@@ -231,7 +250,7 @@ async def test_route_hides_inactive_contest(
     stopped_contest: Contest,
 ) -> None:
     stopped_contest.active = False
-    stopped_contest.release_scoreboard_after_end = True
+    stopped_contest.release_problem_set_after_end = True
     await session.commit()
 
     app = _build_app(session)
@@ -246,7 +265,7 @@ async def test_route_answers_409_when_a_statement_file_is_missing(
     session: AsyncSession,
     stopped_contest: Contest,
 ) -> None:
-    stopped_contest.release_scoreboard_after_end = True
+    stopped_contest.release_problem_set_after_end = True
     await _make_problem(session, stopped_contest, title="Broken", ordinal=1)
     await session.commit()
 
@@ -266,7 +285,6 @@ async def test_contests_page_shows_problem_set_button_only_after_release(
 ) -> None:
     from fastapi.templating import Jinja2Templates
 
-    from shared.enumerations import RoleEnum
     from web.routes.root import router as root_router
 
     app = FastAPI()
@@ -274,8 +292,7 @@ async def test_contests_page_shows_problem_set_button_only_after_release(
     templates = Jinja2Templates(directory=Path(__file__).resolve().parents[2] / "web" / "template")
     templates.env.globals["app_version"] = "test"
     templates.env.globals["brand_name"] = "NOCA"
-    templates.env.globals["RoleEnum"] = RoleEnum
-    templates.env.globals["role_labels"] = {role.value: role.value.title() for role in RoleEnum}
+    register_template_globals(templates)
     templates.env.globals["get_flashed_messages"] = lambda with_categories=False: []
     app.state.templates = templates
     app.include_router(root_router)
@@ -311,7 +328,7 @@ async def test_contests_page_shows_problem_set_button_only_after_release(
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         before = await client.get("/contests")
-        stopped_contest.release_scoreboard_after_end = True
+        stopped_contest.release_problem_set_after_end = True
         await session.commit()
         after = await client.get("/contests")
 
@@ -423,7 +440,7 @@ async def test_route_serves_from_cache_when_configured(
 ) -> None:
     problem = await _make_problem(session, stopped_contest, title="Alpha", ordinal=1)
     await _seed_standard_problem(session, problem)
-    stopped_contest.release_scoreboard_after_end = True
+    stopped_contest.release_problem_set_after_end = True
     await session.commit()
     monkeypatch.setattr(settings, "PUBLIC_PROBLEM_PACK_PATH", tmp_path)
 
@@ -438,7 +455,7 @@ async def test_route_serves_from_cache_when_configured(
         second = await client.get(f"/problem-set/{stopped_contest.login_slug}.zip")
 
         # Un-releasing the contest stops serving even though a cache entry exists.
-        stopped_contest.release_scoreboard_after_end = False
+        stopped_contest.release_problem_set_after_end = False
         await session.commit()
         third = await client.get(f"/problem-set/{stopped_contest.login_slug}.zip")
 
@@ -448,3 +465,57 @@ async def test_route_serves_from_cache_when_configured(
     )
     assert cached_zip.read_bytes() != b"tampered"
     assert third.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_route_stays_closed_while_an_armed_contest_is_running(
+    session: AsyncSession,
+    running_contest: Contest,
+) -> None:
+    """Arming the flag early publishes at the end, never before it.
+
+    ``is_past`` is the one half of the gate that does not decouple: an admin may
+    set the flag at any time, but the materials stay private until the contest
+    is actually over.
+    """
+    problem = await _make_problem(session, running_contest, title="Alpha", ordinal=1)
+    await _seed_standard_problem(session, problem)
+    running_contest.release_problem_set_after_end = True
+    await session.commit()
+
+    app = _build_app(session)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get(f"/problem-set/{running_contest.login_slug}.zip")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_discard_cached_archive_removes_archive_and_sidecar(
+    stopped_contest: Contest,
+    tmp_path: Path,
+) -> None:
+    archive_path = await ensure_cached_archive(tmp_path, stopped_contest, await _fake_builder(b"first"))
+    sidecar = archive_path.with_suffix(".zip.sha256")
+    assert archive_path.is_file()
+    assert sidecar.is_file()
+
+    await discard_cached_archive(tmp_path, stopped_contest)
+
+    assert not archive_path.exists()
+    assert not sidecar.exists()
+
+    # A later re-release rebuilds rather than resurrecting the discarded archive.
+    rebuilt = await ensure_cached_archive(tmp_path, stopped_contest, await _fake_builder(b"second"))
+    assert rebuilt.read_bytes() == b"second"
+
+
+@pytest.mark.asyncio
+async def test_discard_cached_archive_tolerates_a_missing_entry(
+    stopped_contest: Contest,
+    tmp_path: Path,
+) -> None:
+    """A contest nobody ever downloaded has nothing to drop; that is not an error."""
+    await discard_cached_archive(tmp_path, stopped_contest)
+
+    assert not cached_archive_path(tmp_path, stopped_contest).exists()

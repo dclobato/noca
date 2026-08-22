@@ -12,8 +12,8 @@ round-trip test imports it through both importers.
 
 It is written through the shared writer, so it carries every version-2 key, an
 optional editorial with an independent digest, a valid legacy ``sha256``
-manifest, and at least one public test case — exactly what a
-package produced by a real export looks like. The fields deliberately span
+manifest, an Arena editorial release policy, and at least one public test
+case — exactly what a package produced by a real export looks like. The fields deliberately span
 *both* domains (Arena's ``source`` / ``license`` / ``statement_language``, the
 Contest's ``color`` / ``language_limits``), because the format is their union
 and each importer keeps what its own schema can store.
@@ -25,7 +25,7 @@ import tempfile
 from pathlib import Path
 from typing import Final
 
-from shared.enumerations import ProblemValidatorType
+from shared.enumerations import ArenaEditorialReleasePolicy, ProblemValidatorType
 from shared.services.problem_package.constants import FORMAT_VERSION
 from shared.services.problem_package.model import (
     PackageLanguageLimit,
@@ -137,6 +137,10 @@ def _sample_package(cases: tuple[PackageTestCase, ...]) -> ProblemPackage:
         custom_validator=None,
         sha256={},
         editorial=None,
+        # Arena-only, and set here so the reference package exercises the
+        # nested half of the editorial object; the Contest importer parses
+        # it and exports it back as null.
+        editorial_release_policy=ArenaEditorialReleasePolicy.AFTER_AC,
     )
     return ProblemPackage(
         metadata=metadata,

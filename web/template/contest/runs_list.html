@@ -1,16 +1,19 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% macro verdict_short_badge(v) %}
     {% set cls = contest_verdict_badge_class(v, contest) %}
     <span class="badge {{ cls }}">{{ v }}</span>
 {% endmacro %}
-{% set is_chief = (
-    current_user.role == RoleEnum.JUDGE.value
-    and contest.chief_judge_id is not none
-    and current_user.id == contest.chief_judge_id
-) %}
+{% set is_chief = noca_is_chief_judge(current_user, contest) %}
 {% set is_privileged = current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) or is_chief %}
 {% set is_judge_or_above = current_user.role in (RoleEnum.JUDGE.value, RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) %}
 {# Judges and admins may take a review lock and confirm; uberadmins may not (confirmations FK into users). #}
-{% set can_review = current_user.role in (RoleEnum.JUDGE.value, RoleEnum.ADMIN.value) %}
+{% set can_review = noca_can_confirm_verdict(current_user, contest) %}
 {# An autojudge-only contest refuses every confirmation, so those columns can never fill.
    Chief overrides have no such guard, so CJ stays. #}
 {% set shows_confirmations = not contest.autojudge_only %}
@@ -240,73 +243,80 @@
                                             </td>
                                         {% endif %}
                                     {% endif %}
-                                    {# Final verdict / Verdict column #}
+                                    {# Final verdict / Verdict column. Content ranges from a bare dash to a
+                                       balloon image (42px) to a review-action button, which otherwise made
+                                       each row as tall as its own tallest possibility -- the wrapper below
+                                       gives every row the same floor height regardless of which branch
+                                       renders (see .noca-verdict-cell-inner in _layout.css). #}
                                     <td class="text-center">
-                                        {% if newest_judgment and newest_judgment.final_verdict %}
-                                            {% set v = newest_judgment.final_verdict.value %}
-                                            {% set is_accepted = v == Verdict.AC.value or (v == Verdict.PE.value and contest.accept_pe) %}
-                                            {% set badge_class = contest_verdict_badge_class(v, contest) %}
-                                            <span class="d-inline-flex align-items-center gap-1">
-                                                {% if is_accepted %}
-                                                    {% set is_first_balloon = s.id in first_balloon_submission_ids %}
-                                                    <img src="/assets/{{ 'star' if is_first_balloon else 'balloon' }}/{{ s.problem.color[1:] }}"
-                                                         width="28"
-                                                         height="42"
-                                                         class="{{ 'noca-first-balloon' if s.id in first_balloon_submission_ids else '' }}"
-                                                         alt="{{ 'star balloon' if is_first_balloon else 'balloon' }}">
-                                                {% endif %}
-                                                <span class="badge {{ badge_class }}">{{ v }}</span>
-                                            </span>
-                                        {% else %}
-                                            {% if team_hidden_pending %}
-                                                <span class="text-muted">—</span>
-                                            {% elif (
-                                                newest_judgment
-                                                and not contest.autojudge_only
-                                                and newest_judgment.status == JudgmentStatus.DONE
-                                                and not newest_judgment.final_verdict
-                                                and is_judge_or_above
-                                                ) %}
-                                                {% set review_holder_id = review_lock_map.get(newest_judgment.id) if newest_judgment else none %}
-                                                {% if not lock_service_available %}
-                                                    {% if can_review %}
-                                                        <a href="{{ request.url_for('submission_review', slug=contest.login_slug, submission_id=s.id) }}"
-                                                           class="btn btn-outline-primary btn-sm">Review verdict</a>
-                                                    {% else %}
-                                                        <span class="badge bg-warning text-dark">Locks off</span>
+                                        <div class="noca-verdict-cell-inner">
+                                            {% if newest_judgment and newest_judgment.final_verdict %}
+                                                {% set v = newest_judgment.final_verdict.value %}
+                                                {% set is_accepted = v == Verdict.AC.value or (v == Verdict.PE.value and contest.accept_pe) %}
+                                                {% set badge_class = contest_verdict_badge_class(v, contest) %}
+                                                <span class="d-inline-flex align-items-center gap-1">
+                                                    {% if is_accepted %}
+                                                        {% set is_first_balloon = s.id in first_balloon_submission_ids %}
+                                                        <img src="/assets/{{ 'star' if is_first_balloon else 'balloon' }}/{{ s.problem.color[1:] }}"
+                                                             width="28"
+                                                             height="42"
+                                                             class="{{ 'noca-first-balloon' if s.id in first_balloon_submission_ids else '' }}"
+                                                             alt="{{ 'star balloon' if is_first_balloon else 'balloon' }}">
                                                     {% endif %}
-                                                {% elif review_holder_id is none %}
-                                                    {% if can_review %}
-                                                        <form method="post"
-                                                              action="{{ request.url_for('submission_acquire_review', slug=contest.login_slug, submission_id=s.id) }}"
-                                                              class="d-inline">
-                                                            <button type="submit" class="btn btn-outline-primary btn-sm">Acquire review</button>
-                                                        </form>
-                                                    {% else %}
-                                                        <span class="text-muted">—</span>
-                                                    {% endif %}
-                                                {% elif review_holder_id == current_user.id %}
-                                                    <a href="{{ request.url_for('submission_review', slug=contest.login_slug, submission_id=s.id) }}"
-                                                       class="btn btn-outline-success btn-sm">Confirm verdict</a>
-                                                {% else %}
-                                                    <span class="badge bg-secondary">Locked</span>
-                                                    {% if is_privileged %}
-                                                        <form method="post"
-                                                              action="{{ request.url_for('submission_release_review', slug=contest.login_slug, submission_id=s.id) }}"
-                                                              class="d-inline ms-1">
-                                                            <button type="submit" class="btn btn-outline-danger btn-sm">Release</button>
-                                                        </form>
-                                                    {% endif %}
-                                                {% endif %}
+                                                    <span class="badge {{ badge_class }}">{{ v }}</span>
+                                                </span>
                                             {% else %}
-                                                <span class="text-muted">—</span>
+                                                {% if team_hidden_pending %}
+                                                    <span class="text-muted">—</span>
+                                                {% elif (
+                                                    newest_judgment
+                                                    and not contest.autojudge_only
+                                                    and newest_judgment.status == JudgmentStatus.DONE
+                                                    and not newest_judgment.final_verdict
+                                                    and is_judge_or_above
+                                                    ) %}
+                                                    {% set review_holder_id = review_lock_map.get(newest_judgment.id) if newest_judgment else none %}
+                                                    {% if not lock_service_available %}
+                                                        {% if can_review %}
+                                                            <a href="{{ request.url_for('submission_review', slug=contest.login_slug, submission_id=s.id) }}"
+                                                               class="btn btn-outline-primary btn-sm">Review verdict</a>
+                                                        {% else %}
+                                                            <span class="badge bg-warning text-dark">Locks off</span>
+                                                        {% endif %}
+                                                    {% elif review_holder_id is none %}
+                                                        {% if can_review %}
+                                                            <form method="post"
+                                                                  action="{{ request.url_for('submission_acquire_review', slug=contest.login_slug, submission_id=s.id) }}"
+                                                                  class="d-inline">
+                                                                <button type="submit" class="btn btn-outline-primary btn-sm">Acquire review</button>
+                                                            </form>
+                                                        {% else %}
+                                                            <span class="text-muted">—</span>
+                                                        {% endif %}
+                                                    {% elif review_holder_id == current_user.id %}
+                                                        <a href="{{ request.url_for('submission_review', slug=contest.login_slug, submission_id=s.id) }}"
+                                                           class="btn btn-outline-success btn-sm">Confirm verdict</a>
+                                                    {% else %}
+                                                        <span class="badge bg-secondary">Locked</span>
+                                                        {% if is_privileged %}
+                                                            <form method="post"
+                                                                  action="{{ request.url_for('submission_release_review', slug=contest.login_slug, submission_id=s.id) }}"
+                                                                  class="d-inline ms-1">
+                                                                <button type="submit" class="btn btn-outline-danger btn-sm">Release</button>
+                                                            </form>
+                                                        {% endif %}
+                                                    {% endif %}
+                                                {% else %}
+                                                    <span class="text-muted">—</span>
+                                                {% endif %}
                                             {% endif %}
-                                        {% endif %}
+                                        </div>
                                     </td>
                                     {% if current_user.role == RoleEnum.TEAM.value %}
                                         <td class="text-center">
                                             <a href="{{ request.url_for('submission_source_download', slug=contest.login_slug, submission_id=s.id) }}"
                                                class="btn btn-outline-secondary btn-sm noca-icon-btn"
+                                               aria-label="Download source code for submission {{ s.id }}"
                                                title="Download source code">{{ render_icon(icon="download") }}</a>
                                         </td>
                                     {% endif %}

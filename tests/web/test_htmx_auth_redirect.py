@@ -12,10 +12,10 @@ from jwtservice import JWTService, load_token_config_from_dict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
-from shared.enumerations import RoleEnum
 from shared.services.geolocation import GeolocationDetails, GeolocationIP
 from web.routes.profile import router as profile_router
 from web.services.authentication_service import AuthAction, AuthenticationService
+from web.template_globals import register_template_globals
 
 TEST_JWT_SECRET = "test-secret-key-for-tests-only-32bytes"
 
@@ -33,8 +33,7 @@ def _build_app(session: AsyncSession) -> FastAPI:
     shared_dir = Path(__file__).resolve().parents[2] / "shared"
     templates = Jinja2Templates(directory=web_dir / "template")
     templates.env.globals["app_version"] = "test"
-    templates.env.globals["RoleEnum"] = RoleEnum
-    templates.env.globals["role_labels"] = {role.value: role.value.title() for role in RoleEnum}
+    register_template_globals(templates)
     setup_flash(templates)
     app.state.templates = templates
 

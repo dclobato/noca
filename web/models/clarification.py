@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -29,6 +29,7 @@ class Clarification(Base):
     answer: Mapped[str | None]
     created_timestamp_seconds: Mapped[int]
     answered_at: Mapped[datetime | None]
+    answer_read_at: Mapped[datetime | None]
     answered_timestamp_seconds: Mapped[int | None]
     hidden: Mapped[bool]
     hidden_by_judge_id: Mapped[str | None]

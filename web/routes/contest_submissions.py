@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -32,6 +32,7 @@ from web.routes.contest_submissions_helpers import (
     _html,
     submission_highlight_assets,
 )
+from web.services.chief_judge_permissions import is_chief_judge
 from web.services.judging_service import (
     can_confirm_verdict,
     can_override_verdict,
@@ -157,13 +158,11 @@ async def review_submission(
                 review_lock_holder_name = holder.fullname or holder.username
 
     is_judge = isinstance(ctx.actor, User) and ctx.actor.role == RoleEnum.JUDGE
-    is_chief_judge = (
-        ctx.contest.chief_judge_id is not None and getattr(ctx.actor, "id", None) == ctx.contest.chief_judge_id
-    )
+    actor_is_chief_judge = is_chief_judge(ctx.actor, ctx.contest)
     is_privileged = (
         isinstance(ctx.actor, UberAdmin)
         or (isinstance(ctx.actor, User) and ctx.actor.role == RoleEnum.ADMIN)
-        or is_chief_judge
+        or actor_is_chief_judge
     )
     can_see_test_results = isinstance(ctx.actor, UberAdmin) or ctx.actor.role in {RoleEnum.JUDGE, RoleEnum.ADMIN}
 
@@ -204,7 +203,7 @@ async def review_submission(
     )
     can_rejudge = is_privileged and active_judgment is not None and active_judgment.final_verdict is not None
 
-    panel = _build_confirmation_panel(active_judgment, ctx.actor, has_confirmed, is_chief_judge)
+    panel = _build_confirmation_panel(active_judgment, ctx.actor, has_confirmed, actor_is_chief_judge)
     judging_history = await get_judging_history(ctx.session, submission_id, ctx.actor, ctx.contest)
     problem_label = _label(submission.problem.ordinal)
     test_results = active_judgment.test_results if can_see_test_results and active_judgment is not None else None
@@ -240,6 +239,7 @@ async def review_submission(
             {
                 "current_user": ctx.actor,
                 "contest": ctx.contest,
+                "contest_nav_section": "contest_runs",
                 "submission": submission,
                 "active_judgment": active_judgment,
                 "review_lock": review_lock,
@@ -252,12 +252,10 @@ async def review_submission(
                 "judging_history": judging_history,
                 "panel": panel,
                 "is_judge": is_judge,
-                "is_chief_judge": is_chief_judge,
                 "is_privileged": is_privileged,
                 "has_confirmed": has_confirmed,
                 "can_confirm": can_confirm,
                 "can_acquire_review": can_acquire_review,
-                "is_decisive_confirmer": is_decisive,
                 "can_override": can_override,
                 "can_rejudge": can_rejudge,
                 "can_see_test_results": can_see_test_results,

@@ -1,24 +1,17 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
+{% from "_macros.html" import admin_breadcrumb with context %}
 {% block title_suffix %}— Users{% endblock %}
 {% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            {% if current_user.role == RoleEnum.UBERADMIN.value %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
-                </li>
-                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
-            {% else %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-                </li>
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
-                </li>
-            {% endif %}
-            <li class="breadcrumb-item active" aria-current="page">Users</li>
-        </ol>
-    </nav>
+    {% call admin_breadcrumb() %}
+        Users
+    {% endcall %}
 {% endblock %}
 {% block content %}
     <div class="container-fluid py-4 px-4">
@@ -66,7 +59,7 @@
                     <div class="flex-grow-1 min-width-0">
                         <div class="fw-semibold text-truncate">
                             {{ u.fullname or "(no name)" }}
-                            {% if u.id == contest.chief_judge_id %}
+                            {% if noca_is_chief_judge(u, contest) %}
                                 <span class="text-warning ms-1"
                                       title="Chief judge"
                                       aria-label="Chief judge">&#9733;</span>
@@ -115,7 +108,7 @@
                     <div class="flex-grow-1 min-width-0">
                         <div class="fw-semibold text-truncate">
                             {{ u.fullname or "(no name)" }}
-                            {% if u.id == contest.chief_judge_id %}
+                            {% if noca_is_chief_judge(u, contest) %}
                                 <span class="text-warning ms-1"
                                       title="Chief judge"
                                       aria-label="Chief judge">&#9733;</span>

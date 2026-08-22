@@ -15,7 +15,7 @@ from sqlalchemy.orm import Mapped, relationship
 
 from shared.db_schema import solution_test_case_results as solution_test_case_results_table
 from shared.db_schema import solution_test_runs as solution_test_runs_table
-from shared.enumerations import JudgmentStatus, Verdict
+from shared.enumerations import CustomValidatorCrashReason, JudgmentStatus, Verdict
 from web.database import Base
 
 if TYPE_CHECKING:
@@ -111,6 +111,12 @@ class SolutionTestCaseResult(Base):
     stdout_excerpt: Mapped[str | None]
     stderr_excerpt: Mapped[str | None]
     transcript: Mapped[Any | None]
+    validator_exit_code: Mapped[int | None]
+    validator_signal: Mapped[int | None]
+    validator_stderr_excerpt: Mapped[str | None]
+    limit_outcome: Mapped[str | None]
+    validator_verdict: Mapped[Verdict | None]
+    crash_reason: Mapped[CustomValidatorCrashReason | None]
     created_at: Mapped[datetime]
 
     solution_test_run: Mapped[SolutionTestRun] = relationship(back_populates="case_results")

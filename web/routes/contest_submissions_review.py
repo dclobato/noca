@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -26,6 +26,7 @@ from web.services.judging_service import (
     ReviewNotHeldByActorError,
     acquire_submission_review,
     can_confirm_verdict,
+    can_supervise_judgment,
     confirm_verdict,
     create_balloon_task_if_needed,
     rejudge_submission,
@@ -136,10 +137,7 @@ async def post_release_submission_review(
         flash("Submission does not have an active judgment.", FlashCategory.DANGER)
         return RedirectResponse(url=runs_url, status_code=303)
 
-    is_chief_judge = (
-        ctx.contest.chief_judge_id is not None and getattr(ctx.actor, "id", None) == ctx.contest.chief_judge_id
-    )
-    force = ctx.actor.role in {RoleEnum.UBERADMIN, RoleEnum.ADMIN} or is_chief_judge
+    force = can_supervise_judgment(ctx.actor, ctx.contest)
 
     try:
         if not request.app.state.valkey_runtime.is_available:
@@ -284,8 +282,7 @@ async def post_rejudge_submission(
     ensure_allowed_role(ctx.actor, (RoleEnum.JUDGE, RoleEnum.ADMIN, RoleEnum.UBERADMIN))
 
     review_url = str(request.url_for("submission_review", slug=ctx.contest.login_slug, submission_id=submission_id))
-    is_chief_judge = isinstance(ctx.actor, User) and ctx.actor.id == ctx.contest.chief_judge_id
-    if not is_chief_judge and ctx.actor.role not in (RoleEnum.ADMIN, RoleEnum.UBERADMIN):
+    if not can_supervise_judgment(ctx.actor, ctx.contest):
         flash(
             "Only the contest chief judge or a contest administrator may request a rejudge.",
             FlashCategory.DANGER,

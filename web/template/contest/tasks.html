@@ -11,16 +11,6 @@
                 defer></script>
     {% endif %}
 {% endblock %}
-{% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            <li class="breadcrumb-item">
-                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-            </li>
-            <li class="breadcrumb-item active" aria-current="page">Tasks</li>
-        </ol>
-    </nav>
-{% endblock %}
 {% block content %}
     <div class="container py-5">
         <div class="mb-4">
@@ -53,7 +43,9 @@
             {% endif %}
             {% if contest.is_running %}
                 <div class="mb-2">
-                    <small class="text-muted">Will update in <span id="refresh-timer" data-htmx-wrapper="tasks-list-wrapper">60</span> seconds</small>
+                    <small class="text-muted">Will update in <span id="refresh-timer"
+       class="noca-tabular-nums"
+       data-htmx-wrapper="tasks-list-wrapper">60</span> seconds</small>
                 </div>
             {% endif %}
             {% include "contest/tasks_list.html" %}

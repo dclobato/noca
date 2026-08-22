@@ -680,10 +680,12 @@ a.card.noca-validator-choice-card:focus-visible .noca-validator-choice-action .m
 /* Problem-editor save bar (shared by the Web and Arena tabbed editors).
    The editor is one form spread across five panes, so Save has to stay reachable
    from any scroll position -- an author who edits limits at the bottom of a long
-   statement should not have to scroll back up to commit. Neither module's navbar
-   is sticky, so `top: 0` cannot collide with it. The bar sits above the tab strip
-   and carries its own background so panes do not show through as it overlaps
-   them. */
+   statement should not have to scroll back up to commit. `top: 0` is the Arena
+   value, whose chrome is not pinned; Web pins its navbar, navigation band and
+   breadcrumb as one unit and overrides this `top` with the measured chrome
+   height (`web/static/css/contest/_chrome.css`). The bar sits above the tab
+   strip and carries its own background so panes do not show through as it
+   overlaps them. */
 .noca-problem-save-bar {
     position: sticky;
     top: 0;

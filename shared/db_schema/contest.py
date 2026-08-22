@@ -180,6 +180,18 @@ contests = Table(
         comment="Unfreeze scoreboard after the contest ends, reveling final score.",
     ),
     Column(
+        "release_problem_set_after_end",
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment=(
+            "Publish the full problem package (statements, all test cases, validator sources and "
+            "editorials) at the public problem-set download once the contest ends. Independent of "
+            "release_scoreboard_after_end; setting it before the end arms the publication for then."
+        ),
+    ),
+    Column(
         "animator_enabled",
         Boolean,
         nullable=False,

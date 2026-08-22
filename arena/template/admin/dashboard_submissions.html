@@ -169,7 +169,9 @@
                                         <span class="text-muted">&mdash;</span>
                                     {% endif %}
                                     {% if row.has_ai_review %}
-                                        <span class="ms-1 text-muted" title="AI review available">{{ render_icon(icon="psychology_alt") }}</span>
+                                        <span class="ms-1 text-muted">
+                                            {{ render_icon(icon="psychology_alt", title="AI review available", label="AI review available") }}
+                                        </span>
                                     {% endif %}
                                 </td>
                                 <td>

@@ -1,0 +1,36 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{% extends "_base.html" %}
+{% from "_contest_gateway_macros.html" import gateway_contest_card with context %}
+{% from "_macros.html" import render_icon %}
+{% block title_suffix %}— Past contests{% endblock %}
+{% block content %}
+    <div class="noca-gateway-root flex-grow-1">
+        <div class="noca-gateway">
+            <div class="noca-gateway-back-link">
+                <a href="{{ request.url_for("contests_list") }}">{{ render_icon("arrow_back") }}Back to contests</a>
+            </div>
+            <header class="noca-gateway-hero noca-gateway-hero-compact">
+                <div class="noca-gateway-heading">
+                    <p class="noca-gateway-eyebrow">{{ brand_name }}</p>
+                    <h1>Past contests</h1>
+                    <p>Every finished contest, most recently ended first.</p>
+                </div>
+            </header>
+            {% if past_contests %}
+                <div class="noca-gateway-grid">
+                    {% for contest in past_contests %}
+                        {{ gateway_contest_card(contest, "past", "Finished", "Ended", contest.local_end_time.strftime("%Y-%m-%d %H:%M") ~ " (" ~ contest.contest_timezone ~ ")", contest.local_end_time.isoformat(), "Started", contest.local_start_time.strftime("%Y-%m-%d %H:%M") ~ " (" ~ contest.contest_timezone ~ ")", contest.local_start_time.isoformat(), show_problem_set=contest.release_problem_set_after_end) }}
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="noca-gateway-empty-text">No past contests yet.</p>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

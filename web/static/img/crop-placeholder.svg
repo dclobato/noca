@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160" role="img" aria-label="No image selected yet">
+  <style>
+    .bg { fill: #f1f3f5; }
+    .frame { fill: none; stroke: #adb5bd; stroke-width: 3; }
+    .glyph { fill: #adb5bd; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #2b3035; }
+      .frame { stroke: #6c757d; }
+      .glyph { fill: #6c757d; }
+    }
+  </style>
+  <rect class="bg" width="240" height="160" rx="6"/>
+  <rect class="frame" x="52.5" y="40.5" width="135" height="90" rx="6"/>
+  <circle class="glyph" cx="86" cy="68" r="10"/>
+  <path class="glyph" d="M60 122l34-40 26 30 18-19 26 29z"/>
+</svg>

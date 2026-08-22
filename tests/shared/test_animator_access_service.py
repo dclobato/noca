@@ -349,6 +349,25 @@ async def test_revoke_secret_rejects_cross_contest(session: AsyncSession, uberad
     assert len(await access.list_site_secrets(session, contest_b.id)) == 1
 
 
+@pytest.mark.asyncio
+async def test_revoke_all_secrets_removes_only_contest_credentials(
+    session: AsyncSession,
+    uberadmin: UberAdmin,
+) -> None:
+    """Bulk revocation removes global and site credentials only in its contest."""
+    contest = await _make_contest(session, uberadmin, "revoke-all")
+    site = await _make_site(session, contest, "Campus G")
+    other = await _make_contest(session, uberadmin, "revoke-all-other")
+    await access.create_global_secret(session, contest_id=contest.id, label="Global")
+    await access.create_site_secret(session, contest_id=contest.id, site_id=site.id, label="Site")
+    await access.create_global_secret(session, contest_id=other.id, label="Other")
+
+    assert await access.revoke_all_secrets(session, contest_id=contest.id) == 2
+    assert await access.list_site_secrets(session, contest.id) == []
+    assert len(await access.list_site_secrets(session, other.id)) == 1
+    assert await access.revoke_all_secrets(session, contest_id=contest.id) == 0
+
+
 # ---------------------------------------------------------------------------
 # Scope resolution
 # ---------------------------------------------------------------------------

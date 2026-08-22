@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 from starlette.middleware.sessions import SessionMiddleware
 
-from shared.enumerations import ProblemValidatorType, RoleEnum
+from shared.enumerations import ProblemValidatorType
 from shared.services.imageprocessing_service import ImageProcessingService
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.models.contest import Contest
@@ -45,6 +45,7 @@ from web.routes.contest_admin_problem_judgment_tc import router as problem_judgm
 from web.routes.contest_admin_problem_limits import router as problem_limits_router
 from web.routes.contest_admin_problem_new import router as problem_new_router
 from web.routes.contest_admin_problem_validator import router as problem_validator_router
+from web.template_globals import register_template_globals
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -81,8 +82,7 @@ def _build_app(session: AsyncSession, contest: Contest, actor: UberAdmin) -> Fas
     )
     templates.env.globals["app_version"] = "test"
     templates.env.globals["brand_name"] = "NOCA Contest"
-    templates.env.globals["RoleEnum"] = RoleEnum
-    templates.env.globals["role_labels"] = {role.value: role.value.title() for role in RoleEnum}
+    register_template_globals(templates)
     templates.env.globals["contest_minutes"] = lambda seconds: None if seconds is None else seconds // 60
     setup_flash(templates)
     app.state.templates = templates

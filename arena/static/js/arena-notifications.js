@@ -74,7 +74,7 @@
              data-arena-notification-id="${escapeHtml(notification.id)}"
              data-arena-notification-read-url="${escapeHtml(`${listUrl}/${notification.id}/read`)}">
             <span class="arena-notification-title">
-              <span class="material-symbols-outlined arena-notification-icon">${icon}</span>${escapeHtml(notification.title)}</span>
+              <span class="material-symbols-outlined arena-notification-icon" aria-hidden="true">${icon}</span>${escapeHtml(notification.title)}</span>
             <span class="arena-notification-message">${escapeHtml(notification.message)}</span>
             ${timeText ? `<span class="arena-notification-time">${escapeHtml(timeText)}</span>` : ""}
           </a>

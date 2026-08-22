@@ -24,10 +24,10 @@ from web.services.session_service import (
     mark_auth_refresh_eligible,
 )
 
-_WEB_PUBLIC_EXACT: frozenset[str] = frozenset({"/", "/contests", "/login", "/health", "/favicon.ico"})
+_WEB_PUBLIC_EXACT: frozenset[str] = frozenset({"/", "/contests", "/contests/past", "/login", "/health", "/favicon.ico"})
 # ``/problem-set`` is public: the route itself gates on the contest being over
-# with its scoreboard released, so unauthenticated visitors may download the
-# materials of a contest whose results are already public.
+# with its problem set released, so unauthenticated visitors may download the
+# materials of a contest whose author chose to publish them.
 _WEB_PUBLIC_PREFIXES: tuple[str, ...] = ("/assets", "/static", "/problem-set")
 
 

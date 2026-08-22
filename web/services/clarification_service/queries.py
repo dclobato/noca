@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal, cast
 
-from sqlalchemy import Select, or_, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.enumerations import RoleEnum
@@ -63,6 +63,48 @@ async def get_clarification(
         .where(Clarification.id == clarification_id, User.contest_id == contest.id)
     )
     return result.scalar_one_or_none()
+
+
+async def count_pending_clarifications(
+    session: AsyncSession,
+    contest: Contest,
+    team_id: str | None = None,
+) -> int:
+    """Count visible unanswered clarifications in a contest."""
+    stmt = (
+        select(func.count(Clarification.id))
+        .join(User, Clarification.team_id == User.id)
+        .where(
+            and_(
+                User.contest_id == contest.id,
+                Clarification.answered_at.is_(None),
+                Clarification.hidden.is_(False),
+            )
+        )
+    )
+    if team_id is not None:
+        stmt = stmt.where(Clarification.team_id == team_id)
+    return int((await session.execute(stmt)).scalar() or 0)
+
+
+async def count_unread_clarification_answers(
+    session: AsyncSession,
+    contest: Contest,
+    team_id: str,
+) -> int:
+    """Count answered clarifications that the requesting team has not read."""
+    result = await session.execute(
+        select(func.count(Clarification.id))
+        .join(User, Clarification.team_id == User.id)
+        .where(
+            User.contest_id == contest.id,
+            Clarification.team_id == team_id,
+            Clarification.answered_at.is_not(None),
+            Clarification.answer_read_at.is_(None),
+            Clarification.hidden.is_(False),
+        )
+    )
+    return int(result.scalar() or 0)
 
 
 async def list_clarifications(

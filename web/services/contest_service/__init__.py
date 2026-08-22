@@ -8,6 +8,7 @@
 
 from .authorization import (
     ChiefJudgeInvariantError,
+    can_administer_contest,
     ensure_chief_judge_reassignable,
     ensure_contest_admin_or_uberadmin,
     ensure_contest_has_sites,
@@ -20,10 +21,12 @@ from .metadata import (
     ContestMetadataInput,
     ContestMetadataResult,
     ContestMetadataView,
+    ContestRulesSummary,
     build_contest_clock_payload,
     build_contest_metadata_form_data,
     build_contest_metadata_view,
     build_contest_metadata_view_with_sites,
+    build_contest_rules_summary,
     contest_metadata_validation_errors,
     contest_status_label,
     get_active_contests_grouped,
@@ -32,6 +35,7 @@ from .metadata import (
     validate_contest_metadata_update,
 )
 from .models import ContestCreationResult, ContestDashboardGroups
+from .presentation import sort_past_contests_recent_first
 from .queries import (
     get_active_languages,
     get_contest_by_id,
@@ -49,11 +53,14 @@ __all__ = [
     "ContestMetadataInput",
     "ContestMetadataResult",
     "ContestMetadataView",
+    "ContestRulesSummary",
     "build_blank_contest_form",
     "build_contest_clock_payload",
     "build_contest_metadata_form_data",
     "build_contest_metadata_view",
     "build_contest_metadata_view_with_sites",
+    "build_contest_rules_summary",
+    "can_administer_contest",
     "contest_metadata_validation_errors",
     "contest_status_label",
     "create_contest_with_owner",
@@ -70,6 +77,7 @@ __all__ = [
     "list_contest_judge_ids",
     "reconcile_chief_judge",
     "slug_format_is_valid",
+    "sort_past_contests_recent_first",
     "_validate_contest_metadata_fields",
     "update_contest_global_medals",
     "update_contest_metadata",

@@ -1,5 +1,5 @@
 // NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+// Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -39,7 +39,7 @@
       className += ' ' + classes;
     }
 
-    return '<span class="' + className + '">' + _esc(icon) + '</span>';
+    return '<span class="' + className + '" aria-hidden="true">' + _esc(icon) + '</span>';
   }
 
   // ── HTMX auto-refresh pause / resume ─────────────────────────────────

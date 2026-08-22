@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -9,10 +9,12 @@
 from .forms import ContestMetadataInput
 from .models import ContestMetadataResult, ContestMetadataView
 from .presentation import (
+    ContestRulesSummary,
     build_contest_clock_payload,
     build_contest_metadata_form_data,
     build_contest_metadata_view,
     build_contest_metadata_view_with_sites,
+    build_contest_rules_summary,
     contest_metadata_validation_errors,
     contest_status_label,
     get_active_contests_grouped,
@@ -29,10 +31,12 @@ __all__ = [
     "ContestMetadataInput",
     "ContestMetadataResult",
     "ContestMetadataView",
+    "ContestRulesSummary",
     "build_contest_clock_payload",
     "build_contest_metadata_form_data",
     "build_contest_metadata_view",
     "build_contest_metadata_view_with_sites",
+    "build_contest_rules_summary",
     "contest_metadata_validation_errors",
     "contest_status_label",
     "get_active_contests_grouped",

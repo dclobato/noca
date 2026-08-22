@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -32,7 +32,8 @@
                                 {% set notif_url = "#" %}
                             {% endif %}
                             <a href="{{ notif_url }}" class="arena-notification-title">
-                                <span class="material-symbols-outlined arena-notification-icon">{{ notif_icon }}</span>{{ notif.title }}</a>
+                                <span class="material-symbols-outlined arena-notification-icon"
+                                      aria-hidden="true">{{ notif_icon }}</span>{{ notif.title }}</a>
                             <span class="arena-notification-message">{{ notif.message }}</span>
                             <span class="arena-notification-time">{{ arena_format_datetime(notif.created_at, current_user) }}</span>
                         </div>

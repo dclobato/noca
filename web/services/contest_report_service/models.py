@@ -61,6 +61,7 @@ class TeamRow:
     """Row for the team-by-problem report."""
 
     team_display: str
+    team_username: str
     total_submissions: int
     accepted: CellValue
     cells: dict[str, CellValue] = field(default_factory=dict)

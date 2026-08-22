@@ -1,0 +1,65 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<section class="noca-contest-form-section">
+    {% if show_section_heading is not defined or show_section_heading %}
+        <h2 class="noca-section-heading">Timing</h2>
+    {% endif %}
+    <div class="row g-3 mb-3">
+        <div class="col-12 col-sm-6">
+            <label for="stop_updating_scoreboard" class="form-label">Stop updating scoreboard</label>
+            <div class="input-group">
+                <input type="number"
+                       class="form-control"
+                       id="stop_updating_scoreboard"
+                       name="stop_updating_scoreboard"
+                       value="{{ form_data.stop_updating_scoreboard }}"
+                       min="1"
+                       required>
+                <span class="input-group-text">minutes</span>
+            </div>
+        </div>
+        <div class="col-12 col-sm-6">
+            <label for="stop_answers_after" class="form-label">Stop answers after</label>
+            <div class="input-group">
+                <input type="number"
+                       class="form-control"
+                       id="stop_answers_after"
+                       name="stop_answers_after"
+                       value="{{ form_data.stop_answers_after }}"
+                       min="1"
+                       required>
+                <span class="input-group-text">minutes</span>
+            </div>
+        </div>
+    </div>
+    <div class="row g-3 mb-3">
+        {% for field_name, field_label in [
+            ("clarifications_timeout_minutes", "Clarifications timeout"),
+            ("tasks_timeout_minutes", "Tasks timeout"),
+            ("review_timeout_minutes", "Review timeout")
+            ] %}
+            <div class="col-12 col-sm-4">
+                <label for="{{ field_name }}" class="form-label">{{ field_label }}</label>
+                <div class="input-group">
+                    <input type="number"
+                           class="form-control"
+                           id="{{ field_name }}"
+                           name="{{ field_name }}"
+                           value="{{ form_data[field_name] }}"
+                           min="0"
+                           placeholder="0 = until contest end"
+                           aria-describedby="{{ field_name }}_help"
+                           required>
+                    <span class="input-group-text">minutes</span>
+                </div>
+                <div class="form-text" id="{{ field_name }}_help">Enter 0 to keep this available until contest end.</div>
+            </div>
+        {% endfor %}
+    </div>
+    {% include "_timing_timeline.html" %}
+</section>

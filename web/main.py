@@ -28,7 +28,6 @@ from shared.enumerations import (
     VERDICT_LABELS,
     Environment,
     JudgmentStatus,
-    RoleEnum,
     TaskType,
     Verdict,
 )
@@ -121,6 +120,7 @@ from web.services.authentication_service import AuthAction, AuthenticationServic
 from web.services.clarification_reaper import run_clarification_reaper
 from web.services.task_reaper import run_task_reaper
 from web.services.valkey_service import ValkeyRuntime
+from web.template_globals import register_template_globals
 
 try:
     APP_VERSION = version("noca-web")
@@ -254,17 +254,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     templates.env.globals["problem_image_max_height"] = MAX_PROBLEM_IMAGE_HEIGHT
     templates.env.globals["contest_minutes"] = contest_minutes
     templates.env.globals["format_site_identity"] = format_site_identity
-    templates.env.globals["RoleEnum"] = RoleEnum
     templates.env.globals["Verdict"] = Verdict
     templates.env.globals["JudgmentStatus"] = JudgmentStatus
-    templates.env.globals["role_labels"] = {
-        RoleEnum.UBERADMIN.value: "Uber Admin",
-        RoleEnum.ADMIN.value: "Admin",
-        RoleEnum.JUDGE.value: "Judge",
-        RoleEnum.STAFF.value: "Staff",
-        RoleEnum.TEAM.value: "Team",
-        RoleEnum.USER.value: "User",
-    }
+    register_template_globals(templates)
     templates.env.globals["verdict_labels"] = VERDICT_LABELS
     templates.env.globals["verdict_badge_classes"] = VERDICT_BADGE_CLASSES
     templates.env.globals["describe_signal"] = describe_signal

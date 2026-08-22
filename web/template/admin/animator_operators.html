@@ -1,5 +1,12 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% from "_macros.html" import render_icon %}
-<div id="animator-operators" class="card shadow-sm border-0 h-100">
+<div id="animator-operators" class="card shadow-sm border-0">
     <div class="card-body">
         <h2 class="h5 card-title">Operator credentials</h2>
         {% if new_secret %}
@@ -62,31 +69,34 @@
                 </tbody>
             </table>
         </div>
-        <form hx-post="{{ request.url_for('animator_create_secret', slug=contest.login_slug) }}"
-              hx-target="#animator-operators"
-              hx-swap="outerHTML"
-              class="row g-2 align-items-end">
-            <div class="col-sm-5">
-                <label class="form-label small mb-1" for="animator-secret-scope">Site</label>
-                <select class="form-select form-select-sm"
-                        id="animator-secret-scope"
-                        name="scope">
-                    <option value="global">Global (all sites)</option>
-                    {% for site in sites %}<option value="{{ site.id }}">{{ site.sitename }}</option>{% endfor %}
-                </select>
-            </div>
-            <div class="col-sm-7">
-                <label class="form-label small mb-1" for="animator-secret-label">Credential label</label>
-                <input class="form-control form-control-sm"
-                       type="text"
-                       id="animator-secret-label"
-                       name="label"
-                       maxlength="200"
-                       placeholder="Operator SP">
-            </div>
-            <div class="col-12">
-                <button type="submit" class="btn btn-secondary btn-sm">Generate credential</button>
-            </div>
-        </form>
+        <section class="border-top pt-3" aria-labelledby="generate-credential-heading">
+            <h3 id="generate-credential-heading" class="h6 mb-2">Generate credential</h3>
+            <form hx-post="{{ request.url_for('animator_create_secret', slug=contest.login_slug) }}"
+                  hx-target="#animator-operators"
+                  hx-swap="outerHTML"
+                  class="row g-2 align-items-end">
+                <div class="col-sm-5">
+                    <label class="form-label small mb-1" for="animator-secret-scope">Site</label>
+                    <select class="form-select form-select-sm"
+                            id="animator-secret-scope"
+                            name="scope">
+                        <option value="global">Global (all sites)</option>
+                        {% for site in sites %}<option value="{{ site.id }}">{{ site.sitename }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-sm-7">
+                    <label class="form-label small mb-1" for="animator-secret-label">Credential label</label>
+                    <input class="form-control form-control-sm"
+                           type="text"
+                           id="animator-secret-label"
+                           name="label"
+                           maxlength="200"
+                           placeholder="Operator SP">
+                </div>
+                <div class="col-12 d-grid d-sm-block">
+                    <button type="submit" class="btn btn-secondary btn-sm">Generate credential</button>
+                </div>
+            </form>
+        </section>
     </div>
 </div>

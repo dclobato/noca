@@ -1,0 +1,51 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<section class="noca-contest-form-section">
+    {% if show_section_heading is not defined or show_section_heading %}
+        <h2 class="noca-section-heading">Publication</h2>
+    {% endif %}
+    <div class="alert alert-warning d-flex gap-2 align-items-start"
+         role="alert">
+        {{ render_icon("warning", classes="flex-shrink-0 mt-1") }}
+        <div>
+            <strong>Publishing exposes the complete problem set.</strong>
+            Every statement, every secret test case, validator source, and editorial becomes downloadable without a login.
+            Nothing is published before the contest ends, and this setting is independent of the final scoreboard.
+        </div>
+    </div>
+    <fieldset data-publication-choice>
+        <legend class="form-label fw-semibold fs-6">Problem set after contest end</legend>
+        <div class="form-check">
+            <input class="form-check-input"
+                   type="radio"
+                   id="release_problem_set_after_end_yes"
+                   name="release_problem_set_after_end"
+                   value="yes"
+                   {% if form_data.release_problem_set_after_end %}checked{% endif %}>
+            <label class="form-check-label" for="release_problem_set_after_end_yes">
+                Publish automatically once the contest ends
+            </label>
+        </div>
+        <div class="form-check">
+            <input class="form-check-input"
+                   type="radio"
+                   id="release_problem_set_after_end_no"
+                   name="release_problem_set_after_end"
+                   value="no"
+                   {% if not form_data.release_problem_set_after_end %}checked{% endif %}>
+            <label class="form-check-label" for="release_problem_set_after_end_no">Keep the problem set private</label>
+        </div>
+        <p class="form-text mb-0 mt-2">
+            {% if form_mode == "create" %}
+                You can change this later in Edit Metadata, or release and withdraw the archive from the admin dashboard after the contest.
+            {% else %}
+                After the contest, you can also release or withdraw the archive from the admin dashboard.
+            {% endif %}
+        </p>
+    </fieldset>
+</section>

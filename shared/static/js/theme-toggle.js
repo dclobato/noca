@@ -1,8 +1,8 @@
-// NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  NOCA -- Next Online Contest Administrator
+//  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 (function () {
   const STORAGE_KEY = "noca-theme";
@@ -33,13 +33,14 @@
     const btn = document.getElementById("theme-toggle-btn");
     if (!btn) return;
     const isDark = getTheme() === THEME_DARK;
-    btn.innerHTML = isDark
-      ? '<i class="material-symbols-outlined">light_mode</i>'
-      : '<i class="material-symbols-outlined">dark_mode</i>';
-    btn.setAttribute(
-      "aria-label",
-      isDark ? "Switch to light mode" : "Switch to dark mode"
-    );
+    const actionLabel = isDark ? "Switch to light mode" : "Switch to dark mode";
+    if (!btn.hasAttribute("data-theme-toggle-static-icons")) {
+      btn.innerHTML = isDark
+        ? '<i class="material-symbols-outlined" aria-hidden="true">light_mode</i>'
+        : '<i class="material-symbols-outlined" aria-hidden="true">dark_mode</i>';
+    }
+    btn.setAttribute("aria-label", actionLabel);
+    btn.setAttribute("title", actionLabel);
   }
 
   document.addEventListener("DOMContentLoaded", function () {

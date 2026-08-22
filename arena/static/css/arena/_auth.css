@@ -44,7 +44,7 @@
 
 .arena-auth-title {
     font-family: 'Public Sans', sans-serif;
-    font-size: 1.375rem;
+    font-size: 1.25rem;
     font-weight: 700;
     color: var(--arena-on-surface);
     margin-bottom: 0.25rem;
@@ -63,7 +63,7 @@
 
 .arena-auth-section-label {
     font-family: 'Inter', sans-serif;
-    font-size: 0.6875rem;
+    font-size: var(--noca-type-micro);
     font-weight: 700;
     letter-spacing: 0.1em;
     color: var(--arena-outline);
@@ -88,7 +88,7 @@
 
 .arena-auth-card .form-control:focus {
     border-color: var(--arena-primary);
-    box-shadow: 0 0 0 3px rgba(0, 107, 33, 0.12);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--arena-primary) 12%, transparent);
     outline: none;
 }
 
@@ -103,7 +103,7 @@
     border: none;
     border-radius: var(--arena-radius);
     font-family: 'Public Sans', sans-serif;
-    font-size: 0.9375rem;
+    font-size: 1rem;
     font-weight: 600;
     padding: 0.75rem 1.5rem;
     transition: opacity 0.15s ease;

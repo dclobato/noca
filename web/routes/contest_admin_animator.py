@@ -279,8 +279,14 @@ async def update_settings(
     ctx: Annotated[ContestAdminContext, Depends(get_contest_admin_context)],
     animator_enabled: Annotated[str, Form()] = "no",
 ) -> Response:
-    """Enable or disable animator exposure for the contest."""
+    """Enable Animator or disable it and revoke every operator credential."""
     enabled = animator_enabled == "yes"
+    revoked_credentials = 0
+    if not enabled:
+        revoked_credentials = await animator_access_service.revoke_all_secrets(
+            ctx.session,
+            contest_id=ctx.contest.id,
+        )
     ctx.contest.animator_enabled = enabled
     await record_admin_action(
         ctx.session,
@@ -291,10 +297,17 @@ async def update_settings(
         action="animator_toggle",
         target_type="contest",
         target_id=ctx.contest.id,
-        detail=f"animator_enabled={enabled}",
+        detail=(
+            f"animator_enabled={enabled}"
+            if enabled
+            else f"animator_enabled={enabled}; revoked_credentials={revoked_credentials}"
+        ),
     )
     await ctx.session.commit()
-    flash("Animator settings saved.", FlashCategory.SUCCESS)
+    message = (
+        "Animator settings saved." if enabled else "Animator disabled. All operator credentials have been revoked."
+    )
+    flash(message, FlashCategory.SUCCESS)
     return RedirectResponse(request.url_for("animator_settings", slug=ctx.contest.login_slug), status_code=303)
 
 

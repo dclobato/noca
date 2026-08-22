@@ -108,7 +108,7 @@ def build_team_rows(
     team_total: defaultdict[str, int],
     team_accepted: defaultdict[str, int],
     team_problem_total: defaultdict[str, defaultdict[str, int]],
-    team_display_map: dict[str, str],
+    team_display_map: dict[str, tuple[str, str]],
 ) -> list[TeamRow]:
     """Build rows for the team-by-problem report."""
     rows: list[TeamRow] = []
@@ -121,9 +121,11 @@ def build_team_rows(
             )
             for problem in problem_infos
         }
+        display, username = team_display_map[team_key]
         rows.append(
             TeamRow(
-                team_display=team_display_map[team_key],
+                team_display=display,
+                team_username=username,
                 total_submissions=total_submissions,
                 accepted=CellValue(
                     count=team_accepted[team_key],

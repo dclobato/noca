@@ -9,6 +9,34 @@
 (function () {
     "use strict";
 
+    var accessForm = document.getElementById("animator-access-form");
+    var enabledToggle = document.getElementById("animator_enabled");
+    var disableModalElement = document.getElementById("animator-disable-confirm-modal");
+    var confirmDisableButton = document.getElementById("confirm-animator-disable-btn");
+    var disableModal = disableModalElement ? new bootstrap.Modal(disableModalElement) : null;
+    var disableConfirmed = false;
+    if (accessForm && enabledToggle && disableModal) {
+        accessForm.addEventListener("submit", function (event) {
+            if (!enabledToggle.checked && !disableConfirmed) {
+                event.preventDefault();
+                disableModal.show();
+            }
+        });
+    }
+    if (accessForm && confirmDisableButton && disableModal) {
+        confirmDisableButton.addEventListener("click", function () {
+            disableConfirmed = true;
+            confirmDisableButton.disabled = true;
+            disableModal.hide();
+            accessForm.requestSubmit();
+        });
+    }
+    if (disableModalElement && enabledToggle) {
+        disableModalElement.addEventListener("hidden.bs.modal", function () {
+            if (!disableConfirmed) enabledToggle.checked = true;
+        });
+    }
+
     document.addEventListener("click", function (event) {
         var target = event.target;
         if (!(target instanceof Element)) return;

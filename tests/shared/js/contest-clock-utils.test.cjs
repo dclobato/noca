@@ -21,7 +21,8 @@ const context = { window: {} };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(utilityPath, "utf8"), context);
 
-const { countdownText, formatDuration } = context.window.ContestClockUtils;
+const { countdownText, formatDuration, contestPhase, phaseLabel } =
+  context.window.ContestClockUtils;
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
@@ -57,3 +58,37 @@ assert.equal(
   countdownText(90 * MINUTE + 1, 0, 90 * MINUTE),
   "The contest is over",
 );
+
+// ── Contest phase ────────────────────────────────────────────────────────────
+// Mirrors contest_clock_state() in
+// web/services/contest_service/presentation.py: the phases are ordered and the
+// most advanced one that applies wins.
+const START = 0;
+const FREEZE = 4 * HOUR;
+const BLIND = 4 * HOUR + 30 * MINUTE;
+const END = 5 * HOUR;
+
+assert.equal(contestPhase(-MINUTE, START, END, FREEZE, BLIND), "upcoming");
+assert.equal(contestPhase(HOUR, START, END, FREEZE, BLIND), "running");
+assert.equal(contestPhase(FREEZE + MINUTE, START, END, FREEZE, BLIND), "frozen");
+assert.equal(contestPhase(BLIND + MINUTE, START, END, FREEZE, BLIND), "silence");
+assert.equal(contestPhase(END + MINUTE, START, END, FREEZE, BLIND), "past");
+
+// The boundaries themselves belong to the earlier phase.
+assert.equal(contestPhase(FREEZE, START, END, FREEZE, BLIND), "running");
+assert.equal(contestPhase(BLIND, START, END, FREEZE, BLIND), "frozen");
+assert.equal(contestPhase(END, START, END, FREEZE, BLIND), "silence");
+
+// Blind before freeze is a legal configuration; neither is assumed first.
+assert.equal(contestPhase(3 * HOUR, START, END, 4 * HOUR, 2 * HOUR), "silence");
+
+// A payload from a server that does not send the moments degrades cleanly.
+assert.equal(contestPhase(HOUR, START, END, null, null), "running");
+assert.equal(contestPhase(END + MINUTE, START, END, null, null), "past");
+
+// Every phase the pill shows names itself; colour is never the only signal.
+assert.equal(phaseLabel("running"), "Live");
+assert.equal(phaseLabel("frozen"), "Scoreboard frozen");
+assert.equal(phaseLabel("silence"), "No more answers");
+assert.equal(phaseLabel("upcoming"), "");
+assert.equal(phaseLabel("past"), "");

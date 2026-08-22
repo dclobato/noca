@@ -1,18 +1,40 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
-{% from "_macros.html" import dashboard_card, render_icon %}
+{% from "_macros.html" import dashboard_card, render_icon, role_pill with context %}
 {% block title_suffix %}- Contest Dashboard{% endblock %}
 {% block extra_head %}
     <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
             defer></script>
+    <script src="{{ request.url_for('static_js', path='contest-timing-timeline.js') }}?v={{ app_version }}"
+            defer></script>
 {% endblock %}
 {% block content %}
     <div class="container py-5">
-        {# Welcome card #}
-        <div class="card shadow-sm mb-5">
-            <div class="card-body p-4">
-                <p class="text-uppercase text-muted small mb-1">{{ contest.contest_name }}</p>
-                <h2 class="h4 mb-1">Welcome, {{ current_user.fullname }}</h2>
-                <p class="text-muted mb-0 small">{{ current_user.username }}</p>
+        {# Identity banner: who is signed in and in what role, unmistakable above the module
+           grid, alongside the contest rules summary every participant needs on arrival #}
+        <div class="noca-dashboard-live-band noca-dashboard-identity-band mb-5">
+            <div class="row g-4 align-items-center">
+                <div class="col-12 col-lg-7 d-flex flex-wrap align-items-center gap-4">
+                    {% with identity_user = current_user,
+                        identity_size_class = "noca-dashboard-identity-avatar" %}
+                        {% include "_partials/_identity_avatar.html" %}
+                    {% endwith %}
+                    <div>
+                        <p class="noca-gateway-eyebrow mb-1">{{ contest.contest_name }}</p>
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                            <h1 class="h2 mb-0 fw-semibold">{{ current_user.fullname or current_user.username }}</h1>
+                            {{ role_pill(current_user, contest=contest) }}
+                        </div>
+                        <p class="text-muted small mb-0 font-monospace">{{ current_user.username }}</p>
+                    </div>
+                </div>
+                <div class="col-12 col-lg-5">{% include "contest/_rules_summary.html" %}</div>
             </div>
         </div>
         {# Module grid — live-refreshed every 60 s to update badge counters #}
@@ -23,22 +45,58 @@
              hx-swap="outerHTML"
              hx-select="#dashboard-live-counters">
             <div class="row g-4">
+                {# Start Now - admin, uberadmin, only when contest has not started yet #}
+                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] and not contest.is_running and not contest.is_past %}
+                    <div class="col-sm-6 col-md-4 col-lg-3">
+                        <button type="button"
+                                class="noca-dashboard-card noca-card-consequential noca-card-live w-100 h-100 text-start"
+                                data-bs-toggle="modal"
+                                data-bs-target="#startNowModal">
+                            <div class="d-flex align-items-center gap-3">
+                                {{ render_icon(icon="play_circle", filled=True, classes=["fs-2", "text-danger"]) }}
+                                <div>
+                                    <div class="noca-card-kicker">Immediate action</div>
+                                    <div class="fw-semibold">Start Now</div>
+                                    <div class="text-muted small">Begin contest immediately</div>
+                                </div>
+                            </div>
+                        </button>
+                    </div>
+                {% endif %}
+                {# End Now - admin, uberadmin, only when contest is running #}
+                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] and contest.is_running and contest.remaining_time_seconds > 60 %}
+                    <div class="col-sm-6 col-md-4 col-lg-3">
+                        <button type="button"
+                                class="noca-dashboard-card noca-card-consequential noca-card-live w-100 h-100 text-start"
+                                data-bs-toggle="modal"
+                                data-bs-target="#endNowModal">
+                            <div class="d-flex align-items-center gap-3">
+                                {{ render_icon(icon="stop_circle", filled=True, classes=["fs-2", "text-danger"]) }}
+                                <div>
+                                    <div class="noca-card-kicker">Immediate action</div>
+                                    <div class="fw-semibold">End Now</div>
+                                    <div class="text-muted small">Finish contest on next full minute</div>
+                                </div>
+                            </div>
+                        </button>
+                    </div>
+                {% endif %}
                 {# Score - all roles #}
                 {{ dashboard_card(request.url_for('contest_score', slug=contest.login_slug) , "emoji_events", "Score", "Scoreboard", True, filled=True) }}
-                {# Problems - all contest roles #}
-                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value, RoleEnum.STAFF.value, RoleEnum.TEAM.value, RoleEnum.USER.value] %}
+                {# Problems - every role except scoreboard-only USER #}
+                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value, RoleEnum.STAFF.value, RoleEnum.TEAM.value] %}
                     {{ dashboard_card(request.url_for('contest_problems', slug=contest.login_slug) , "description", "Problems", "Problem set", True, filled=True) }}
                 {% endif %}
                 {# Clarifications - admin, uberadmin, judge, team #}
                 {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value, RoleEnum.TEAM.value] %}
-                    {{ dashboard_card(request.url_for('contest_clarifications', slug=contest.login_slug) , "chat", "Clarifications", "Q & A", True, filled=True, counter=counters.clarifications_pending if counters and counters.clarifications_pending else none) }}
+                    {{ dashboard_card(request.url_for('contest_clarifications', slug=contest.login_slug) , "chat", "Clarifications", "Q & A", True, filled=True, counter=counters.clarifications_attention if counters and counters.clarifications_attention else none, counter_label="unread answers" if current_user.role == RoleEnum.TEAM.value else "unanswered clarifications") }}
                 {% endif %}
                 {# Runs - admin, uberadmin, judge, team #}
                 {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value, RoleEnum.TEAM.value] %}
                     {{ dashboard_card(request.url_for('contest_runs', slug=contest.login_slug) , "terminal", "Runs", "Submission runs", True, filled=True, counter=counters.runs_without_verdict if counters and counters.runs_without_verdict else none) }}
                 {% endif %}
                 {# Tasks - admin, uberadmin, staff, chief judge, team #}
-                {% if can_view_tasks %}
+                {% if noca_can_view_tasks(current_user, contest) %}
                     {{ dashboard_card(request.url_for('contest_tasks', slug=contest.login_slug) , "check_box", "Tasks", "Help, print and balloons!", True, counter=counters.tasks_pending if counters and counters.tasks_pending else none) }}
                 {% endif %}
                 {# Download submissions - team only #}
@@ -53,6 +111,19 @@
                     filled=True
                     ) }}
                 {% endif %}
+                {% if current_user.role != RoleEnum.USER.value %}
+                    {# Problem set archive - visible to roles that can enter Problems. The
+                       download itself becomes anonymous once organizers release it. #}
+                    {% set problem_set_download_active = contest.is_past and contest.release_problem_set_after_end %}
+                    {{ dashboard_card(request.url_for('problem_set_download', slug=contest.login_slug) if problem_set_download_active else "#",
+                    "archive",
+                    "Problem set archive",
+                    "Statements, test cases & editorials" if problem_set_download_active else "Published only if the organizers release it",
+                    problem_set_download_active,
+                    not problem_set_download_active,
+                    filled=True
+                    ) }}
+                {% endif %}
                 {# Reports - admin, uberadmin, judge #}
                 {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value] %}
                     {{ dashboard_card(request.url_for('contest_reports', slug=contest.login_slug) , "bar_chart", "Reports", "Analytics & exports", True, filled=True) }}
@@ -61,51 +132,17 @@
                 {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value] %}
                     {{ dashboard_card(request.url_for('contest_solution_tests', slug=contest.login_slug) , "science", "Solution tests", "Try a solution", True, filled=True) }}
                 {% endif %}
-                {# Administration - admin, uberadmin only #}
+                {# Administration - admin, uberadmin only. Hosts irreversible actions
+                   (release scoreboard, release problem set, delete contest) behind
+                   ordinary navigation, so it carries the same amber `consequential`
+                   accent those actions use one click later, rather than looking like
+                   an ordinary navigation tile such as Score or Runs. #}
                 {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] %}
-                    {{ dashboard_card(request.url_for('view', slug=contest.login_slug) , "settings", "Administration", "Contest settings", True, filled=True) }}
+                    {{ dashboard_card(request.url_for('view', slug=contest.login_slug) , "settings", "Administration", "Contest settings", True, filled=True, tone="consequential", kicker="Handle with care") }}
                 {% endif %}
             </div>
         </div>
         {# /dashboard-live-counters #}
-        {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] and ((not contest.is_running and not contest.is_past) or (contest.is_running and contest.remaining_time_seconds > 60)) %}
-            <div class="row g-4 mt-0">
-                {# Start Now - admin, uberadmin, only when contest has not started yet #}
-                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] and not contest.is_running and not contest.is_past %}
-                    <div class="col-sm-6 col-md-4 col-lg-3">
-                        <button type="button"
-                                class="card card-body text-decoration-none h-100 shadow-sm border-0 btn-glow w-100 text-start"
-                                data-bs-toggle="modal"
-                                data-bs-target="#startNowModal">
-                            <div class="d-flex align-items-center gap-3">
-                                {{ render_icon(icon="play_circle", filled=True, classes=["fs-2", "text-danger"]) }}
-                                <div>
-                                    <div class="fw-semibold">Start Now</div>
-                                    <div class="small opacity-75">Begin contest immediately</div>
-                                </div>
-                            </div>
-                        </button>
-                    </div>
-                {% endif %}
-                {# End Now - admin, uberadmin, only when contest is running #}
-                {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] and contest.is_running and contest.remaining_time_seconds > 60 %}
-                    <div class="col-sm-6 col-md-4 col-lg-3">
-                        <button type="button"
-                                class="card card-body text-decoration-none h-100 shadow-sm border-0 btn-glow w-100 text-start"
-                                data-bs-toggle="modal"
-                                data-bs-target="#endNowModal">
-                            <div class="d-flex align-items-center gap-3">
-                                {{ render_icon(icon="stop_circle", filled=True, classes=["fs-2", "text-danger"]) }}
-                                <div>
-                                    <div class="fw-semibold">End Now</div>
-                                    <div class="small opacity-75">Finish contest on next full minute</div>
-                                </div>
-                            </div>
-                        </button>
-                    </div>
-                {% endif %}
-            </div>
-        {% endif %}
     </div>
     {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value] and not contest.is_running and not contest.is_past %}
         <div class="modal fade"

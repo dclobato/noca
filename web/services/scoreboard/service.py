@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import and_
@@ -71,7 +71,7 @@ class ScoreboardService:
         balloon_colors = [problem.color.lstrip("#") for problem in problems]
         return ScoreboardSnapshot(
             contest_id=str(contest.id),
-            generated_at=datetime.utcnow().isoformat() + "Z",
+            generated_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             is_frozen=contest.is_scoreboard_frozen,
             standings=standings,
             problems=labels,

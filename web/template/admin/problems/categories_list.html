@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon %}
 {% block title_suffix %}— Problem Categories{% endblock %}
@@ -50,6 +57,7 @@
                                              aria-label="Category actions">
                                             <a href="{{ request.url_for('edit_category_form', category_id=cat.id) }}"
                                                class="btn btn-outline-secondary noca-icon-btn"
+                                               aria-label="Rename category {{ cat.name }}"
                                                title="Rename">{{ render_icon(icon="edit") }}</a>
                                             {% if is_uberadmin %}
                                                 <form method="post"
@@ -58,6 +66,7 @@
                                                       onsubmit="return confirm('Delete category {{ cat.name | e }}?')">
                                                     <button type="submit"
                                                             class="btn btn-outline-danger noca-icon-btn"
+                                                            aria-label="Delete category {{ cat.name }}"
                                                             title="Delete">{{ render_icon(icon="delete") }}</button>
                                                 </form>
                                             {% endif %}

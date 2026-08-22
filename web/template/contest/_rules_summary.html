@@ -1,0 +1,80 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+  Contest rules at a glance — right column of the dashboard identity banner.
+  Expects `rules` (ContestRulesSummary) and `contest` in context. Rendered for
+  every role: it only exposes public contest configuration.
+#}
+{% from "_macros.html" import render_icon %}
+<aside class="noca-dashboard-rules-summary" aria-label="Contest rules">
+    <p class="noca-gateway-eyebrow mb-2">Contest rules</p>
+    <dl class="noca-dashboard-rules-list mb-3">
+        <div class="noca-dashboard-rules-item">
+            <dt>
+                {{ render_icon(icon="schedule", classes=["noca-dashboard-rules-icon"]) }}
+                Duration
+            </dt>
+            <dd>
+                {{ rules.duration_text }} —
+                {{ rules.start_time_text }} to {{ rules.end_time_text }}
+                ({{ rules.timezone_text }})
+            </dd>
+        </div>
+        <div class="noca-dashboard-rules-item">
+            <dt>
+                {{ render_icon(icon="ac_unit", classes=["noca-dashboard-rules-icon"]) }}
+                Scoreboard freezes
+            </dt>
+            <dd>
+                {{ rules.freeze_at_text }}
+            </dd>
+        </div>
+        <div class="noca-dashboard-rules-item">
+            <dt>
+                {{ render_icon(icon="visibility_off", classes=["noca-dashboard-rules-icon"]) }}
+                Answers stop
+            </dt>
+            <dd>
+                {{ rules.blind_at_text }}
+            </dd>
+        </div>
+        <div class="noca-dashboard-rules-item">
+            <dt>
+                {{ render_icon(icon="print", classes=["noca-dashboard-rules-icon"]) }}
+                Printing
+            </dt>
+            <dd>
+                {{ "Available on request" if rules.printing_enabled else "Not available" }}
+            </dd>
+        </div>
+        <div class="noca-dashboard-rules-item">
+            <dt>
+                {{ render_icon(icon="gavel", classes=["noca-dashboard-rules-icon"]) }}
+                Wrong-answer penalty
+            </dt>
+            <dd>
+                {{ rules.wa_penalty_minutes }} min per failed attempt on a problem later solved
+            </dd>
+        </div>
+        <div class="noca-dashboard-rules-item">
+            <dt>
+                {{ render_icon(icon="rule", classes=["noca-dashboard-rules-icon"]) }}
+                Penalizing verdicts
+            </dt>
+            <dd>
+                {{ rules.penalty_verdicts | join(", ") }}
+                {%- if rules.pe_counts_as_accepted %}{{ " — PE counts as accepted" }}{% endif %}
+            </dd>
+        </div>
+    </dl>
+    {% set timeline_static = true %}
+    {% set timeline_duration = contest.duration_minutes %}
+    {% set timeline_freeze = contest.stop_updating_scoreboard %}
+    {% set timeline_blind = contest.stop_answers_after %}
+    {% set timeline_margin_class = "mb-0" %}
+    {% include "_timing_timeline.html" %}
+</aside>

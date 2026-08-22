@@ -4,6 +4,113 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [17.4.0] - 2026-08-22
+
+### Features
+
+- **web:** Decouple problem-set release from scoreboard release
+- **web:** Offer the problem-set archive on the contest dashboard
+- **web:** Let uberadmins arm the problem-set release at contest creation
+- **packages:** Declare an editorial release policy in the sample package
+- **web:** Audit the final-scoreboard release
+- **web:** Redesign /contests as an animator-style gateway page
+- **web:** Redesign contest login as a two-pane identity/form shell
+- **web:** Redesign uberadmin dashboard and shared header/footer
+- **web:** Warn-tone Administration card and shared back-to-top button
+- **web:** Bolder scoreboard identity, two-line team names
+- **web:** Redesign participant problem list as card grid with solving rate
+- **web:** Confetti on problem list when a team's own solve lands live
+- **web:** Add 'Accepted languages' eyebrow on contest login
+- **web:** Bolder identity banner on contest dashboard
+- **web:** Mirror dashboard role pill on navbar
+- **web:** Overhaul contest reports page hierarchy, theming, and copy
+- **web:** Streamline contest setup forms
+- **web:** Notify teams when their clarification is answered
+- **web:** Let chief judge and admins announce anytime
+- **web:** Give the contest navbar real navigation and responsive behavior
+- **web:** Surface contest phase in the clock and post the logout
+- **web:** Secure animator disable workflow
+- **web:** Pin navbar, contest nav and breadcrumb to the top
+- **web:** Let teams read clarifications before the start
+- **web:** Extract the role matrices into web/access_matrix
+- **web:** Show the role reference on batch user import
+- **web:** Show contest rules summary on the dashboard banner
+- **web:** Show contest rules summary on the dashboard banner
+
+### Bug Fixes
+
+- **skills:** Keep Markdown headings in release tag bodies
+- **docker:** Bound Valkey memory explicitly instead of relying on mem_limit
+- **web:** Keep uberadmin contest creation working with the new release flag
+- **web:** Show a single read-only balloon when problem editing is locked
+- **web:** Address PR #34 review improvements and nitpicks
+- **autojudge:** Align interactive solution-test diagnostics with submission attempts
+- **web:** Suppress the validator's stale clean verdict on limit-enforced cases
+- **web:** Harden UberAdmin login experience
+- **web:** Harden and streamline login
+- **web:** Redesign dashboard cards, dedupe admin breadcrumbs, fix link contrast
+- **web:** Drop team photo link/modal from scoreboard
+- **web:** Enable slashed-zero variant on remaining mono-family selectors
+- **web:** Uniform row height on contest Runs table
+- **web:** Monospace username row on scoreboard
+- **web:** Make breadcrumb bar always span full viewport width
+- **web:** Route UberAdmin contest 'Administration' tile to /c/{slug}
+- **accessibility:** Hide decorative icon ligatures
+- **accessibility:** Address review findings on icon ligature PR
+- **shared:** Reconcile schema metadata drift
+- **web:** Give the cropper preview a real placeholder src
+- **web:** Make the breadcrumb bar's padding the same on every page
+- **web:** Mark the current contest section by path, not endpoint name
+- **web:** Fix contrast and naming defects in the contest navigation
+- **web:** Restore the contest name's style rule in the navbar
+- **web:** Complete accessible navbar account menu
+- **web:** Avoid template permission global collisions
+- **web:** Use aware UTC scoreboard timestamps
+- **web:** Retain uberadmin profile return action
+- **web:** Harden contest navigation state and assets
+- **web:** Align user navigation with access matrix
+- **web:** Redirect forbidden roles to dashboards
+- **web:** Address sticky chrome review findings
+- **web:** Address dashboard rules review findings
+- **web:** Address PR review on the role matrices
+
+### UI & Design
+
+- **web:** Centre the clock in a taller navbar
+
+### Refactoring
+
+- **web:** Give the problem-set publication control its own section
+- **web:** Extract a POST-action dashboard card macro
+- **web:** Convert the problem-set release cards to the shared macro
+- **web:** Remove redundant Detail button on clarifications row
+- **web:** Address PR #74 review on chief-judge authority
+- **shared:** Extract Arena's SSE+poll submission-status core
+- **web:** Give role identity one source of truth
+- **web:** Move contest navigation into its own band below the navbar
+- **web:** Drop the breadcrumb where the navigation band already says it
+- **web:** Centralize navbar permission checks
+- **web:** Reuse permission predicates across templates
+- **web:** Remove redundant profile back action
+- **web:** Isolate accessible contest chrome styles
+
+### Documentation
+
+- **backlog:** Regenerate index
+- **animator:** Move the implementation phases into Gitea issues
+- **problem-editor:** Move the execution phases into Gitea issues
+- **backlog:** Regenerate index
+- **web:** Document contest navigation and POST logout
+- **web:** Document contest clock phase boundaries
+- **web:** Finalize navbar guidance
+- **web:** Reword role reference notes for contest admins
+
+### Other
+
+- **web:** Shared tabular class, narrower mobile chrome, band scroll-into-view
+
+
+
 ## [17.3.0] - 2026-08-19
 
 ### Features

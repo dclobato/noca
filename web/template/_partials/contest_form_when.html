@@ -1,0 +1,54 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<section class="noca-contest-form-section">
+    {% if show_section_heading is not defined or show_section_heading %}
+        <h2 class="noca-section-heading">When</h2>
+    {% endif %}
+    <div class="row g-3">
+        <div class="col-12 col-sm-5">
+            <label for="start_time" class="form-label">Start date and time</label>
+            <input type="text"
+                   class="form-control noca-datetime-input"
+                   id="start_time"
+                   name="start_time"
+                   value="{{ form_data.start_time }}"
+                   data-fp-datetime
+                   {% if is_locked %}disabled{% endif %}
+                   {% if form_mode == "create" %}required{% endif %}>
+        </div>
+        <div class="col-12 col-sm-4">
+            <label for="contest_timezone" class="form-label">Contest timezone</label>
+            <select class="form-select"
+                    id="contest_timezone"
+                    name="contest_timezone"
+                    {% if is_locked %}disabled{% endif %}
+                    {% if form_mode == "create" %}required{% endif %}>
+                <option value=""
+                        disabled
+                        {% if not form_data.contest_timezone %}selected{% endif %}>Select timezone…</option>
+                {% for iana, label in timezone_choices %}
+                    <option value="{{ iana }}"
+                            {% if form_data.contest_timezone == iana %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-12 col-sm-3">
+            <label for="duration_minutes" class="form-label">Duration</label>
+            <div class="input-group">
+                <input type="number"
+                       class="form-control"
+                       id="duration_minutes"
+                       name="duration_minutes"
+                       value="{{ form_data.duration_minutes }}"
+                       min="1"
+                       required>
+                <span class="input-group-text">minutes</span>
+            </div>
+        </div>
+    </div>
+</section>

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -59,7 +59,7 @@ async def test_uberadmin_logout_records_auth_logout(
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         client.cookies.set("noca_access_token", token)
-        response = await client.get("/logout", follow_redirects=False)
+        response = await client.post("/logout", follow_redirects=False)
 
     result = await session.execute(
         select(security_events.c.id).where(

@@ -28,6 +28,7 @@ from web.routes.uberadmin_contest_removal import router as uberadmin_contest_rem
 from web.routes.uberadmin_dashboard import router as uberadmin_dashboard_router
 from web.routes.uberadmin_security import router as uberadmin_security_router
 from web.services.authentication_service import AuthAction, AuthenticationService
+from web.template_globals import register_template_globals
 
 TEST_JWT_SECRET = "test-secret-key-for-tests-only-32bytes"
 
@@ -76,8 +77,7 @@ def _build_app(session: AsyncSession) -> tuple[FastAPI, AuthenticationService]:
     shared_dir = Path(__file__).resolve().parents[2] / "shared"
     templates = Jinja2Templates(directory=web_dir / "template")
     templates.env.globals["app_version"] = "test"
-    templates.env.globals["RoleEnum"] = RoleEnum
-    templates.env.globals["role_labels"] = {role.value: role.value.title() for role in RoleEnum}
+    register_template_globals(templates)
     setup_flash(templates)
     app.state.templates = templates
     app.state.db_session = async_sessionmaker(session.bind, expire_on_commit=False)

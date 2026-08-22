@@ -120,7 +120,6 @@ def test_component_css_uses_tokens_for_opentype_features() -> None:
 def test_current_dynamic_numeric_surfaces_use_tabular_figures() -> None:
     """Current timers and ratings outside tables opt into stable figures."""
     expected_files = {
-        "web/static/css/contest/_page.css": "#contest-countdown",
         "arena/static/css/arena/_ranking.css": ".arena-ranking-rating",
         "arena/static/css/arena/_profile.css": ".arena-profile-rating",
         "animator/static/css/animator.css": ".animator-timer",
@@ -130,6 +129,30 @@ def test_current_dynamic_numeric_surfaces_use_tabular_figures() -> None:
         css = (REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
         assert selector in css
         assert "var(--noca-font-variant-numeric-tabular)" in css
+
+
+def test_web_timers_opt_in_through_the_shared_class() -> None:
+    """Web's live timers take the guarantee from the shared class, not their ids.
+
+    The contest countdown and the auto-refresh timers used to be named by id in
+    `_page.css`, which meant a fourth timer got stable figures only if someone
+    remembered to extend that selector list. They now carry
+    `.noca-tabular-nums`, so the opt-in travels with the markup.
+    """
+    common = COMMON_PATH.read_text(encoding="utf-8")
+    rule = common.split(".noca-tabular-nums {", maxsplit=1)[1].split("}", maxsplit=1)[0]
+    assert "var(--noca-font-variant-numeric-tabular)" in rule
+
+    timers = {
+        "web/template/_partials/_navbar.html": 'id="contest-countdown"',
+        "web/template/contest/runs.html": 'id="refresh-timer"',
+        "web/template/contest/clarifications.html": 'id="refresh-timer"',
+        "web/template/contest/tasks.html": 'id="refresh-timer"',
+    }
+    for relative_path, anchor in timers.items():
+        markup = (REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
+        element = markup.split(anchor, maxsplit=1)[1].split(">", maxsplit=1)[0]
+        assert "noca-tabular-nums" in element, f"{relative_path}: {anchor} lost its tabular figures"
 
 
 def test_all_module_tables_inherit_shared_tabular_figures() -> None:

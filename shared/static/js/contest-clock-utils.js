@@ -84,6 +84,41 @@
     return "The contest is over";
   }
 
-  global.ContestClockUtils = { formatDuration: formatDuration, countdownText: countdownText };
+  /**
+   * Return the contest's phase at `nowMs`.
+   *
+   * Mirrors `contest_clock_state` in web/services/contest_service/presentation.py:
+   * the phases are ordered and the most advanced one that applies wins, because
+   * freeze and answer-silence are independent settings and neither is assumed to
+   * come first. Missing freeze/blind moments simply never trigger, so a payload
+   * from an older server degrades to running/upcoming/past.
+   *
+   *   upcoming | running | frozen | silence | past
+   */
+  function contestPhase(nowMs, startMs, endMs, freezeMs, blindMs) {
+    if (nowMs < startMs) return "upcoming";
+    if (nowMs > endMs) return "past";
+    if (typeof blindMs === "number" && nowMs > blindMs) return "silence";
+    if (typeof freezeMs === "number" && nowMs > freezeMs) return "frozen";
+    return "running";
+  }
+
+  /**
+   * Short label naming a phase, so the state never rests on colour alone.
+   * Returns "" for phases the countdown text already states plainly.
+   */
+  function phaseLabel(phase) {
+    if (phase === "frozen") return "Scoreboard frozen";
+    if (phase === "silence") return "No more answers";
+    if (phase === "running") return "Live";
+    return "";
+  }
+
+  global.ContestClockUtils = {
+    formatDuration: formatDuration,
+    countdownText: countdownText,
+    contestPhase: contestPhase,
+    phaseLabel: phaseLabel
+  };
 
 }(window));

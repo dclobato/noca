@@ -65,12 +65,15 @@
                                              aria-label="Problem actions">
                                             <a href="{{ request.url_for('edit_problem_form', slug=contest.login_slug, problem_id=p.id) }}"
                                                class="btn btn-outline-secondary noca-icon-btn"
+                                               aria-label="Edit problem {{ label }}"
                                                title="Edit">{{ render_icon(icon="edit") }}</a>
                                             <a href="{{ request.url_for('problem_judgment_home', slug=contest.login_slug, problem_id=p.id) }}"
                                                class="btn btn-outline-secondary noca-icon-btn"
+                                               aria-label="Open judgment data for problem {{ label }}"
                                                title="Judgment data (test cases, validator, sample interactions)">{{ render_icon(icon="rule") }}</a>
                                             <a href="{{ request.url_for('export_problem', slug=contest.login_slug, problem_id=p.id) }}"
                                                class="btn btn-outline-secondary noca-icon-btn"
+                                               aria-label="Export problem {{ label }} as ZIP"
                                                title="Export ZIP">{{ render_icon(icon="download") }}</a>
                                             {% if is_remove_allowed %}
                                                 <form method="post"
@@ -79,12 +82,14 @@
                                                       onsubmit="return confirm('Remove problem {{ p.title | e }}?')">
                                                     <button type="submit"
                                                             class="btn btn-outline-danger noca-icon-btn"
+                                                            aria-label="Remove problem {{ label }}"
                                                             title="Remove">{{ render_icon(icon="delete") }}</button>
                                                 </form>
                                             {% else %}
                                                 <span class="noca-icon-btn-wrap" title="{{ remove_blocked_reason }}">
                                                     <button class="btn btn-outline-danger noca-icon-btn"
                                                             disabled
+                                                            aria-label="Cannot remove problem {{ label }}: {{ remove_blocked_reason }}"
                                                             title="{{ remove_blocked_reason }}">
                                                         {{ render_icon(icon="delete") }}
                                                     </button>

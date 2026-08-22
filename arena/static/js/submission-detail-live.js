@@ -4,61 +4,30 @@
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-// Live updates for one pending, user-owned Arena submission. The owner-scoped
-// SSE endpoint is the fast finalization signal; an authoritative snapshot fetch
-// renders every state. A low-frequency poll also surfaces QUEUED, DISPATCHED,
-// and JUDGING because those intermediate states do not publish SSE events.
+// Live updates for one pending, user-owned Arena submission. The shared
+// NocaSubmissionStatusWatcher owns the SSE/poll/reconcile plumbing; this file
+// supplies only how a snapshot renders the verdict summary card, the runtime,
+// and the refetched result-card fragment.
 
 (function () {
   'use strict';
 
   var root = document.querySelector('[data-submission-detail-live]');
   if (!root) return;
+  if (!window.NocaSubmissionStatusWatcher) return;
 
   var submissionId = root.dataset.submissionId;
   var statusUrl = root.dataset.statusUrl;
   var eventsUrl = root.dataset.eventsUrl;
   if (!submissionId || !statusUrl || !eventsUrl) return;
 
-  var source = null;
-  var pollTimer = null;
-  var reconciling = false;
-  var resolved = false;
   var finalCardRefreshStarted = false;
-  var sseRefreshObserved = false;
-  var POLL_MS = 2500;
 
   var summary = root.querySelector('[data-live-verdict-summary]');
   var verdictCode = root.querySelector('[data-live-verdict-code]');
   var verdictLabel = root.querySelector('[data-live-verdict-label]');
   var verdictStatus = root.querySelector('[data-live-verdict-status]');
   var wallTime = root.querySelector('[data-live-wall-time]');
-
-  function teardown() {
-    if (source) {
-      source.close();
-      source = null;
-    }
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-    }
-  }
-
-  function endpoint(url) {
-    var query = new URLSearchParams({ ids: submissionId });
-    return url + '?' + query.toString();
-  }
-
-  function matchingSubmission(payload) {
-    return (payload.submissions || []).find(function (submission) {
-      return submission.submission_id === submissionId;
-    });
-  }
-
-  function isUnauthorized(response) {
-    return response.status === 401 || response.status === 403;
-  }
 
   function summaryStateClass(verdict) {
     if (verdict === 'AC') return 'is-accepted';
@@ -138,7 +107,7 @@
   }
 
   function applySnapshot(submission) {
-    if (!submission) return;
+    if (!submission || submission.submission_id !== submissionId) return true;
 
     if (submission.is_final) {
       updateFinalState(submission);
@@ -147,57 +116,19 @@
     }
     updateWallTime(submission);
 
-    if (!submission.is_final) return;
-    refreshFinalResultCard();
-    if (!sseRefreshObserved) return;
+    if (!submission.is_final) return true;
 
-    resolved = true;
-    teardown();
+    refreshFinalResultCard();
     if (submission.verdict === 'AC' && window.NocaConfetti) {
       window.NocaConfetti.celebrate(submissionId);
     }
+    return false;
   }
 
-  async function reconcile() {
-    if (reconciling || resolved) return;
-    reconciling = true;
-
-    try {
-      var response = await fetch(endpoint(statusUrl), {
-        headers: { 'Accept': 'application/json' }
-      });
-      if (isUnauthorized(response)) {
-        teardown();
-        return;
-      }
-      if (!response.ok) throw new Error('HTTP ' + response.status);
-
-      applySnapshot(matchingSubmission(await response.json()));
-    } catch (error) {
-      console.error('Submission detail status refresh failed', error);
-    } finally {
-      reconciling = false;
-    }
-  }
-
-  function handleRefreshMessage(event) {
-    if (event.data === 'refresh') {
-      sseRefreshObserved = true;
-      reconcile();
-    }
-  }
-
-  function connect() {
-    source = new EventSource(endpoint(eventsUrl));
-    source.onopen = reconcile;
-    source.onmessage = handleRefreshMessage;
-  }
-
-  window.addEventListener('pagehide', teardown, { once: true });
-  if (typeof EventSource === 'undefined') {
-    reconcile();
-  } else {
-    connect();
-  }
-  pollTimer = setInterval(reconcile, POLL_MS);
+  window.NocaSubmissionStatusWatcher.watch({
+    statusUrl: statusUrl,
+    eventsUrl: eventsUrl,
+    ids: [submissionId],
+    onSnapshot: applySnapshot
+  });
 })();

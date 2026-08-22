@@ -18,9 +18,25 @@ from web.models.users import UberAdmin, User
 from web.services.site_service import contest_has_sites
 
 
+def can_administer_contest(actor: User | UberAdmin) -> bool:
+    """Return whether the actor has contest-admin level access.
+
+    Covers the whole administration surface -- contest, problem and user admin,
+    and assigning the chief judge. The chief judge is deliberately *not* included:
+    chief authority is about judging, not configuration.
+
+    Args:
+        actor: Authenticated actor to test.
+
+    Returns:
+        `True` for uberadmins and contest admins.
+    """
+    return actor.role in (RoleEnum.UBERADMIN, RoleEnum.ADMIN)
+
+
 def ensure_contest_admin_or_uberadmin(actor: User | UberAdmin) -> None:
     """Ensure the actor has contest-admin level access."""
-    if actor.role not in (RoleEnum.UBERADMIN, RoleEnum.ADMIN):
+    if not can_administer_contest(actor):
         raise HTTPException(status_code=403)
 
 

@@ -30,8 +30,88 @@
     vertical-align: middle;
 }
 
-.team-link {
-    cursor: pointer;
+/* Scoreboard card: the documented elevation ramp (subtle tint, hairline
+   outline, 0.5rem corners) in place of Bootstrap's undifferentiated
+   `shadow-sm`, so the page's single most important artifact reads as NOCA's
+   own surface rather than a generic Bootstrap card. */
+.noca-scoreboard-card {
+    border: 1px solid var(--noca-outline-variant);
+    border-radius: 0.5rem;
+    box-shadow: 0 2px 2px var(--noca-shadow-tint-subtle);
+}
+
+/* Table header: brand identity in the one place a scoreboard earns it --
+   framing the balloon icons rather than Bootstrap's generic `table-dark`.
+   Text columns get the system's Label voice (uppercase, tracked, 700); the
+   balloon header cells keep their image untouched, just the surrounding
+   band changes color under them. */
+.noca-scoreboard-table thead th {
+    background-color: var(--noca-brand-container);
+    color: var(--noca-on-brand);
+    border-color: var(--noca-brand-container);
+    font-family: var(--noca-font-body);
+    font-size: var(--noca-type-label);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+
+/* Contest-state announcement band: the tinted-surface device already used by
+   the UberAdmin live band (`.noca-dashboard-live-band`), re-pitched per tone
+   from the same three contest-phase tokens the timing timeline already
+   defines (`--noca-state-live/frozen/silence`), so "Frozen" and "Final" read
+   as the same state language as the rest of the product rather than a
+   one-off badge. Text stays full-strength `--noca-on-surface` regardless of
+   tone so contrast never depends on the tint; the icon alone carries color,
+   redundantly with the label text next to it. */
+.noca-scoreboard-status-band {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--noca-outline-variant);
+    background-color: var(--noca-surface-container-low);
+    color: var(--noca-on-surface);
+    font-family: var(--noca-font-heading);
+    font-weight: 600;
+}
+
+.noca-scoreboard-status-band--final {
+    background-color: color-mix(in srgb, var(--noca-state-live) 8%, var(--noca-surface));
+    border-color: color-mix(in srgb, var(--noca-state-live) 30%, transparent);
+}
+
+.noca-scoreboard-status-band--final .noca-status-band-icon {
+    color: var(--noca-state-live);
+}
+
+.noca-scoreboard-status-band--frozen {
+    background-color: color-mix(in srgb, var(--noca-state-frozen) 10%, var(--noca-surface));
+    border-color: color-mix(in srgb, var(--noca-state-frozen) 35%, transparent);
+}
+
+.noca-scoreboard-status-band--frozen .noca-status-band-icon {
+    color: var(--noca-state-frozen);
+}
+
+.noca-scoreboard-status-band--upcoming .noca-status-band-icon {
+    color: var(--noca-on-surface-variant);
+}
+
+/* Live-updating marker beside the "Updated: ..." timestamp -- the same
+   pulsing dot the UberAdmin dashboard uses for a live contest, applied here
+   at its original meaning: this scoreboard is auto-refreshing right now.
+   Only the dot carries brand color; `--noca-state-live` on text this small
+   would repeat the sub-4.5:1 mistake the leader pill avoided, and the dot
+   plus label are already redundant on their own. */
+.noca-scoreboard-live-marker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-weight: 600;
 }
 
 /* Team's own row on the scoreboard: a persistent (non-fading) highlight.
@@ -46,32 +126,5 @@
     background-color: rgba(var(--bs-primary-rgb), 0.2) !important;
 }
 
-.noca-back-to-top-btn {
-    position: fixed;
-    right: 1.5rem;
-    bottom: 1.5rem;
-    z-index: 1030;
-    width: 3rem;
-    height: 3rem;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    box-shadow: 0 2px 8px var(--noca-shadow-tint-strong);
-}
-
 /* `.noca-icon-btn`, `.noca-drag-handle`, `.noca-sortable-*`, and
    `.noca-icon-btn-group` rules moved to shared/static/css/common.css */
-
-/* Edit Metadata — fixed-width Yes/No radio columns in rules table */
-.noca-rules-radio-col {
-    width: 5rem;
-    text-align: center;
-    white-space: nowrap;
-}
-
-.noca-rules-radio-col .form-check {
-    display: inline-block;
-    margin: 0;
-}

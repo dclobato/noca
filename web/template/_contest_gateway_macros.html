@@ -1,0 +1,65 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{#
+  Card for the public /contests gateway and its /contests/past history page.
+  Distinct from `_contest_macros.html`'s `contest_tile`, which the UberAdmin
+  dashboard and inactive-contests list keep using unchanged.
+#}
+{% macro gateway_contest_card(contest, state, state_label, primary_label, primary_value, primary_iso, secondary_label=None, secondary_value=None, secondary_iso=None, show_problem_set=False) %}
+    <div class="noca-gateway-card" data-state="{{ state }}">
+        <div class="noca-gateway-card-topline">
+            <span class="noca-gateway-state">
+                <span class="noca-gateway-state-dot" aria-hidden="true"></span>
+                {{ state_label }}
+            </span>
+        </div>
+        <div class="noca-gateway-card-name">{{ contest.contest_name }}</div>
+        <div class="noca-gateway-card-slug">/c/{{ contest.login_slug }}</div>
+        <div class="noca-gateway-card-time">
+            <span>
+                {{ primary_label }}
+                <time datetime="{{ primary_iso }}">{{ primary_value }}</time>
+            </span>
+            {% if secondary_label is not none %}
+                <span>
+                    {{ secondary_label }}
+                    <time datetime="{{ secondary_iso }}">{{ secondary_value }}</time>
+                </span>
+            {% endif %}
+        </div>
+        {% if contest.allowed_languages %}
+            {% set visible_languages = contest.allowed_languages[:6] %}
+            {% set overflow_languages = contest.allowed_languages[6:] %}
+            <div class="noca-language-icons noca-language-icons-card noca-gateway-card-languages"
+                 role="list"
+                 aria-label="Allowed languages">
+                {% for lang in visible_languages %}
+                    <span class="noca-language-icon" role="listitem" title="{{ lang.name }}">
+                        <img src="{{ request.url_for('static_vendor', path='img/devicon/' ~ lang.icon.split('-')[1] ~ '-original.svg') }}"
+                             class="noca-language-icon-img"
+                             alt="{{ lang.name }}">
+                        <span class="visually-hidden">{{ lang.name }}</span>
+                    </span>
+                {% endfor %}
+                {% if overflow_languages %}
+                    <span class="noca-gateway-language-more"
+                          role="listitem"
+                          title="{{ overflow_languages | map(attribute='name') | join(', ') }}">+{{ overflow_languages | length }}</span>
+                {% endif %}
+            </div>
+        {% endif %}
+        <div class="noca-gateway-card-actions">
+            <a href="{{ request.url_for('contest_login_get', slug=contest.login_slug) }}"
+               class="btn btn-primary btn-sm">Sign in</a>
+            {% if show_problem_set %}
+                <a href="{{ request.url_for('problem_set_download', slug=contest.login_slug) }}"
+                   class="btn btn-outline-secondary btn-sm">Problem set</a>
+            {% endif %}
+        </div>
+    </div>
+{% endmacro %}

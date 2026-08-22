@@ -1,0 +1,354 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/*
+ * Public /contests gateway and /contests/past history page. Shares the
+ * animator home's hero + lifecycle-grouped card grid structure, but stays on
+ * the operational type ramp and flat token surfaces -- this page is read up
+ * close, not from across a room, so it does not borrow the presentation tier.
+ */
+
+.noca-gateway-root {
+    display: flex;
+    flex-direction: column;
+    background:
+        radial-gradient(circle at 8% 0%, rgb(var(--noca-brand-rgb) / 12%), transparent 34rem),
+        linear-gradient(145deg, var(--noca-surface), var(--noca-surface-container));
+}
+
+.noca-gateway {
+    width: min(74rem, 100%);
+    margin: 0 auto;
+    padding: 0 var(--noca-space-lg) clamp(3rem, 7vw, 6rem);
+}
+
+.noca-gateway-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(12rem, 15rem);
+    align-items: end;
+    gap: clamp(1.5rem, 5vw, 3rem);
+    padding: clamp(2rem, 5vw, 3.5rem) 0 clamp(2rem, 4vw, 3rem);
+}
+
+.noca-gateway-hero-compact {
+    grid-template-columns: minmax(0, 1fr);
+    padding-top: 0.5rem;
+}
+
+.noca-gateway-heading {
+    max-width: 42rem;
+}
+
+.noca-gateway-eyebrow,
+.noca-gateway-kicker {
+    margin: 0 0 0.5rem;
+    color: var(--noca-brand);
+    font-family: var(--noca-font-mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+}
+
+.noca-gateway-heading h1 {
+    margin: 0;
+    font-family: var(--noca-font-heading);
+    font-size: 2.5rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+}
+
+.noca-gateway-heading > p:last-child {
+    max-width: 40rem;
+    margin: 0.75rem 0 0;
+    color: var(--noca-on-surface-variant);
+}
+
+.noca-gateway-signal {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 8rem;
+    padding: 1.15rem;
+    border: 1px solid var(--noca-outline-variant);
+    border-radius: 0.5rem;
+    background: var(--noca-surface-container-lowest);
+    box-shadow: 0 2px 8px var(--noca-shadow-tint-subtle);
+}
+
+.noca-gateway-signal-label {
+    margin-bottom: auto;
+    color: var(--noca-on-surface-variant);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.noca-gateway-signal strong {
+    font-family: var(--noca-font-heading);
+    font-size: 2rem;
+    font-weight: 600;
+    line-height: 1.1;
+}
+
+.noca-gateway-signal > span:last-child {
+    margin-top: 0.2rem;
+    color: var(--noca-on-surface-variant);
+    font-size: 0.875rem;
+}
+
+.noca-gateway-section + .noca-gateway-section,
+.noca-gateway-empty + .noca-gateway-section {
+    margin-top: clamp(2rem, 4vw, 3rem);
+}
+
+.noca-gateway-section-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.noca-gateway-section-heading h2 {
+    margin: 0;
+    font-family: var(--noca-font-heading);
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.noca-gateway-section-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--noca-brand);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.noca-gateway-section-link:hover,
+.noca-gateway-section-link:focus-visible {
+    text-decoration: underline;
+}
+
+.noca-gateway-section-link .material-symbols-outlined {
+    font-size: 1rem;
+}
+
+.noca-gateway-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 22rem));
+    justify-content: start;
+    gap: 1rem;
+}
+
+.noca-gateway-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: 1.1rem;
+    border: 1px solid var(--noca-outline-variant);
+    border-inline-start: 0.25rem solid var(--noca-outline);
+    border-radius: 0.5rem;
+    background: var(--noca-surface-container-lowest);
+    box-shadow: 0 2px 2px var(--noca-shadow-tint-subtle);
+    transition: box-shadow 160ms ease, transform 160ms ease;
+}
+
+.noca-gateway-card:hover {
+    box-shadow: 0 8px 20px var(--noca-shadow-tint);
+    transform: translateY(-0.15rem);
+}
+
+.noca-gateway-card[data-state="live"] {
+    border-inline-start-color: var(--noca-state-live);
+}
+
+.noca-gateway-card[data-state="upcoming"] {
+    border-inline-start-color: var(--noca-brand);
+}
+
+.noca-gateway-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+    color: var(--noca-on-surface-variant);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.noca-gateway-state-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--noca-outline);
+}
+
+[data-state="live"] .noca-gateway-state-dot {
+    background: var(--noca-state-live);
+    box-shadow: 0 0 0 0.2rem rgb(var(--noca-brand-rgb) / 16%);
+}
+
+[data-state="upcoming"] .noca-gateway-state-dot {
+    background: var(--noca-brand);
+}
+
+.noca-gateway-card-name {
+    margin-bottom: 0.15rem;
+    font-family: var(--noca-font-heading);
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.noca-gateway-card-slug {
+    margin-bottom: 0.6rem;
+    color: var(--noca-on-surface-variant);
+    font-family: var(--noca-font-mono);
+    font-size: 0.8125rem;
+    font-variant-numeric: var(--noca-font-variant-numeric-mono);
+}
+
+.noca-gateway-card-time {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin-bottom: 0.75rem;
+    color: var(--noca-on-surface-variant);
+    font-size: 0.8125rem;
+}
+
+.noca-gateway-card-time time {
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+    color: var(--noca-on-surface);
+}
+
+.noca-gateway-card-languages {
+    margin-bottom: 0.75rem;
+}
+
+/*
+ * A contest can allow every registered language (22 today), which would
+ * otherwise wrap the card into a wall of icons. `gateway_contest_card` caps
+ * the icon row and folds the rest into this count pill; its `title` still
+ * lists every hidden language name.
+ */
+.noca-gateway-language-more {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 1.2rem;
+    padding: 0 0.4rem;
+    border-radius: 50rem;
+    background: var(--noca-surface-container-high);
+    color: var(--noca-on-surface-variant);
+    font-size: var(--noca-type-micro);
+    font-variant-numeric: var(--noca-font-variant-numeric-tabular);
+    font-weight: 700;
+    line-height: 1;
+}
+
+.noca-gateway-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: auto;
+}
+
+.noca-gateway-empty {
+    padding: clamp(2rem, 5vw, 3.5rem);
+    border: 1px dashed var(--noca-outline);
+    border-radius: 0.5rem;
+    background: var(--noca-surface-container-low);
+    text-align: center;
+}
+
+.noca-gateway-empty-icon {
+    font-size: 3rem;
+    color: var(--noca-on-surface-variant);
+}
+
+.noca-gateway-empty h2 {
+    margin: 0.75rem 0 0.25rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.noca-gateway-empty p {
+    margin: 0;
+    color: var(--noca-on-surface-variant);
+}
+
+.noca-gateway-empty-text {
+    color: var(--noca-on-surface-variant);
+}
+
+.noca-gateway-back-link {
+    padding-top: var(--noca-space-lg);
+}
+
+.noca-gateway-back-link a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--noca-on-surface-variant);
+    font-size: 0.875rem;
+    text-decoration: none;
+}
+
+.noca-gateway-back-link a:hover,
+.noca-gateway-back-link a:focus-visible {
+    color: var(--noca-brand);
+    text-decoration: underline;
+}
+
+.noca-gateway-back-link .material-symbols-outlined {
+    font-size: 1rem;
+}
+
+.noca-gateway-footer-link {
+    margin-top: clamp(2rem, 4vw, 3rem);
+    text-align: center;
+}
+
+.noca-gateway-footer-link a {
+    color: var(--noca-on-surface-variant);
+    font-size: 0.875rem;
+    text-decoration: none;
+}
+
+.noca-gateway-footer-link a:hover,
+.noca-gateway-footer-link a:focus-visible {
+    color: var(--noca-brand);
+    text-decoration: underline;
+}
+
+@media (max-width: 767.98px) {
+    .noca-gateway-hero {
+        grid-template-columns: 1fr;
+    }
+
+    .noca-gateway-signal {
+        min-height: 6rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .noca-gateway-card {
+        transition: none;
+    }
+}

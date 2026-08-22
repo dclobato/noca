@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -9,16 +9,6 @@
 {% from "_macros.html" import render_flash_messages, render_icon with context %}
 {% block title_suffix %}— Solution tests{% endblock %}
 {% block flash %}{{ render_flash_messages(auto_dismiss_success_ms=5000) }}{% endblock %}
-{% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            <li class="breadcrumb-item">
-                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-            </li>
-            <li class="breadcrumb-item active" aria-current="page">Solution tests</li>
-        </ol>
-    </nav>
-{% endblock %}
 {% block content %}
     <div class="px-4 py-4">
         <div class="mb-4">

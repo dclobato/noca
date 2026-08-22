@@ -7,7 +7,7 @@ contract lives in its Gitea issue, linked from each entry below; amend the
 issue, then regenerate this file with `uv run python
 scripts/generate_backlog_index.py`.
 
-16 open, 1 implemented.
+18 open, 12 implemented.
 
 ## Autojudge
 
@@ -27,15 +27,6 @@ checker](custom-validator/OUTPUT_CHECKER_VALIDATOR.md#persistence-and-diagnostic
 Output-checker jobs must stage optional opaque UTF-8 reference text under the
 [settled reference-output
 contract](custom-validator/OUTPUT_CHECKER_VALIDATOR.md#reference-output-contract).
-
-### [Align interactive solution-test diagnostics](https://git.lobato.org:10880/dclobato/noca/issues/10)
-
-**#10** -- Pending
-
-Interactive solution-test attempts already share the last-case-only retention
-model used by submission judgments, but their result rows do not retain the
-complete validator-side diagnostic contract documented in [Interactive
-validator](custom-validator/INTERACTIVE_VALIDATOR.md#solution-test-attempts).
 
 ### [Remove `PER_LANGUAGE_LIMITS` from custom validators](https://git.lobato.org:10880/dclobato/noca/issues/11)
 
@@ -62,6 +53,18 @@ optional TOTP 2FA with backup codes, and a stateless HS256 JWT session cookie
 (`arena_access_token`). There is **no OAuth, OpenID Connect, or
 external-identity code anywhere in the repository** — this is the first
 identity provider integration.
+
+### [Reap derived objects on S3 backends without lifecycle rules](https://git.lobato.org:10880/dclobato/noca/issues/42)
+
+**#42** -- Idea -- not yet an accepted contract
+
+Both #17 and #19 propose moving **derived, disposable** artifacts to
+S3-compatible object storage, and both lean on bucket lifecycle rules to delete
+what is no longer wanted. Following the portability decision recorded in [#19
+comment
+310](https://git.lobato.org:10880/dclobato/noca/issues/19#issuecomment-310) —
+rely only on features every S3-compatible provider has — lifecycle expiration
+cannot...
 
 ## Web and Arena
 
@@ -105,16 +108,40 @@ The core immutability guarantee for this contract is already implemented
 build instead of rebuilding on every hit (see `docs/ARCHITECTURE.md` and
 `web/docs/SERVICES.md`).
 
-### [Decouple problem-set/editorial release from scoreboard release](https://git.lobato.org:10880/dclobato/noca/issues/18)
+### [`data-confirm` silently does nothing outside the judgment pages](https://git.lobato.org:10880/dclobato/noca/issues/32)
 
-**#18** -- Pending
+**#32** -- Pending
 
-`GET /problem-set/{slug}.zip` currently reuses
-`Contest.release_scoreboard_after_end` as its sole release gate (see the
-"Harden the public problem-set archive cache" issue and
-`docs/ARCHITECTURE.md`), so making a contest's scoreboard public also makes its
-full problem package — including every secret test case, validator source, and
-editorial — publicly downloadable, with no separate opt-out...
+The delegated `data-confirm` handler lives in
+`shared/static/js/judgment-actions.js`.
+
+### [Color contest countdown by remaining-time urgency](https://git.lobato.org:10880/dclobato/noca/issues/75)
+
+**#75** -- Pending
+
+Make the authenticated Web navbar countdown communicate remaining-time urgency
+through semantic color while preserving its current wording, phase indicator,
+and one-second local updates.
+
+### [Add persistent role-aware live counts to Web contest navigation](https://git.lobato.org:10880/dclobato/noca/issues/77)
+
+**#77** -- Pending
+
+Issue #38 keeps every contest destination visible in a scrollable navigation
+band, but persistent counts and notifications were deliberately deferred.
+
+### [Add a Web contest rules and contact affordance](https://git.lobato.org:10880/dclobato/noca/issues/78)
+
+**#78** -- Pending
+
+A discoverable rules/contact entry was considered during #38 but excluded from
+the navbar closure.
+
+### [Move the Web theme control into the application chrome](https://git.lobato.org:10880/dclobato/noca/issues/79)
+
+**#79** -- Pending
+
+The Web theme control remains in the footer after the chrome work in #38.
 
 ## Document rendering
 
@@ -129,17 +156,6 @@ rendered) or `statement.md` rendered client-side in the browser
 statement, and the still-unimplemented contest logistics document conversion
 noted in `web/docs/SERVICES.md`, both...
 
-### [Server-side LaTeX/math rendering](https://git.lobato.org:10880/dclobato/noca/issues/20)
-
-**#20** -- Idea -- not yet an accepted contract
-
-Math in problem statements is rendered entirely client-side today: vendored
-KaTeX `auto-render` runs after `marked.parse()` + `DOMPurify.sanitize()` in the
-single shared pipeline (`shared/static/js/noca-markdown.js`), for every
-Markdown surface including test-case explanations.
-`shared/problem_statement_markdown.py` never inspects LaTeX delimiters —
-`$...$` / `\(...\)` pass through the sanitizer...
-
 ### [Add a `table-caption` Markdown directive](https://git.lobato.org:10880/dclobato/noca/issues/21)
 
 **#21** -- Idea -- not yet an accepted contract
@@ -151,23 +167,41 @@ table-caption <text>`, would render its text as a caption below the following
 table, in italics, at a smaller font size, and constrained to 75% of the
 available width.
 
-## Other
-
-### [Valkey runs with no `maxmemory`: memory pressure OOM-kills the container instead of degrading](https://git.lobato.org:10880/dclobato/noca/issues/26)
-
-**#26** -- Pending
-
-The Compose sample gives Valkey a 1 GB container limit but never passes
-`--maxmemory`, so the server runs unbounded and is OOM-killed by the kernel
-under pressure rather than applying any policy. Recovery is uneven: judge and
-AI queues self-heal through their reconcilers, but the animator reveal ceremony
-has no backstop outside Valkey. Surfaced while designing #19 (PDF rendering),
-but independent...
-
 ## Implemented
 
 Contracts that have landed. They are kept here, rather than dropped, as a
 pointer to the issue recording what was built.
+
+### [Align interactive solution-test diagnostics](https://git.lobato.org:10880/dclobato/noca/issues/10)
+
+**#10** -- Implemented
+
+Interactive solution-test attempts already share the last-case-only retention
+model used by submission judgments, but their result rows do not retain the
+complete validator-side diagnostic contract documented in [Interactive
+validator](custom-validator/INTERACTIVE_VALIDATOR.md#solution-test-attempts).
+
+### [Decouple problem-set/editorial release from scoreboard release](https://git.lobato.org:10880/dclobato/noca/issues/18)
+
+**#18** -- Implemented
+
+`GET /problem-set/{slug}.zip` currently reuses
+`Contest.release_scoreboard_after_end` as its sole release gate (see the
+"Harden the public problem-set archive cache" issue and
+`docs/ARCHITECTURE.md`), so making a contest's scoreboard public also makes its
+full problem package — including every secret test case, validator source, and
+editorial — publicly downloadable, with no separate opt-out...
+
+### [Server-side LaTeX/math rendering](https://git.lobato.org:10880/dclobato/noca/issues/20)
+
+**#20** -- Implemented
+
+Math in problem statements is rendered entirely client-side today: vendored
+KaTeX `auto-render` runs after `marked.parse()` + `DOMPurify.sanitize()` in the
+single shared pipeline (`shared/static/js/noca-markdown.js`), for every
+Markdown surface including test-case explanations.
+`shared/problem_statement_markdown.py` never inspects LaTeX delimiters —
+`$...$` / `\(...\)` pass through the sanitizer...
 
 ### [Make validation strategy immutable after problem creation (core guarantee)](https://git.lobato.org:10880/dclobato/noca/issues/22)
 
@@ -179,3 +213,72 @@ enforcing that at both the ORM and route/service level — landed in `f5575dd3`
 (`feat(problems): [phase 2] store the validation strategy explicitly`) and
 `5f76f393` (`feat(problems): [phase 5] choose the validation strategy before
 creating`).
+
+### [Valkey runs with no `maxmemory`: memory pressure OOM-kills the container instead of degrading](https://git.lobato.org:10880/dclobato/noca/issues/26)
+
+**#26** -- Implemented
+
+The Compose sample gives Valkey a 1 GB container limit but never passes
+`--maxmemory`, so the server runs unbounded and is OOM-killed by the kernel
+under pressure rather than applying any policy. Recovery is uneven: judge and
+AI queues self-heal through their reconcilers, but the animator reveal ceremony
+has no backstop outside Valkey. Surfaced while designing #19 (PDF rendering),
+but independent...
+
+### [Criteria tables render `<th>` outside `<tr>`, leaving every radio unlabelled](https://git.lobato.org:10880/dclobato/noca/issues/28)
+
+**#28** -- Implemented
+
+The "Criteria / Yes / No" tables in `web/template/admin/edit_metadata.html` and
+`web/template/uberadmin/add_contest.html` place their three `<th>` elements as
+**direct children of `<tbody>`**, with no wrapping `<tr>`.
+
+### [`.btn-glow:hover` spends danger red on every dashboard card](https://git.lobato.org:10880/dclobato/noca/issues/29)
+
+**#29** -- Implemented
+
+`web/static/css/contest/_page.css` gives every `.btn-glow` element a hover
+state built from `--noca-danger`.
+
+### [`render_icon` leaks Material Symbols ligature text into accessible names](https://git.lobato.org:10880/dclobato/noca/issues/30)
+
+**#30** -- Implemented
+
+`render_icon` in `web/template/_macros.html` emits the icon as a Material
+Symbols ligature.
+
+### [Extract a POST-action dashboard card macro](https://git.lobato.org:10880/dclobato/noca/issues/31)
+
+**#31** -- Implemented
+
+`web/template/admin/dashboard.html` now holds **three** near-identical inline
+`<form method="post">` card blocks of roughly twenty lines each: Release Final
+Scoreboard, Release Problem Set, and the released/scheduled problem-set state
+with its Revoke/Cancel action.
+
+### [Cropper `#cropImage` on admin/users/edit.html has no src/placeholder before JS populates it](https://git.lobato.org:10880/dclobato/noca/issues/36)
+
+**#36** -- Implemented
+
+The user photo cropper preview `<img id="cropImage">` on
+`web/template/admin/users/edit.html` ships with no `src`, relying on cropper.js
+to populate it once the admin selects a file. This is legitimate (there's
+nothing to show before a file is chosen), but it repeatedly trips the
+`impeccable` design hook's `broken-image` check, which flags any `<img>` with
+an empty/missing `src` as a broken-image...
+
+### [Extract shared SSE+poll reconciliation core from Arena's two live-update scripts](https://git.lobato.org:10880/dclobato/noca/issues/37)
+
+**#37** -- Implemented
+
+`arena/static/js/profile-submissions-live.js` and
+`arena/static/js/submission-detail-live.js` each independently implement the
+same "watch N submissions via SSE + a low-frequency poll fallback, reconcile
+against a JSON status snapshot" core.
+
+### [Add a contest switcher to the Web application chrome](https://git.lobato.org:10880/dclobato/noca/issues/76)
+
+**#76** -- Implemented
+
+Issue #38 finalized the contest-day Web chrome without a contest switcher.
+Track the switcher separately so the navbar closure remains bounded.

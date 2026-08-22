@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from autojudge.db import open_db
 from autojudge.types import JobNotDispatchable, JudgmentOwnershipLost
 from shared.db_schema import solution_test_case_results, solution_test_runs
-from shared.enumerations import JudgmentStatus, Verdict
+from shared.enumerations import CustomValidatorCrashReason, JudgmentStatus, Verdict
 from web.models.language import Language
 from web.models.problem import Problem, ProblemTestCase
 
@@ -74,20 +74,29 @@ async def _seed_run(session: AsyncSession, problem: Problem) -> str:
     return run_id
 
 
-def _attempt_result(verdict: Verdict | None) -> SimpleNamespace:
+def _attempt_result(
+    verdict: Verdict | None,
+    *,
+    validator_exit_code: int | None = 0,
+    validator_signal: int | None = None,
+    validator_stderr_excerpt: bytes = b"",
+    crash_reason: Any = None,
+    watchdog_stalled_side: str | None = None,
+) -> SimpleNamespace:
     return SimpleNamespace(
         classification=SimpleNamespace(verdict=verdict),
         contestant_exit_code=0,
         contestant_signal=None,
-        validator_exit_code=0,
-        validator_signal=None,
+        validator_exit_code=validator_exit_code,
+        validator_signal=validator_signal,
         transcript=SimpleNamespace(as_dict=lambda: {"lines": [{"dir": "user", "line": "7"}], "truncated": False}),
         contestant_stderr_excerpt=b"",
-        validator_stderr_excerpt=b"",
+        validator_stderr_excerpt=validator_stderr_excerpt,
         contestant_output_bytes=2,
-        crash_reason=None,
+        crash_reason=crash_reason,
         wall_time_ms=5,
         memory_kb=50,
+        watchdog_stalled_side=watchdog_stalled_side,
     )
 
 
@@ -214,7 +223,7 @@ async def test_interactive_attempt_resolves_its_test_case_id(
             owner_id=run_id,
             attempt_number=1,
             test_case_ordinal=1,
-            result=_attempt_result(Verdict.WA),
+            result=_attempt_result(Verdict.WA, validator_exit_code=1, validator_stderr_excerpt=b"bad output"),
             attempt_target="solution_test",
         )
 
@@ -224,6 +233,81 @@ async def test_interactive_attempt_resolves_its_test_case_id(
     assert row["ordinal"] == 1
     assert row["verdict"] == Verdict.WA
     assert row["transcript"] == {"lines": [{"dir": "user", "line": "7"}], "truncated": False}
+    # A clean validator exit (no crash) is persisted as validator_verdict, not crash_reason.
+    assert row["validator_exit_code"] == 1
+    assert row["validator_signal"] is None
+    assert row["validator_stderr_excerpt"] == "bad output"
+    assert row["validator_verdict"] == Verdict.WA
+    assert row["crash_reason"] is None
+    assert row["limit_outcome"] is None
+
+
+@pytest.mark.parametrize(
+    ("result", "expected_crash_reason", "expected_validator_verdict", "expected_limit_outcome"),
+    [
+        pytest.param(
+            _attempt_result(Verdict.RE, validator_exit_code=None, crash_reason=CustomValidatorCrashReason.SIGNAL),
+            CustomValidatorCrashReason.SIGNAL,
+            None,
+            None,
+            id="crashed_validator_has_no_clean_exit_reading",
+        ),
+        pytest.param(
+            _attempt_result(Verdict.MLE),
+            None,
+            Verdict.AC,
+            "MLE",
+            id="mle_limit_outcome_recorded",
+        ),
+        pytest.param(
+            _attempt_result(Verdict.TLE, watchdog_stalled_side="contestant"),
+            None,
+            Verdict.AC,
+            "TLE",
+            id="contestant_watchdog_tle_limit_outcome_recorded",
+        ),
+        pytest.param(
+            _attempt_result(Verdict.TLE, watchdog_stalled_side="validator"),
+            None,
+            Verdict.AC,
+            None,
+            id="non_watchdog_tle_leaves_limit_outcome_null",
+        ),
+    ],
+)
+async def test_interactive_attempt_persists_outcome_fields(
+    engine,
+    session: AsyncSession,
+    judgeable_contest_problem: Problem,
+    result: SimpleNamespace,
+    expected_crash_reason: CustomValidatorCrashReason | None,
+    expected_validator_verdict: Verdict | None,
+    expected_limit_outcome: str | None,
+) -> None:
+    """crash_reason, validator_verdict, and limit_outcome derive from the same
+    attempt result the submission-side path already uses, so each combination
+    is exercised once rather than duplicated across near-identical tests.
+
+    The last case matters on its own: a TLE stall attributed to the *validator*
+    side (not the contestant) is not an enforced contestant limit, so
+    limit_outcome must stay NULL even though the case verdict is TLE.
+    """
+    run_id = await _seed_run(session, judgeable_contest_problem)
+
+    async with open_db(engine) as db:
+        await db.insert_interactive_attempt(
+            domain="contest",
+            owner_id=run_id,
+            attempt_number=1,
+            test_case_ordinal=1,
+            result=result,
+            attempt_target="solution_test",
+        )
+
+    row = (await _cases(session, run_id))[0]
+    assert row["crash_reason"] == expected_crash_reason
+    assert row["validator_verdict"] == expected_validator_verdict
+    assert row["limit_outcome"] == expected_limit_outcome
 
 
 async def test_interactive_attempt_for_a_missing_ordinal_stays_null(

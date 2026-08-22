@@ -416,7 +416,14 @@ async def test_edit_user_submit_keeps_role_immutable_even_if_forged_role_is_post
     assert "user_photo_submit" in edit_template
     assert "user_audio_submit" in edit_template
     assert "user_audio_remove" in edit_template
-    assert 'id="cropModal"' in edit_template
+    assert '{% include "_partials/crop_modal.html" %}' in edit_template
+    crop_modal_template = (
+        Path(__file__).resolve().parents[2] / "web" / "template" / "_partials" / "crop_modal.html"
+    ).read_text()
+    assert 'id="cropModal"' in crop_modal_template
+    # The cropper preview must ship a real placeholder src so it never renders as a
+    # broken image before Cropper.js swaps in the selected file (issue #36).
+    assert "crop-placeholder.svg" in crop_modal_template
     assert 'data-photo-preview-id="adminPhotoPreview"' in edit_template
     assert 'data-audio-preview-id="adminAudioPreview"' in edit_template
     assert 'id="adminPhotoUnsaved"' in edit_template

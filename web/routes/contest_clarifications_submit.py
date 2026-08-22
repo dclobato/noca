@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -89,7 +89,11 @@ async def submit_announcement(
         )
         await ctx.session.commit()
     except ContestNotRunningError:
-        flash("Announcements can only be created while the contest is running.", FlashCategory.DANGER)
+        flash(
+            "Announcements can only be created while the contest is running, "
+            "unless published by a contest admin or the chief judge.",
+            FlashCategory.DANGER,
+        )
         return RedirectResponse(url=f"/c/{slug}/clarifications/", status_code=303)
     except ValueError:
         flash("The selected problem does not belong to this contest.", FlashCategory.DANGER)

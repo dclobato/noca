@@ -1,5 +1,17 @@
 {# ── TIMING TIMELINE ─────────────────────────────────────────── #}
-<div id="timing-timeline-wrapper" class="mb-3">
+{#
+  Two modes, both rendered by contest-timing-timeline.js:
+
+  * Form mode (default, contest create/edit): the script reads the live values
+    from the duration_minutes / stop_updating_scoreboard / stop_answers_after
+    inputs and re-renders on every input event.
+  * Static mode (contest dashboard rules banner): set `timeline_static` plus
+    `timeline_duration` / `timeline_freeze` / `timeline_blind` before the
+    include; the values travel as data attributes and the script renders once.
+#}
+<div id="timing-timeline-wrapper"
+     class="{{ timeline_margin_class | default("mb-3") }}"
+     {% if timeline_static is defined and timeline_static %} data-duration-minutes="{{ timeline_duration }}" data-freeze-minutes="{{ timeline_freeze }}" data-blind-minutes="{{ timeline_blind }}" {% endif %}>
     <p class="form-text mb-1">Contest timing overview</p>
     <div class="progress timing-timeline-bar">
         <div class="progress-bar timeline-seg-fallback timing-timeline-seg-full"

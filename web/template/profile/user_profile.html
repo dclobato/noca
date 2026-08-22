@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
 {% from "_macros.html" import render_icon %}
 {% block title_suffix %}- Profile{% endblock %}
@@ -11,19 +18,14 @@
     <div class="container py-5">
         <div class="row justify-content-center">
             <div class="col-md-10 col-lg-8">
-                <div class="mb-4">
-                    {% if is_uberadmin %}
+                {% if is_uberadmin %}
+                    <div class="mb-4">
                         <a href="{{ request.url_for("uberadmin_dashboard") }}"
                            class="btn btn-outline-secondary btn-sm">
                             {{ render_icon(icon="arrow_back") }} Back to dashboard
                         </a>
-                    {% elif contest %}
-                        <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}"
-                           class="btn btn-outline-secondary btn-sm">
-                            {{ render_icon(icon="arrow_back") }} Back to dashboard
-                        </a>
-                    {% endif %}
-                </div>
+                    </div>
+                {% endif %}
                 <!-- ================================================================
            Profile card: photo (left) + identity info (right)
            UberAdmin has no photo, so layout collapses to single column.
@@ -213,44 +215,9 @@
            Crop modal
            ================================================================ -->
                 {% if not is_uberadmin %}
-                    <div class="modal fade"
-                         id="cropModal"
-                         tabindex="-1"
-                         aria-labelledby="cropModalLabel"
-                         aria-hidden="true">
-                        <div class="modal-dialog modal-lg">
-                            <div class="modal-content">
-                                <div class="modal-header">
-                                    <h5 class="modal-title" id="cropModalLabel">Adjust Photo</h5>
-                                    <button type="button"
-                                            class="btn-close"
-                                            data-bs-dismiss="modal"
-                                            aria-label="Close"></button>
-                                </div>
-                                <div class="modal-body">
-                                    <div class="row g-3">
-                                        <div class="col-md-8">
-                                            <img id="cropImage" class="noca-crop-img" alt="Image to crop">
-                                        </div>
-                                        <div class="col-md-4">
-                                            <p class="fw-semibold small mb-1">Preview</p>
-                                            {% if current_user.role == RoleEnum.TEAM.value %}
-                                                <div id="cropPreview" class="noca-crop-preview-team"></div>
-                                            {% else %}
-                                                <div id="cropPreview" class="noca-crop-preview-default"></div>
-                                            {% endif %}
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button"
-                                            class="btn btn-secondary btn-sm"
-                                            data-bs-dismiss="modal">Cancel</button>
-                                    <button type="button" class="btn btn-primary btn-sm" id="cropConfirm">Confirm crop</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    {% with crop_role = current_user.role %}
+                        {% include "_partials/crop_modal.html" %}
+                    {% endwith %}
                     <!-- Remove photo confirmation modal -->
                     {% if user_media and user_media.com_foto %}
                         <div class="modal fade"

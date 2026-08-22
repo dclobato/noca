@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -20,7 +20,6 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
-from shared.enumerations import RoleEnum
 from web.dependencies import ContestContext, get_contest_context
 from web.models.contest import Contest
 from web.models.site import Site
@@ -28,6 +27,7 @@ from web.models.users import UberAdmin, User
 from web.routes import contest_score
 from web.services.scoreboard import ScoreboardSnapshot, TeamStanding
 from web.services.site_service import normalize_site_name_key
+from web.template_globals import template_globals
 
 
 def _build_app(ctx: ContestContext) -> FastAPI:
@@ -42,8 +42,7 @@ def _build_app(ctx: ContestContext) -> FastAPI:
             "app_version": "test",
             "brand_name": "NOCA",
             "healthmon_url": "",
-            "RoleEnum": RoleEnum,
-            "role_labels": {role.value: role.value.title() for role in RoleEnum},
+            **template_globals(),
         }
     )
     templates.env.filters["utc_to_local"] = lambda value, _timezone: value
@@ -211,7 +210,7 @@ async def test_unassigned_user_may_select_any_site_and_keeps_global_rank(
     assert "My site only" not in html
     assert team_user.fullname not in html
     assert another_team_user.fullname in html
-    assert '<td class="text-center fw-semibold">5</td>' in html
+    assert '<td class="text-center fw-semibold noca-tabular-nums">5</td>' in html
 
 
 @pytest.mark.asyncio

@@ -1,24 +1,37 @@
 // NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+// Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
+// Renders the "Contest timing overview" bar in two modes:
+//
+// * Form mode (contest create/edit): values come live from the
+//   duration_minutes / stop_updating_scoreboard / stop_answers_after inputs,
+//   re-rendered on every input event.
+// * Static mode (contest dashboard rules banner): the form inputs are absent
+//   and the values arrive as data attributes on #timing-timeline-wrapper, so
+//   the bar renders once on load.
+
 (function () {
     'use strict';
 
+    var WRAPPER = document.getElementById('timing-timeline-wrapper');
     var SEG_FALLBACK = document.getElementById('timeline-seg-fallback');
     var SEG_LIVE = document.getElementById('timeline-seg-live');
     var SEG_FROZEN = document.getElementById('timeline-seg-frozen');
     var SEG_SILENCE = document.getElementById('timeline-seg-silence');
 
-    if (!SEG_FALLBACK || !SEG_LIVE || !SEG_FROZEN || !SEG_SILENCE) return;
+    if (!WRAPPER || !SEG_FALLBACK || !SEG_LIVE || !SEG_FROZEN || !SEG_SILENCE) return;
 
-    function getInt(id) {
+    function sanitize(value) {
+        return isNaN(value) || value <= 0 ? NaN : value;
+    }
+
+    function getInt(id, dataAttr) {
         var el = document.getElementById(id);
-        if (!el) return NaN;
-        var v = parseInt(el.value, 10);
-        return isNaN(v) || v <= 0 ? NaN : v;
+        if (el) return sanitize(parseInt(el.value, 10));
+        return sanitize(parseInt(WRAPPER.getAttribute(dataAttr), 10));
     }
 
     function setSegment(segEl, pct) {
@@ -54,9 +67,9 @@
     }
 
     function update() {
-        var duration = getInt('duration_minutes');
-        var stopScoreboard = getInt('stop_updating_scoreboard');
-        var stopAnswers = getInt('stop_answers_after');
+        var duration = getInt('duration_minutes', 'data-duration-minutes');
+        var stopScoreboard = getInt('stop_updating_scoreboard', 'data-freeze-minutes');
+        var stopAnswers = getInt('stop_answers_after', 'data-blind-minutes');
 
         var invalid =
             isNaN(duration) ||

@@ -23,8 +23,9 @@ three fixed bands.
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/favicon.ico` | Returns app's favicon with public cache headers. |
-| `GET` | `/` | Public page listing all active running and upcoming contests, each with a link to its login page. Past contests whose scoreboard has been released also link to their public problem-set archive. No authentication required. |
-| `GET` | `/contests` | Public page listing all active running and upcoming contests, each with a link to its login page. No authentication required. |
+| `GET` | `/` | Public gateway page listing running, upcoming, and (capped to the `PAST_CONTESTS_PREVIEW_LIMIT` most recent) past contests, each with a link to its login page. Past contests whose problem set has been released after the contest ended also link to their public problem-set archive. A "View all" link to `/contests/past` appears whenever more past contests exist than the preview cap. No authentication required. |
+| `GET` | `/contests` | Alias for `/`, same `contests_list` handler and template. No authentication required. |
+| `GET` | `/contests/past` | Public page listing every past contest, most recently ended first, with no cap. Same card layout and problem-set link as `/`. No authentication required. |
 
 ---
 
@@ -32,7 +33,7 @@ three fixed bands.
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `GET` | `/problem-set/{slug}.zip` | Downloads one ZIP bundling every problem of the contest as its full version-2 package (statement, all test cases, validator source, and `editorial.md` when set) plus a top-level `index.json` manifest. Public: no authentication required, but answers `404` unless the contest is active, over, and has `release_scoreboard_after_end` set; `409` when a problem's stored files are missing. When `NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH` is configured, the archive is built once per contest and served from that on-disk cache (integrity-verified via a `.sha256` sidecar); otherwise every download rebuilds it. |
+| `GET` | `/problem-set/{slug}.zip` | Downloads one ZIP bundling every problem of the contest as its full version-2 package (statement, all test cases, validator source, and `editorial.md` when set) plus a top-level `index.json` manifest. Public: no authentication required, but answers `404` unless the contest is active, over, and has `release_problem_set_after_end` set (independent of the scoreboard release; `is_past` is not, and keeps the materials private while the contest runs); `409` when a problem's stored files are missing. When `NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH` is configured, the archive is built once per contest and served from that on-disk cache (integrity-verified via a `.sha256` sidecar); otherwise every download rebuilds it. |
 
 ---
 
@@ -51,15 +52,16 @@ trusted local health-check CIDRs bypass this limit.
 ## Authentication (`web/routes/auth.py`)
 
 All non-public Web routes require a valid `noca_access_token` by default. The
-public allowlist is `/`, `/contests`, `/login`, `/c/{slug}/login`, `/health`,
-`/favicon.ico`, `/assets/*`, `/static/*`, and `/problem-set/*`. Route-local
-role checks remain the authoritative authorization layer after authentication.
+public allowlist is `/`, `/contests`, `/contests/past`, `/login`,
+`/c/{slug}/login`, `/health`, `/favicon.ico`, `/assets/*`, `/static/*`, and
+`/problem-set/*`. Route-local role checks remain the authoritative
+authorization layer after authentication.
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `GET` | `/login` | Renders the login form. Accepts optional `next_url` (redirect after login, default `/uberadmin`) and `msg` query params. |
-| `POST` | `/login` | Authenticates an UberAdmin. Validates `identifier` + `password` form fields, applies auth throttling keyed by ASGI client IP and hashed identifier, sets `noca_access_token` httponly cookie on success, and redirects to `next_url`. Lockouts return `429` with `Retry-After`. |
-| `GET` | `/logout` | Clears the `noca_access_token` cookie and redirects with a confirmation message. Contest-scoped users are redirected to `/c/{slug}/login`; other cases fall back to `/login`. |
+| `GET` | `/login` | Renders the username-only UberAdmin login form. Accepts an optional same-origin path in `next_url`; missing or unsafe targets use `/uberadmin`. |
+| `POST` | `/login` | Authenticates an UberAdmin by username and password. Missing or invalid credentials re-render the form with an accessible inline error and retain the non-secret username. Auth throttling is keyed by ASGI client IP and hashed username. Successful login sets the `noca_access_token` HTTP-only cookie and redirects to the safe same-origin `next_url` or `/uberadmin`. Lockouts return `429` with `Retry-After` and show the retry interval. |
+| `POST` | `/logout` | Clears the `noca_access_token` cookie and redirects with a confirmation message. Contest-scoped users are redirected to `/c/{slug}/login`; other cases fall back to `/login`. The navbar exposes this POST form inside the account menu; it is never a link because a `GET` logout is prefetchable by browsers and extensions. |
 | `GET` | `/c/{slug}/login` | Renders the contest login form for the given contest slug. Returns 404 if slug is not found or the contest is inactive. |
 | `POST` | `/c/{slug}/login` | Authenticates a contest user for an active contest. Validates `identifier` + `password` form fields, applies auth throttling keyed by ASGI client IP and hashed identifier, sets `noca_access_token` cookie on success, and redirects to `/c/{slug}`. Lockouts return `429` with `Retry-After`. |
 
@@ -81,8 +83,8 @@ All routes in this group require a valid UberAdmin JWT (`noca_access_token` cook
 | `POST` | `/uberadmin/uberadmins/{uberadmin_id}/edit` | Updates an UberAdmin after validating full name, email uniqueness, and optional password policy. |
 | `POST` | `/uberadmin/uberadmins/{uberadmin_id}/toggle` | Enables or disables an UberAdmin account. Self-disable is blocked. Disabled accounts cannot log in or continue authenticated requests. |
 | `POST` | `/uberadmin/uberadmins/credentials.json` | Returns the given `username`/`password` form fields as a downloadable JSON file (`noca-credentials-<username>.json`). Intended for use immediately after UberAdmin creation. |
-| `GET` | `/uberadmin/contests/new` | Renders the Create Contest form (contest metadata + allowed-language checkboxes + initial admin credentials). Loads all active languages from DB to populate the checkbox panel. |
-| `POST` | `/uberadmin/contests/new` | Validates form (including `language_ids[]` — at least one required), atomically creates a Contest, its initial admin User (role: admin), and `contest_languages` rows, and re-renders the page with the generated credentials on success or an error message on failure. Owner email and password are optional; a blank password triggers auto-generation. Includes `allow_print_requests` metadata (default enabled). Contest creation copy now makes clear that allowed languages remain editable until contest start. |
+| `GET` | `/uberadmin/contests/new` | Renders the Create Contest form (contest metadata + allowed-language checkboxes + initial admin credentials). Loads all active languages from DB to populate the checkbox panel. When the user continues to **Timing & Rules**, the wizard sets the scoreboard cutoff to 20 minutes before the entered duration and the answer cutoff to 10 minutes before it. Includes a Publication section whose `release_problem_set_after_end` radios default to Keep private. |
+| `POST` | `/uberadmin/contests/new` | Validates form (including `language_ids[]` — at least one required), atomically creates a Contest, its initial admin User (role: admin), and `contest_languages` rows. Success renders a dedicated completion page with the generated credentials, download/email actions, and a return-to-dashboard action; failures return to the populated wizard with an error message. The contest website URL, owner email, and owner password are optional; a blank password triggers auto-generation. Includes `allow_print_requests` metadata (default enabled). Before submission, the review dialog summarizes identification, schedule, timing, rules, publication, languages, and owner data. Accepts the `release_problem_set_after_end` (`yes`/`no`) metadata field from the form's Publication section; an absent field means `no`, so a contest created without an explicit choice withholds its public problem-set archive. |
 | `GET` | `/uberadmin/contests/inactive` | Lists inactive contests for UberAdmins. Each card provides export and permanent-removal actions. Removal opens a password-confirmation modal. |
 | `POST` | `/uberadmin/contests/{contest_id}/deactivate` | Marks an active past contest inactive and redirects back to `/uberadmin`. Running, upcoming, missing, and already inactive contests are left unchanged. |
 | `POST` | `/uberadmin/contests/{contest_id}/remove` | Permanently removes an inactive contest after reconfirming the current UberAdmin password. The synchronous operation requires verified Valkey cleanup, quarantines problem files until the PostgreSQL transaction commits, and redirects to the inactive list with a success or danger flash. Active, missing, and duplicate targets are harmless failures. Route lives in `web/routes/uberadmin_contest_removal.py`. |
@@ -101,29 +103,51 @@ Routes require a valid contest-scoped JWT or UberAdmin JWT (`noca_access_token` 
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `GET` | `/c/{slug}` | Renders the contest user dashboard with role-appropriate module cards. Returns 404 for inactive contests. |
-| `GET` | `/c/{slug}/clock` | Returns a JSON contest clock snapshot for browser polling every 60 seconds. Payload: `{server_now_ms, start_ms, end_ms, state}`. Accepts both contest-scoped and UberAdmin tokens. |
+| `GET` | `/c/{slug}` | Renders the contest user dashboard with role-appropriate module cards. The Clarifications counter shows unanswered questions to judges/admins and unread answers to teams. Returns 404 for inactive contests. |
+| `GET` | `/c/{slug}/clock` | Returns a JSON contest clock snapshot for browser polling every 60 seconds. Payload: `{server_now_ms, start_ms, end_ms, freeze_ms, blind_ms, state}`; all times are absolute epoch milliseconds. `state` is `upcoming`, `running`, `frozen`, `silence`, or `past`, and the browser derives phase changes locally between polls from the four boundary fields. Accepts both contest-scoped and UberAdmin tokens. |
 
 ---
 
 ## Contest Modules
 
-All routes require contest-scoped or UberAdmin auth. Invalid or missing auth is currently redirected to `/contests`. Insufficient role returns 403.
+All routes require contest-scoped or UberAdmin auth. Invalid or missing auth is
+currently redirected to `/contests`. When a logged-in actor reaches a forbidden
+feature, the Web exception handler redirects them to `/c/{slug}/` or, for an
+UberAdmin, `/uberadmin/`, and shows a danger alert naming the role that was
+denied. Standard requests receive a `303`; HTMX requests receive an
+`HX-Redirect` response so the browser performs the same full-page navigation.
 
 ### Access Matrix
 
-`always` = accessible regardless of contest state; `after-start` = only when `contest.is_running or contest.is_past`; `—` = no access (not in dashboard).
+**The matrix lives in [`web/access_matrix/access.py`](../access_matrix/access.py)** —
+`ACCESS_AREAS`, one `AccessArea` per contest module, each declaring an `AccessRule`
+for every actor. That module is the source of truth; this document points at it
+rather than restating it, because a markdown copy is exactly what used to drift.
+
+It is not documentation that happens to be in Python.
+`tests/web/test_access_matrix.py` calls the real route gates —
+`contest_score._access_blocked`, `contest_problems._check_access`, the `_ALLOWED`
+tuples in the clarification and runs helpers, and `_ensure_task_access` composed
+with `contest_tasks_helpers._access_blocked` — for a real actor of every role, in
+both a running and a not-yet-started contest, and fails when an answer disagrees
+with a declared cell. So the declaration cannot quietly go stale: change the
+guard and the test tells you which cell to update.
+
+`always` = accessible regardless of contest state; `after-start` = only when
+`contest.is_running or contest.is_past`; `—` = no access (not in dashboard).
+
+The declared matrix gives the **chief judge its own row**, which the table here
+used to fold into a parenthetical on the JUDGE/Tasks cell ("chief judge only,
+after-start"). That phrasing reads as though a judge reaches Tasks under a
+restriction; a plain judge reaches Tasks not at all. The two rows now each say
+one thing, and `can_view_tasks` is what proves it.
+
+Contest admins granting a role see this matrix rendered on the Add User form —
+`web/template/admin/users/_role_reference.html`, which reads it through the
+`role_matrix` template global.
 
 For *what each role may do* inside a page — answer a clarification, confirm a verdict,
 handle a task — see [Permission Model](#permission-model) below.
-
-| Role | Scoreboard | Problems | Clarifications | Runs | Tasks |
-|------|-----------|----------|----------------|------|-------|
-| **ADMIN / UBERADMIN** | always | always | always | always | always |
-| **JUDGE** | always | always | always | after-start | chief judge only, after-start |
-| **STAFF** | after-start | after-start | — | — | after-start |
-| **TEAM** | after-start | after-start | after-start | after-start | after-start |
-| **USER** | after-start | — | — | — | — |
 
 | Method | URL | Allowed Roles | File |
 |--------|-----|---------------|------|
@@ -135,7 +159,7 @@ handle a task — see [Permission Model](#permission-model) below.
 | `GET` | `/c/{slug}/problems/{problem_label}/export` | ua, a, j, s, t (after-start for s/t) | `contest_problems.py` |
 | `GET` | `/c/{slug}/clarifications/` | ua, a, j, t | `contest_clarifications.py` |
 | `GET` | `/c/{slug}/clarifications/list` | ua, a, j, t | `contest_clarifications.py` |
-| `POST` | `/c/{slug}/clarifications/new` | t | `contest_clarifications_submit.py` |
+| `POST` | `/c/{slug}/clarifications/new` | t (running only) | `contest_clarifications_submit.py` |
 | `POST` | `/c/{slug}/clarifications/acquire` | j, a | `contest_clarifications_judge.py` |
 | `GET`/`POST` | `/c/{slug}/clarifications/answer` | j, a | `contest_clarifications_judge.py` |
 | `GET` | `/c/{slug}/runs/` | ua, a, j, t (after-start for j/t) | `contest_runs.py` |
@@ -205,7 +229,7 @@ Contestant-facing problem pages. Access is role- and state-dependent:
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `GET` | `/c/{slug}/problems/` | Problem list table: label, title (linked to detail), total TC count, public TC count, download icon. |
+| `GET` | `/c/{slug}/problems/` | Problem card grid (one card per problem: balloon, label, title linked to detail, per-problem solving rate, download action for public materials). No admin-only test-case counts. A TEAM viewer additionally sees their own status per problem (Accepted/Judging/Attempted/Not attempted) as a card accent, derived from the same `ScoreboardSnapshot` the scoreboard uses so freeze visibility rules are inherited automatically. For a TEAM viewer of a running contest the grid also loads `htmx.min.js` and `problems-sse.js`, subscribing to the Runs page's `/c/{slug}/runs/events` SSE stream to live-refresh the grid and fire a confetti celebration on a newly-solved problem. |
 | `GET` | `/c/{slug}/problems/{problem_label}` | Problem detail: embedded PDF statement, side-by-side public test cases in monospaced preformatted text, back-to-list link. `problem_label` is case-insensitive (e.g. `A`, `B`, `AA`). Returns 404 if label not found. |
 | `GET` | `/c/{slug}/problems/{problem_label}/statement` | Serves the problem statement PDF inline. Returns 404 if PDF not uploaded yet. |
 | `GET` | `/c/{slug}/problems/{problem_label}/print` | Standalone print-friendly problem page (simple navbar + footer, no sidebar): statement, samples (test cases or sample interactions), and resource limits. PDF-statement problems link to the PDF instead of embedding it. The user prints via the browser (navbar Print button or Ctrl/Cmd+P). |
@@ -220,16 +244,35 @@ Routes require a valid contest-scoped JWT or UberAdmin JWT. TEAM role is enforce
 - `j`: all clarifications (including hidden); no judge/team identification; acquire and answer workflow
 - `t`: own + public, never hidden; auto-refresh via HTMX every 60 s
 
+Timing is role-scoped too:
+
+| Role | Viewing clarifications | Requesting clarifications | Publishing announcements |
+|------|------------------------|---------------------------|--------------------------|
+| `ua` | any lifecycle state | never | never (authorship is a `users` FK) |
+| `a` | any lifecycle state | never | any lifecycle state |
+| `j` (chief judge) | any lifecycle state | never | any lifecycle state |
+| `j` (plain) | any lifecycle state | never | while running only |
+| `t` | any lifecycle state | while running only | never |
+| `s`, `u` | no access (dashboard redirect) | never | never |
+
+Teams can see their own and public clarifications before the contest starts,
+including announcements published during contest preparation. The request form
+is hidden until the contest is running, and the service rejects direct requests
+outside that window. Every route resolves the contest through
+`get_contest_by_slug()`, which returns 404 for an inactive (archived) contest,
+so no clarification route is reachable for one.
+
 Route ownership is split across `contest_clarifications.py`,
 `contest_clarifications_submit.py`, `contest_clarifications_judge.py`, and
 `contest_clarifications_admin.py`.
 
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
-| `GET` | `/c/{slug}/clarifications/` | ua, a, j, t | Full page. Shows clarification list and (team only) a submission form. `sort_by` orders Time or Problem in SQL and defaults to newest first. Flash messages shown via `get_flashed_messages`. Loads `htmx.min.js`, `highlight-row.js`, `refresh-timer.js`, and `clarifications.js`. |
+| `GET` | `/c/{slug}/clarifications/` | ua, a, j, t | Full page. Shows the clarification list in every contest lifecycle state and, for teams while the contest is running, a submission form. `sort_by` orders Time or Problem in SQL and defaults to newest first. Flash messages shown via `get_flashed_messages`. Loads `htmx.min.js`, `highlight-row.js`, `refresh-timer.js`, and `clarifications.js`. |
 | `GET` | `/c/{slug}/clarifications/list` | ua, a, j, t | HTMX partial. Returns `#clarifications-list-wrapper` with the clarification table in the requested server-side `sort_by` order. Polled every 60 s by team browsers. |
-| `POST` | `/c/{slug}/clarifications/new` | t | Submit a new clarification. Form fields: `problem_id`, `question` (max 1024 chars). Collects all validation errors at once. On success redirects to `/c/{slug}/clarifications/#{id}` (303). On error flashes all errors and redirects (303). Implemented in `contest_clarifications_submit.py`. |
-| `POST` | `/c/{slug}/clarifications/announcement` | a, j | Create a public announcement. Form fields: `problem_id`, `announcement` (max 1024 chars). Creates a clarification with `question="Announcement"`, `is_contest_public=True`, already answered. Contest must be running. On success flashes and redirects to `/c/{slug}/clarifications/#{id}` (303). On error flashes and redirects (303). Implemented in `contest_clarifications_submit.py`. |
+| `POST` | `/c/{slug}/clarifications/answers/read` | t | Marks only the supplied `clarification_ids` that belong to the requesting team and were rendered as unread answers. Returns 204. Called by `clarifications.js` after the full page or HTMX partial displays highlighted unread rows. |
+| `POST` | `/c/{slug}/clarifications/new` | t (running only) | Submit a new clarification. Form fields: `problem_id`, `question` (max 1024 chars). `can_request_clarification()` gates both the form and the service to the running contest window. On success redirects to `/c/{slug}/clarifications/#{id}` (303). On error flashes and redirects (303). Implemented in `contest_clarifications_submit.py`. |
+| `POST` | `/c/{slug}/clarifications/announcement` | a, j | Create a public announcement. Form fields: `problem_id`, `announcement` (max 1024 chars). Creates a clarification with `question="Announcement"`, `is_contest_public=True`, already answered. A JUDGE may publish only while the contest is running; a contest ADMIN and the contest's chief judge may publish at any point in the contest lifecycle (before the start and after the end included). The form is rendered from the `can_create_announcement` context flag and the same predicate is the authoritative guard in the service. On success flashes and redirects to `/c/{slug}/clarifications/#{id}` (303). On error flashes and redirects (303). Implemented in `contest_clarifications_submit.py`. |
 | `POST` | `/c/{slug}/clarifications/acquire` | j, a | Acquire a Valkey-backed clarification lock so a judge or admin may answer it. Form field: `clarification_id`. On success redirects to `GET /answer?id={id}` (303). If Valkey is unavailable, flashes a degraded-mode warning and redirects to the answer form anyway. Implemented in `contest_clarifications_judge.py`. |
 | `GET` | `/c/{slug}/clarifications/answer` | j, a | Render the answer form for the clarification identified by `?id=`. The form is blind for every role: it shows the problem label, the question, and the answer field, never the asking team. When Valkey is available, flashes and redirects to `/#{id}` if the caller does not hold the lock. In degraded mode, the form remains available and shows a warning banner. Implemented in `contest_clarifications_judge.py`. |
 | `POST` | `/c/{slug}/clarifications/answer` | j, a | Submit an answer or release a lock. Form fields: `clarification_id`, `answer` (max 1024 chars), `is_contest_public` (checkbox), `action` (`submit`/`release`). On success flashes and redirects to `/#{id}` (303). Validation errors re-render the form (422). Release is available only while the lock service is up. Implemented in `contest_clarifications_judge.py`. |
@@ -284,7 +327,7 @@ and `contest_runs_events.py`.
 | `GET` | `/c/{slug}/runs/` | ua, a, j, t | Full page. TEAM sees a submission form while the contest is running, plus their own submissions. Non-TEAM sees all contest submissions. `filter_problem_id`, `filter_autojudge`, `filter_final_verdict`, and privileged-only `filter_team_id` narrow the SQL query. `sort_by` orders Time or Problem in SQL and defaults to newest first. The optional `queued_submission` query parameter identifies the success flash for a new submission; the page dismisses that flash after its final-verdict event or after five seconds. Loads `htmx.min.js`, `refresh-timer.js`, and `runs-sse.js` while live updates are available. |
 | `GET` | `/c/{slug}/runs/list` | ua, a, j, t | HTMX partial. Applies the same server-side filters and ordering as the full page, then returns `#runs-list-wrapper`. Filter changes trigger this endpoint, and live refreshes retain the active query parameters. |
 | `GET` | `/c/{slug}/runs/language-info` | ua, a, j, t | HTMX partial. Returns compile and run command info for `?language_id=`. Used by the submission form language dropdown. Returns empty fragment for unknown/empty language_id. |
-| `GET` | `/c/{slug}/runs/events` | ua, a, j, t | SSE stream (`text/event-stream`). Subscribes to verdict events and emits contest-scoped payloads plus heartbeat pings. Live-visibility payloads include the submission ID so the page can associate a verdict with the queued-submission flash. Frozen-scoreboard payloads remain fully redacted. Clients trigger an HTMX refresh of the runs list on each message. Implemented in `contest_runs_events.py`. |
+| `GET` | `/c/{slug}/runs/events` | ua, a, j, t | SSE stream (`text/event-stream`). Subscribes to verdict events and emits contest-scoped payloads plus heartbeat pings. Live-visibility payloads include the submission ID so the page can associate a verdict with the queued-submission flash. Frozen-scoreboard payloads remain fully redacted. Clients trigger an HTMX refresh of the runs list on each message. Also consumed by `/c/{slug}/problems/` for a TEAM viewer of a running contest (`problems-sse.js`): every message there triggers an HTMX refresh of the problem card grid, and a card whose `data-viewer-status` newly reads `solved` after that refresh fires a confetti celebration — the payload itself is never trusted for this, only the server-rendered status after the swap, so a scoreboard freeze cannot leak or fake a solve. Implemented in `contest_runs_events.py`. |
 | `POST` | `/c/{slug}/runs/submit` | t | Submit a solution. Form fields: `problem_id`, `language_id`, `source_file` (multipart). Validates: contest running, non-empty selections, problem belongs to contest, language is active, non-empty file, file size within `contest.max_problem_file_size_bytes` (0 = unlimited). Computes SHA-256 for duplicate detection. On duplicate flashes "Duplicated submission" (danger). On success creates `Submission` + `SubmissionJudgment` (QUEUED), commits, and asks Valkey runtime to enqueue `JudgeJob`. If Valkey is temporarily unavailable, enqueue is buffered in-memory and replayed after reconnect. Redirects to `GET /runs?queued_submission={submission_id}` (303) with a success flash. Implemented in `contest_runs_review.py`. |
 | `POST` | `/c/{slug}/runs/{submission_id}/override` | chief judge, admin | Override the effective final verdict of a DONE submission. Form fields: `new_verdict`, `reason` (10-1000 chars). On success creates a `VerdictOverride`, commits, publishes a `VerdictEvent` to `judge:results`, flashes success, and redirects to the submission review page. Implemented in `contest_runs_review.py`. |
 | `GET` | `/c/{slug}/runs/{submission_id}/judging-history` | ua, a, j, s | Returns JSON `JudgingHistoryResponse` for one submission. Includes judgment creation and verdict-change audit rows plus explicit override rows; excludes status-only transitions. TEAM users are forbidden. Implemented in `contest_runs_events.py`. |
@@ -304,9 +347,10 @@ before, during, and after the contest. Visibility is role-scoped:
 - `j`: only runs they triggered themselves
 - `ua`/`a`: every run in the contest
 
-A judge opening another actor's `run_id` gets **404, not 403**, so a run's existence does
-not leak. JUDGE, ADMIN, and UBERADMIN are trusted with this contest's test data, so
-diagnostics are shown without redaction.
+A judge opening another actor's `run_id` gets **404, not a forbidden-feature
+redirect**, so a run's existence does not leak. JUDGE, ADMIN, and UBERADMIN are
+trusted with this contest's test data, so diagnostics are shown without
+redaction.
 
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
@@ -335,7 +379,11 @@ are anonymized (`build_contest_live_feed_snapshot` in `web/services/live_feed_se
 
 ## Contest Administration (`web/routes/contest_admin*.py`)
 
-Routes require either a valid UberAdmin JWT **or** a contest JWT with role `a` (admin). Uberadmins are authenticated via their global token and bypass contest-scoped auth. Non-admin contest roles return 403. Invalid or missing auth is currently redirected to `/contests`.
+Routes require either a valid UberAdmin JWT **or** a contest JWT with role `a`
+(admin). Uberadmins are authenticated via their global token and bypass
+contest-scoped auth. Non-admin contest roles are redirected to their contest
+dashboard with a danger alert. Invalid or missing auth is currently redirected
+to `/contests`.
 
 Metadata edit routes currently allow any authenticated contest admin or UberAdmin. When the contest is running or finished, only timing fields remain editable.
 
@@ -350,10 +398,11 @@ Route ownership is split across `contest_admin.py`,
 | `GET` | `/c/{slug}/admin/counters` | ua, a | Renders contest-scoped operational counters (runs, tasks, clarifications, announcements, and Valkey queue sizes). Implemented in `contest_admin.py`. |
 | `POST` | `/c/{slug}/admin/chief-judge` | ua, a | Assign or remove the contest chief judge. Form fields: `action=assign|remove`, optional `judge_id`. Removal is blocked once that chief judge has executed any verdict override in the contest. Implemented in `contest_admin.py`. |
 | `GET` | `/c/{slug}/admin/metadata` | ua, a | Renders the metadata edit form pre-filled with current contest values, including the editable contest site list with per-site user counts and the allowed-language selector while the contest is still upcoming. Fields are partially disabled when the contest is running or past; `allow_print_requests` remains editable as an explicit exception. Implemented in `contest_admin_metadata.py`. |
-| `POST` | `/c/{slug}/admin/metadata` | ua, a | Validates and saves contest metadata changes, the submitted site list, and the allowed contest-language set while the contest is still upcoming. Site names are case-insensitively unique, at least one site must remain, and a site cannot be removed while any TEAM or STAFF user is assigned to it. Removing a language also deletes stale per-language problem overrides for that contest; newly added languages rely on fallback limits until explicitly configured. When locked (running/past), timing fields stay editable and `allow_print_requests` also stays editable as an explicit exception, but allowed languages no longer change. Re-renders with success flash or validation errors. Implemented in `contest_admin_metadata.py`. |
+| `POST` | `/c/{slug}/admin/metadata` | ua, a | Validates and saves contest metadata changes, the submitted site list, and the allowed contest-language set while the contest is still upcoming. The contest website URL is optional. Site names are case-insensitively unique, at least one site must remain, and a site cannot be removed while any TEAM or STAFF user is assigned to it. Removing a language also deletes stale per-language problem overrides for that contest; newly added languages rely on fallback limits until explicitly configured. When locked (running/past), timing fields stay editable and `allow_print_requests` also stays editable as an explicit exception, but allowed languages no longer change. Re-renders with success flash or validation errors. Implemented in `contest_admin_metadata.py`. |
 | `POST` | `/c/{slug}/admin/start-now` | ua, a | Requires the authenticated admin/uberadmin password confirmation, then sets `contest.start_time` to the current UTC time, starting the contest immediately. No-op if the contest is already running or past. Refuses to start when the contest has no sites. Redirects to `/c/{slug}` (303). Implemented in `contest_admin.py`. |
 | `POST` | `/c/{slug}/admin/end-now` | ua, a | Requires the authenticated admin/uberadmin password confirmation, then ends a running contest by shortening `duration_minutes` to the smallest whole-minute value that does not end in the past. Dependent timing fields (`stop_updating_scoreboard`, `stop_answers_after`, and timeout values) are clamped as needed to preserve contest timing invariants. No-op if the contest is not running. Redirects to `/c/{slug}` (303). Implemented in `contest_admin.py`. |
 | `POST` | `/c/{slug}/admin/release-scoreboard` | ua, a | Releases the final scoreboard for an ended contest. Sets `release_scoreboard_after_end=True`, computes and permanently caches the final standings (all frozen/pending results revealed, no TTL), then commits. Flashes danger if contest has not ended; flashes warning if already released. Redirects to admin dashboard (303). Implemented in `contest_admin.py`. |
+| `POST` | `/c/{slug}/admin/release-problem-set` | ua, a | Publishes or withdraws the public problem-set download (`release=yes|no`, a strict string so a resubmitted form is idempotent). Sets `release_problem_set_after_end`, records an admin-audit event (`contest_problem_set_release` at warning severity / `contest_problem_set_revoke`), and commits. Publishing requires the contest to have ended -- arming a future release is done on the metadata form; withdrawing is always allowed, serving as Revoke after the end and Cancel on an armed contest. A withdrawal also discards the cached archive. Redirects to the admin dashboard (303). Implemented in `contest_admin.py`. |
 | `GET` | `/c/{slug}/admin/users` | ua, a | Renders the user management page, listing all enrolled members grouped by role (Admin, Judge, Staff, Team, User). Supports remove actions (disabled while contest is running) and shows an `Export Users` action that downloads import-compatible JSON. Implemented in `contest_admin_reports.py`. |
 | `GET` | `/c/{slug}/admin/import_export` | ua, a | Renders the Export/Import page with download actions for the Animeitor-compatible ZIP and the markdown contest timeline report. Implemented in `contest_admin_export.py`. |
 | `GET` | `/c/{slug}/admin/export-animeitor` | ua, a | Downloads a ZIP file compatible with the `maratona-animeitor` consumer. Contains `contest`, `runs`, `time`, `version`, and `icpc` files in the legacy BOCA webcast format. Returns 303 redirect with flash error if the contest has no teams or no problems. Implemented in `contest_admin_export.py`. |
@@ -370,7 +419,8 @@ operator credentials. Note that a reveal ceremony snapshots its cutoffs when it 
 created, so a change here reaches an already-stored ceremony only after the operator
 restarts it with **Start over** (`start-reveal` with `restart=true`). Same
 authorization as the rest of contest administration: a valid UberAdmin JWT **or** a
-contest JWT with role `a` (admin); other contest roles get 403. Reuses the shared
+contest JWT with role `a` (admin); other contest roles return to their contest
+dashboard with a danger alert. Reuses the shared
 `site_service` animator wrappers for the per-site cutoffs and
 `contest_service.update_contest_global_medals` for the contest-wide ones; both are thin
 wrappers over `shared.services.animator_access_service`. A freshly generated operator token
@@ -380,8 +430,8 @@ rendered.
 
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
-| `GET` | `/c/{slug}/admin/animator/` | ua, a | Renders the animator settings page with the `animator_enabled` toggle, one bulk medal-cutoff table, and one digest-free operator-credential table for site-scoped and contest-global secrets. Implemented in `contest_admin_animator.py`. |
-| `POST` | `/c/{slug}/admin/animator/settings` | ua, a | Updates `contests.animator_enabled` from the `animator_enabled` switch (`yes`/absent). Audited via `admin_action`. Redirects to the settings page (303). Implemented in `contest_admin_animator.py`. |
+| `GET` | `/c/{slug}/admin/animator/` | ua, a | Renders the `animator_enabled` toggle. The bulk medal-cutoff table and digest-free operator-credential table appear only while Animator support is enabled. Before disabling, the page warns that every site-scoped and contest-global operator credential will be permanently revoked and asks for confirmation. Implemented in `contest_admin_animator.py`. |
+| `POST` | `/c/{slug}/admin/animator/settings` | ua, a | Updates `contests.animator_enabled` from the `animator_enabled` switch (`yes`/absent). Disabling also revokes every operator credential owned by the contest in the same transaction. The toggle and revoked credential count are audited via `admin_action`. Redirects to the settings page (303). Implemented in `contest_admin_animator.py`. |
 | `POST` | `/c/{slug}/admin/animator/medals` | ua, a | Validates the contest-wide `global_gold_cutoff` / `global_silver_cutoff` / `global_bronze_cutoff` fields **and** the dynamic `gold_cutoff_{site_id}`, `silver_cutoff_{site_id}`, `bronze_cutoff_{site_id}` fields for every site before updating any row. The global triple is all-or-nothing: all three blank (or whitespace) clears it and disables global medals, a partially filled triple is rejected, and a form carrying none of the three fields leaves the stored values alone rather than clearing them. Invalid input flashes the scope-specific error and changes nothing; success commits the global row and all site rows in one transaction. Redirects (303). Implemented in `contest_admin_animator.py`. |
 | `POST` | `/c/{slug}/admin/animator/secrets` | ua, a | Creates a site-scoped or global operator credential from the `scope` and `label` fields and records the action in the shared admin audit log in the same transaction. Returns the `admin/animator_operators.html` HTMX partial with the plaintext token shown once and email-delivery feedback. Invalid input returns the same swappable partial with an inline error and HTTP 200. Implemented in `contest_admin_animator.py`. |
 | `POST` | `/c/{slug}/admin/animator/secrets/{secret_id}/revoke` | ua, a | Revokes a site or global credential owned by the contest, records the action in the shared admin audit log in the same transaction, and returns the updated HTMX operators partial. A missing or foreign `secret_id` changes nothing and returns the partial with an inline error and HTTP 200. Implemented in `contest_admin_animator.py`. |
@@ -398,7 +448,7 @@ helpers live in `contest_submissions_helpers.py`.
 
 | Method | URL | Allowed | Description |
 |--------|-----|---------|-------------|
-| `GET` | `/c/{slug}/submissions/download-all` | t | **Team only.** Downloads a ZIP archive containing all finalized submissions made by the current team during the contest. Only available after the contest has ended and the scoreboard has been released. Returns 403 if the contest is not past or the scoreboard is not released. Implemented in `contest_submissions.py`. |
+| `GET` | `/c/{slug}/submissions/download-all` | t | **Team only.** Downloads a ZIP archive containing all finalized submissions made by the current team during the contest. Only available after the contest has ended and the scoreboard has been released. Redirects to the contest dashboard with a danger alert if the contest is not past or the scoreboard is not released. Implemented in `contest_submissions.py`. |
 | `GET` | `/c/{slug}/submissions/{submission_id}/review` | ua, a, j | Unified submission review page. Left column: source code, compile log, judging history, per-test-case results (ua/a/j only). Right column: verdict confirmation status panel; confirmation form for judges and admins (with a decisive-confirmation modal for the chief judge and admins) when the active judgment is `DONE` and the contest is not `autojudge_only`; override form for the chief judge and admins once a final verdict exists; rejudge card below the confirmation panel for the chief judge, admins, and uberadmins. See [Permission Model](#permission-model). Implemented in `contest_submissions.py`. |
 | `POST` | `/c/{slug}/submissions/{submission_id}/acquire-review` | j, a | **Judges and admins.** Acquires a Valkey-backed review lock for the submission, allowing the holder to submit a verdict confirmation. Validates that the autojudge has finished (`DONE`), the caller hasn't already confirmed, and nobody else holds the lock. If Valkey is unavailable, flashes a degraded-mode warning and leaves confirmation available from the review page without lock controls. Implemented in `contest_submissions_review.py`. |
 | `POST` | `/c/{slug}/submissions/{submission_id}/release-review` | j (own), a, ua | Releases a review lock without submitting a confirmation. Judges may release only their own lock; ADMIN and UBERADMIN may release any lock. Release is available only while the lock service is up. Implemented in `contest_submissions_review.py`. |
@@ -432,7 +482,7 @@ Split across five files; shared helpers in
 
 | Method | URL | Description |
 |--------|-----|-------------|
-| `GET` | `/c/{slug}/admin/problems/{problem_id}/edit` | Tabbed definition form. Panes: **Metadata** (title, balloon colour, author, notes, categories), **Statement** (PDF or Markdown plus the illustration), and **Limits** (failover limits, profiling actions, per-language limits and repetitions). Judgment data uses separate pages. Every pane stays mounted and every control binds to one detached `#edit-form`, so switching tabs cannot lose input. Optional `?tab=` selects the opening pane; an unknown, retired (`content`), or strategy-inappropriate value falls back to Metadata rather than erroring. |
+| `GET` | `/c/{slug}/admin/problems/{problem_id}/edit` | Tabbed definition form. Panes: **Metadata** (title, balloon colour, author, notes, categories), **Statement** (PDF or Markdown plus the illustration), and **Limits** (failover limits, profiling actions, per-language limits and repetitions). Judgment data uses separate pages. Every pane stays mounted and every control binds to one detached `#edit-form`, so switching tabs cannot lose input. When the contest state forbids editing, the Metadata pane renders the balloon colour as a single read-only balloon of the problem's current colour instead of the full picker. Optional `?tab=` selects the opening pane; an unknown, retired (`content`), or strategy-inappropriate value falls back to Metadata rather than erroring. |
 | `POST` | `/c/{slug}/admin/problems/{problem_id}/edit` | Save the problem **definition** in one transaction: the scalar fields, the statement, the illustration and the categories. Test cases, the custom validator and sample interactions are not part of it -- they are authored on the judgment-data pages, and a field naming one is never read. The statement file is staged and swapped in as part of the commit, so a rejected save changes neither rows nor files. Validation failures return the HTML editor with 422, retain submitted values, open the pane that owns the first error, and associate scalar messages with the exact field. While the contest is running, only the Limits pane is accepted; successful running-contest limit saves may redirect to an affected-submissions review batch. |
 
 ### Judgment data (`web/routes/contest_admin_problem_judgment_tc.py`, `..._judgment_pages.py`)
@@ -523,7 +573,7 @@ Route ownership is split across `contest_admin_user.py`,
 | `GET` | `/c/{slug}/admin/users/export.json` | ua, a | Downloads all contest users as import-compatible JSON (`noca-users-{slug}.json`). Passwords are omitted; each row includes `username`, `fullname`, `role`, and optional `email`, `site`, `location`. Implemented in `contest_admin_user_edit.py`. |
 | `GET` | `/c/{slug}/admin/users/{user_id}/edit` | ua, a | Renders the Edit User form with identity fields plus photo and audio preview, upload, replacement, and removal controls. After the contest ends the profile fields (full name, site, location) and media mutations are disabled, but the email and password inputs stay editable. Returns 404 if the user is not found in this contest. Implemented in `contest_admin_user_edit.py`. |
 | `POST` | `/c/{slug}/admin/users/{user_id}/edit` | ua, a | Validates and updates a user's fullname, optional email, site, location, and optionally password. Role is shown as read-only and cannot be changed after creation. `TEAM` and `STAFF` users must keep a site assigned. After the contest ends the request takes a credentials-only path that applies just the email and password (via `update_user_credentials`) and ignores any posted profile fields. Redirects back to the edit page on success. Implemented in `contest_admin_user_edit.py`. |
-| `POST` | `/c/{slug}/admin/users/{user_id}/remove` | ua, a | Deletes a contest user. Returns 403 if the contest is running or finished. Returns 404 if the user is not found. Redirects to `/c/{slug}/admin/users` on success. Implemented in `contest_admin_user_edit.py`. |
+| `POST` | `/c/{slug}/admin/users/{user_id}/remove` | ua, a | Deletes a contest user. Redirects to the actor's dashboard with a danger alert if the contest is running or finished. Returns 404 if the user is not found. Redirects to `/c/{slug}/admin/users` on success. Implemented in `contest_admin_user_edit.py`. |
 
 ---
 
@@ -635,9 +685,21 @@ to uberadmins, admins, and judges — the same audience that may see test result
 
 ## Permission Model
 
-Who can do what, inside the contest module. The per-route `Allowed` columns above restate
-these rules one endpoint at a time; this section is the narrative source of truth. When
-they disagree, fix this one first.
+Who can do what, inside the contest module — and, just as importantly, where each kind of
+answer lives. Three layers, and conflating them is what let the old tables drift:
+
+- **Enforcement** is the only thing that grants or denies anything: the route gates,
+  the per-domain `permissions.py` predicates, and the `before_flush` hook in
+  `web/models/submission.py`. A permission change starts here.
+- **The cells** — which actor may do what, in which contest state — live in
+  [`web/access_matrix/`](../access_matrix/), as data. `tests/web/test_access_matrix.py`
+  calls the real predicates and route gates and fails when a cell disagrees with them.
+- **The narrative** — why the rules are shaped this way — is this section. It explains
+  the actors, the uberadmin attribution boundary, verdict authority, and the deliberate
+  redactions. It does not define cells.
+
+The per-route `Allowed` columns above are endpoint documentation, hand-written and not
+covered by that test. When a column disagrees with the code, fix the column.
 
 ### Actors
 
@@ -666,45 +728,44 @@ comes from this; changing it means a schema change, not a permission tweak.
 
 ### Capability matrix
 
-`✓` = allowed. `—` = denied. `own` = only on a resource the actor holds the lock for.
+**The matrix lives in [`web/access_matrix/capabilities.py`](../access_matrix/capabilities.py)** —
+`CAPABILITY_GROUPS`, four groups (Clarifications, Tasks, Verdicts, Administration)
+of `Capability` rows, each declaring a `CapabilityGrant` per actor. This document
+points at it rather than restating it.
 
-| Capability | UBERADMIN | ADMIN | CHIEF JUDGE | JUDGE | STAFF | TEAM |
-|------------|:---------:|:-----:|:-----------:|:-----:|:-----:|:----:|
-| **Clarifications** | | | | | | |
-| Ask a clarification | — | — | — | — | — | ✓ |
-| See who asked (list view) | ✓ | ✓ | — | — | — | n/a |
-| Acquire + answer | — | ✓ | ✓ | ✓ | — | — |
-| Force-release another's lock | ✓ | ✓ | — | — | — | — |
-| Hide / unhide | ✓ | ✓ | ✓ | ✓ | — | — |
-| Post an announcement | — | ✓ | ✓ | ✓ | — | — |
-| **Tasks** (balloons, print, SOS) | | | | | | |
-| Create (SOS / print) | — | — | — | — | — | ✓ |
-| See all tasks | ✓ | ✓ | ✓ | — | ✓ | own |
-| Acquire + finish | — | ✓ | ✓ | — | ✓ | — |
-| Download PRINT source | ✓ | ✓ | own | — | own | — |
-| Force-release another's lock | ✓ | ✓ | — | — | — | — |
-| **Verdicts** | | | | | | |
-| Submit a run | — | — | — | — | — | ✓ |
-| See the review page | ✓ | ✓ | ✓ | ✓ | — | — |
-| Acquire review + confirm | — | ✓ | ✓ | ✓ | — | — |
-| Confirmation is *decisive* | — | ✓ | ✓ | — | — | — |
-| Override a final verdict | — | ✓ | ✓ | — | — | — |
-| Rejudge a submission | ✓ | ✓ | ✓ | — | — | — |
-| Force-release a review lock | ✓ | ✓ | ✓ | — | — | — |
-| **Administration** | | | | | | |
-| Contest / problem / user admin | ✓ | ✓ | — | — | — | — |
-| Assign the chief judge | ✓ | ✓ | — | — | — | — |
-| Reports | ✓ | ✓ | ✓ | ✓ | — | — |
+Each row names the predicate that decides it in `enforced_by`, and
+`tests/web/test_access_matrix.py` calls that predicate for a real actor of every
+role, in a running and a not-yet-started contest, asserting the answer matches
+the declared cell. A row whose `enforced_by` is `None` is gated only by a route's
+role tuple and is checked structurally; `test_every_capability_without_a_predicate_is_known`
+pins that set, so the unverified list shrinks deliberately and never grows by
+accident. Giving one of those rows a shared predicate is a genuine improvement.
+
+`✓` = allowed. `—` = denied. `own` = only on a resource the actor owns or holds
+the lock for. `n/a` = the capability does not apply to that actor. A cell may
+carry a qualifier the symbol cannot express — `✓ (running only)` for asking a
+clarification, and for a plain judge posting an announcement.
+
+Two deliberate differences from the table this replaced:
+
+- **`USER` has a column.** The old table omitted it. It is a selectable role on
+  the Add User form, and an explicitly empty column answers "what can a USER do"
+  where a missing one leaves the reader guessing.
+- **A plain judge's announcement cell is qualified.** It was a bare `✓`, but
+  `can_create_announcement` requires a running contest for a judge who is not the
+  chief judge — the prose below already said so, and now the cell does too.
 
 The rows that surprise people:
 
 - **A plain judge sees no tasks at all.** The tasks page admits the `JUDGE` role only for
-  the chief judge; every other judge gets a 403, and `list_tasks` refuses them at the
-  service layer too.
+  the chief judge; every other judge is redirected to the contest dashboard with a
+  danger alert, and `list_tasks` refuses them at the service layer too.
 - **A plain judge cannot override a verdict.** Override authority is chief-judge-or-admin.
 - **Contest state gates access separately.** Admins and uberadmins reach every page at any
-  time; staff, teams, the chief judge (tasks) and judges (runs) only once the contest is
-  running or past. That axis is orthogonal to this matrix — see the
+  time. Staff and teams reach most participant pages, the chief judge reaches tasks, and
+  judges reach runs only once the contest is running or past. Clarifications are the
+  exception: authorized roles can view the list in every lifecycle state, but teams can
+  request a clarification only while the contest is running. See the
   [Access Matrix](#access-matrix) above.
 
 ### Where each rule is enforced
@@ -714,15 +775,17 @@ read from. Add a capability there, not inline in a route.
 
 | Domain | Module | Predicates |
 |--------|--------|-----------|
+| Shared chief authority | `web/services/chief_judge_permissions.py` | `is_chief_judge`, `has_chief_authority` |
 | Tasks | `web/services/task_service/permissions.py` | `can_view_tasks`, `can_handle_tasks`, `can_force_release_tasks`, `is_chief_judge` |
-| Clarifications | `web/services/clarification_service/permissions.py` | `can_answer_clarifications`, `can_force_release_clarifications` |
+| Clarifications | `web/services/clarification_service/permissions.py` | `can_request_clarification`, `can_answer_clarifications`, `can_force_release_clarifications`, `can_create_announcement` |
 | Verdicts | `web/services/judging_service/permissions.py` | `can_confirm_verdict`, `confirmation_is_decisive`, `can_override_verdict`, `is_chief_judge` |
 
 Three layers enforce them, and a capability is only real when all three agree:
 
 1. **Routes** — `ensure_allowed_role(...)` narrows by role, then the predicate applies the
    contest-aware rule (chief judge, lock holder). A role that passes the first check and
-   fails the second gets a 403.
+   fails the second raises a 403 internally; the Web exception handler converts it to the
+   role-aware dashboard redirect described above.
 2. **Services** — re-check the same predicate rather than trusting the caller. `list_tasks`
    raises `ForbiddenTaskActionError` on its own, so a future caller cannot leak tasks to a
    plain judge by forgetting the route guard.
@@ -734,6 +797,12 @@ Three layers enforce them, and a capability is only real when all three agree:
 Templates gate the *buttons* from the same predicates, passed in as context flags
 (`can_handle_tasks`, `can_answer_clarifications`, `can_acquire_review`, …). A button that
 appears without the matching server-side rule is a bug, not a shortcut.
+
+A fourth artifact **describes** those three: `web/access_matrix/`. It enforces
+nothing — no route, service, or hook consults it — so widening a permission there
+grants nobody anything. Change the three enforcing layers first, then update the
+declaration; `tests/web/test_access_matrix.py` fails until the two agree, which is
+the whole point of keeping the matrix as code rather than as a table in this file.
 
 ### Verdict authority
 

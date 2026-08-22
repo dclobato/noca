@@ -1,5 +1,5 @@
 // NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+// Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -14,6 +14,10 @@
  *   - Running contest  : "Xh Ymin until end"
  *   - Past contest     : "The contest is over"
  *   - When < 5 minutes remain (either phase), seconds are included.
+ *
+ * Also paints the contest phase (running / frozen / silence) next to the
+ * countdown. The moment a scoreboard freezes is the moment the contest's rules
+ * change, and the chrome used to say nothing about it.
  *
  * Time source: poll `data-clock-url` every 60 seconds to stay synchronized
  * with the server while rendering the countdown locally every second.
@@ -32,6 +36,8 @@
   const el = document.getElementById("contest-countdown");
   if (!el) return;
 
+  const phaseEl = document.getElementById("contest-phase");
+
   const clockUrl = el.dataset.clockUrl;
   if (!clockUrl) return;
 
@@ -39,12 +45,21 @@
   let offsetMs       = 0;      // serverNow - clientNow at last sync
   let startMs        = 0;      // contest start (epoch ms)
   let endMs          = 0;      // contest end   (epoch ms)
+  let freezeMs       = null;   // scoreboard stops updating (epoch ms)
+  let blindMs        = null;   // verdicts stop reaching teams (epoch ms)
   let pollingStarted = false;
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
   function render() {
-    el.textContent = ContestClockUtils.countdownText(Date.now() + offsetMs, startMs, endMs);
+    const nowMs = Date.now() + offsetMs;
+    el.textContent = ContestClockUtils.countdownText(nowMs, startMs, endMs);
+    if (!phaseEl) return;
+    const phase = ContestClockUtils.contestPhase(nowMs, startMs, endMs, freezeMs, blindMs);
+    const label = ContestClockUtils.phaseLabel(phase);
+    phaseEl.textContent = label;
+    phaseEl.dataset.phase = phase;
+    phaseEl.hidden = label === "";
   }
 
   // ── Server sync ─────────────────────────────────────────────────────────────
@@ -53,6 +68,8 @@
     offsetMs = data.server_now_ms - measuredAtMs;
     startMs  = data.start_ms;
     endMs    = data.end_ms;
+    freezeMs = typeof data.freeze_ms === "number" ? data.freeze_ms : null;
+    blindMs  = typeof data.blind_ms  === "number" ? data.blind_ms  : null;
 
     render();
   }

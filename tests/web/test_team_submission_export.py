@@ -31,6 +31,7 @@ from web.models.users import UberAdmin, User
 from web.routes import generaluser_dashboard
 from web.routes.contest_submissions import download_all_sources
 from web.services.submission_service import build_team_submissions_zip
+from web.template_globals import register_template_globals
 
 
 async def _make_language(
@@ -156,8 +157,7 @@ def _build_dashboard_app(ctx: ContestContext) -> FastAPI:
     templates = Jinja2Templates(directory=Path(__file__).resolve().parents[2] / "web" / "template")
     templates.env.globals["app_version"] = "test"
     templates.env.globals["contest_minutes"] = lambda seconds: None if seconds is None else seconds // 60
-    templates.env.globals["RoleEnum"] = RoleEnum
-    templates.env.globals["role_labels"] = {role.value: role.value.title() for role in RoleEnum}
+    register_template_globals(templates)
     templates.env.globals["get_flashed_messages"] = lambda with_categories=False: []
     app.state.templates = templates
 
@@ -196,6 +196,9 @@ def _build_dashboard_app(ctx: ContestContext) -> FastAPI:
     @app.get("/c/{slug}/runs", name="contest_runs")
     @app.get("/c/{slug}/tasks", name="contest_tasks")
     @app.get("/c/{slug}/submissions/download-all", name="team_submissions_download")
+    @app.get("/problem-set/{slug}.zip", name="problem_set_download")
+    @app.get("/c/{slug}/reports", name="contest_reports")
+    @app.get("/c/{slug}/solution-tests", name="contest_solution_tests")
     async def _contest_stub(slug: str) -> dict[str, str]:
         return {"slug": slug}
 
@@ -398,4 +401,107 @@ async def test_dashboard_renders_download_tile_active_after_release(
     assert response.status_code == 200
     assert "Download submissions" in response.text
     assert f"/c/{stopped_contest.login_slug}/submissions/download-all" in response.text
-    assert "Only after contest end" not in response.text
+    # Scoped to this tile: the dashboard carries other gated cards (the problem-set
+    # archive), so a page-wide absence check would assert something else entirely.
+    tile = response.text.split("submissions/download-all")[1].split("</a>")[0]
+    assert "Only after contest end" not in tile
+
+
+# ---------------------------------------------------------------------------
+# Problem-set archive tile
+#
+# Unlike the submissions download, this one is offered to every contest role:
+# the archive it links to is anonymous once released, so the tile only surfaces
+# a URL that is already public.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dashboard_problem_set_tile_is_disabled_until_released(
+    session: AsyncSession,
+    stopped_contest: Contest,
+    uberadmin: UberAdmin,
+) -> None:
+    """An ended contest whose problem set is withheld shows the tile inert."""
+    stopped_contest.release_scoreboard_after_end = True
+    await session.flush()
+    team = await _make_user(
+        session, stopped_contest, uberadmin, username="team_ps", fullname="Team PS", role=RoleEnum.TEAM
+    )
+    app = _build_dashboard_app(ContestContext(contest=stopped_contest, session=session, actor=team))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get(f"/c/{stopped_contest.login_slug}/")
+
+    assert response.status_code == 200
+    assert "Problem set archive" in response.text
+    # Releasing the scoreboard must not offer the archive -- that is the decoupling.
+    assert f"/problem-set/{stopped_contest.login_slug}.zip" not in response.text
+    assert "Published only if the organizers release it" in response.text
+
+
+@pytest.mark.asyncio
+async def test_dashboard_problem_set_tile_links_once_released(
+    session: AsyncSession,
+    stopped_contest: Contest,
+    uberadmin: UberAdmin,
+) -> None:
+    """Releasing the problem set turns the tile into a real download link."""
+    stopped_contest.release_problem_set_after_end = True
+    await session.flush()
+    team = await _make_user(
+        session, stopped_contest, uberadmin, username="team_ps2", fullname="Team PS2", role=RoleEnum.TEAM
+    )
+    app = _build_dashboard_app(ContestContext(contest=stopped_contest, session=session, actor=team))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get(f"/c/{stopped_contest.login_slug}/")
+
+    assert response.status_code == 200
+    assert f"/problem-set/{stopped_contest.login_slug}.zip" in response.text
+    tile = response.text.split(f"/problem-set/{stopped_contest.login_slug}.zip")[1].split("</a>")[0]
+    assert "Only after contest end" not in tile
+
+
+@pytest.mark.asyncio
+async def test_dashboard_problem_set_tile_is_offered_to_non_team_roles(
+    session: AsyncSession,
+    stopped_contest: Contest,
+    uberadmin: UberAdmin,
+) -> None:
+    """Judges get the archive tile even though the submissions one is team-only."""
+    stopped_contest.release_problem_set_after_end = True
+    await session.flush()
+    judge = await _make_user(
+        session, stopped_contest, uberadmin, username="judge_ps", fullname="Judge PS", role=RoleEnum.JUDGE
+    )
+    app = _build_dashboard_app(ContestContext(contest=stopped_contest, session=session, actor=judge))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get(f"/c/{stopped_contest.login_slug}/")
+
+    assert response.status_code == 200
+    assert f"/problem-set/{stopped_contest.login_slug}.zip" in response.text
+    assert "Download submissions" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_dashboard_problem_set_tile_stays_inert_while_a_contest_runs(
+    session: AsyncSession,
+    running_contest: Contest,
+    uberadmin: UberAdmin,
+) -> None:
+    """An armed but still-running contest must not offer the download."""
+    running_contest.release_problem_set_after_end = True
+    await session.flush()
+    team = await _make_user(
+        session, running_contest, uberadmin, username="team_ps3", fullname="Team PS3", role=RoleEnum.TEAM
+    )
+    app = _build_dashboard_app(ContestContext(contest=running_contest, session=session, actor=team))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get(f"/c/{running_contest.login_slug}/")
+
+    assert response.status_code == 200
+    assert "Problem set archive" in response.text
+    assert f"/problem-set/{running_contest.login_slug}.zip" not in response.text

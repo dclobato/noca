@@ -25,6 +25,7 @@ from web.models.language import Language
 from web.models.problem import Problem
 from web.models.users import UberAdmin, User
 from web.routes.contest_admin_problem_helpers import _label
+from web.services.problem_list_service import build_problem_cards
 from web.services.problem_service import (
     build_problem_export,
     get_active_statement_path,
@@ -33,6 +34,9 @@ from web.services.problem_service import (
     load_sample_interactions,
     read_testcase_full,
 )
+from web.services.scoreboard import ScoreboardService
+
+_scoreboard_service = ScoreboardService()
 
 router = APIRouter(prefix="/c/{slug}/problems", tags=["contest_problems"])
 
@@ -179,9 +183,14 @@ async def view(
 
     _check_access(ctx.actor, ctx.contest)
     problems = await get_contest_problems(ctx.session, ctx.contest)
-    problem_rows = [
-        (p, _label(p.ordinal), len(p.test_cases), sum(1 for tc in p.test_cases if tc.is_sample)) for p in problems
-    ]
+    is_admin_viewer = isinstance(ctx.actor, UberAdmin) or (
+        hasattr(ctx.actor, "role") and ctx.actor.role in (RoleEnum.ADMIN, RoleEnum.JUDGE)
+    )
+    valkey = request.app.state.valkey_runtime
+    snapshot = await _scoreboard_service.get_cached_or_compute(
+        ctx.contest, "admin" if is_admin_viewer else "public", ctx.session, valkey
+    )
+    problem_rows = build_problem_cards(problems, snapshot, ctx.actor)
     return _html(
         templates.TemplateResponse(
             request,

@@ -1,0 +1,45 @@
+{# Photo crop modal shared by the profile and admin user-edit pages.
+   Caller must provide `crop_role` (the RoleEnum value of the user whose photo is
+   being cropped); it selects the preview box aspect ratio. Cropper.js replaces the
+   placeholder `src` with the selected file before the modal is shown. #}
+<div class="modal fade"
+     id="cropModal"
+     tabindex="-1"
+     aria-labelledby="cropModalLabel"
+     aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="cropModalLabel">Adjust Photo</h5>
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <img id="cropImage"
+                             class="noca-crop-img"
+                             src="{{ request.url_for('static_img', path='crop-placeholder.svg') }}"
+                             alt="Image to crop">
+                    </div>
+                    <div class="col-md-4">
+                        <p class="fw-semibold small mb-1">Preview</p>
+                        {% if crop_role == RoleEnum.TEAM.value %}
+                            <div id="cropPreview" class="noca-crop-preview-team"></div>
+                        {% else %}
+                            <div id="cropPreview" class="noca-crop-preview-default"></div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button"
+                        class="btn btn-secondary btn-sm"
+                        data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" id="cropConfirm">Confirm crop</button>
+            </div>
+        </div>
+    </div>
+</div>

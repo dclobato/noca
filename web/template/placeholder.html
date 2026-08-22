@@ -1,26 +1,10 @@
 {% extends "_base.html" %}
+{% from "_macros.html" import admin_breadcrumb with context %}
 {% block title_suffix %}- {{ module_label }}{% endblock %}
 {% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            {% if current_user.role == RoleEnum.UBERADMIN.value %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
-                </li>
-                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
-            {% else %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-                </li>
-                {% if is_admin_placeholder %}
-                    <li class="breadcrumb-item">
-                        <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
-                    </li>
-                {% endif %}
-            {% endif %}
-            <li class="breadcrumb-item active" aria-current="page">{{ module_label }}</li>
-        </ol>
-    </nav>
+    {% call admin_breadcrumb(under_administration=is_admin_placeholder) %}
+        {{ module_label }}
+    {% endcall %}
 {% endblock %}
 {% block content %}
     <div class="container py-5">

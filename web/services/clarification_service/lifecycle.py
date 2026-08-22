@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,7 +8,9 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from collections.abc import Collection
+
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.enumerations import RoleEnum
@@ -35,7 +37,12 @@ from .errors import (
     ContestNotRunningError,
     ForbiddenClarificationActionError,
 )
-from .permissions import can_answer_clarifications, can_force_release_clarifications
+from .permissions import (
+    can_answer_clarifications,
+    can_create_announcement,
+    can_force_release_clarifications,
+    can_request_clarification,
+)
 
 
 async def _require_contest_problem(session: AsyncSession, contest: Contest, problem_id: str | None) -> None:
@@ -105,10 +112,10 @@ async def create_clarification(
         ForbiddenClarificationActionError: If the actor is not a team.
         ValueError: If *problem_id* does not belong to the contest.
     """
-    if not contest.is_running:
-        raise ContestNotRunningError("Clarifications can only be requested while the contest is running.")
     if actor.role != RoleEnum.TEAM:
         raise ForbiddenClarificationActionError("Only team members may submit clarifications.")
+    if not can_request_clarification(actor, contest):
+        raise ContestNotRunningError("Clarifications can only be requested while the contest is running.")
 
     await _require_contest_problem(session, contest, problem_id)
 
@@ -230,6 +237,7 @@ async def answer_clarification(
     clarification.judge_id = actor.id
     clarification.answer = answer.strip()
     clarification.answered_at = now
+    clarification.answer_read_at = None
     clarification.answered_timestamp_seconds = compute_timestamp_seconds(contest.start_time, now)
     clarification.is_contest_public = is_contest_public
     await session.flush()
@@ -244,15 +252,62 @@ async def answer_clarification(
     return clarification
 
 
-async def create_announcement(
+async def mark_clarification_answers_read(
     session: AsyncSession,
     contest: Contest,
     actor: User,
+    clarification_ids: Collection[str],
+) -> int:
+    """Mark rendered answers as read by their requesting team.
+
+    Args:
+        session: Active database session.
+        contest: Contest containing the clarifications.
+        actor: Team acknowledging its own answers.
+        clarification_ids: Answer identifiers that were rendered to the team.
+
+    Returns:
+        The number of answers newly marked as read.
+
+    Raises:
+        ForbiddenClarificationActionError: If the actor is not a team in the
+            supplied contest.
+    """
+    if actor.role != RoleEnum.TEAM or actor.contest_id != contest.id:
+        raise ForbiddenClarificationActionError("Only the requesting team may acknowledge clarification answers.")
+
+    unique_ids = frozenset(clarification_ids)
+    if not unique_ids:
+        return 0
+
+    result = await session.execute(
+        update(Clarification)
+        .where(
+            Clarification.id.in_(unique_ids),
+            Clarification.team_id == actor.id,
+            Clarification.answered_at.is_not(None),
+            Clarification.answer_read_at.is_(None),
+            Clarification.hidden.is_(False),
+        )
+        .values(answer_read_at=_utcnow())
+    )
+    await session.flush()
+    return int(result.rowcount or 0)  # type: ignore[attr-defined]
+
+
+async def create_announcement(
+    session: AsyncSession,
+    contest: Contest,
+    actor: User | UberAdmin,
     *,
     problem_id: str | None,
     announcement: str,
 ) -> Clarification:
     """Create a public announcement as a clarification initiated by a judge or admin.
+
+    The signature accepts `User | UberAdmin` to match `can_create_announcement`
+    and the rest of the module; an uberadmin caller is refused by the role
+    check below, before any `users` foreign key is touched.
 
     Args:
         session: Active database session.
@@ -266,14 +321,18 @@ async def create_announcement(
         The created, already-answered clarification.
 
     Raises:
-        ContestNotRunningError: If the contest is not running.
         ForbiddenClarificationActionError: If the actor is neither judge nor admin.
+        ContestNotRunningError: If the contest is not running and the actor is
+            neither a contest admin nor the contest's chief judge.
         ValueError: If *problem_id* does not belong to the contest.
     """
-    if not contest.is_running:
-        raise ContestNotRunningError("Announcements can only be created while the contest is running.")
     if actor.role not in (RoleEnum.ADMIN, RoleEnum.JUDGE):
         raise ForbiddenClarificationActionError("Only admins and judges may create announcements.")
+    if not can_create_announcement(actor, contest):
+        raise ContestNotRunningError(
+            "Announcements can only be created while the contest is running, "
+            "unless published by a contest admin or the chief judge."
+        )
 
     await _require_contest_problem(session, contest, problem_id)
 

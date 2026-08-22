@@ -51,6 +51,12 @@ typography:
     fontWeight: 700
     lineHeight: 1
     letterSpacing: "0.05em"
+  micro:
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "0.6875rem"
+    fontWeight: 700
+    lineHeight: 1
+    letterSpacing: "0.05em"
   mono:
     fontFamily: "IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
     fontSize: "0.875rem"
@@ -260,6 +266,12 @@ The type hierarchy separates major structure, dense metadata, and artifacts.
   increase line height to 1.6 and must keep a readable measure.
 - **Label** (700, `0.75rem`, `0.05em`) supports dense table headers and compact
   metadata. Uppercase is valid for short structural labels, not paragraphs.
+- **Micro** (700, `0.6875rem`, `--noca-type-micro`) is the one step below
+  Label, for a bold kicker or count pill that sits beside small chrome — a
+  card's section kicker, an icon-row overflow pill (`+N`) — where Label itself
+  would crowd the layout. It is not a substitute for Label on ordinary
+  metadata; reach for it only when Label visibly collides with a neighboring
+  element.
 - **Mono** (400, `0.875rem`, 1.5) carries code, input and output, limits, and
   identifiers.
 

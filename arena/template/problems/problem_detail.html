@@ -19,7 +19,9 @@
         <div class="arena-card mb-3">
             <div class="d-flex flex-wrap align-items-center gap-3">
                 {# Back to list — leftmost item #}
-                <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm">{{ render_icon(icon="arrow_back") }}</a>
+                <a href="{{ back_url }}"
+                   class="btn btn-outline-secondary btn-sm"
+                   aria-label="Back to problems">{{ render_icon(icon="arrow_back") }}</a>
                 {# Rating sparkline — same structure as problem_form.html #}
                 <div class="arena-rating-sparkline arena-rating-sparkline--half">
                     <span class="arena-rating-sparkline-label">
@@ -53,17 +55,19 @@
         {# Statistics #}
         <div class="arena-problem-header-stat">
             <a href="{{ request.url_for('arena_problem_statistics', arena_number=problem.arena_number) }}"
-               class="arena-icon-link small">{{ render_icon(icon="bar_chart", title="Statistics") }}</a>
+               class="arena-icon-link small"
+               aria-label="Problem statistics"
+               title="Statistics">{{ render_icon(icon="bar_chart") }}</a>
         </div>
         {# User status — follows the right-aligned stats group #}
         {% if current_user %}
             <div class="arena-problem-header-stat">
                 {% if solved_at %}
-                    {{ render_icon(icon="done_all", title=("Solved " ~ relative_solved) ) }}
+                    {{ render_icon(icon="done_all", title="Solved " ~ relative_solved, label="Solved " ~ relative_solved) }}
                 {% elif tried_at %}
-                    {{ render_icon(icon="pending", title="Unsolved") }}
+                    {{ render_icon(icon="pending", title="Unsolved", label="Unsolved") }}
                 {% else %}
-                    {{ render_icon(icon="radio_button_unchecked", title="Not attempted") }}
+                    {{ render_icon(icon="radio_button_unchecked", title="Not attempted", label="Not attempted") }}
                 {% endif %}
             </div>
             <div class="arena-problem-header-stat">
@@ -85,6 +89,7 @@
                 <div class="arena-problem-header-stat">
                     <a href="{{ request.url_for('arena_admin_problem_edit', problem_id=problem.id) ~ '?next=' ~ request.url.path }}"
                        class="btn btn-outline-secondary btn-sm"
+                       aria-label="Edit problem"
                        title="Edit problem">{{ render_icon(icon="edit") }}</a>
                 </div>
             {% elif current_user.id == problem.owner_id %}
@@ -103,6 +108,7 @@
                 <a href="{{ request.url_for('arena_problem_print', arena_number=problem.arena_number) }}"
                    class="btn btn-outline-secondary btn-sm"
                    target="_blank"
+                   aria-label="Open a printable view of this problem"
                    title="Open a printable view of this problem">{{ render_icon(icon="print") }}</a>
             </div>
         {% endif %}

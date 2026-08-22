@@ -1,9 +1,11 @@
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon %}
+{% from "_macros.html" import admin_breadcrumb, render_icon with context %}
 {% block title_suffix %}- Reports{% endblock %}
 {% block extra_head %}
     {% if not access_blocked and report and report.total_runs > 0 %}
         <script src="{{ request.url_for('static_vendor', path='echarts.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='noca-echarts-theme.js') }}?v={{ app_version }}"
                 defer></script>
         <script src="{{ request.url_for('static_js', path='reports-charts.js') }}"
                 defer></script>
@@ -12,24 +14,12 @@
     {% endif %}
 {% endblock %}
 {% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            {% if current_user.role == RoleEnum.UBERADMIN.value %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
-                </li>
-                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
-            {% else %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-                </li>
-            {% endif %}
-            <li class="breadcrumb-item active" aria-current="page">Reports</li>
-        </ol>
-    </nav>
+    {% call admin_breadcrumb(under_administration=False) %}
+        Reports
+    {% endcall %}
 {% endblock %}
 {% block content %}
-    <div class="py-4 px-3">
+    <div class="py-4 px-4">
         {% if access_blocked %}
             <div class="text-center text-muted py-5">
                 {{ render_icon(icon="schedule", classes=["display-6", "d-block", "mb-2"]) }}
@@ -45,16 +35,33 @@
         {% elif not report or report.total_runs == 0 %}
             <div class="text-center text-muted py-5">
                 {{ render_icon(icon="bar_chart", classes=["display-6", "d-block", "mb-2"]) }}
-                <p>No judged submissions yet.</p>
+                <p>No judged runs yet.</p>
             </div>
         {% else %}
             {% set r = report %}
             <div class="d-flex flex-column align-items-center gap-5">
                 {% set accept_label = "AC + PE" if r.accept_pe else "AC" %}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                {# Page header                                                          #}
+                {# ════════════════════════════════════════════════════════════════════ #}
+                <div class="noca-dashboard-live-band d-flex flex-wrap align-items-center justify-content-between gap-3 w-100">
+                    <div>
+                        <p class="noca-gateway-eyebrow mb-1">{{ contest.contest_name }}</p>
+                        <h1 class="h2 mb-0 fw-semibold d-inline-flex align-items-center gap-2">
+                            {{ render_icon(icon="bar_chart", filled=True, classes=["noca-reports-header-icon"]) }}
+                            Reports
+                        </h1>
+                    </div>
+                    <p class="text-muted mb-0 text-end">
+                        <span class="noca-reports-header-stat">{{ r.total_runs }}</span> judged runs
+                        &middot;
+                        <span class="noca-reports-header-stat">{{ r.total_accepted }}</span> {{ accept_label }}
+                    </p>
+                </div>
                 {# ── Macro: balloon + problem label ── #}
                 {% macro problem_cell(p) %}
                     <img src="/assets/balloon/{{ p.color }}/{{ p.label }}"
-                         alt="balloon"
+                         alt="Problem {{ p.label }}: {{ p.title }}"
                          class="noca-balloon-report me-1">
                 {% endmacro %}
                 {# ── Macro: language icon + name ── #}
@@ -76,12 +83,14 @@
                 {# Problem legend: letter → title                                       #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section class="w-100">
-                    <h2 class="h5 fw-semibold text-center mb-3">{{ render_icon(icon="label", classes=["me-1"]) }} Problems</h2>
+                    <h2 class="h4 fw-semibold text-center mb-3">
+                        <span class="noca-report-heading">{{ render_icon(icon="label", classes=["noca-report-icon", "me-1"]) }} Problems</span>
+                    </h2>
                     <div class="noca-legend-grid mx-auto">
                         {% for pi in r.problems %}
                             <span class="d-flex align-items-center justify-content-center text-center">
                                 <img src="/assets/balloon/{{ pi.color }}/{{ pi.label }}"
-                                     alt="balloon"
+                                     alt=""
                                      class="noca-balloon-report me-1">
                                 {{ pi.title }}
                             </span>
@@ -89,17 +98,22 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 1: Problem Summary                                            #}
+                {# Report 1: Problem Summary + Runs Distribution + Pie Chart            #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section>
-                    <h2 class="h5 fw-semibold text-center mb-2">{{ render_icon(icon="summarize", classes=["me-1"]) }} Problem Summary</h2>
-                    <p class="text-muted small mb-4 text-center">
-                        Raw judged-run and accepted counts per problem. The {{ accept_label }} percentage is
-                        each problem's acceptance rate (accepted &divide; that problem's runs).
+                    <h2 class="h4 fw-semibold text-center mb-2">
+                        <span class="noca-report-heading">
+                            {{ render_icon(icon="pie_chart", classes=["noca-report-icon", "me-1"]) }} Runs Distribution by Problem
+                        </span>
+                    </h2>
+                    <p class="text-muted small mb-4 text-center noca-reports-caption">
+                        How the contest's total run volume is split across problems. The percentage is
+                        each problem's share of all judged runs (sums to 100%); the pie below visualizes
+                        the same split, colored by balloon.
                     </p>
                     <div class="overflow-auto d-flex justify-content-center">
                         <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
-                            <thead class="table-dark">
+                            <thead class="noca-reports-thead">
                                 <tr>
                                     <th></th>
                                     {% for row in r.problem_summary %}<th class="text-center">{{ problem_cell(row.problem) }}</th>{% endfor %}
@@ -109,77 +123,36 @@
                             <tbody>
                                 <tr>
                                     <th class="text-nowrap">Runs</th>
-                                    {% for row in r.problem_summary %}<td class="text-end">{{ row.total_runs }}</td>{% endfor %}
-                                    <td class="text-end fw-semibold">{{ r.total_runs }}</td>
-                                </tr>
-                                <tr>
-                                    <th class="text-nowrap">AC</th>
-                                    {% for row in r.problem_summary %}<td class="text-end">{{ cv(row.ac) }}</td>{% endfor %}
-                                    <td class="text-end fw-semibold">{{ r.problem_summary | sum(attribute='ac.count') }}</td>
-                                </tr>
-                                {% if r.accept_pe %}
-                                    <tr>
-                                        <th class="text-nowrap">AC + PE</th>
-                                        {% for row in r.problem_summary %}<td class="text-end">{{ cv(row.ac_pe) }}</td>{% endfor %}
-                                        <td class="text-end fw-semibold">{{ r.total_accepted }}</td>
-                                    </tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
-                {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 2: Runs Distribution + Pie Chart                              #}
-                {# ════════════════════════════════════════════════════════════════════ #}
-                <section>
-                    <h2 class="h5 fw-semibold text-center mb-2">
-                        {{ render_icon(icon="pie_chart", classes=["me-1"]) }} Runs Distribution by Problem
-                    </h2>
-                    <p class="text-muted small mb-4 text-center">
-                        How the contest's total run volume is split across problems. % Total is each
-                        problem's share of all judged runs (sums to 100%); the pie is colored by balloon.
-                    </p>
-                    <div class="overflow-auto d-flex justify-content-center">
-                        <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
-                            <thead class="table-dark">
-                                <tr>
-                                    <th></th>
-                                    {% for row in r.runs_distribution %}<th class="text-center">{{ problem_cell(row.problem) }}</th>{% endfor %}
-                                    <th class="text-end noca-col-6">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <th class="text-nowrap">Runs</th>
-                                    {% for row in r.runs_distribution %}<td class="text-end">{{ row.count }}</td>{% endfor %}
-                                    <td class="text-end fw-semibold">{{ r.total_runs }}</td>
-                                </tr>
-                                <tr>
-                                    <th class="text-nowrap">% Total</th>
-                                    {% for row in r.runs_distribution %}
-                                        <td class="text-end">{{ "%.2f"|format(row.pct) }}%</td>
+                                    {% for row in r.problem_summary %}
+                                        <td class="text-end">{{ cv({"count": row.total_runs, "pct": r.runs_distribution[loop.index0].pct}) }}</td>
                                     {% endfor %}
-                                    <td class="text-end fw-semibold">100.00%</td>
+                                    <td class="text-end noca-reports-key-total">{{ r.total_runs }}</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
-                    <div id="chart-runs-dist" style="min-width:500px;height:350px"></div>
+                    <div id="chart-runs-dist" style="min-width:500px;height:350px">
+                        <p class="text-muted small text-center noca-chart-placeholder">
+                            Chart unavailable &mdash; the table above has the same figures.
+                        </p>
+                    </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 3: Accepted Runs Distribution + Pie Chart                     #}
+                {# Report 2: Accepted Runs Distribution + Pie Chart                     #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section>
-                    <h2 class="h5 fw-semibold text-center mb-2">
-                        {{ render_icon(icon="pie_chart", classes=["me-1"]) }} {{ accept_label }} Runs Distribution by Problem
+                    <h2 class="h4 fw-semibold text-center mb-2">
+                        <span class="noca-report-heading">
+                            {{ render_icon(icon="pie_chart", classes=["noca-report-icon", "me-1"]) }} {{ accept_label }} Runs Distribution by Problem
+                        </span>
                     </h2>
-                    <p class="text-muted small mb-4 text-center">
+                    <p class="text-muted small mb-4 text-center noca-reports-caption">
                         The same distribution restricted to accepted runs. % Total is each problem's share
                         of all {{ accept_label }} runs in the contest (sums to 100%).
                     </p>
                     <div class="overflow-auto d-flex justify-content-center">
                         <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
-                            <thead class="table-dark">
+                            <thead class="noca-reports-thead">
                                 <tr>
                                     <th></th>
                                     {% for row in r.accepted_distribution %}<th class="text-center">{{ problem_cell(row.problem) }}</th>{% endfor %}
@@ -202,22 +175,28 @@
                             </tbody>
                         </table>
                     </div>
-                    <div id="chart-accepted-dist" style="min-width:500px;height:350px"></div>
+                    <div id="chart-accepted-dist" style="min-width:500px;height:350px">
+                        <p class="text-muted small text-center noca-chart-placeholder">
+                            Chart unavailable &mdash; the table above has the same figures.
+                        </p>
+                    </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 4: Runs by Problem x Verdict                                  #}
+                {# Report 3: Runs by Problem x Verdict                                  #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section>
-                    <h2 class="h5 fw-semibold text-center mb-2">
-                        {{ render_icon(icon="grid_on", classes=["me-1"]) }} Runs by Problem and Verdict
+                    <h2 class="h4 fw-semibold text-center mb-2">
+                        <span class="noca-report-heading">
+                            {{ render_icon(icon="grid_on", classes=["noca-report-icon", "me-1"]) }} Runs by Problem and Verdict
+                        </span>
                     </h2>
-                    <p class="text-muted small mb-4 text-center">
+                    <p class="text-muted small mb-4 text-center noca-reports-caption">
                         Per problem, where its runs landed across verdicts. Each cell's percentage is that
                         verdict's share of the problem's runs (the row); footer percentages are shares of all runs.
                     </p>
                     <div class="overflow-auto d-flex justify-content-center">
                         <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
-                            <thead class="table-dark">
+                            <thead class="noca-reports-thead">
                                 <tr>
                                     <th class="text-nowrap">Problem</th>
                                     {% for v in all_verdicts %}<th class="text-center noca-col-8">{{ v.value }}</th>{% endfor %}
@@ -239,7 +218,7 @@
                                     </tr>
                                 {% endfor %}
                             </tbody>
-                            <tfoot class="table-light fw-semibold">
+                            <tfoot class="noca-reports-thead fw-semibold">
                                 <tr>
                                     <td>Total</td>
                                     {% for v in all_verdicts %}<td class="text-center">{{ cv(r.problem_verdict_totals[v.value]) }}</td>{% endfor %}
@@ -250,19 +229,21 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 5: Runs by Problem x Language                                 #}
+                {# Report 4: Runs by Problem x Language                                 #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section>
-                    <h2 class="h5 fw-semibold text-center mb-2">
-                        {{ render_icon(icon="code", classes=["me-1"]) }} Runs by Problem and Language
+                    <h2 class="h4 fw-semibold text-center mb-2">
+                        <span class="noca-report-heading">
+                            {{ render_icon(icon="code", classes=["noca-report-icon", "me-1"]) }} Runs by Problem and Language
+                        </span>
                     </h2>
-                    <p class="text-muted small mb-4 text-center">
+                    <p class="text-muted small mb-4 text-center noca-reports-caption">
                         The language mix contestants chose for each problem. Each cell's percentage is that
                         language's share of the problem's runs (the row); footer percentages are shares of all runs.
                     </p>
                     <div class="overflow-auto d-flex justify-content-center">
                         <table class="table table-bordered table-hover align-middle mb-0 w-auto">
-                            <thead class="table-dark">
+                            <thead class="noca-reports-thead">
                                 <tr>
                                     <th class="text-nowrap">Problem</th>
                                     {% for l in r.languages %}<th class="text-center text-nowrap small">{{ lang_header(l) }}</th>{% endfor %}
@@ -284,7 +265,7 @@
                                     </tr>
                                 {% endfor %}
                             </tbody>
-                            <tfoot class="table-light fw-semibold">
+                            <tfoot class="noca-reports-thead fw-semibold">
                                 <tr>
                                     <td>Total</td>
                                     {% for l in r.languages %}<td class="text-center">{{ cv(r.problem_language_totals[l.id]) }}</td>{% endfor %}
@@ -295,19 +276,21 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 6: Runs by Language x Verdict                                 #}
+                {# Report 5: Runs by Language x Verdict                                 #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section>
-                    <h2 class="h5 fw-semibold text-center mb-2">
-                        {{ render_icon(icon="code", classes=["me-1"]) }} Runs by Language and Verdict
+                    <h2 class="h4 fw-semibold text-center mb-2">
+                        <span class="noca-report-heading">
+                            {{ render_icon(icon="code", classes=["noca-report-icon", "me-1"]) }} Runs by Language and Verdict
+                        </span>
                     </h2>
-                    <p class="text-muted small mb-4 text-center">
+                    <p class="text-muted small mb-4 text-center noca-reports-caption">
                         How each language fared across verdicts. Each cell's percentage is that verdict's
                         share of the language's runs (the row); footer percentages are shares of all runs.
                     </p>
                     <div class="overflow-auto d-flex justify-content-center">
                         <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
-                            <thead class="table-dark">
+                            <thead class="noca-reports-thead">
                                 <tr>
                                     <th class="text-nowrap">Language</th>
                                     {% for v in all_verdicts %}<th class="text-center noca-col-8">{{ v.value }}</th>{% endfor %}
@@ -326,7 +309,7 @@
                                     </tr>
                                 {% endfor %}
                             </tbody>
-                            <tfoot class="table-light fw-semibold">
+                            <tfoot class="noca-reports-thead fw-semibold">
                                 <tr>
                                     <td>Total</td>
                                     {% for v in all_verdicts %}<td class="text-center">{{ cv(r.language_verdict_totals[v.value]) }}</td>{% endfor %}
@@ -337,13 +320,15 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 7: Runs by Team x Problem                                     #}
+                {# Report 6: Runs by Team x Problem                                     #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section>
-                    <h2 class="h5 fw-semibold text-center mb-2">
-                        {{ render_icon(icon="groups", classes=["me-1"]) }} Runs by Team and Problem
+                    <h2 class="h4 fw-semibold text-center mb-2">
+                        <span class="noca-report-heading">
+                            {{ render_icon(icon="groups", classes=["noca-report-icon", "me-1"]) }} Runs by Team and Problem
+                        </span>
                     </h2>
-                    <p class="text-muted small mb-4 text-center">
+                    <p class="text-muted small mb-4 text-center noca-reports-caption">
                         How each team spread its attempts among the problems. Each cell's percentage is that
                         problem's share of the team's runs; the {{ accept_label }} column is the team's accepted
                         share. Click <strong>Team</strong> to order by name, <strong>Total</strong> to order by
@@ -353,7 +338,7 @@
                     </p>
                     <div class="overflow-auto d-flex justify-content-center">
                         <table class="table  table-bordered table-hover align-middle mb-0 w-auto">
-                            <thead class="table-dark">
+                            <thead class="noca-reports-thead">
                                 <tr>
                                     <th class="text-nowrap">
                                         <button type="button"
@@ -366,7 +351,7 @@
                                     {% for pi in r.problems %}
                                         <th class="text-center noca-col-8">
                                             <img src="/assets/balloon/{{ pi.color }}/{{ pi.label }}"
-                                                 alt="balloon"
+                                                 alt="Problem {{ pi.label }}: {{ pi.title }}"
                                                  class="noca-balloon-report">
                                         </th>
                                     {% endfor %}
@@ -392,8 +377,12 @@
                                 {% for team in r.team_problem %}
                                     <tr data-total="{{ team.total_submissions }}"
                                         data-ac-count="{{ team.accepted.count }}"
-                                        data-name="{{ team.team_display | lower }}">
-                                        <td class="small noca-team-name">{{ team.team_display }}</td>
+                                        data-name="{{ (team.team_display ~ ' ' ~ team.team_username) | lower }}">
+                                        <td class="small noca-team-name">
+                                            {{ team.team_display }}
+                                            <br />
+                                            <span class="text-muted small font-monospace">{{ team.team_username }}</span>
+                                        </td>
                                         {% for pi in r.problems %}
                                             {% set cell = team.cells[pi.label] %}
                                             <td class="text-center small">{{ cv(cell) }}</td>
@@ -407,20 +396,27 @@
                     </div>
                 </section>
                 {# ════════════════════════════════════════════════════════════════════ #}
-                {# Report 8: Runs by Time Window (stacked AC / non-AC)                  #}
+                {# Report 7: Runs by Time Window (stacked AC / non-AC)                  #}
                 {# ════════════════════════════════════════════════════════════════════ #}
                 <section class="w-100">
-                    <h2 class="h5 fw-semibold text-center mb-2">
-                        {{ render_icon(icon="bar_chart", classes=["me-1"]) }} Runs by Time (10-minute windows)
+                    <h2 class="h4 fw-semibold text-center mb-2">
+                        <span class="noca-report-heading">
+                            {{ render_icon(icon="bar_chart", classes=["noca-report-icon", "me-1"]) }} Runs by Time (10-minute windows)
+                        </span>
                     </h2>
-                    <p class="text-muted small mb-3 text-center">
+                    <p class="text-muted small mb-3 text-center noca-reports-caption">
                         All judged runs bucketed into 10-minute windows by contest-relative time. Each bar's
                         total height is that window's run volume, split into {{ accept_label }} and non-{{ accept_label }}
-                        runs so you can see when accepted solutions arrived relative to overall activity.
+                        runs so you can see when accepted solutions arrived relative to overall activity. The
+                        two lines (see legend) track the running total of runs and of {{ accept_label }}
+                        solutions through the contest; the gap between them is overall activity that hasn't
+                        converted into an accepted solution yet.
                     </p>
                     <div id="chart-runs-time"
                          class="noca-reports-time-chart"
-                         aria-label="Runs by time chart"></div>
+                         aria-label="Runs by time chart">
+                        <p class="text-muted small text-center noca-chart-placeholder">Chart unavailable. Reload the page to try again.</p>
+                    </div>
                 </section>
                 {# ── Chart data ── #}
                 <script id="report-chart-data" type="application/json">{{ chart_data_json | safe }}</script>

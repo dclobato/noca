@@ -26,6 +26,10 @@
     --noca-font-size-base: 1rem;
     --noca-line-height: 1.5;
     --noca-heading-weight: 600;
+    /* Micro: one step below Label (0.75rem), for compact bold kickers and
+       count pills that sit beside small chrome (icon rows, card corners)
+       where Label itself would crowd the layout. Operational tier only. */
+    --noca-type-micro: 0.6875rem;
 
     /* ── Spacing ─────────────────────────────────────────────────────────
        Standard vertical rhythm for block-level gaps, e.g. margins between
@@ -57,6 +61,16 @@
     --noca-brand-container: #09872d;
     --noca-on-brand: #ffffff;
     --noca-brand-rgb: 47, 158, 65;
+    --noca-brand-container-rgb: 9, 135, 45;
+
+    /* The brand green as a *marker* on a tonal surface -- a selected-tab rule, an
+       active icon, a focus ring. The two greens are not interchangeable here and
+       they swap by theme, exactly as link colour does below: on the light
+       container `--noca-brand` reaches only 2.8:1 while the deep green clears
+       3.77:1, and on the dark container the deep green collapses to 2.7:1 while
+       the brighter one clears 3.64:1. Components name this token and never
+       branch on theme themselves. */
+    --noca-brand-on-surface: var(--noca-brand-container);
     --noca-success: #2f9e41;
     --noca-danger: #dc2626;
     --noca-warning: #d97706;
@@ -125,6 +139,26 @@
     --bs-border-color: var(--noca-outline-variant);
     --bs-link-color: var(--noca-brand);
     --bs-link-hover-color: var(--noca-brand-container);
+    /* Bootstrap 5.3's own `a` rule renders from the *-rgb pair via
+       `rgba(var(--bs-link-color-rgb), var(--bs-link-opacity, 1))`, not from
+       `--bs-link-color` above -- that one only feeds components that read it
+       directly (`.btn-link`, `.nav-link`, `.page-link`). Without this pair,
+       every plain `<a>` -- including every breadcrumb link -- silently fell
+       back to Bootstrap's stock blue in both Web and Arena.
+
+       The two brand greens are not interchangeable here: `--noca-brand`
+       (#2f9e41) is only 3.45:1 against the light surface -- below the 4.5:1
+       body-text floor, since link text is far too small to qualify for the
+       "large text" bold exemption -- while `--noca-brand-container` (#09872d)
+       clears it at 4.65:1. On the dark surface the read reverses: the deep
+       tone drops to 3.84:1 while the bright one clears 5.18:1. So the light
+       default below takes the deep tone and dark re-pitches to the bright one,
+       the same split the phase-state tokens already use. Hover reuses the
+       same tone as resting in both themes -- links already carry a permanent
+       underline from Bootstrap's base `a` rule, so hover does not need a
+       second, harder-to-tune color step to read as interactive. */
+    --bs-link-color-rgb: var(--noca-brand-container-rgb);
+    --bs-link-hover-color-rgb: var(--noca-brand-container-rgb);
 }
 
 /* Light-scoped surface/text so Bootstrap's dark tokens and the modules' dark
@@ -152,11 +186,17 @@
 
     /* A phase fill sits as a solid band on the dark canvas, where the
        operational semantic hues read as muddy rather than as status. These
-       lighten the same three states for that ground; they are the only place
-       the ramp is re-pitched for the dark theme. */
+       lighten the same three states for that ground. */
+    --noca-brand-on-surface: var(--noca-brand);
     --noca-state-live: color-mix(in srgb, var(--noca-brand) 62%, white);
     --noca-state-frozen: color-mix(in srgb, var(--noca-warning) 55%, white);
     --noca-state-silence: color-mix(in srgb, var(--noca-danger) 58%, white);
+
+    /* Same reason, same shape: the deep green that clears 4.5:1 on the light
+       surface drops to 3.84:1 on this dark one, while the brighter brand
+       green clears 5.18:1 here. Re-pitch link color to match. */
+    --bs-link-color-rgb: var(--noca-brand-rgb);
+    --bs-link-hover-color-rgb: var(--noca-brand-rgb);
     --bs-body-bg: var(--noca-surface);
     --bs-body-color: var(--noca-on-surface);
 }

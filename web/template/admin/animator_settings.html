@@ -6,6 +6,7 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #}
 {% extends "_base.html" %}
+{% from "_macros.html" import admin_breadcrumb with context %}
 {% block title_suffix %}
     — Animator
 {% endblock title_suffix %}
@@ -18,27 +19,12 @@
             defer></script>
 {% endblock extra_head %}
 {% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            {% if current_user.role == RoleEnum.UBERADMIN.value %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
-                </li>
-                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
-            {% else %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-                </li>
-            {% endif %}
-            <li class="breadcrumb-item">
-                <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
-            </li>
-            <li class="breadcrumb-item active" aria-current="page">Animator</li>
-        </ol>
-    </nav>
+    {% call admin_breadcrumb() %}
+        Animator
+    {% endcall %}
 {% endblock breadcrumb %}
 {% block content %}
-    <div class="container py-5">
+    <div class="container py-4 py-lg-5 animator-settings-layout">
         <div class="mb-4">
             <h1 class="h3 mb-1">Animator</h1>
             <p class="text-muted mb-0">{{ contest.contest_name }}</p>
@@ -47,54 +33,62 @@
             <div class="card-body">
                 <h2 class="h5 card-title">Access</h2>
                 <form method="post"
+                      id="animator-access-form"
                       action="{{ request.url_for('animator_update_settings', slug=contest.login_slug) }}"
-                      class="d-flex flex-wrap gap-3 align-items-center">
-                    <div class="form-check form-switch">
+                      class="d-flex flex-column flex-sm-row gap-3 align-items-sm-start justify-content-between">
+                    <div class="form-check form-switch flex-grow-1 mb-0">
                         <input class="form-check-input"
                                type="checkbox"
                                role="switch"
                                id="animator_enabled"
                                name="animator_enabled"
                                value="yes"
+                               {% if contest.animator_enabled %}aria-describedby="animator-disable-warning"{% endif %}
                                {% if contest.animator_enabled %}checked{% endif %}>
                         <label class="form-check-label" for="animator_enabled">
                             Enable animator snapshot, events, and reveal for this contest
                         </label>
+                        {% if contest.animator_enabled %}
+                            <div id="animator-disable-warning" class="form-text text-danger">
+                                Disabling Animator permanently revokes all operator credentials for this contest.
+                            </div>
+                        {% endif %}
                     </div>
-                    <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                    <div class="d-grid d-sm-block flex-shrink-0">
+                        <button type="submit" class="btn btn-primary btn-sm">Save access settings</button>
+                    </div>
                 </form>
             </div>
         </div>
-        <div class="row g-4">
-            <div class="col-lg-6">
-                <div class="card shadow-sm border-0 h-100">
-                    <div class="card-body">
-                        <h2 class="h5 card-title">Medal cutoffs settings</h2>
-                        <div class="small text-muted mb-3">
-                            <p class="mb-1">For example, cutoffs 2 / 5 / 8 mean:</p>
-                            <ul class="mb-2 ps-3">
-                                <li>Positions 1–2: gold</li>
-                                <li>Positions 3–5: silver</li>
-                                <li>Positions 6–8: bronze</li>
-                                <li>Position 9 onward: no medal</li>
-                            </ul>
-                            <p class="mb-0">Values must satisfy gold ≤ silver ≤ bronze.</p>
-                        </div>
-                        {% set medal_bands = [('gold', 'Gold'), ('silver', 'Silver'), ('bronze', 'Bronze')] %}
-                        <form method="post"
-                              action="{{ request.url_for('animator_update_all_medals', slug=contest.login_slug) }}">
-                            <section class="mb-4" aria-labelledby="global-medal-cutoffs-heading">
-                                <h3 id="global-medal-cutoffs-heading" class="h6">Global medal cutoffs</h3>
+        {% if contest.animator_enabled %}
+            <div class="row g-4">
+                <div class="col-12 col-xl-5">
+                    <div class="card shadow-sm border-0">
+                        <div class="card-body">
+                            <h2 class="h5 card-title">Medal cutoffs settings</h2>
+                            <div class="small text-muted mb-3">
+                                <p class="mb-1">For example, cutoffs 2 / 5 / 8 mean:</p>
+                                <ul class="animator-medal-example mb-2">
+                                    <li>Positions 1–2: gold</li>
+                                    <li>Positions 3–5: silver</li>
+                                    <li>Positions 6–8: bronze</li>
+                                    <li>Position 9 onward: no medal</li>
+                                </ul>
+                                <p class="mb-0">Values must satisfy gold ≤ silver ≤ bronze.</p>
+                            </div>
+                            {% set medal_bands = [('gold', 'Gold'), ('silver', 'Silver'), ('bronze', 'Bronze')] %}
+                            <form method="post"
+                                  action="{{ request.url_for('animator_update_all_medals', slug=contest.login_slug) }}">
                                 <div class="table-responsive mb-2">
                                     <table class="table table-sm align-middle mb-0">
                                         <caption class="visually-hidden">
-                                            Medal cutoffs for the contest-wide scoreboard and reveal ceremony
+                                            Medal cutoffs for the contest-wide scoreboard, reveal ceremony, and each contest site
                                         </caption>
                                         <thead class="table-light">
                                             <tr>
                                                 <th scope="col">Scope</th>
                                                 {% for band, label in medal_bands %}
-                                                    <th scope="col" class="text-center">
+                                                    <th scope="col" class="text-end">
                                                         <span class="animator-medal-heading">
                                                             <img class="animator-medal-heading-image"
                                                                  src="{{ request.url_for('medal', band=band) }}"
@@ -108,12 +102,15 @@
                                         </thead>
                                         <tbody>
                                             <tr>
-                                                <th scope="row">Whole contest</th>
+                                                <th scope="row">
+                                                    Whole contest
+                                                    <span class="d-block text-muted small fw-normal">Global scoreboard</span>
+                                                </th>
                                                 {% for band, label in medal_bands %}
                                                     {% set global_value = contest | attr('global_' ~ band ~ '_cutoff') %}
-                                                    <td class="text-center">
+                                                    <td class="text-end">
                                                         <label class="visually-hidden" for="global-{{ band }}-cutoff">Global {{ label | lower }} cutoff</label>
-                                                        <input class="form-control form-control-sm animator-medal-input mx-auto"
+                                                        <input class="form-control form-control-sm animator-medal-input ms-auto text-end"
                                                                type="number"
                                                                min="1"
                                                                id="global-{{ band }}-cutoff"
@@ -122,79 +119,82 @@
                                                     </td>
                                                 {% endfor %}
                                             </tr>
+                                            {% for site in sites %}
+                                                <tr>
+                                                    <th scope="row">{{ site.sitename }}</th>
+                                                    {% for band, label in medal_bands %}
+                                                        <td class="text-end">
+                                                            <label class="visually-hidden" for="{{ band }}-cutoff-{{ site.id }}">
+                                                                {{ site.sitename }} {{ label | lower }} cutoff
+                                                            </label>
+                                                            <input class="form-control form-control-sm animator-medal-input ms-auto text-end"
+                                                                   type="number"
+                                                                   min="1"
+                                                                   id="{{ band }}-cutoff-{{ site.id }}"
+                                                                   name="{{ band }}_cutoff_{{ site.id }}"
+                                                                   value="{{ site | attr(band ~ '_cutoff') }}">
+                                                        </td>
+                                                    {% endfor %}
+                                                </tr>
+                                            {% else %}
+                                                <tr>
+                                                    <td colspan="4" class="text-muted small py-3">
+                                                        This contest has no sites yet. Add sites from
+                                                        <a href="{{ request.url_for('edit_metadata', slug=contest.login_slug) }}">Edit metadata</a>.
+                                                    </td>
+                                                </tr>
+                                            {% endfor %}
                                         </tbody>
                                     </table>
                                 </div>
-                                <div class="small text-muted">
+                                <div class="small text-muted mb-3">
                                     <p class="mb-1">
-                                        Leave all three fields blank to disable medals on the contest-wide scoreboard and
-                                        reveal ceremony. Fill all three or none — a partially filled row is rejected.
+                                        The Whole contest row is optional. Leave all three fields blank to disable medals on the
+                                        contest-wide scoreboard and reveal ceremony. Each site row requires all three fields.
                                     </p>
                                     <p class="mb-0">
                                         A reveal ceremony keeps the cutoffs it was created with. To adopt a change, restart it
                                         with <strong>Start over</strong> in the reveal controller.
                                     </p>
                                 </div>
-                            </section>
-                            <section class="mb-3" aria-labelledby="site-medal-cutoffs-heading">
-                                <h3 id="site-medal-cutoffs-heading" class="h6">Per-site medal cutoffs</h3>
-                                {% if sites %}
-                                    <div class="table-responsive mb-2">
-                                        <table class="table table-sm align-middle mb-0">
-                                            <caption class="visually-hidden">
-                                                Medal cutoffs for each contest site
-                                            </caption>
-                                            <thead class="table-light">
-                                                <tr>
-                                                    <th scope="col">Site</th>
-                                                    {% for band, label in medal_bands %}
-                                                        <th scope="col" class="text-center">
-                                                            <span class="animator-medal-heading">
-                                                                <img class="animator-medal-heading-image"
-                                                                     src="{{ request.url_for('medal', band=band) }}"
-                                                                     alt=""
-                                                                     aria-hidden="true">
-                                                                <span class="animator-medal-heading-label">{{ label }}</span>
-                                                            </span>
-                                                        </th>
-                                                    {% endfor %}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {% for site in sites %}
-                                                    <tr>
-                                                        <th scope="row">{{ site.sitename }}</th>
-                                                        {% for band, label in medal_bands %}
-                                                            <td class="text-center">
-                                                                <label class="visually-hidden" for="{{ band }}-cutoff-{{ site.id }}">
-                                                                    {{ site.sitename }} {{ label | lower }} cutoff
-                                                                </label>
-                                                                <input class="form-control form-control-sm animator-medal-input mx-auto"
-                                                                       type="number"
-                                                                       min="1"
-                                                                       id="{{ band }}-cutoff-{{ site.id }}"
-                                                                       name="{{ band }}_cutoff_{{ site.id }}"
-                                                                       value="{{ site | attr(band ~ '_cutoff') }}">
-                                                            </td>
-                                                        {% endfor %}
-                                                    </tr>
-                                                {% endfor %}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                {% else %}
-                                    <p class="text-muted small mb-0">
-                                        This contest has no sites yet. Add sites from
-                                        <a href="{{ request.url_for('edit_metadata', slug=contest.login_slug) }}">Edit metadata</a>.
-                                    </p>
-                                {% endif %}
-                            </section>
-                            <button type="submit" class="btn btn-primary btn-sm">Save medals settings</button>
-                        </form>
+                                <button type="submit" class="btn btn-primary btn-sm">Save medals settings</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12 col-xl-7">{% include "admin/animator_operators.html" %}</div>
+            </div>
+        {% endif %}
+    </div>
+    {% if contest.animator_enabled %}
+        <div class="modal fade"
+             id="animator-disable-confirm-modal"
+             tabindex="-1"
+             aria-labelledby="animator-disable-confirm-label"
+             aria-describedby="animator-disable-confirm-description"
+             aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title h5" id="animator-disable-confirm-label">Disable Animator?</h2>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" id="animator-disable-confirm-description">
+                        Disabling Animator permanently revokes every operator credential for this contest. This action cannot be undone.
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Keep Animator enabled</button>
+                        <button type="button"
+                                class="btn btn-danger btn-sm"
+                                id="confirm-animator-disable-btn">Disable Animator</button>
                     </div>
                 </div>
             </div>
-            <div class="col-lg-6">{% include "admin/animator_operators.html" %}</div>
         </div>
-    </div>
+    {% endif %}
 {% endblock content %}

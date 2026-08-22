@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -27,6 +27,7 @@ class ClarificationView:
     answer: str | None
     is_contest_public: bool
     answered_at: datetime.datetime | None
+    answer_read_at: datetime.datetime | None
     acquired_at: datetime.datetime | None
     hidden: bool
     hidden_at: datetime.datetime | None
@@ -46,6 +47,7 @@ def to_view(clari: Clarification, *, show_judge: bool, actor_id: str | None) -> 
         answer=clari.answer,
         is_contest_public=clari.is_contest_public,
         answered_at=clari.answered_at,
+        answer_read_at=clari.answer_read_at,
         acquired_at=None,
         hidden=clari.hidden,
         hidden_at=clari.hidden_at,

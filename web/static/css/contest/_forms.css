@@ -106,3 +106,34 @@ textarea.tc-content {
 }
 
 /* `.noca-tc-preview-cell` lives in shared/static/css/common.css. */
+
+/* ── Role reference matrices (admin/users/_role_reference.html) ────────────── */
+
+/* The capability matrix is ~20 rows; capping the scroll box keeps the reference
+   card beside the add-user form instead of running far past it. The header stays
+   put while the body scrolls, so a cell never loses the role it belongs to. */
+.noca-role-reference-scroll {
+    max-height: 24rem;
+    overflow-y: auto;
+}
+
+.noca-role-matrix thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background-color: var(--bs-body-bg);
+}
+
+/* Highlight for the role currently chosen in the form's Role select. Both
+   subtle Bootstrap tokens are theme-aware, so dark mode needs no companion
+   rule. `!important` beats `.table-hover`'s own row shading, which would
+   otherwise erase the highlight the moment the pointer crossed the table. */
+.noca-role-matrix .noca-role-matrix-current {
+    background-color: var(--bs-primary-bg-subtle) !important;
+    box-shadow: inset 0 0 0 9999px var(--bs-primary-bg-subtle);
+}
+
+.noca-role-matrix th.noca-role-matrix-current,
+.noca-role-matrix td.noca-role-matrix-current {
+    font-weight: 600;
+}

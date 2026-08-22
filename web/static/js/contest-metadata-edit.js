@@ -1,5 +1,5 @@
 // NOCA -- Next Online Contest Administrator
-// Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+// Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -73,14 +73,23 @@
     sites.forEach(function (site) {
       var row = document.createElement('tr');
       row.className = 'site-row';
-      row.innerHTML = '<td class="site-name-cell"></td><td class="text-center site-user-count-cell"></td><td class="text-end"></td>';
+      row.innerHTML =
+        '<td class="site-name-cell"></td>' +
+        '<td class="text-center site-user-count-cell"></td>' +
+        '<td class="text-end"></td>';
       row.querySelector('.site-name-cell').textContent = site.name;
       row.querySelector('.site-user-count-cell').textContent = String(site.user_count);
       if (editable) {
         var actionCell = row.querySelector('.text-end');
         var iconHtml = removeIconTemplate ? removeIconTemplate.innerHTML : 'Remove';
-        actionCell.innerHTML = '<button type="button" class="btn btn-sm btn-outline-danger site-remove-btn">' + iconHtml + '</button>';
-        row.querySelector('.site-remove-btn').dataset.siteName = site.name;
+        actionCell.innerHTML =
+          '<button type="button" ' +
+          'class="btn btn-sm btn-outline-danger site-remove-btn">' +
+          iconHtml +
+          '</button>';
+        var removeButton = row.querySelector('.site-remove-btn');
+        removeButton.dataset.siteName = site.name;
+        removeButton.setAttribute('aria-label', 'Remove site ' + site.name);
       }
       body.appendChild(row);
     });
@@ -182,4 +191,70 @@
   }
 
   renderSites();
+
+  if (!form) return;
+  var publicationModalElement = document.getElementById('publication-confirm-modal');
+  var runningModalElement = document.getElementById('running-contest-confirm-modal');
+  var publicationModal = publicationModalElement
+    ? new bootstrap.Modal(publicationModalElement)
+    : null;
+  var runningModal = runningModalElement
+    ? new bootstrap.Modal(runningModalElement)
+    : null;
+  var publicationConfirmed = false;
+  var runningChangesConfirmed = false;
+
+  form.addEventListener(
+    'invalid',
+    function (event) {
+      var collapsedSection = event.target.closest('.noca-contest-edit-section');
+      if (collapsedSection) collapsedSection.open = true;
+    },
+    true
+  );
+
+  function newlyEnablesPublication() {
+    var selected = form.querySelector(
+      'input[name="release_problem_set_after_end"]:checked'
+    );
+    return (
+      form.dataset.initialPublication !== 'yes' &&
+      selected &&
+      selected.value === 'yes'
+    );
+  }
+
+  form.addEventListener('submit', function (event) {
+    if (newlyEnablesPublication() && !publicationConfirmed && publicationModal) {
+      event.preventDefault();
+      publicationModal.show();
+      return;
+    }
+    if (
+      form.dataset.isRunning === 'true' &&
+      !runningChangesConfirmed &&
+      runningModal
+    ) {
+      event.preventDefault();
+      runningModal.show();
+    }
+  });
+
+  var confirmPublicationButton = document.getElementById('confirm-publication-btn');
+  if (confirmPublicationButton) {
+    confirmPublicationButton.addEventListener('click', function () {
+      publicationConfirmed = true;
+      publicationModal.hide();
+      form.requestSubmit();
+    });
+  }
+
+  var confirmRunningButton = document.getElementById('confirm-running-contest-btn');
+  if (confirmRunningButton) {
+    confirmRunningButton.addEventListener('click', function () {
+      runningChangesConfirmed = true;
+      runningModal.hide();
+      form.requestSubmit();
+    });
+  }
 })();

@@ -30,7 +30,7 @@ from sqlalchemy import (
 )
 from sqlalchemy import Enum as SAEnum
 
-from shared.enumerations import JudgmentStatus, Verdict
+from shared.enumerations import CustomValidatorCrashReason, JudgmentStatus, Verdict
 
 from ._base import _created_at_column, _id_column, _updated_at_column, metadata
 
@@ -149,18 +149,63 @@ solution_test_case_results = Table(
         comment="Executed expected-output snapshot, bounded to 10 KiB; NULL for interactive rows.",
     ),
     Column("stdout_excerpt", Text, nullable=True),
-    Column("stderr_excerpt", Text, nullable=True),
+    Column("stderr_excerpt", Text, nullable=True, comment="Contestant-side excerpt; NULL for ordinary rows."),
     Column(
         "transcript",
         JSON,
         nullable=True,
         comment="Interactive rows only: {'lines': [{'dir', 'line', 'partial'?}], 'truncated': bool}.",
     ),
+    Column(
+        "validator_exit_code",
+        Integer,
+        nullable=True,
+        comment="Interactive rows only; NULL for ordinary rows.",
+    ),
+    Column("validator_signal", Integer, nullable=True, comment="Interactive rows only; NULL for ordinary rows."),
+    Column(
+        "validator_stderr_excerpt",
+        Text,
+        nullable=True,
+        comment="Interactive rows only; NULL for ordinary rows.",
+    ),
+    Column(
+        "limit_outcome",
+        String(16),
+        nullable=True,
+        comment="Enforced MLE/OLE/TLE outcome for an interactive attempt; NULL otherwise.",
+    ),
+    Column(
+        "validator_verdict",
+        SAEnum(Verdict, values_callable=lambda e: [m.value for m in e]),
+        nullable=True,
+        comment="Clean validator exit reading for an interactive attempt; mutually exclusive with crash_reason.",
+    ),
+    Column(
+        "crash_reason",
+        SAEnum(CustomValidatorCrashReason, values_callable=lambda e: [m.value for m in e]),
+        nullable=True,
+        comment="Typed reason an interactive attempt did not obtain a clean validator exit.",
+    ),
     _created_at_column(),
     CheckConstraint("ordinal >= 1", name="ck_solution_test_case_results_ordinal_positive"),
     CheckConstraint(
         "attempt_number IS NULL OR attempt_number IN (1, 2)",
         name="ck_solution_test_case_results_attempt_number",
+    ),
+    # Applies to every row, not only interactive ones -- harmless for ordinary
+    # rows since both columns are always NULL there.
+    CheckConstraint(
+        "NOT (validator_verdict IS NOT NULL AND crash_reason IS NOT NULL)",
+        name="ck_solution_test_case_results_outcome_exclusive",
+    ),
+    CheckConstraint(
+        "limit_outcome IS NULL OR limit_outcome IN ('MLE', 'OLE', 'TLE')",
+        name="ck_solution_test_case_results_limit_outcome",
+    ),
+    CheckConstraint(
+        "validator_verdict IS NULL OR validator_verdict IN ('AC', 'WA', 'TLE', 'PE', 'RE')",
+        name="ck_solution_test_case_results_validator_verdict",
     ),
     # PostgreSQL treats NULLs as distinct, so a single UniqueConstraint over
     # (run, ordinal, attempt_number) would silently permit duplicate ordinary rows.

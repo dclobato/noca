@@ -193,7 +193,7 @@
                                     <a href="{{ request.url_for('arena_problem_detail', arena_number=item.arena_number) }}?{{ back_params_qs }}"
                                        class="fw-medium arena-link-no-underline">{{ item.title }}</a>
                                     {% if item.has_custom_validator %}
-                                        {{ render_icon(icon="published_with_changes", classes="text-info", title="This problem uses a custom validator") }}
+                                        {{ render_icon(icon="published_with_changes", classes="text-info", title="This problem uses a custom validator", label="This problem uses a custom validator") }}
                                     {% endif %}
                                 </td>
                                 <td class="column-width-medium">
@@ -221,7 +221,7 @@
                                 {% if current_user %}
                                     <td class="column-width-tiny">
                                         {% if item.is_solved %}
-                                            {{ render_icon(icon="done_all", classes="text-success", title="Solved") }}
+                                            {{ render_icon(icon="done_all", classes="text-success", title="Solved", label="Solved") }}
                                         {% else %}
                                             &nbsp;
                                         {% endif %}

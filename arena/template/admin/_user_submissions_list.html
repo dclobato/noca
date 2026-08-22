@@ -1,6 +1,6 @@
 {#
   NOCA -- Next Online Contest Administrator
-  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -97,10 +97,10 @@
                                     {% endif %}
                                     {% if row.verdict and row.verdict != "AC" %}
                                         {% if row.has_ai_review %}
-                                            {{ render_icon(icon="psychology_alt", filled=True, classes="text-success", title="AI review available") }}
+                                            {{ render_icon(icon="psychology_alt", filled=True, classes="text-success", title="AI review available", label="AI review available") }}
                                         {% endif %}
                                         {% if row.has_teacher_feedback %}
-                                            {{ render_icon(icon="rate_review", filled=True, classes="text-success", title="Teacher feedback available") }}
+                                            {{ render_icon(icon="rate_review", filled=True, classes="text-success", title="Teacher feedback available", label="Teacher feedback available") }}
                                         {% endif %}
                                     {% endif %}
                                 </span>

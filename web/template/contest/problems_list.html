@@ -1,15 +1,12 @@
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon %}
+{% from "_macros.html" import problem_card, render_icon %}
+{% set live_refresh = current_user.role == RoleEnum.TEAM.value and contest.is_running %}
 {% block title_suffix %}— Problems{% endblock %}
-{% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            <li class="breadcrumb-item">
-                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-            </li>
-            <li class="breadcrumb-item active" aria-current="page">Problems</li>
-        </ol>
-    </nav>
+{% block extra_head %}
+    {% if live_refresh %}
+        <script src="{{ request.url_for('static_vendor', path='htmx.min.js') }}"
+                defer></script>
+    {% endif %}
 {% endblock %}
 {% block content %}
     <div class="container py-5">
@@ -23,51 +20,19 @@
                 Problems are only available after the contest starts.
             </div>
         {% elif problem_rows %}
-            <div class="card shadow-sm">
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-sm align-middle mb-0">
-                            <thead class="table-light">
-                                <tr>
-                                    <th class="text-center noca-col-4">Label</th>
-                                    <th class="text-center noca-col-3">Balloon</th>
-                                    <th>Problem</th>
-                                    <th class="text-center noca-col-6">Total TCs</th>
-                                    <th class="text-center noca-col-7">Public TCs</th>
-                                    <th class="text-center noca-col-5">Download</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for p, label, total_tc, public_tc in problem_rows %}
-                                    <tr>
-                                        <td class="text-center">
-                                            <strong>{{ label }}</strong>
-                                        </td>
-                                        <td class="text-center">
-                                            <img src="{{ request.url_for('balloon', color=p.color[1:] if p.color else '888888') }}"
-                                                 height="32"
-                                                 alt="balloon">
-                                        </td>
-                                        <td>
-                                            <a href="{{ request.url_for('contest_problem_detail', slug=contest.login_slug, problem_label=label) }}">
-                                                {{ p.title }}
-                                            </a>
-                                        </td>
-                                        <td class="text-center">{{ total_tc }}</td>
-                                        <td class="text-center">{{ public_tc }}</td>
-                                        <td class="text-center">
-                                            <a href="{{ request.url_for('contest_problem_export', slug=contest.login_slug, problem_label=label) }}"
-                                               title="Download public materials (statement + sample test cases)"
-                                               class="btn btn-sm btn-outline-secondary noca-icon-btn">
-                                                {{ render_icon(icon="download") }}
-                                            </a>
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+            <div id="problems-list"
+                 class="row g-4"
+                 {% if live_refresh %} hx-get="{{ request.url_for('contest_problems', slug=contest.login_slug) }}" hx-trigger="verdict-update" hx-target="#problems-list" hx-swap="outerHTML" hx-select="#problems-list" data-sse-url="{{ request.url_for('contest_runs_events', slug=contest.login_slug) }}" {% endif %}>
+                {% for row in problem_rows %}
+                    {{ problem_card(request.url_for('contest_problem_detail', slug=contest.login_slug, problem_label=row.label) ,
+                    request.url_for('contest_problem_export', slug=contest.login_slug, problem_label=row.label),
+                    request.url_for('balloon', color=row.problem.color[1:] if row.problem.color else '888888'),
+                    row.label,
+                    row.problem.title,
+                    row.solving_rate,
+                    row.problem.id,
+                    viewer_status=row.viewer_status) }}
+                {% endfor %}
             </div>
         {% else %}
             <div class="text-muted text-center py-5">
@@ -76,4 +41,14 @@
             </div>
         {% endif %}
     </div>
+{% endblock %}
+{% block extra_script %}
+    {% if live_refresh %}
+        <script src="{{ request.url_for('static_vendor', path='tsparticles.confetti.bundle.min.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='confetti-celebrate.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_js', path='problems-sse.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
 {% endblock %}

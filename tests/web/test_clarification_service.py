@@ -17,6 +17,8 @@ Sequential calls in the same test correctly verify the concurrency guard.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 import pytest_asyncio
 import valkey.asyncio as aivalkey
@@ -29,6 +31,7 @@ from web.models.contest import Contest
 from web.models.problem import Problem
 from web.models.users import UberAdmin, User
 from web.services.assorted_utils import minutes_from_contest_start
+from web.services.chief_judge_permissions import is_chief_judge
 from web.services.clarification_reaper import AUTO_ANSWER_PLACEHOLDER, conclude_finished_contest_clarifications
 from web.services.clarification_service import (
     ClarificationAlreadyAcquiredError,
@@ -37,6 +40,8 @@ from web.services.clarification_service import (
     ClarificationNotAcquiredByActorError,
     ContestNotRunningError,
     ForbiddenClarificationActionError,
+    can_create_announcement,
+    can_request_clarification,
     create_announcement,
     create_clarification,
     get_clarification,
@@ -1004,3 +1009,206 @@ async def test_reaper_auto_answers_general_clarification_for_past_contest(
     assert concluded == 1
     assert clari.answer == AUTO_ANSWER_PLACEHOLDER
     assert clari.judge_id == owner.id
+
+
+# ---------------------------------------------------------------------------
+# Scenario: announcements outside the running window
+#
+# Contest lifecycle state derives purely from `start_time`, so these tests shift
+# the `running_contest` fixture instead of adding fixtures; that keeps the
+# `judge_user` / `another_judge_user` / `admin_user` fixtures (all bound to that
+# contest) usable.
+# ---------------------------------------------------------------------------
+
+
+def _make_upcoming(contest: Contest) -> None:
+    """Move the contest's start into the future, before it has begun."""
+    contest.start_time = datetime.now(UTC) + timedelta(hours=1)
+    assert contest.upcoming
+
+
+def _make_past(contest: Contest) -> None:
+    """Move the contest's start far enough back that it has already ended."""
+    contest.start_time = datetime.now(UTC) - timedelta(hours=5)
+    assert contest.is_past
+
+
+@pytest.mark.parametrize("shift", (_make_upcoming, _make_past))
+async def test_admin_announces_outside_the_running_window(
+    session: AsyncSession,
+    running_contest: Contest,
+    admin_user: User,
+    team_user: User,
+    shift,
+) -> None:
+    shift(running_contest)
+
+    announcement = await create_announcement(
+        session,
+        running_contest,
+        admin_user,
+        problem_id=None,
+        announcement="The venue opens one hour before the contest.",
+    )
+
+    assert announcement.is_contest_public is True
+    assert announcement.answered_at is not None
+    # `compute_timestamp_seconds` clamps to zero, so a pre-start announcement is
+    # recorded at contest minute zero rather than at a negative offset.
+    assert announcement.created_timestamp_seconds >= 0
+
+    view = await list_clarifications(session, running_contest, team_user)
+    assert any(v.id == announcement.id for v in view)
+
+
+@pytest.mark.parametrize("shift", (_make_upcoming, _make_past))
+async def test_chief_judge_announces_outside_the_running_window(
+    session: AsyncSession,
+    running_contest: Contest,
+    judge_user: User,
+    shift,
+) -> None:
+    running_contest.chief_judge_id = judge_user.id
+    await session.flush()
+    shift(running_contest)
+
+    announcement = await create_announcement(
+        session,
+        running_contest,
+        judge_user,
+        problem_id=None,
+        announcement="Bring your printed team list.",
+    )
+
+    assert announcement.judge_id == judge_user.id
+    assert announcement.is_contest_public is True
+
+
+@pytest.mark.parametrize("shift", (_make_upcoming, _make_past))
+async def test_plain_judge_cannot_announce_outside_the_running_window(
+    session: AsyncSession,
+    running_contest: Contest,
+    judge_user: User,
+    another_judge_user: User,
+    shift,
+) -> None:
+    running_contest.chief_judge_id = judge_user.id
+    await session.flush()
+    shift(running_contest)
+
+    with pytest.raises(ContestNotRunningError):
+        await create_announcement(
+            session,
+            running_contest,
+            another_judge_user,
+            problem_id=None,
+            announcement="Not my call to make.",
+        )
+
+
+async def test_plain_judge_still_announces_while_the_contest_runs(
+    session: AsyncSession,
+    running_contest: Contest,
+    another_judge_user: User,
+) -> None:
+    announcement = await create_announcement(
+        session,
+        running_contest,
+        another_judge_user,
+        problem_id=None,
+        announcement="Problem C has a clarified constraint.",
+    )
+
+    assert announcement.judge_id == another_judge_user.id
+
+
+async def test_team_cannot_announce_before_the_contest_starts(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+) -> None:
+    _make_upcoming(running_contest)
+
+    # The role check precedes the lifecycle check, so a team is refused as
+    # forbidden rather than as "contest not running".
+    with pytest.raises(ForbiddenClarificationActionError):
+        await create_announcement(
+            session,
+            running_contest,
+            team_user,
+            problem_id=None,
+            announcement="We would like to announce something.",
+        )
+
+
+def test_can_create_announcement_permission_matrix(
+    running_contest: Contest,
+    admin_user: User,
+    judge_user: User,
+    another_judge_user: User,
+    team_user: User,
+    uberadmin: UberAdmin,
+) -> None:
+    running_contest.chief_judge_id = judge_user.id
+
+    assert can_create_announcement(admin_user, running_contest)
+    assert can_create_announcement(judge_user, running_contest)
+    assert can_create_announcement(another_judge_user, running_contest)
+    assert not can_create_announcement(team_user, running_contest)
+    assert not can_create_announcement(uberadmin, running_contest)
+
+    _make_upcoming(running_contest)
+
+    assert can_create_announcement(admin_user, running_contest)
+    assert can_create_announcement(judge_user, running_contest)
+    assert not can_create_announcement(another_judge_user, running_contest)
+    assert not can_create_announcement(uberadmin, running_contest)
+
+    assert is_chief_judge(judge_user, running_contest)
+    assert not is_chief_judge(another_judge_user, running_contest)
+    assert not is_chief_judge(uberadmin, running_contest)
+
+    # Only a JUDGE-role user can be chief judge: an admin whose id matches
+    # chief_judge_id is not the chief judge, but still passes the announcement
+    # gate through the ADMIN branch of has_chief_authority.
+    running_contest.chief_judge_id = admin_user.id
+    assert not is_chief_judge(admin_user, running_contest)
+    assert can_create_announcement(admin_user, running_contest)
+
+
+def test_teams_can_only_request_clarifications_while_contest_is_running(
+    running_contest: Contest,
+    team_user: User,
+    judge_user: User,
+    admin_user: User,
+) -> None:
+    assert can_request_clarification(team_user, running_contest)
+    assert not can_request_clarification(judge_user, running_contest)
+    assert not can_request_clarification(admin_user, running_contest)
+
+    _make_upcoming(running_contest)
+    assert not can_request_clarification(team_user, running_contest)
+
+    _make_past(running_contest)
+    assert not can_request_clarification(team_user, running_contest)
+
+
+async def test_team_can_view_public_clarification_before_contest_starts(
+    session: AsyncSession,
+    running_contest: Contest,
+    team_user: User,
+    admin_user: User,
+) -> None:
+    """List visibility is independent from the team's request window."""
+    _make_upcoming(running_contest)
+    announcement = await create_announcement(
+        session,
+        running_contest,
+        admin_user,
+        problem_id=None,
+        announcement="Read this before the contest starts.",
+    )
+
+    team_view = await list_clarifications(session, running_contest, team_user)
+
+    assert [clarification.id for clarification in team_view] == [announcement.id]

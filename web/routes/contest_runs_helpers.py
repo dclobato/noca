@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -25,6 +25,7 @@ from web.models.submission import Submission
 from web.models.users import UberAdmin, User
 from web.routes.contest_admin_problem_helpers import _label
 from web.services.assorted_utils import format_site_identity
+from web.services.chief_judge_permissions import is_chief_judge
 from web.services.first_solve_service import first_accepted_submission_ids_by_problem
 from web.services.judgment_utils import get_active_judgment
 from web.services.valkey_service import ValkeyRuntime
@@ -124,12 +125,7 @@ def _can_filter_runs_by_team(actor: UberAdmin | User, contest: Contest) -> bool:
     """Return whether the actor may see and use the Runs team filter."""
     if actor.role in (RoleEnum.UBERADMIN, RoleEnum.ADMIN):
         return True
-    return (
-        isinstance(actor, User)
-        and actor.role == RoleEnum.JUDGE
-        and contest.chief_judge_id is not None
-        and actor.id == contest.chief_judge_id
-    )
+    return is_chief_judge(actor, contest)
 
 
 def _normalize_verdict_filter(value: str) -> Verdict | None:

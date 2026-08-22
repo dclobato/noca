@@ -1187,6 +1187,11 @@ async def test_submission_detail_pending_owner_loads_live_confetti_watcher(
     assert "confetti-celebrate.js" in resp.text
     assert "submission-detail-live.js" in resp.text
     assert resp.text.index("confetti-celebrate.js") < resp.text.index("submission-detail-live.js")
+    # The shared SSE/poll watcher must load before the consumer that calls
+    # NocaSubmissionStatusWatcher.watch().
+    assert "submission-status-watcher.js" in resp.text
+    watcher_at = resp.text.index("submission-status-watcher.js")
+    assert watcher_at < resp.text.index("submission-detail-live.js")
 
 
 @pytest.mark.asyncio

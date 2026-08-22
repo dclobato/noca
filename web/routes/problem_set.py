@@ -6,7 +6,7 @@
 
 """Unauthenticated download of a finished contest's full problem set.
 
-Once a contest is over and its scoreboard has been released, the complete
+Once a contest is over and its problem set has been released, the complete
 problem materials (statements, all test cases, validator sources, editorials)
 are public. This route bundles them as one ZIP without requiring any login,
 which is why it deliberately does not reuse the contest-scoped dependencies:
@@ -43,17 +43,27 @@ router = APIRouter(tags=["problem_set"])
 async def _load_released_contest(request: Request, slug: str) -> Contest:
     """Return the contest when the problem set is public for ``slug``.
 
-    The gate mirrors the team submissions download: the contest must be over
-    and its scoreboard released. A contest that fails the gate answers 404 —
-    not 403 — so the route does not confirm that an unreleased contest exists.
-    The returned contest is detached (the session is closed); only its
-    preloaded scalar attributes are usable afterwards.
+    The contest must be over and carry ``release_problem_set_after_end``. That
+    flag is deliberately independent of ``release_scoreboard_after_end`` (which
+    still gates the scoreboard and the team submissions download): publishing
+    standings and publishing every secret test case, validator source and
+    editorial are separate admin decisions.
+
+    The ``is_past`` half is not part of that decoupling. An admin may set the
+    flag at any time -- doing so before the end simply arms the publication for
+    then -- so this check is what keeps the materials private while the contest
+    is still being run.
+
+    A contest that fails the gate answers 404 -- not 403 -- so the route does not
+    confirm that an unreleased contest exists. The returned contest is detached
+    (the session is closed); only its preloaded scalar attributes are usable
+    afterwards.
     """
     async with request.app.state.db_session() as session:
         contest: Contest | None = (
             await session.execute(select(Contest).where(Contest.login_slug == slug, Contest.active))  # noqa: E712
         ).scalar_one_or_none()
-        if contest is None or not contest.is_past or not contest.release_scoreboard_after_end:
+        if contest is None or not contest.is_past or not contest.release_problem_set_after_end:
             raise HTTPException(status_code=404)
         # Every attribute the builders touch must be read before the session
         # closes: the contest row travels on its own from here on.

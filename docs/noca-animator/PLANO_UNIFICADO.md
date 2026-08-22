@@ -870,13 +870,13 @@ Rotas de acesso:
 Objetivo: suportar instituição, mídia e metadados de apresentação.
 
 > **Status: backlog opcional.** Toda a Fase 6 (fases de implementação
-> [15](Phase-15.md), [16](Phase-16.md) e [17](Phase-17.md)) saiu do caminho
+> 15, 16 e 17 -- issues #59, #60 e #61) saiu do caminho
 > obrigatório. As rotas de foto e áudio do time — a única parte com consumidor
 > real — **já foram entregues** nas fases de implementação 13 e 14, e o modal da
 > cerimônia monta suas próprias URLs de mídia a partir da projeção do reveal.
 > O que resta aqui (`/teams`, `/avatar`, `contest_team_profiles` e sua admin) não
 > tem cliente hoje. O caminho obrigatório vai da fase 14 direto para a
-> [18](Phase-18.md); veja cada documento de fase para o que justificaria
+> 18 (issue #62); veja cada issue de fase para o que justificaria
 > retomá-las.
 
 ### 6.1. Entregar MVP com dados existentes

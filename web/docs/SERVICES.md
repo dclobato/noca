@@ -17,6 +17,42 @@ Conventions:
 
 ---
 
+## `web/access_matrix/` (declaration, not a service)
+
+Purpose:
+- the declared access and capability matrices for contest roles, as data: which contest modules each actor reaches and in which contest states, and what each actor may do once there
+- replaces the two markdown tables `web/docs/ROUTES.md` used to carry, which drifted because nothing checked them
+
+**It enforces nothing.** No route, service, or ORM hook consults this package. The
+enforcing layers are unchanged: the route guards, the per-domain `permissions.py`
+predicates, and the `before_flush` hook in `web/models/submission.py`. Editing a
+cell here changes documentation and UI and grants nobody anything. Change
+behaviour first, then update the declaration.
+
+Internal structure:
+- `models.py` — vocabulary: `MatrixActor`, `AccessLevel`, `Grant`, and the frozen `AccessRule` / `CapabilityGrant` / `AccessArea` / `Capability` / `CapabilityGroup` records
+- `access.py` — `ACCESS_AREAS`, one area per contest module (scoreboard, problems, clarifications, runs, tasks)
+- `capabilities.py` — `CAPABILITY_GROUPS`, the clarification, task, verdict, and administration capabilities
+- `__init__.py` — public exports plus the legends, `UBERADMIN_ATTRIBUTION_NOTE`, and `CHIEF_JUDGE_NOTE`
+
+Main entrypoints:
+- `MatrixActor.for_role(role) -> MatrixActor` / `MatrixActor.role -> RoleEnum | None` — the mapping between the seven matrix actors and the six roles; `CHIEF_JUDGE` has no role, because it is the single `JUDGE` named by `contests.chief_judge_id`
+- `area_by_key(key) -> AccessArea` / `areas_for_actor(actor) -> tuple[AccessArea, ...]`
+- `capability_by_key(key) -> Capability` / `capabilities_for_actor(actor) -> tuple[Capability, ...]` / `all_capabilities() -> tuple[Capability, ...]`
+- `Capability.enforced_by` — dotted path of the predicate that decides the row at runtime, or `None` when only a route role tuple gates it
+
+How it stays true:
+- `tests/web/test_access_matrix.py` builds a real actor per `MatrixActor` in both a running and a not-yet-started contest, calls the predicate each capability names and the gate each area is guarded by, and asserts the answers match the declared cells
+- rows with no predicate are checked structurally, and `test_every_capability_without_a_predicate_is_known` pins that set so it shrinks on purpose and never grows by accident
+
+Consumers:
+- `web/template_globals.py` exposes the whole thing as the `role_matrix` template global, alongside `all_contest_roles`
+- `web/template/admin/users/_role_reference.html` renders both matrices as a reusable card, on every page where an admin chooses a role. Its lead-in is overridable through `role_reference_intro`, because the default one assumes a role picker sits directly above the card
+- `admin/users/add.html` mounts it in the `col-lg-5` column that otherwise stays empty until a user is created, and loads `web/static/js/role-reference.js` to highlight the role chosen in its `#role` select
+- `admin/users/batch_import.html` mounts it full width (`col-12`) — that page's right column already holds the file-format card — and overrides the lead-in. It has no `#role` control, so it deliberately does not load the highlight script; the script no-ops without one in any case
+
+---
+
 ## `clarification_service/`
 
 Purpose:
@@ -42,13 +78,18 @@ Main types:
 
 Main entrypoints:
 - `create_clarification(session, contest, actor, *, problem_id, question) -> Clarification` — TEAM only; contest must be running; question is immutable; `problem_id=None` creates a general, contest-wide clarification
-- `create_announcement(session, contest, actor, *, problem_id, announcement) -> Clarification` — ADMIN/JUDGE only; contest must be running; `problem_id=None` publishes a general, contest-wide announcement; creates a clarification pre-answered with `question="Announcement"`, `is_contest_public=True`; actor is recorded as both team and judge
+- `create_announcement(session, contest, actor, *, problem_id, announcement) -> Clarification` — ADMIN/JUDGE only; a JUDGE may publish only while the contest is running, while a contest ADMIN and the contest's chief judge may publish at any point in the contest lifecycle (see `can_create_announcement`); `problem_id=None` publishes a general, contest-wide announcement; creates a clarification pre-answered with `question="Announcement"`, `is_contest_public=True`; actor is recorded as both team and judge
 - `get_clarification(session, contest, clarification_id) -> Clarification | None` — contest-scoped lookup; no actor; caller is responsible for authorization
 - `list_clarifications(session, contest, actor, lock_client, sort_by="time_desc") -> tuple[list[ClarificationView], bool]` — orders Time or Problem in SQL (general clarifications group last in both problem directions), merges PostgreSQL rows with Valkey lock state, and returns whether lock coordination is available for the UI
+- `count_pending_clarifications(session, contest, team_id=None) -> int` — counts visible unanswered clarifications for the judge/admin dashboard badge; optional `team_id` narrows the query to one requester
+- `count_unread_clarification_answers(session, contest, team_id) -> int` — counts visible answers that the requesting team has not acknowledged for the team dashboard badge
+- `mark_clarification_answers_read(session, contest, actor, clarification_ids) -> int` — TEAM only; marks only the supplied, answered, visible clarifications owned by that team and returns the number changed; callers pass IDs actually rendered to avoid acknowledging a concurrent unseen answer
 - `acquire_clarification(session, contest, actor, clarification, lock_client) -> Clarification` — JUDGE or ADMIN; acquires a Valkey TTL lock keyed by contest and clarification id
 - `release_clarification(session, contest, actor, clarification, lock_client) -> Clarification` — JUDGE may release own lock; ADMIN/UBERADMIN may force-release any lock through Valkey
 - `answer_clarification(session, contest, actor, clarification, lock_client, *, answer, is_contest_public) -> Clarification` — JUDGE or ADMIN; enforces the Valkey lock when available; in degraded mode the DB remains authoritative for answer validity and judge identity
 - `can_answer_clarifications(actor) -> bool` / `can_force_release_clarifications(actor) -> bool` — the single source of truth the routes and templates share; uberadmins may force-release but never answer, since `clarifications.judge_id` is a foreign key into `users`
+- `can_request_clarification(actor, contest) -> bool` — permits only a TEAM actor in a running contest; the request form and `create_clarification()` share this lifecycle gate, while list visibility remains available in every contest lifecycle state
+- `can_create_announcement(actor, contest) -> bool` — whether the actor may publish an announcement in the contest's current lifecycle state; ADMIN/JUDGE while running, plus contest ADMINs and the contest's chief judge at any time (via `has_chief_authority` from `chief_judge_permissions.py`). The route passes the result to the template as `can_create_announcement`, and `create_announcement()` re-checks it, so the form and the guard cannot disagree. Uberadmins are excluded for the same reason they cannot answer
 - `toggle_hidden_clarification(session, actor, clarification) -> Clarification` — JUDGE/ADMIN/UBERADMIN; sets `hidden_by_judge_id` XOR `hidden_by_admin_id` on hide; clears both on unhide
 
 Reuse this module when:
@@ -66,6 +107,7 @@ Notes:
 - `question` and `answer` are immutable after creation/answering respectively; the service enforces this via guard exceptions, not column constraints
 - there is no contest FK on `Clarification`, and `problem_id` is nullable for general clarifications, so contest scoping joins through the author (`Clarification.team_id` → `users.contest_id`) — the same total scoping path the SOS-task queries use; every contest-scoped consumer (reaper, dashboards, counters, timeline export, backup export, contest removal) must scope this way or it silently drops general rows
 - `is_contest_public` is the only public-visibility flag on the model; setting it `True` when answering makes the Q&A visible to all teams
+- `answer_read_at` records when the requesting team acknowledges an answer; new answers leave it null, the team dashboard counts those null markers, and the Clarifications page highlights only rows rendered before acknowledgement
 - active clarification locks live only in Valkey; PostgreSQL now keeps the durable clarification state and answering judge identity
 
 ---
@@ -322,6 +364,7 @@ Main types:
 - `ContestMetadataResult`
 - `ContestDashboardGroups`
 - `ContestCreationResult`
+- `ContestRulesSummary`
 
 Main entrypoints:
 - `get_contest_by_slug(slug, session) -> Contest`
@@ -335,8 +378,19 @@ Main entrypoints:
 - `build_contest_metadata_view(contest, *, site_names=None) -> ContestMetadataView`
 - `build_contest_metadata_view_with_sites(session, contest) -> ContestMetadataView`
 - `contest_status_label(contest) -> str`
-- `build_contest_clock_payload(contest) -> dict[str, int | str]`
+- `build_contest_clock_payload(contest) -> dict[str, int | str]` — returns the
+  server time and the contest's start, end, scoreboard-freeze, and
+  answer-silence boundaries as absolute epoch milliseconds, plus the current
+  `upcoming`, `running`, `frozen`, `silence`, or `past` state. The browser uses
+  the boundary fields to advance the persistent navbar phase between polls.
+- `build_contest_rules_summary(contest) -> ContestRulesSummary` — template-ready
+  view of the contest's public rules for the dashboard banner: printing
+  availability, duration and local start/end, scoreboard-freeze and
+  answer-silence moments, wrong-answer penalty minutes, and the penalizing
+  verdict list (mirrors `shared.services.scoreboard_projection`, honoring
+  `ce_adds_penalty` and `accept_pe`).
 - `get_active_contests_grouped(session) -> ContestDashboardGroups`
+- `sort_past_contests_recent_first(contests) -> list[Contest]` — pure helper sorting `ContestDashboardGroups.past_contests` by `(end_time, login_slug)` descending; used by the `/` and `/contests/past` gateway pages to preview and paginate past contests most-recently-ended first
 - `validate_contest_metadata_update(contest, *, metadata, site_names=None) -> ContestMetadataResult`
 - `update_contest_metadata(session, contest, actor, *, metadata, site_names, language_ids) -> ContestMetadataResult`
 - `build_blank_contest_form(default_start_time) -> dict[str, Any]`
@@ -373,8 +427,10 @@ Do not reimplement:
 Notes:
 - `ContestMetadataView` now carries `site_names` for the metadata page's editable site list.
 - `create_contest_with_owner` bootstraps each new contest with a default `"Main"` site and inserts the `contest_languages` rows in the same transaction. `language_ids` must be non-empty.
+- `build_blank_contest_form` defaults a 300-minute contest to stop scoreboard updates at minute 280 and answers at minute 290, matching the create wizard's duration-relative offsets.
 - `update_contest_metadata` now also synchronizes `contest_languages` while the contest is upcoming. Removed languages trigger transactional cleanup of stale `problem_language_limits` rows across that contest's problems; newly added languages rely on fallback problem limits until explicit overrides are set.
 - contest metadata includes `allow_print_requests`, which remains editable even while the contest is running/past (explicit exception to the general lock behavior for non-timing fields).
+- contest metadata accepts a blank `contest_url`; create and edit persist an empty string when no website is provided.
 - `ensure_contest_has_sites` is used before `start-now`; contests cannot be started or metadata-edited without at least one site.
 - `get_contest_by_slug` only returns active contests. Contest-scoped routes and contest login therefore reject inactive contests with 404; UberAdmin inactive-list views use `get_inactive_contests` instead.
 - `deactivate_past_contest` commits the `active=False` change only for active contests whose end time has passed; it returns `None` for live, upcoming, missing, or already inactive contests.
@@ -431,7 +487,7 @@ Main entrypoints:
 - `rejudge_submission(session, submission_id, actor, contest, lock_client=None) -> SubmissionJudgment` — chief judge, ADMIN or UBERADMIN; supersedes the active judgment, force-releases its Valkey review lock when available, and creates a new `QUEUED` judgment
 - `queue_limit_change_batch_rejudges(session, batch, contest, actor, lock_client, *, language_id=None) -> list[SubmissionJudgment]` — ADMIN/UBERADMIN only; requeues pending rows from one persisted problem-limit-change batch and marks drifted rows as `STALE`
 - `confirm_verdict(session, submission_id, verdict, judge, contest, lock_client) -> HumanSubmissionConfirmation` — JUDGE or ADMIN; creates a human confirmation for the active `DONE` judgment; requires the caller to hold the review lock when Valkey is available; the submission model hook derives `final_verdict` from confirmations
-- `can_confirm_verdict(actor, contest) -> bool` / `confirmation_is_decisive(actor, contest) -> bool` / `can_override_verdict(actor, contest) -> bool` / `is_chief_judge(actor, contest) -> bool` — the single source of truth the routes and templates share. The chief judge **and contest admins** cast decisive confirmations and may override; uberadmins may do neither, since `human_submission_confirmations.judge_id` and `verdict_overrides.overridden_by` are foreign keys into `users`
+- `can_confirm_verdict(actor, contest) -> bool` / `confirmation_is_decisive(actor, contest) -> bool` / `can_override_verdict(actor, contest) -> bool` / `is_chief_judge(actor, contest) -> bool` — the single source of truth the routes and templates share. The chief-authority pair (chief judge **and contest admins**, from `chief_judge_permissions.py`) cast decisive confirmations and may override; uberadmins may do neither, since `human_submission_confirmations.judge_id` and `verdict_overrides.overridden_by` are foreign keys into `users`
 - `create_balloon_task_if_needed(session, submission_id, contest) -> Task | None` — idempotent balloon creation after accepted final verdict; skipped if the scoreboard is frozen or a balloon-like task already exists for the same (team, problem) pair; creates `FIRST_BALLOON` for the earliest accepted submission on the problem and `BALLOON` otherwise
 
 Reuse this module when:
@@ -501,6 +557,29 @@ Do not reimplement:
 - scoreboard freeze visibility rules
 - cache-key selection for admin/judge vs public/final/frozen views
 - ICPC ranking aggregation logic
+
+---
+
+## `problem_list_service.py`
+
+Purpose:
+- compute the per-problem solving rate and the current team's own status for the participant-facing contest problem list (`contest/problems_list.html`)
+
+Internal structure:
+- single module, no submodules
+
+Main types:
+- `ProblemCardData` — one card's worth of data: the `Problem` row, its display `label`, `solving_rate` (int percentage, 0 when the contest has no teams), and `viewer_status` (`"solved"` / `"pending"` / `"attempted"` / `"untried"` / `None`)
+
+Main entrypoints:
+- `build_problem_cards(problems, snapshot, actor) -> list[ProblemCardData]` — combines contest problems with a `ScoreboardSnapshot` (see `scoreboard/` above); `solving_rate` is `round(teams_solved / total_teams * 100)` over all teams in the snapshot, so it automatically respects the same freeze visibility the caller requested from `ScoreboardService`; `viewer_status` is populated only when `actor` is a `RoleEnum.TEAM` user with a standing in the snapshot — staff, judge, admin, and uberadmin viewers always get `None`
+
+Reuse this module when:
+- rendering any page that needs a per-problem solving rate or a team's own per-problem status, instead of querying submissions/judgments directly
+
+Do not reimplement:
+- per-problem AC-team counting or percentage rounding
+- team-standing lookup by actor id
 
 ---
 
@@ -806,7 +885,7 @@ Do not reimplement:
 - per-problem package assembly — always go through `build_problem_export`
 
 Notes:
-- the release gate (`contest.is_past and contest.release_scoreboard_after_end`) lives in the route (`web/routes/problem_set.py`), not here — callers are responsible for checking it first
+- the release gate (`contest.is_past and contest.release_problem_set_after_end`) lives in the route (`web/routes/problem_set.py`), not here — callers are responsible for checking it first. The flag is independent of `release_scoreboard_after_end`, which still gates the scoreboard and the team submissions download; `is_past` is not optional and keeps the materials private while the contest runs
 - a problem whose stored statement file is missing aborts the whole build with `PackageError` (the route answers 409) rather than serving a silently incomplete archive
 - `index.json` is a small manifest (`format_version` 1, `kind: "problem_set"`, contest slug/name, and per-problem `label`/`title`/`dir`) so consumers can list contents without opening every embedded package
 
@@ -820,12 +899,14 @@ Purpose:
 Main entrypoints:
 - `ensure_cached_archive(cache_dir, contest, build) -> Path` — returns a digest-verified cached archive, building it via the async `build` callable when missing or corrupted; concurrent builds for the same contest are serialized by a per-slug `anyio.Lock` with a double-checked cache test inside the lock
 - `cached_archive_path(cache_dir, contest) -> Path` — the deterministic per-contest location (`problem-set-<slug>.zip`)
+- `discard_cached_archive(cache_dir, contest) -> None` — drops the cached archive and its sidecar so the next download rebuilds; called when an admin withdraws a problem-set release. Removing nothing is a normal outcome (the contest may never have been downloaded), so a missing file is not an error
 
 Do not reimplement:
 - the integrity contract: a `<name>.sha256` sidecar must match the file on disk, and publishing is atomic (temp sibling + `os.replace`), so no reader ever observes a half-written archive
 
 Notes:
-- there is no invalidation bookkeeping: the route re-checks the release gate per request, so un-releasing a contest stops serving immediately; force a rebuild by deleting the cached file
+- there is no invalidation bookkeeping: the route re-checks the release gate per request, so un-releasing a contest stops serving immediately **on every replica**, since the gate is a database read rather than cached state; force a rebuild by deleting the cached file
+- what is not cluster-wide is `discard_cached_archive`: it removes the archive the handling replica can see, so a deployment whose replicas do not share the cache directory keeps its other copies until each rebuilds. That is a wasted rebuild, never a disclosure — no replica serves a cached file without passing the gate first
 - the cache directory is created at Web startup when configured; a relative or non-directory path is rejected by config validation
 - when the setting is unset the route rebuilds on every download (development mode)
 
@@ -864,7 +945,7 @@ Main entrypoints:
 - `acquire_task(session, contest, actor, task, lock_client) -> Task` — STAFF, ADMIN, or the contest chief judge; acquires a Valkey TTL lock keyed by contest and task id
 - `release_task(session, contest, actor, task, lock_client) -> Task` — STAFF and the chief judge may release own lock; ADMIN/UBERADMIN may force-release any lock through Valkey
 - `finish_task(session, contest, actor, task, lock_client) -> Task` — STAFF, ADMIN, or the chief judge; enforces the Valkey lock when available; PostgreSQL remains authoritative for finished state and finisher identity
-- `can_view_tasks(actor, contest) -> bool` / `can_handle_tasks(actor, contest) -> bool` / `can_force_release_tasks(actor) -> bool` / `is_chief_judge(actor, contest) -> bool` — the single source of truth the routes and templates share; uberadmins may force-release but never handle a task, since `tasks.staff_id` is a foreign key into `users`
+- `can_view_tasks(actor, contest) -> bool` / `can_handle_tasks(actor, contest) -> bool` / `can_force_release_tasks(actor) -> bool` / `is_chief_judge(actor, contest) -> bool` — the single source of truth the routes and templates share (`is_chief_judge` comes from `chief_judge_permissions.py`); uberadmins may force-release but never handle a task, since `tasks.staff_id` is a foreign key into `users`
 
 Reuse this module when:
 - building any staff/team/admin task workflow
@@ -1426,6 +1507,21 @@ Notes:
 ---
 
 ## Utility Modules
+
+### `chief_judge_permissions.py`
+
+Purpose:
+- contest-scoped chief-judge authority predicates shared by the per-domain `permissions.py` modules, so the rule cannot drift across domains
+
+Main entrypoints:
+- `is_chief_judge(actor, contest) -> bool` — `True` only for the JUDGE-role user whose id matches `contests.chief_judge_id`; uberadmins and other roles never match
+- `has_chief_authority(actor, contest) -> bool` — `True` for contest admins and the contest's chief judge; the pair carries decisive verdict confirmations, verdict overrides, and lifecycle-independent announcement publishing
+
+Reuse this module when:
+- a permission rule needs the chief-judge designation or the chief-authority pair
+
+Do not reimplement:
+- a per-service `is_chief_judge` variant; import it from here
 
 ### `judgment_utils.py`
 

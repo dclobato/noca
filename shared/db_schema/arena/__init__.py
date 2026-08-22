@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -39,6 +39,7 @@ from .arena_rating_history import (
     arena_problem_rating_history,
     arena_user_rating_history,
 )
+from .arena_search_indexes import arena_search_indexes
 from .arena_statistics import arena_problem_statistics
 from .arena_submissions import (
     arena_problem_solvers,
@@ -88,6 +89,7 @@ __all__ = [
     "arena_submission_teacher_feedback",
     "arena_submission_test_results",
     "arena_sample_interactions",
+    "arena_search_indexes",
     "arena_submissions",
     "arena_test_cases",
     "arena_user_badges",

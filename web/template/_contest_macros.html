@@ -40,7 +40,7 @@
                 {% endif %}
                 {% if show_uberadmin_access %}
                     <div class="mt-1 d-flex flex-wrap gap-2">
-                        <a href="{{ request.url_for('view', slug=contest.login_slug) }}"
+                        <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}"
                            class="btn btn-outline-secondary btn-xs py-0 px-1 small">Administration</a>
                         {% if show_export %}
                             <a href="{{ request.url_for('uberadmin_export_contest_form', contest_id=contest.id) }}"

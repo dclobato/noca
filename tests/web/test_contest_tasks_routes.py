@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -28,6 +28,7 @@ from web.models.users import UberAdmin, User
 from web.routes.contest_tasks import router as tasks_router
 from web.routes.contest_tasks_staff import router as tasks_staff_router
 from web.services.task_service import create_print_task, create_sos_task
+from web.template_globals import register_template_globals
 
 
 class _LockRuntime:
@@ -71,9 +72,8 @@ def _build_app(session: AsyncSession, ctx: ContestContext, valkey_client: aivalk
     shared_dir = Path(__file__).resolve().parents[2] / "shared"
     templates = Jinja2Templates(directory=web_dir / "template")
     templates.env.globals["app_version"] = "test"
-    templates.env.globals["RoleEnum"] = RoleEnum
     templates.env.globals["TaskType"] = TaskType
-    templates.env.globals["role_labels"] = {role.value: role.value.title() for role in RoleEnum}
+    register_template_globals(templates)
     templates.env.globals["contest_minutes"] = lambda seconds: None if seconds is None else seconds // 60
     setup_flash(templates)
     app.state.templates = templates

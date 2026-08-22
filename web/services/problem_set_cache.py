@@ -26,8 +26,16 @@ is configured, the archive is built **once** per contest and reused:
 
 There is deliberately no invalidation bookkeeping: the route re-checks the
 release gate on every request, so un-releasing a contest stops serving the
-cached file immediately. A contest whose problems were edited after release is
-refreshed by deleting the cached file.
+cached file immediately -- on every replica, since the gate is a database read
+rather than cached state. What is *not* cluster-wide is the discard below: it
+removes the archive from the filesystem the handling replica can see, so a
+deployment where replicas do not share that directory keeps its other copies
+until each is rebuilt. That is a wasted rebuild, never a disclosure, because no
+replica serves a cached file without passing the gate first. A contest whose
+problems were edited after release is refreshed by deleting the cached file,
+which is what ``discard_cached_archive`` does when an admin revokes the release
+-- not for correctness, since the gate already blocks the download, but so a
+later re-release cannot serve an archive built before the problems were edited.
 """
 
 from __future__ import annotations
@@ -109,6 +117,26 @@ async def _build_and_publish(archive_path: Path, build: Callable[[Path], Awaitab
         await anyio.to_thread.run_sync(_publish, temp_path, archive_path)
     finally:
         await anyio.to_thread.run_sync(_cleanup_partial, temp_path)
+
+
+def _discard(archive_path: Path) -> None:
+    """Remove a published archive and its digest sidecar, if present."""
+    archive_path.unlink(missing_ok=True)
+    _sidecar_path(archive_path).unlink(missing_ok=True)
+
+
+async def discard_cached_archive(cache_dir: Path, contest: Contest) -> None:
+    """Drop a contest's cached archive so the next download rebuilds it.
+
+    Called when an admin revokes a problem-set release. Removing nothing is a
+    normal outcome (the contest may never have been downloaded), so a missing
+    file is not an error.
+
+    Args:
+        cache_dir: Configured cache root.
+        contest: The contest whose cached archive should be dropped.
+    """
+    await anyio.to_thread.run_sync(_discard, cached_archive_path(cache_dir, contest))
 
 
 async def ensure_cached_archive(

@@ -1,21 +1,13 @@
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon %}
+{% from "_macros.html" import admin_breadcrumb, render_icon with context %}
 {% block title_suffix %}— Affected Rejudge Batch{% endblock %}
 {% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            <li class="breadcrumb-item">
-                <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-            </li>
-            <li class="breadcrumb-item">
-                <a href="{{ request.url_for('manage_problems', slug=contest.login_slug) }}">Problems</a>
-            </li>
-            <li class="breadcrumb-item">
-                <a href="{{ request.url_for('edit_problem_form', slug=contest.login_slug, problem_id=problem.id) }}?tab=limits">{{ problem.title }}</a>
-            </li>
-            <li class="breadcrumb-item active" aria-current="page">Affected Rejudge Batch</li>
-        </ol>
-    </nav>
+    {% call admin_breadcrumb(crumbs=[
+        ("Problems", request.url_for('manage_problems', slug=contest.login_slug)),
+        (problem.title, request.url_for('edit_problem_form', slug=contest.login_slug, problem_id=problem.id) ~ "?tab=limits"),
+        ]) %}
+        Affected Rejudge Batch
+    {% endcall %}
 {% endblock %}
 {% block content %}
     <div class="container py-5">

@@ -57,6 +57,56 @@ def test_case_detail_snapshots_are_optional_text_columns() -> None:
         assert column.type.python_type is str
 
 
+def test_interactive_diagnostic_columns_are_optional() -> None:
+    """Ordinary rows never populate the validator-side columns, so all six are nullable."""
+    for column_name in (
+        "validator_exit_code",
+        "validator_signal",
+        "validator_stderr_excerpt",
+        "limit_outcome",
+        "validator_verdict",
+        "crash_reason",
+    ):
+        assert solution_test_case_results.c[column_name].nullable
+
+
+def test_outcome_exclusive_check_rejects_both_set() -> None:
+    """A validator attempt is either a clean verdict or a crash, never both."""
+    check = next(
+        constraint
+        for constraint in solution_test_case_results.constraints
+        if getattr(constraint, "name", None) == "ck_solution_test_case_results_outcome_exclusive"
+    )
+    expression = str(check.sqltext)  # type: ignore[attr-defined]
+    assert "validator_verdict IS NOT NULL AND crash_reason IS NOT NULL" in expression
+
+
+def test_limit_outcome_check_allows_mle_ole_tle() -> None:
+    """Shipped with TLE from the start, unlike submission_interactive_attempts."""
+    check = next(
+        constraint
+        for constraint in solution_test_case_results.constraints
+        if getattr(constraint, "name", None) == "ck_solution_test_case_results_limit_outcome"
+    )
+    expression = str(check.sqltext)  # type: ignore[attr-defined]
+    for outcome in ("MLE", "OLE", "TLE"):
+        assert outcome in expression
+
+
+def test_validator_verdict_check_matches_verdict_subset() -> None:
+    """Only outcomes a validator's own exit code can produce are allowed."""
+    check = next(
+        constraint
+        for constraint in solution_test_case_results.constraints
+        if getattr(constraint, "name", None) == "ck_solution_test_case_results_validator_verdict"
+    )
+    expression = str(check.sqltext)  # type: ignore[attr-defined]
+    for outcome in ("AC", "WA", "TLE", "PE", "RE"):
+        assert outcome in expression
+    for excluded in ("MLE", "OLE", "CE"):
+        assert excluded not in expression
+
+
 def test_uniqueness_uses_two_partial_indexes() -> None:
     """One UniqueConstraint would silently permit duplicate ordinary rows.
 

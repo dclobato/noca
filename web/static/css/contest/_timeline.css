@@ -71,20 +71,3 @@
     -webkit-mask: url('/static/img/x.svg') center / contain no-repeat;
 }
 
-.icon-fastapi {
-    display: inline-block;
-    width: 24px;
-    height: 24px;
-    background-color: currentColor;
-    mask: url('/static/img/fastapi.svg') center / contain no-repeat;
-    -webkit-mask: url('/static/img/fastapi.svg') center / contain no-repeat;
-}
-
-.icon-python {
-    display: inline-block;
-    width: 24px;
-    height: 24px;
-    background-color: currentColor;
-    mask: url('/static/img/python.svg') center / contain no-repeat;
-    -webkit-mask: url('/static/img/python.svg') center / contain no-repeat;
-}

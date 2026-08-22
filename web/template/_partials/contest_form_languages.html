@@ -1,0 +1,75 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<section class="noca-contest-form-section">
+    {% if show_section_heading is not defined or show_section_heading %}
+        <h2 class="noca-section-heading">Languages</h2>
+    {% endif %}
+    <div data-language-selection>
+        {% if form_mode == "create" %}
+            {% set selectable_languages = languages %}
+            {% set selected_ids = form_data.language_ids or [] %}
+            {% set can_edit_languages = true %}
+        {% else %}
+            {% set selectable_languages = available_languages %}
+            {% set selected_ids = selected_language_ids %}
+            {% set can_edit_languages = contest.upcoming and contest.active %}
+        {% endif %}
+        {% if can_edit_languages and not selectable_languages %}
+            <div class="alert alert-warning py-2 small" role="alert">
+                No active languages are configured. Add a language to the registry before continuing.
+            </div>
+        {% elif can_edit_languages %}
+            <p class="form-text mb-2">
+                Select the languages teams may use. You can change this selection until the contest starts.
+            </p>
+            <div class="d-flex flex-wrap gap-2 mb-3">
+                <button type="button"
+                        class="btn btn-outline-secondary btn-sm"
+                        data-language-selection-action="select-all">
+                    {{ render_icon("check_box", classes="me-1") }}Select all
+                </button>
+                <button type="button"
+                        class="btn btn-outline-secondary btn-sm"
+                        data-language-selection-action="clear-all">
+                    {{ render_icon("check_box_outline_blank", classes="me-1") }}Clear all
+                </button>
+            </div>
+            <div class="row g-2">
+                {% for lang in selectable_languages %}
+                    <div class="col-6 col-sm-4 col-md-3">
+                        <div class="form-check">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   id="lang_{{ lang.id }}"
+                                   name="language_ids"
+                                   value="{{ lang.id }}"
+                                   data-lang-name="{{ lang.name }}"
+                                   data-lang-icon="{{ lang.icon }}"
+                                   {% if lang.id in selected_ids %}checked{% endif %}>
+                            <label class="form-check-label d-inline-flex align-items-center gap-1"
+                                   for="lang_{{ lang.id }}">
+                                <i class="{{ lang.icon }}" aria-hidden="true"></i>{{ lang.name }}
+                            </label>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% elif not languages %}
+            <div class="alert alert-warning py-2 small" role="alert">No languages are configured for this contest.</div>
+        {% else %}
+            <p class="form-text mb-2">Allowed languages can no longer be changed after the contest starts.</p>
+            <div class="d-flex flex-wrap gap-2">
+                {% for lang in languages %}
+                    <span class="badge rounded-pill bg-secondary fs-6 d-inline-flex align-items-center gap-1">
+                        <i class="{{ lang.icon }}" aria-hidden="true"></i>{{ lang.name }}
+                    </span>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+</section>

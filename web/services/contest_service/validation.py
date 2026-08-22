@@ -95,6 +95,7 @@ def validate_contest_metadata_fields(
             allow_print_requests=metadata.allow_print_requests,
             accept_pe=metadata.accept_pe,
             ce_adds_penalty=metadata.ce_adds_penalty,
+            release_problem_set_after_end=metadata.release_problem_set_after_end,
         ),
         errors,
     )
@@ -177,6 +178,7 @@ def validate_contest_metadata_update(
         contest.allow_print_requests = validated.allow_print_requests
         contest.accept_pe = validated.accept_pe
         contest.ce_adds_penalty = validated.ce_adds_penalty
+        contest.release_problem_set_after_end = validated.release_problem_set_after_end
     else:
         contest.duration_minutes = metadata.duration_minutes
         contest.stop_answers_after = metadata.stop_answers_after
@@ -185,6 +187,7 @@ def validate_contest_metadata_update(
         contest.tasks_timeout_minutes = metadata.tasks_timeout_minutes
         contest.review_timeout_minutes = metadata.review_timeout_minutes
         contest.allow_print_requests = metadata.allow_print_requests
+        contest.release_problem_set_after_end = metadata.release_problem_set_after_end
 
     return ContestMetadataResult(
         success=True,

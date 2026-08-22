@@ -33,9 +33,10 @@ parameters.
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
 | `/` or `/contests` | `contests_list` | — | `root.py` |
-| `GET /login` | `login_get` | — | `auth.py` |
-| `POST /login` | `login_post` | — | `auth.py` |
-| `/logout` | `logout` | — | `auth.py` |
+| `GET /contests/past` | `contests_past` | — | `root.py` |
+| `GET /login` | `login_get` | Optional query: safe local `next_url` | `auth.py` |
+| `POST /login` | `login_post` | Form: `identifier` (username only), `password`, optional safe local `next_url` | `auth.py` |
+| `/logout` | `logout` | — | `auth.py` (POST-only; submit a form, never link to it) |
 | `GET /c/{slug}/login` | `contest_login_get` | `slug=` | `auth.py` |
 | `POST /c/{slug}/login` | `contest_login_post` | `slug=` | `auth.py` |
 | `GET /problem-set/{slug}.zip` | `problem_set_download` | `slug=` | `problem_set.py` |
@@ -96,6 +97,7 @@ The authenticated navbar polls the contest clock endpoint for a JSON snapshot.
 | `GET /c/{slug}/problems/{problem_label}/export` | `contest_problem_export` | `slug=`, `problem_label=` | `contest_problems.py` |
 | `GET /c/{slug}/clarifications/` | `contest_clarifications` | `slug=`, `sort_by=` | `contest_clarifications.py` |
 | `GET /c/{slug}/clarifications/list` | `contest_clarifications_list` | `slug=`, `sort_by=` | `contest_clarifications.py` |
+| `POST /c/{slug}/clarifications/answers/read` | `contest_clarification_answers_read` | `slug=` | `contest_clarifications.py` |
 | `POST /c/{slug}/clarifications/new` | `contest_clarifications_new` | `slug=` | `contest_clarifications_submit.py` |
 | `POST /c/{slug}/clarifications/announcement` | `contest_clarifications_announcement` | `slug=` | `contest_clarifications_submit.py` |
 | `POST /c/{slug}/clarifications/acquire` | `contest_clarifications_acquire` | `slug=` | `contest_clarifications_judge.py` |
@@ -147,6 +149,9 @@ The authenticated navbar polls the contest clock endpoint for a JSON snapshot.
 ## Contest Administration Routes (`contest_admin*.py`)
 
 `edit_metadata` / `edit_metadata_submit` now also cover allowed-language edits before contest start; the endpoint names and paths are unchanged.
+The Animator settings POST keeps the same endpoint name and path; submitting it
+with the switch absent disables Animator support and revokes all contest operator
+credentials.
 
 | Hardcoded path | Endpoint name | Path params | File |
 |---|---|---|---|
@@ -163,6 +168,7 @@ The authenticated navbar polls the contest clock endpoint for a JSON snapshot.
 | `POST /c/{slug}/admin/end-now` | `contest_end_now` | `slug=` | `contest_admin.py` |
 | `POST /c/{slug}/admin/chief-judge` | `contest_admin_set_chief_judge` | `slug=` | `contest_admin.py` |
 | `POST /c/{slug}/admin/release-scoreboard` | `contest_admin_release_scoreboard` | `slug=` | `contest_admin.py` |
+| `POST /c/{slug}/admin/release-problem-set` | `contest_admin_release_problem_set` | `slug=` | `contest_admin.py` |
 | `GET /c/{slug}/admin/animator/` | `animator_settings` | `slug=` | `contest_admin_animator.py` |
 | `POST /c/{slug}/admin/animator/settings` | `animator_update_settings` | `slug=` | `contest_admin_animator.py` |
 | `POST /c/{slug}/admin/animator/medals` | `animator_update_all_medals` | `slug=` | `contest_admin_animator.py` |
@@ -238,6 +244,19 @@ Judgment-data routes (`contest_admin_problem_judgment_tc.py`,
 | `GET\|POST /c/{slug}/admin/problems/{problem_id}/judgment/interactions` | `problem_judgment_interactions` / `problem_judgment_interactions_save` | `slug=`, `problem_id=`; invalid inline rows return retained HTML (422) | `contest_admin_problem_judgment_pages.py` |
 | `POST /c/{slug}/admin/problems/{problem_id}/judgment/interactions/{si_id}/delete` | `problem_judgment_interaction_delete` | `slug=`, `problem_id=`, `si_id=` | `contest_admin_problem_judgment_pages.py` |
 
+Legacy validator and interaction routes:
+
+| Hardcoded path | Endpoint name | Path params | File |
+|---|---|---|---|
+| `POST /c/{slug}/admin/problems/{problem_id}/validator` | `upload_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_validator.py` |
+| `GET /c/{slug}/admin/problems/{problem_id}/validator/status` | `problem_custom_validator_status` | `slug=`, `problem_id=` | `contest_admin_problem_validator.py` |
+| `GET /c/{slug}/admin/problems/{problem_id}/validator/source` | `download_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_validator.py` |
+| `GET /c/{slug}/admin/problems/{problem_id}/validator/source/view` | `view_problem_custom_validator_source` | `slug=`, `problem_id=` | `contest_admin_problem_validator.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/validator/remove` | `remove_problem_custom_validator` | `slug=`, `problem_id=`, Form: `keep_interactions` (`"true"`/`"false"`, required) | `contest_admin_problem_validator.py` (deprecated) |
+| `GET /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/edit` | `edit_problem_interaction_form` | `slug=`, `problem_id=`, `si_id=` | `contest_admin_problem_interactions.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/edit` | `update_problem_interaction` | `slug=`, `problem_id=`, `si_id=` | `contest_admin_problem_interactions.py` |
+| `POST /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/move` | `move_problem_interaction` | `slug=`, `problem_id=`, `si_id=`, Query: `new_ordinal` | `contest_admin_problem_interactions.py` |
+
 Test case routes (`contest_admin_problem_tc.py`). The four marked *deprecated* are
 retained for one release only: the editor applies those mutations through the
 problem Save instead.
@@ -296,11 +315,7 @@ Shared helpers (`contest_admin_problem_helpers.py` and
 - Several route functions are named `view`, but only explicitly named routes are stable for `url_for(...)`. Prefer the endpoint names listed above instead of relying on function names.
 - For StaticFiles mounts, `path=` is the filename relative to the mount directory (no leading slash).
 - Trailing slashes: routes mounted with `prefix + "/"` (e.g. `/c/{slug}/clarifications/`) get a trailing slash in `url_for` output. FastAPI redirects the slash-less version automatically.
-| `POST /c/{slug}/admin/problems/{problem_id}/validator` | `upload_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_validator.py` |
-| `GET /c/{slug}/admin/problems/{problem_id}/validator/status` | `problem_custom_validator_status` | `slug=`, `problem_id=` | `contest_admin_problem_validator.py` |
-| `GET /c/{slug}/admin/problems/{problem_id}/validator/source` | `download_problem_custom_validator` | `slug=`, `problem_id=` | `contest_admin_problem_validator.py` |
-| `GET /c/{slug}/admin/problems/{problem_id}/validator/source/view` | `view_problem_custom_validator_source` | `slug=`, `problem_id=` | `contest_admin_problem_validator.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/validator/remove` | `remove_problem_custom_validator` | `slug=`, `problem_id=`, Form: `keep_interactions` (`"true"`/`"false"`, required) | `contest_admin_problem_validator.py` (deprecated) |
-| `GET /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/edit` | `edit_problem_interaction_form` | `slug=`, `problem_id=`, `si_id=` | `contest_admin_problem_interactions.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/edit` | `update_problem_interaction` | `slug=`, `problem_id=`, `si_id=` | `contest_admin_problem_interactions.py` |
-| `POST /c/{slug}/admin/problems/{problem_id}/interactions/{si_id}/move` | `move_problem_interaction` | `slug=`, `problem_id=`, `si_id=`, Query: `new_ordinal` | `contest_admin_problem_interactions.py` |
+- Logged-in actors who reach a forbidden Web route are redirected to
+  `request.url_for('contest_dashboard', slug=...)` or, for UberAdmins,
+  `request.url_for('uberadmin_dashboard')`. The redirect carries a danger flash
+  naming the denied role; HTMX requests use `HX-Redirect`.

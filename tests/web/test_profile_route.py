@@ -1,3 +1,9 @@
+#  NOCA -- Next Online Contest Administrator
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 import logging
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
@@ -15,7 +21,6 @@ from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
-from shared.enumerations import RoleEnum
 from shared.services.geolocation import GeolocationDetails, GeolocationIP
 from shared.services.imageprocessing_service import ImageProcessingService
 from web.audio_upload_limits import DEFAULT_AUDIO_MAX_FILE_SIZE, MAX_AUDIO_FILE_SIZE
@@ -26,6 +31,7 @@ from web.routes.user_media import router as user_media_router
 from web.services.authentication_service import AuthAction, AuthenticationService
 from web.services.site_service import normalize_site_name_key
 from web.services.user_media_service import process_audio_upload
+from web.template_globals import register_template_globals
 
 TEST_JWT_SECRET = "test-secret-key-for-tests-only-32bytes"
 
@@ -55,8 +61,7 @@ def _build_profile_app(session: AsyncSession) -> tuple[FastAPI, AuthenticationSe
     shared_dir = Path(__file__).resolve().parents[2] / "shared"
     templates = Jinja2Templates(directory=web_dir / "template")
     templates.env.globals["app_version"] = "test"
-    templates.env.globals["RoleEnum"] = RoleEnum
-    templates.env.globals["role_labels"] = {role.value: role.value.title() for role in RoleEnum}
+    register_template_globals(templates)
     setup_flash(templates)
     app.state.templates = templates
 
@@ -248,6 +253,7 @@ async def test_contest_user_profile_shows_site_as_read_only_information(
         response = await client.get("/profile")
 
     assert response.status_code == 200
+    assert "Back to dashboard" not in response.text
     assert 'name="site_id"' not in response.text
     assert "Managed by contest administrators." in response.text
     assert "Campus A" in response.text

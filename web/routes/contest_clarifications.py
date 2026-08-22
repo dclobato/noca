@@ -1,15 +1,17 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy import select
 
+from shared.enumerations import RoleEnum
 from web.dependencies import ContestContext, ensure_allowed_role, get_contest_context
 from web.models.problem import Problem
+from web.models.users import User
 from web.routes.contest_clarifications_helpers import (
     _ALLOWED,
     _build_problem_map,
@@ -17,16 +19,32 @@ from web.routes.contest_clarifications_helpers import (
     _html,
     _needs_user_map,
     _problem_map_from_list,
-    _team_access_blocked,
 )
 from web.services.clarification_service import (
-    can_answer_clarifications,
-    can_force_release_clarifications,
     list_clarifications,
+    mark_clarification_answers_read,
     normalize_clarification_sort,
 )
 
 router = APIRouter(prefix="/c/{slug}/clarifications", tags=["contest_clarifications"])
+
+
+@router.post("/answers/read", status_code=204, name="contest_clarification_answers_read")
+async def mark_answers_read(
+    ctx: ContestContext = Depends(get_contest_context),
+    clarification_ids: list[str] = Form(default_factory=list),
+) -> Response:
+    """Acknowledge answers that were rendered to their requesting team."""
+    ensure_allowed_role(ctx.actor, (RoleEnum.TEAM,))
+    assert isinstance(ctx.actor, User)
+    await mark_clarification_answers_read(
+        ctx.session,
+        ctx.contest,
+        ctx.actor,
+        clarification_ids,
+    )
+    await ctx.session.commit()
+    return Response(status_code=204)
 
 
 @router.get("/", response_class=HTMLResponse, name="contest_clarifications")
@@ -38,29 +56,7 @@ async def view(
     templates = request.app.state.templates
     ensure_allowed_role(ctx.actor, _ALLOWED)
 
-    access_blocked = _team_access_blocked(ctx.actor, ctx.contest)
     normalized_sort = normalize_clarification_sort(sort_by)
-
-    if access_blocked:
-        return _html(
-            templates.TemplateResponse(
-                request,
-                "contest/clarifications.html",
-                {
-                    "current_user": ctx.actor,
-                    "contest": ctx.contest,
-                    "can_answer_clarifications": can_answer_clarifications(ctx.actor),
-                    "can_force_release": can_force_release_clarifications(ctx.actor),
-                    "access_blocked": True,
-                    "clarifications": [],
-                    "lock_service_available": request.app.state.valkey_runtime.is_available,
-                    "problems": [],
-                    "problem_map": {},
-                    "user_map": {},
-                    "sort_by": normalized_sort,
-                },
-            )
-        )
 
     clarifications, lock_service_available = await list_clarifications(
         ctx.session,
@@ -85,9 +81,6 @@ async def view(
             {
                 "current_user": ctx.actor,
                 "contest": ctx.contest,
-                "can_answer_clarifications": can_answer_clarifications(ctx.actor),
-                "can_force_release": can_force_release_clarifications(ctx.actor),
-                "access_blocked": False,
                 "clarifications": clarifications,
                 "lock_service_available": lock_service_available,
                 "problems": problems,
@@ -109,26 +102,6 @@ async def list_partial(
     ensure_allowed_role(ctx.actor, _ALLOWED)
     normalized_sort = normalize_clarification_sort(sort_by)
 
-    if _team_access_blocked(ctx.actor, ctx.contest):
-        return _html(
-            templates.TemplateResponse(
-                request,
-                "contest/clarifications_list.html",
-                {
-                    "current_user": ctx.actor,
-                    "contest": ctx.contest,
-                    "can_answer_clarifications": can_answer_clarifications(ctx.actor),
-                    "can_force_release": can_force_release_clarifications(ctx.actor),
-                    "access_blocked": True,
-                    "clarifications": [],
-                    "lock_service_available": request.app.state.valkey_runtime.is_available,
-                    "problem_map": {},
-                    "user_map": {},
-                    "sort_by": normalized_sort,
-                },
-            )
-        )
-
     clarifications, lock_service_available = await list_clarifications(
         ctx.session,
         ctx.contest,
@@ -145,9 +118,6 @@ async def list_partial(
             {
                 "current_user": ctx.actor,
                 "contest": ctx.contest,
-                "can_answer_clarifications": can_answer_clarifications(ctx.actor),
-                "can_force_release": can_force_release_clarifications(ctx.actor),
-                "access_blocked": False,
                 "clarifications": clarifications,
                 "lock_service_available": lock_service_available,
                 "problem_map": problem_map,

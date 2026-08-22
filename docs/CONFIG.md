@@ -55,6 +55,56 @@ These variables are read by every runtime module (`web`, `arena`, `autojudge`,
 | `NOCA_STARTUP_TIMEOUT_SECONDS` | `60` | Maximum seconds each module waits for PostgreSQL and Valkey to become reachable at startup before aborting. Set to `0` to skip the wait and fail immediately. Applied to **web**, **arena**, **autojudge**, **aiassistant**, and **animator**; the **rating** module only waits for PostgreSQL, and **healthmonitor** only waits for Valkey (0–300 s). |
 | `NOCA_WORKER_COMMAND_SECRET` | *(empty)* | Shared `HMAC-SHA256` secret for the authenticated worker pause/resume protocol. Read by **arena** (signs/publishes), **autojudge**, and **aiassistant** (verify/apply). When empty the feature is disabled: the Arena dashboard hides pause/resume buttons, direct POSTs are rejected (`rejected_disabled`), and worker command loops do not start. Keep it secret; theft allows pausing queue consumers. |
 
+#### Server memory bounds
+
+The variables above configure how the modules *reach* Valkey. How the Valkey
+server itself is bounded is a deployment concern with no `NOCA_` variable: it
+configures the server, not its clients, so it belongs in the Compose file (or
+your `valkey.conf`) rather than in `.env`.
+
+`docker-compose.yml.sample` runs the server as:
+
+```
+valkey-server --loglevel verbose --maxmemory 768mb --maxmemory-policy noeviction
+```
+
+with a `mem_limit: 1g` container ceiling. Both halves matter:
+
+- **`--maxmemory` must be set explicitly.** Valkey defaults to `maxmemory 0`
+  (unlimited) and knows nothing about the cgroup limit it runs under. Without
+  it, memory pressure ends in a kernel OOM kill of the container rather than in
+  any policy the server applies.
+- **`--maxmemory-policy noeviction` is deliberate.** NOCA's Valkey is a
+  **coordination store, not a blob cache**: queue entries, `lock_service` locks,
+  worker presence, scoreboard cache, and animator reveal session state. An LRU
+  policy would evict any of them silently, with no error anywhere — and the
+  reveal ceremony state has no backstop outside Valkey (PostgreSQL holds
+  nothing), so losing it forces an operator to restart a live ceremony. Refusing
+  writes with a loud OOM error is the correct trade for this keyspace.
+- **Keep `--maxmemory` comfortably below `mem_limit`** — roughly 75%. Allocator
+  fragmentation, client output buffers, and the RDB fork's copy-on-write all
+  count against the container limit but *not* against `maxmemory`. Setting the
+  two equal reintroduces the OOM kill the setting exists to prevent.
+
+That coordination-store rule is also a design constraint: **do not put bulk
+payloads in Valkey** (rendered documents, statement assets, test data,
+submission source). Those belong in PostgreSQL or on the shared filesystem.
+
+Sizing: measure rather than guess, with `valkey-cli INFO memory` (`used_memory`,
+`used_memory_rss`, `mem_fragmentation_ratio`) during a contest. The RDB file size
+is a floor, not an estimate — compact on-disk encodings and the absence of
+per-key in-memory overhead typically make resident memory 1.5–3x the dump. For
+reference, a reveal ceremony's persisted state is 25–70 KiB for a realistic
+freeze and reaches 1 MiB only near 10 000 post-freeze submissions in one scope,
+so ceremonies are not a sizing concern.
+
+Persistence is left at the Valkey defaults, and the sample mounts `valkey-data`,
+so the built-in RDB save points apply and a restart recovers a **stale**
+snapshot. For coordination state that is usually harmless (the reconcilers
+correct the queues), but note that a partially rewound reveal ceremony can be
+more confusing than an absent one; recover it with `start-reveal` and
+`restart=true` rather than trusting a restored snapshot.
+
 ### Health rate limiting
 
 The Web, Arena, and Animator `/health` endpoints are public so local containers

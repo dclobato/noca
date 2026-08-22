@@ -20,6 +20,7 @@ from web.models.problem import Problem, ProblemLanguageLimit
 from web.services.contest_service import (
     ContestMetadataInput,
     _validate_contest_metadata_fields,
+    build_blank_contest_form,
     deactivate_past_contest,
     get_active_contests_grouped,
     get_contest_language_ids,
@@ -96,9 +97,19 @@ def _metadata_input(**overrides: object) -> ContestMetadataInput:
         "allow_print_requests": True,
         "accept_pe": False,
         "ce_adds_penalty": False,
+        "release_problem_set_after_end": False,
     }
     base.update(overrides)
     return ContestMetadataInput(**base)
+
+
+def test_blank_contest_form_uses_duration_relative_timing_defaults() -> None:
+    """Initial cutoffs match the offsets applied by the create wizard."""
+    form_data = build_blank_contest_form("2026-08-22T09:00")
+
+    assert form_data["duration_minutes"] == "300"
+    assert form_data["stop_updating_scoreboard"] == "280"
+    assert form_data["stop_answers_after"] == "290"
 
 
 def test_validate_contest_metadata_rejects_tasks_timeout_at_duration() -> None:
@@ -129,7 +140,57 @@ def test_validate_contest_metadata_accepts_tasks_timeout_below_duration() -> Non
     assert validated is not None
 
 
-def _build_past_contest(*, allow_print_requests: bool) -> Contest:
+def test_validate_contest_metadata_accepts_blank_contest_url() -> None:
+    """A contest website is optional in both create and edit flows."""
+    metadata = _metadata_input(
+        contest_url="",
+        stop_updating_scoreboard=240,
+    )
+
+    validated, errors = _validate_contest_metadata_fields(metadata)
+
+    assert errors == []
+    assert validated is not None
+    assert validated.contest_url == ""
+
+
+def test_validate_contest_metadata_update_clears_optional_contest_url() -> None:
+    """An upcoming contest can remove its previously configured website."""
+    contest = Contest(
+        contest_name="Contest",
+        contest_url="https://original.example.com",
+        login_slug="contest",
+        created_by_uberadmin_id="ua-id",
+        start_time=datetime.now(UTC) + timedelta(days=2),
+        duration_minutes=300,
+        stop_answers_after=250,
+        stop_updating_scoreboard=240,
+        clarifications_timeout_minutes=30,
+        tasks_timeout_minutes=30,
+        review_timeout_minutes=30,
+        max_problem_file_size_bytes=65536,
+        wa_penalty=20,
+        show_limits=True,
+        autojudge_only=False,
+        allow_print_requests=True,
+        accept_pe=False,
+        ce_adds_penalty=False,
+        contest_timezone="America/Sao_Paulo",
+    )
+    metadata = _metadata_input(
+        contest_url="",
+        start_time=contest.local_start_time.strftime("%Y-%m-%dT%H:%M"),
+        contest_timezone="America/Sao_Paulo",
+        stop_updating_scoreboard=240,
+    )
+
+    result = validate_contest_metadata_update(contest, metadata=metadata)
+
+    assert result.success is True
+    assert contest.contest_url == ""
+
+
+def _build_past_contest(*, allow_print_requests: bool, release_problem_set_after_end: bool = False) -> Contest:
     contest = Contest(
         contest_name="Contest",
         contest_url="https://original.example.com",
@@ -149,6 +210,7 @@ def _build_past_contest(*, allow_print_requests: bool) -> Contest:
         allow_print_requests=allow_print_requests,
         accept_pe=False,
         ce_adds_penalty=False,
+        release_problem_set_after_end=release_problem_set_after_end,
         contest_timezone="UTC",
     )
     return contest
@@ -176,6 +238,37 @@ def test_validate_contest_metadata_update_allows_print_toggle_when_locked() -> N
     assert contest.allow_print_requests is False
     assert contest.contest_url == "https://original.example.com"
     assert contest.show_limits is True
+
+
+def test_validate_contest_metadata_update_allows_problem_set_release_toggle_when_locked() -> None:
+    """The problem-set release flag stays settable after the contest ends.
+
+    Releasing the problem set is by definition a post-contest decision, so
+    locking it alongside the competition rules the moment a contest starts would
+    make it unreachable exactly when an admin needs it. It is handled
+    unconditionally, like ``allow_print_requests`` -- the download route enforces
+    ``is_past`` on its own.
+    """
+    contest = _build_past_contest(allow_print_requests=True, release_problem_set_after_end=False)
+    locked_start = contest.local_start_time.strftime("%Y-%m-%dT%H:%M")
+    metadata = _metadata_input(
+        start_time=locked_start,
+        duration_minutes=60,
+        stop_answers_after=50,
+        stop_updating_scoreboard=40,
+        clarifications_timeout_minutes=20,
+        tasks_timeout_minutes=20,
+        review_timeout_minutes=20,
+        release_problem_set_after_end=True,
+        accept_pe=True,
+    )
+
+    result = validate_contest_metadata_update(contest, metadata=metadata)
+
+    assert result.success is True
+    assert contest.release_problem_set_after_end is True
+    # The competition rules around it stay frozen, as they were before.
+    assert contest.accept_pe is False
 
 
 def test_validate_contest_metadata_update_rejects_duration_ending_in_past_for_running_contest() -> None:

@@ -1,45 +1,104 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
-{% from "_macros.html" import render_icon, render_flash_messages with context %}
-{% block title_suffix %}— Login{% endblock %}
+{% from "_macros.html" import render_flash_messages with context %}
+{% block devicon_styles %}{% endblock %}
+{% block shared_content_scripts %}{% endblock %}
+{% block bootstrap_script %}{% endblock %}
+{% block title_suffix %}— UberAdmin sign in{% endblock %}
 {% block flash %}{% endblock %}
 {% block content %}
-    <div class="auth-page flex-grow-1 d-flex align-items-center justify-content-center">
-        <div class="auth-card card shadow-sm">
-            <div class="card-body px-4 py-4">
-                <h1 class="h4 fw-bold text-center mb-1">{{ brand_name }}</h1>
-                <p class="text-center text-muted small mb-4">Next Online Contest Administrator</p>
-                {{ render_flash_messages(dismissible=False, full_width=True) }}
+    <div class="auth-page flex-grow-1 d-flex align-items-center justify-content-center px-3 py-4">
+        <div class="auth-card card border-0 shadow-sm">
+            <div class="card-body p-4 p-sm-5">
+                <div class="noca-auth-heading text-center">
+                    <img src="/assets/balloon/2f9e41"
+                         width="36"
+                         height="48"
+                         class="noca-auth-mark"
+                         alt=""
+                         aria-hidden="true">
+                    <h1 class="h3 mb-2">UberAdmin sign in</h1>
+                    <p class="text-muted mb-0">Manage NOCA contests and system operations.</p>
+                </div>
+                <div class="noca-auth-flash" data-login-flash>{{ render_flash_messages(dismissible=False, full_width=True) }}</div>
                 {% if next_url and next_url != "/uberadmin" %}
                     <div class="alert alert-warning py-2 small" role="alert">Please sign in again to continue.</div>
                 {% endif %}
-                <form method="post" action="{{ request.url_for("login_post") }}" novalidate>
+                {% if login_error %}
+                    <div id="login-error"
+                         class="alert alert-danger py-2 small"
+                         role="alert"
+                         tabindex="-1"
+                         data-login-error>{{ login_error }}</div>
+                {% endif %}
+                <form method="post"
+                      action="{{ request.url_for("login_post") }}"
+                      data-login-form>
                     <input type="hidden" name="next_url" value="{{ next_url }}">
                     <div class="mb-3">
-                        <label for="identifier" class="form-label">Username or email</label>
+                        <label for="identifier" class="form-label">Username</label>
                         <input type="text"
                                class="form-control"
                                id="identifier"
                                name="identifier"
+                               value="{{ identifier or '' }}"
                                autocomplete="username"
+                               aria-describedby="username-help{% if login_error %} login-error{% endif %}"
+                               {% if identifier_invalid %}aria-invalid="true"{% endif %}
                                required
-                               autofocus>
+                               {% if not login_error %}autofocus{% endif %}>
+                        <div id="username-help" class="form-text">Use your NOCA UberAdmin username.</div>
                     </div>
                     <div class="mb-4">
                         <label for="password" class="form-label">Password</label>
-                        <input type="password"
-                               class="form-control"
-                               id="password"
-                               name="password"
-                               autocomplete="current-password"
-                               required>
+                        <div class="input-group">
+                            <input type="password"
+                                   class="form-control"
+                                   id="password"
+                                   name="password"
+                                   autocomplete="current-password"
+                                   {% if login_error %}aria-describedby="login-error"{% endif %}
+                                   {% if password_invalid %}aria-invalid="true"{% endif %}
+                                   required>
+                            <button type="button"
+                                    class="btn btn-outline-secondary noca-auth-password-toggle"
+                                    data-password-toggle
+                                    aria-controls="password"
+                                    aria-pressed="false">Show</button>
+                        </div>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Sign in</button>
+                    <button type="submit"
+                            class="btn btn-primary noca-auth-submit w-100"
+                            data-login-submit>
+                        <span class="spinner-border spinner-border-sm d-none"
+                              aria-hidden="true"
+                              data-login-spinner></span>
+                        <span data-login-submit-label>Sign in</span>
+                    </button>
+                    <span class="visually-hidden" aria-live="polite" data-login-status></span>
                 </form>
-                <div class="text-center mt-3">
+                <div class="noca-auth-support text-center mt-4 pt-4">
+                    <p class="small text-muted mb-2">
+                        UberAdmin accounts are managed by your NOCA deployment administrator.
+                        Contact them if you cannot sign in.
+                    </p>
                     <a href="{{ request.url_for("contests_list") }}"
                        class="small text-decoration-none">Browse active contests</a>
                 </div>
             </div>
         </div>
     </div>
+{% endblock %}
+{% block footer %}
+    {% include "_partials/_auth_footer.html" %}
+{% endblock %}
+{% block extra_script %}
+    <script src="{{ request.url_for('static_js', path='auth-login-form.js') }}?v={{ app_version }}"
+            defer></script>
 {% endblock %}

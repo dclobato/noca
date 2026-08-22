@@ -79,6 +79,7 @@ async def edit_metadata_submit(
     allow_print_requests: str = Form("no"),
     accept_pe: str = Form("no"),
     ce_adds_penalty: str = Form("no"),
+    release_problem_set_after_end: str = Form("no"),
     site_names: str = Form("[]"),
     language_ids: list[str] = Form([]),
 ) -> Response:
@@ -124,6 +125,11 @@ async def edit_metadata_submit(
                 "ce_adds_penalty": (
                     (ce_adds_penalty == "yes") if not is_locked else bool(locked_form_data["ce_adds_penalty"])
                 ),
+                # Deliberately unconditional, like allow_print_requests: this flag
+                # governs a post-contest publication decision, so locking it when the
+                # contest starts would make it un-settable exactly when it is needed.
+                # The download gate enforces is_past on its own.
+                "release_problem_set_after_end": release_problem_set_after_end == "yes",
             }
         )
     except ValidationError as exc:
@@ -148,6 +154,7 @@ async def edit_metadata_submit(
             "allow_print_requests": allow_print_requests == "yes",
             "accept_pe": (accept_pe == "yes") if not is_locked else locked_form_data["accept_pe"],
             "ce_adds_penalty": ((ce_adds_penalty == "yes") if not is_locked else locked_form_data["ce_adds_penalty"]),
+            "release_problem_set_after_end": release_problem_set_after_end == "yes",
         }
         for error in site_payload_errors + contest_metadata_validation_errors(exc):
             flash(error, FlashCategory.DANGER)

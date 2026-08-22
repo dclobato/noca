@@ -358,6 +358,7 @@ async def add_contest_submit(
     allow_print_requests: str = Form("no"),
     accept_pe: str = Form("no"),
     ce_adds_penalty: str = Form("no"),
+    release_problem_set_after_end: str = Form("no"),
     owner_username: str = Form(""),
     owner_fullname: str = Form(""),
     owner_email: str = Form(""),
@@ -387,6 +388,7 @@ async def add_contest_submit(
                 "allow_print_requests": allow_print_requests == "yes",
                 "accept_pe": accept_pe == "yes",
                 "ce_adds_penalty": ce_adds_penalty == "yes",
+                "release_problem_set_after_end": release_problem_set_after_end == "yes",
             }
         )
     except ValidationError as exc:
@@ -413,6 +415,7 @@ async def add_contest_submit(
                     "allow_print_requests": allow_print_requests == "yes",
                     "accept_pe": accept_pe == "yes",
                     "ce_adds_penalty": ce_adds_penalty == "yes",
+                    "release_problem_set_after_end": release_problem_set_after_end == "yes",
                     "owner_username": owner_username,
                     "owner_fullname": owner_fullname,
                     "owner_email": owner_email,

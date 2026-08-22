@@ -82,7 +82,7 @@ def compute_contest_report(
     team_accepted: defaultdict[str, int] = defaultdict(int)
     team_problem_total: defaultdict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))
     team_problem_accepted: defaultdict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))
-    team_display_map: dict[str, str] = {}
+    team_display_map: dict[str, tuple[str, str]] = {}
     window_all: defaultdict[int, int] = defaultdict(int)
     window_accepted: defaultdict[int, int] = defaultdict(int)
 
@@ -112,7 +112,7 @@ def compute_contest_report(
             site_name = team.site.sitename if team and team.site else None
             base = team.fullname or team.username if team else "Unknown"
             username = team.username if team else "unknown"
-            team_display_map[team_key] = f"{format_site_identity(site_name, base)} ({username})"
+            team_display_map[team_key] = (format_site_identity(site_name, base), username)
         team_total[team_key] += 1
         team_problem_total[team_key][label] += 1
         if accepted:

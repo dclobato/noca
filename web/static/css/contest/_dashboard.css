@@ -1,0 +1,53 @@
+/*
+ * NOCA -- Next Online Contest Administrator
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+/* ── Contest dashboard ───────────────────────────────────────────────────── */
+
+/*
+ * Contest rules summary (`contest/_rules_summary.html`): the right-hand
+ * column of the dashboard identity band. On wide viewports a hairline in the
+ * band's own brand tint separates it from the identity half; stacked on
+ * mobile it just flows below, spaced by the row gap.
+ */
+.noca-dashboard-rules-summary {
+    font-size: var(--noca-type-label);
+}
+
+@media (min-width: 992px) {
+    .noca-dashboard-rules-summary {
+        padding-left: var(--noca-space-lg);
+        border-left: 1px solid color-mix(in srgb, var(--noca-brand) 25%, transparent);
+    }
+}
+
+.noca-dashboard-rules-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.35rem 1rem;
+}
+
+.noca-dashboard-rules-item {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+}
+
+.noca-dashboard-rules-item dt {
+    flex-shrink: 0;
+    font-weight: 600;
+}
+
+.noca-dashboard-rules-item dd {
+    margin-bottom: 0;
+    color: var(--bs-secondary-color);
+}
+
+.noca-dashboard-rules-icon {
+    font-size: 1rem;
+    vertical-align: -0.15em;
+}

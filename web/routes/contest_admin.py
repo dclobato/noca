@@ -4,6 +4,7 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -11,6 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi_flash import FlashCategory, FlashDep
 
 from shared.services.admin_audit import record_admin_action
+from web.config import settings as _settings
 from web.dependencies import ContestAdminContext, get_contest_admin_context
 from web.routes import contest_admin_export as _contest_admin_export
 from web.routes import contest_admin_metadata as _contest_admin_metadata
@@ -27,7 +29,10 @@ from web.services.judging_service import (
     remove_chief_judge,
     set_chief_judge,
 )
+from web.services.problem_set_cache import discard_cached_archive
 from web.services.scoreboard import ScoreboardService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/c/{slug}/admin", tags=["contest_admin"])
 
@@ -197,6 +202,9 @@ async def release_scoreboard(
     Sets ``Contest.release_scoreboard_after_end`` to True, pre-warms the permanent
     Valkey cache with all results revealed, and commits. After this, every scoreboard
     request for the contest returns the final standings with no freeze applied.
+
+    The release is audited in the same transaction as the flag it writes, so an
+    irreversible reveal cannot land without a named trail.
     """
     redirect_url = f"/c/{ctx.contest.login_slug}/admin/"
 
@@ -209,8 +217,110 @@ async def release_scoreboard(
         return RedirectResponse(url=redirect_url, status_code=303)
 
     ctx.contest.release_scoreboard_after_end = True
+    await record_admin_action(
+        ctx.session,
+        request,
+        module="web",
+        actor_user_id=ctx.actor.id,
+        actor_label=ctx.actor.username,
+        action="contest_scoreboard_release",
+        target_type="contest",
+        target_id=ctx.contest.id,
+        detail=f"slug={ctx.contest.login_slug}",
+        # Warning level, like the problem-set publication beside it: this reveals
+        # every result the freeze held back, to everyone, and there is no route
+        # that undoes it. There is no revoke half to record at info level.
+        severity="warning",
+    )
     await _score_service.get_or_compute_final(ctx.contest, ctx.session, request.app.state.valkey_runtime)
     await ctx.session.commit()
 
     flash("Final scoreboard released successfully.", FlashCategory.SUCCESS)
+    return RedirectResponse(url=redirect_url, status_code=303)
+
+
+@router.post("/release-problem-set", response_model=None, name="contest_admin_release_problem_set")
+async def release_problem_set(
+    request: Request,
+    flash: FlashDep,
+    ctx: ContestAdminContext = Depends(get_contest_admin_context),
+    release: str = Form(...),
+) -> Response:
+    """Publish or withdraw the contest's public problem-set download.
+
+    ``release`` is a strict ``"yes"``/``"no"`` string rather than a bool so
+    FastAPI cannot coerce ``1``/``on`` into a choice between publishing every
+    secret test case and withdrawing it, and so a resubmitted form is idempotent
+    instead of flipping the state back.
+
+    The guard is asymmetric on purpose. Publishing requires the contest to be
+    over -- arming a future publication is the metadata form's job, so this
+    control never releases something that is not ready. Withdrawing is always
+    allowed, because it serves both as Revoke after the end and as Cancel on a
+    contest that was armed and has not ended yet.
+
+    Both directions are audited in the same transaction as the flag they write,
+    so a publish or withdraw cannot land without a named trail.
+    """
+    redirect_url = f"/c/{ctx.contest.login_slug}/admin/"
+
+    if release not in {"yes", "no"}:
+        flash("Invalid problem-set release request.", FlashCategory.DANGER)
+        return RedirectResponse(url=redirect_url, status_code=303)
+
+    should_release = release == "yes"
+
+    if should_release and not ctx.contest.is_past:
+        flash(
+            "Contest has not ended yet. Arm the release from Edit metadata to publish automatically at the end.",
+            FlashCategory.DANGER,
+        )
+        return RedirectResponse(url=redirect_url, status_code=303)
+
+    if ctx.contest.release_problem_set_after_end == should_release:
+        flash(
+            "Problem set is already released." if should_release else "Problem set is already withheld.",
+            FlashCategory.WARNING,
+        )
+        return RedirectResponse(url=redirect_url, status_code=303)
+
+    ctx.contest.release_problem_set_after_end = should_release
+    await record_admin_action(
+        ctx.session,
+        request,
+        module="web",
+        actor_user_id=ctx.actor.id,
+        actor_label=ctx.actor.username,
+        action="contest_problem_set_release" if should_release else "contest_problem_set_revoke",
+        target_type="contest",
+        target_id=ctx.contest.id,
+        detail=f"slug={ctx.contest.login_slug}",
+        # Publishing exposes secret material to anonymous callers, which is what
+        # `uberadmin_contest_backup` already records at warning level when an
+        # export carries password hashes or user media. Withdrawing only reduces
+        # exposure, so it stays at the default info level.
+        severity="warning" if should_release else "info",
+    )
+    await ctx.session.commit()
+
+    if not should_release:
+        # Best effort, and only after the commit: the route gate already blocks
+        # the download, so a cache that outlives the revoke is not a disclosure.
+        # Dropping it keeps a later re-release from serving an archive built
+        # before the problems were edited.
+        cache_dir = _settings.PUBLIC_PROBLEM_PACK_PATH
+        if cache_dir is not None:
+            try:
+                await discard_cached_archive(cache_dir, ctx.contest)
+            except OSError:
+                logger.warning(
+                    "Could not drop the cached problem-set archive for %s",
+                    ctx.contest.login_slug,
+                    exc_info=True,
+                )
+
+    flash(
+        "Problem set released successfully." if should_release else "Problem set is no longer public.",
+        FlashCategory.SUCCESS,
+    )
     return RedirectResponse(url=redirect_url, status_code=303)

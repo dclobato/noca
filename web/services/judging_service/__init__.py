@@ -31,6 +31,7 @@ from .history import get_judging_history
 from .permissions import (
     can_confirm_verdict,
     can_override_verdict,
+    can_supervise_judgment,
     confirmation_is_decisive,
     is_chief_judge,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "acquire_submission_review",
     "can_confirm_verdict",
     "can_override_verdict",
+    "can_supervise_judgment",
     "confirmation_is_decisive",
     "is_chief_judge",
     "confirm_verdict",

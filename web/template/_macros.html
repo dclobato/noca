@@ -1,19 +1,35 @@
-{% macro dashboard_card(target=None, icon=None, title=None, subtitle=None, active=None, after_end=None, filled=False, counter=None) %}
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+{# `tone`/`kicker` mark a card whose destination is not neutral navigation: e.g.
+   Administration hosts irreversible actions (release scoreboard, release
+   problem set, delete contest) behind ordinary navigation, so entering it
+   deserves the same amber `consequential` accent the action itself uses one
+   click later, rather than looking identical to "Score" or "Runs". Shared
+   with `dashboard_action_card` below via `_TONE_CLASSES`, so both macros
+   apply the exact same tone vocabulary and CSS classes. #}
+{% set _TONE_CLASSES = {"consequential": "noca-card-consequential", "live": "noca-card-consequential noca-card-live"} %}
+{% macro dashboard_card(target=None, icon=None, title=None, subtitle=None, active=None, after_end=None, filled=False, counter=None, counter_label=None, tone=None, kicker=None) %}
     {% if target is not none and icon is not none and title is not none and subtitle is not none and active is not none %}
         <div class="col-sm-6 col-md-4 col-lg-3">
             <a href="{{ target }}"
-               class="card card-body text-decoration-none h-100 shadow-sm border-0 {{ 'btn-glow' if active else 'opacity-75' }} {{ 'position-relative' if counter is not none }}">
+               class="noca-dashboard-card text-decoration-none h-100 {{ 'noca-dashboard-card--inactive' if not active }} {{ 'position-relative' if counter is not none }} {{ _TONE_CLASSES.get(tone, '') }}">
                 {% if counter is not none %}
                     <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
                         {{ counter }}
-                        <span class="visually-hidden">counter</span>
+                        <span class="visually-hidden">{{ counter_label or "items needing attention" }}</span>
                     </span>
                 {% endif %}
                 <div class="d-flex align-items-center gap-3">
                     {{ render_icon(icon=icon,
                                         filled=filled,
-                                        classes=['me-2', 'fs-1']) }}
+                                        classes=['noca-dashboard-card-icon', 'fs-1']) }}
                     <div>
+                        {% if kicker %}<div class="noca-card-kicker">{{ kicker }}</div>{% endif %}
                         <div class="fw-semibold">{{ title }}</div>
                         <div class="text-muted small">{{ subtitle }}</div>
                     </div>
@@ -26,14 +42,171 @@
         </div>
     {% endif %}
 {% endmacro %}
-{% macro render_icon(icon=None, filled=False, classes=None) %}
+{# A dashboard card that *acts* instead of navigating: same `.noca-dashboard-card`
+   shape as `dashboard_card`, but a POST form wrapping a card-shaped submit
+   button, because an `<a href>` cannot post. Three of these had been
+   hand-rolled side by side and had already drifted apart on `h-100`, icon size
+   and background, so the structure lives here once.
+
+   `confirm_text` is declared as `data-confirm` and handled by the delegated
+   listener in `confirm-submit.js`; pages using this macro must load that script.
+   Keeping it out of an `onsubmit` attribute keeps the string inside ordinary
+   template text -- reachable by a future translation pass, and escaped by Jinja
+   as an attribute rather than as a JavaScript literal.
+
+   `hidden_fields` is a name -> value mapping posted with the form. `tone` and
+   `kicker` share the vocabulary and `_TONE_CLASSES` map declared above
+   `dashboard_card`: `consequential` for an action about to expose something,
+   `live` for one that is exposing it right now -- `live` extends
+   `consequential` rather than being its peer, i.e. it applies both the
+   `noca-card-consequential` and `noca-card-live` classes (see the
+   `.noca-card-consequential` rules in `_page.css`). `kicker` is the short word
+   above the title that names that consequence, so the signal never rests on
+   colour alone. `filled` is forwarded to `render_icon` for the same reason it
+   exists on `dashboard_card`: the three current call sites all want the
+   filled icon weight, but a milder, non-consequential action reusing this
+   macro later may not. #}
+{% macro dashboard_action_card(
+    action,
+    icon,
+    title,
+    subtitle,
+    confirm_text,
+    hidden_fields=None,
+    tone=None,
+    kicker=None,
+    filled=True
+    ) %}
+    <div class="col-sm-6 col-md-4 col-lg-3">
+        <form method="post"
+              class="h-100"
+              action="{{ action }}"
+              data-confirm="{{ confirm_text }}">
+            {% for field_name, field_value in (hidden_fields or {}).items() %}
+                <input type="hidden" name="{{ field_name }}" value="{{ field_value }}">
+            {% endfor %}
+            <button type="submit"
+                    class="noca-dashboard-card w-100 h-100 text-start {{ _TONE_CLASSES.get(tone, '') }}">
+                <div class="d-flex align-items-center gap-3">
+                    {{ render_icon(icon=icon, filled=filled, classes="fs-1") }}
+                    <div>
+                        {% if kicker %}<div class="noca-card-kicker">{{ kicker }}</div>{% endif %}
+                        <div class="fw-semibold">{{ title }}</div>
+                        <div class="text-muted small">{{ subtitle }}</div>
+                    </div>
+                </div>
+            </button>
+        </form>
+    </div>
+{% endmacro %}
+{# Contest problem list card: same `.noca-dashboard-card` tile shape as
+   `dashboard_card`, with a balloon image in place of the icon and a
+   secondary download action alongside the primary "open statement" link.
+   The title itself carries `.stretched-link` so the whole card is a click
+   target without nesting an `<a>` inside another `<a>`; the download button
+   sits absolutely positioned in the corner and stacks above the stretched
+   link by DOM order (see `.noca-problem-card-download` in `_page.css`).
+
+   `viewer_status`, when set, is a real card-level accent -- a left-border
+   rule plus a solid-fill status chip -- not just a colored word, so the signal
+   reads at a glance rather than requiring the small-print line to be read.
+   It reuses the same three contest-phase tokens the scoreboard's own status
+   band already re-pitched (`--noca-state-live/frozen/silence`), so
+   "Accepted" carries the same green the rest of the product uses for a
+   resolved-good state. `None` renders no accent and no chip at all, for
+   viewers (staff, judge, admin, uberadmin) with no personal standing --
+   see the modifier classes in `_page.css`.
+
+   `problem_id` and `viewer_status` are also carried as `data-*` attributes so
+   `problems-sse.js` can diff a card's status before and after a live refresh
+   and fire a celebration exactly when it newly becomes "solved" -- see that
+   script for the freeze-safety reasoning (the SSE payload itself is never
+   trusted, only the server-rendered status after the swap). #}
+{% set _PROBLEM_STATUS = {'solved': ('Accepted', 'solved'), 'pending': ('Judging', 'pending'), 'attempted': ('Attempted', 'attempted'), 'untried': ('Not attempted', 'untried')} %}
+{% macro problem_card(statement_url, download_url, balloon_url, label, title, solving_rate, problem_id, viewer_status=None) %}
+    <div class="col-sm-6 col-md-4 col-lg-3">
+        <div class="noca-dashboard-card noca-problem-card h-100 {{ 'noca-problem-card--' ~ viewer_status if viewer_status else '' }}"
+             data-problem-id="{{ problem_id }}"
+             data-viewer-status="{{ viewer_status or '' }}">
+            <a href="{{ download_url }}"
+               title="Download public materials (statement + sample test cases)"
+               aria-label="Download public materials for problem {{ label }}"
+               class="btn btn-sm btn-outline-secondary noca-icon-btn noca-problem-card-download">
+                {{ render_icon(icon="download") }}
+            </a>
+            <div class="d-flex align-items-center gap-3 pe-4">
+                <img src="{{ balloon_url }}"
+                     alt="Problem {{ label }} balloon"
+                     class="noca-problem-card-balloon">
+                <div>
+                    <div class="fw-semibold">
+                        <a href="{{ statement_url }}"
+                           class="text-reset text-decoration-none stretched-link">{{ label }}. {{ title }}</a>
+                    </div>
+                    <div class="text-muted small">{{ solving_rate }}% solved</div>
+                </div>
+            </div>
+            {% if viewer_status %}
+                {% set status_label, status_modifier = _PROBLEM_STATUS[viewer_status] %}
+                <span class="noca-problem-card-status noca-problem-card-status--{{ status_modifier }}">{{ status_label }}</span>
+            {% endif %}
+        </div>
+    </div>
+{% endmacro %}
+{# Shared root for every Contest Administration breadcrumb: the Uberadmin
+   Dashboard/slug branch or the Contest Dashboard link, then an unconditional
+   Administration link whenever the page is nested under it. It replaces
+   ~15 pages that had each hand-rolled this branch slightly differently --
+   some (`edit.html`, `testcase_edit.html`, and others) included the
+   Administration link only in the non-uberadmin branch, so an UberAdmin
+   viewing those pages silently lost a crumb the same page showed everyone
+   else. Making it unconditional here removes that drift instead of repeating
+   it a sixteenth time.
+
+   `crumbs` is an ordered list of `(label, url)` tuples for any intermediate
+   levels between Administration and the page itself (e.g. `[("Problems",
+   manage_problems_url)]`). The page's own active crumb is supplied as the
+   macro's call-block body, since it is often dynamic markup rather than a
+   plain string (a problem title, a pending/edit-mode label, ...). Requires
+   `with context`: it reads `request`, `current_user`, `contest`, and the
+   `RoleEnum` global directly, the same way `gateway_contest_card` does. #}
+{% macro admin_breadcrumb(under_administration=True, crumbs=[]) %}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            {% if current_user.role == RoleEnum.UBERADMIN.value %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
+                </li>
+                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
+            {% else %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
+                </li>
+            {% endif %}
+            {% if under_administration %}
+                <li class="breadcrumb-item">
+                    <a href="{{ request.url_for('view', slug=contest.login_slug) }}">Administration</a>
+                </li>
+            {% endif %}
+            {% for crumb_label, crumb_url in crumbs %}
+                <li class="breadcrumb-item">
+                    <a href="{{ crumb_url }}">{{ crumb_label }}</a>
+                </li>
+            {% endfor %}
+            <li class="breadcrumb-item active" aria-current="page">{{ caller() }}</li>
+        </ol>
+    </nav>
+{% endmacro %}
+{% macro render_icon(icon=None, filled=False, classes=None, title=None, label=None) %}
     {% if classes is string %}
         {% set base_classes = classes.split() %}
     {% else %}
         {% set base_classes = classes or [] %}
     {% endif %}
     {% set final_classes = base_classes + (['material-symbols-filled'] if filled else []) %}
-    <span class="material-symbols-outlined {{ final_classes | join(" ") }}">{{ icon }}</span>
+    <span class="material-symbols-outlined {{ final_classes | join(" ") }}"
+          {% if label %}role="img" aria-label="{{ label }}"{% else %}aria-hidden="true"{% endif %}
+          {% if title %}title="{{ title }}"{% endif %}>{{ icon }}</span>
 {% endmacro %}
 {# Server-side sortable column header. `sort_by` is the page's current combined
    "<field>_<asc|desc>" value; `base_url` is the *full page* URL the link should
@@ -97,4 +270,29 @@
             </div>
         </div>
     {% endif %}
+{% endmacro %}
+{# Role identity pill, shared by the navbar and the contest dashboard identity band.
+
+   The role -> label/icon/badge-class maps are Jinja globals declared once in
+   `web/main.py`; this macro is the only place that reads all three together, so
+   the two surfaces cannot drift apart the way their private copies did (the
+   navbar rendered UBERADMIN `bg-secondary` while the dashboard rendered it
+   `bg-dark`, on the same page).
+
+   `contest` is optional and only used to derive the chief-judge override: a JUDGE
+   who is *this* contest's chief judge is labelled "Chief Judge" while keeping the
+   judge icon and colour, because the distinction is authority, not function.
+   `compact=True` selects the tighter navbar geometry. #}
+{% macro role_pill(user, contest=None, compact=False) %}
+    {% set user_is_chief_judge = contest and noca_is_chief_judge(user, contest) %}
+    {# An unmapped role renders as "Unknown role" rather than as its raw enum
+       value ("cj"), so a role added without a label fails visibly. #}
+    {% set label = "Chief Judge" if user_is_chief_judge else role_labels.get(user.role, "Unknown role") %}
+    {% set size_class = "noca-navbar-role-badge" if compact else "noca-dashboard-role-badge" %}
+    <span class="badge rounded-pill d-inline-flex align-items-center gap-1 {{ size_class }} {{ role_badge_classes.get(user.role, 'bg-secondary') }}">
+        {{ render_icon(icon=role_icons.get(user.role, "person") ,
+        filled=True,
+        classes=["noca-navbar-role-icon" if compact else "fs-6"]) }}
+        {{ label }}
+    </span>
 {% endmacro %}

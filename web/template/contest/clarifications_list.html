@@ -1,7 +1,15 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% from "_macros.html" import render_icon, sort_link %}
 {% set clarifications_base_url = request.url_for('contest_clarifications', slug=contest.login_slug) %}
 <div id="clarifications-list-wrapper"
-     {% if current_user.role == RoleEnum.TEAM.value and not access_blocked and not contest.is_past %} hx-get="{{ request.url_for('contest_clarifications_list', slug=contest.login_slug).include_query_params(sort_by=sort_by) }}" hx-trigger="every 60s" hx-swap="outerHTML" {% endif %}>
+     {% if current_user.role == RoleEnum.TEAM.value %} data-answer-read-url="{{ request.url_for('contest_clarification_answers_read', slug=contest.login_slug) }}" {% endif %}
+     {% if current_user.role == RoleEnum.TEAM.value and not contest.is_past %} hx-get="{{ request.url_for('contest_clarifications_list', slug=contest.login_slug).include_query_params(sort_by=sort_by) }}" hx-trigger="every 60s" hx-swap="outerHTML" {% endif %}>
     {% if not lock_service_available and current_user.role in (RoleEnum.JUDGE.value, RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value) %}
         <div class="alert alert-warning small mx-3 mt-3 mb-0">Lock service unavailable. Possible double work/rework.</div>
     {% endif %}
@@ -27,11 +35,17 @@
                         </thead>
                         <tbody>
                             {% for c in clarifications %}
+                                {% set unread_answer = current_user.role == RoleEnum.TEAM.value and c.team_id == current_user.id and c.answered_at is not none and c.answer_read_at is none %}
                                 <tr id="{{ c.id }}"
-                                    class="noca-clickable-row {% if c.hidden and current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value, RoleEnum.JUDGE.value) %}opacity-50 text-decoration-line-through{% endif %}"
+                                    class="noca-clickable-row {% if unread_answer %}table-info{% endif %} {% if c.hidden and current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value, RoleEnum.JUDGE.value) %}opacity-50 text-decoration-line-through{% endif %}"
                                     tabindex="0"
                                     role="button"
-                                    data-clarification-row>
+                                    data-clarification-row
+                                    data-problem="{{ (problem_map.get(c.problem_id, '?') if c.problem_id else 'General') | e }}"
+                                    data-question="{{ c.question | e }}"
+                                    data-answer="{{ c.answer | e if c.answer else '' }}"
+                                    data-visibility="{{ 'global' if c.is_contest_public else 'private' }}"
+                                    {% if unread_answer %}data-unread-answer="true"{% endif %}>
                                     <td class="small text-end">{{ contest_minutes(c.created_timestamp_seconds) }}</td>
                                     <td class="text-center">
                                         {% if c.is_contest_public %}
@@ -45,6 +59,7 @@
                                             <span class="badge bg-secondary ms-1">Hidden</span>
                                         {% else %}
                                             {% if c.answer is not none %}
+                                                {% if unread_answer %}<span class="visually-hidden">New answer.</span>{% endif %}
                                                 <span class="badge bg-success">Answered</span>
                                             {% elif c.acquired_at is not none %}
                                                 <span class="badge bg-info text-dark">Working on</span>
@@ -80,21 +95,15 @@
                                         <div class="btn-group btn-group-sm noca-icon-btn-group"
                                              role="group"
                                              aria-label="Clarification actions">
-                                            <button type="button"
-                                                    class="btn btn-secondary noca-icon-btn"
-                                                    data-bs-toggle="modal"
-                                                    data-bs-target="#clarificationDetailModal"
-                                                    data-problem="{{ (problem_map.get(c.problem_id, '?') if c.problem_id else 'General') | e }}"
-                                                    data-question="{{ c.question | e }}"
-                                                    data-answer="{{ c.answer | e if c.answer else '' }}"
-                                                    data-visibility="{{ 'global' if c.is_contest_public else 'private' }}"
-                                                    title="Detail">{{ render_icon(icon="visibility") }}</button>
-                                            {%- if can_answer_clarifications and c.answered_at is none and not c.hidden and (not lock_service_available or c.acquired_at is none or c.acquired_by_me) %}
+                                            {%- if noca_can_answer_clarifications(current_user) and c.answered_at is none and not c.hidden and (not lock_service_available or c.acquired_at is none or c.acquired_by_me) %}
                                                 <form method="post"
                                                       action="{{ request.url_for('contest_clarifications_acquire', slug=contest.login_slug) }}"
                                                       class="noca-icon-btn-wrap">
                                                     <input type="hidden" name="clarification_id" value="{{ c.id }}">
-                                                    <button type="submit" class="btn btn-primary noca-icon-btn" title="Answer">
+                                                    <button type="submit"
+                                                            class="btn btn-primary noca-icon-btn"
+                                                            aria-label="Answer clarification"
+                                                            title="Answer">
                                                         {{ render_icon(icon="edit_square") }}
                                                     </button>
                                                 </form>
@@ -102,11 +111,13 @@
                                             {%- if current_user.role == RoleEnum.JUDGE.value and not c.hidden %}
                                                 <a href="{{ request.url_for('contest_clarifications_hide', slug=contest.login_slug) }}?id={{ c.id }}"
                                                    class="btn btn-warning noca-icon-btn"
+                                                   aria-label="Hide clarification"
                                                    title="Hide">{{ render_icon(icon="visibility_off") }}</a>
                                             {%- endif %}
                                             {%- if current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value) %}
                                                 <a href="{{ request.url_for('contest_clarifications_togglehide', slug=contest.login_slug) }}?id={{ c.id }}"
                                                    class="btn btn-warning noca-icon-btn"
+                                                   aria-label="{{ 'Unhide' if c.hidden else 'Hide' }} clarification"
                                                    title="{{ 'Unhide' if c.hidden else 'Hide' }}">
                                                     {{ render_icon(icon="visibility" if c.hidden else "visibility_off") }}
                                                 </a>
@@ -118,6 +129,7 @@
                                                         <input type="hidden" name="clarification_id" value="{{ c.id }}">
                                                         <button type="submit"
                                                                 class="btn btn-outline-danger noca-icon-btn"
+                                                                aria-label="Release clarification lock"
                                                                 title="Release Lock">
                                                             {{ render_icon(icon="lock_open") }}
                                                         </button>

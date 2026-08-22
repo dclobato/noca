@@ -1,0 +1,63 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<section class="noca-contest-form-section">
+    {% if show_section_heading is not defined or show_section_heading %}
+        <h2 class="noca-section-heading">Identification</h2>
+    {% endif %}
+    <div class="mb-3">
+        <label for="contest_name" class="form-label">Contest name</label>
+        {% if form_mode == "create" %}
+            <input type="text"
+                   class="form-control"
+                   id="contest_name"
+                   name="contest_name"
+                   value="{{ form_data.contest_name }}"
+                   required>
+        {% else %}
+            <p class="form-control-plaintext" id="contest_name">{{ form_data.contest_name }}</p>
+        {% endif %}
+    </div>
+    <div class="row g-3">
+        <div class="col-12 col-sm-4">
+            <label for="login_slug" class="form-label">Slug</label>
+            {% if form_mode == "create" %}
+                <div class="input-group">
+                    <span class="input-group-text text-muted">/c/</span>
+                    <input type="text"
+                           class="form-control"
+                           id="login_slug"
+                           name="login_slug"
+                           value="{{ form_data.login_slug }}"
+                           placeholder="my-contest-2026"
+                           pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                           aria-describedby="login_slug_help"
+                           required>
+                </div>
+                <div class="form-text" id="login_slug_help">
+                    Use lowercase letters, numbers, and hyphens. This slug appears in every contest URL.
+                </div>
+            {% else %}
+                <p class="form-control-plaintext" id="login_slug">
+                    <code>/c/{{ form_data.login_slug }}/</code>
+                </p>
+            {% endif %}
+        </div>
+        <div class="col-12 col-sm-8">
+            <label for="contest_url" class="form-label">
+                Contest website URL <span class="text-muted fw-normal">(optional)</span>
+            </label>
+            <input type="text"
+                   class="form-control"
+                   id="contest_url"
+                   name="contest_url"
+                   value="{{ form_data.contest_url }}"
+                   placeholder="https://contest.example.com"
+                   {% if is_locked %}disabled{% endif %}>
+        </div>
+    </div>
+</section>

@@ -550,6 +550,8 @@
                 defer></script>
         <script src="{{ request.url_for('static_shared_js', path='confetti-celebrate.js') }}?v={{ app_version }}"
                 defer></script>
+        <script src="{{ request.url_for('static_shared_js', path='submission-status-watcher.js') }}?v={{ app_version }}"
+                defer></script>
         <script src="{{ request.url_for('arena_static_js', path='submission-detail-live.js') }}?v={{ app_version }}"
                 defer></script>
     {% endif %}

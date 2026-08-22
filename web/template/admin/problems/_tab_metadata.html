@@ -39,42 +39,50 @@
             <div class="col-12">
                 <label class="form-label">Balloon color</label>
                 {% set _init_color = form_data.color if form_data.color is defined else '#FF0000' %}
-                <input type="hidden"
-                       name="color"
-                       id="color-value"
-                       form="edit-form"
-                       value="{{ _init_color }}">
-                <div class="d-flex flex-wrap gap-1 align-items-center"
-                     id="balloon-color-picker">
-                    {% for hex in balloon_colors %}
-                        <button type="button"
-                                class="noca-balloon-opt btn p-0"
-                                data-color="{{ hex }}"
-                                title="{{ hex }}"
-                                {% if not is_edit_allowed %}disabled{% endif %}>
-                            <img src="{{ request.url_for('balloon', color=hex[1:]) }}"
-                                 height="40"
-                                 alt="">
-                        </button>
-                    {% endfor %}
-                    <span class="vr align-self-stretch mx-1"></span>
-                    <div class="position-relative">
-                        <label for="color-custom-input"
-                               class="btn btn-sm btn-outline-secondary noca-balloon-opt"
-                               id="custom-color-btn"
-                               title="Custom color">{{ render_icon(icon="colorize", classes="fs-5") }}</label>
-                        <input type="color"
-                               id="color-custom-input"
-                               value="{{ _init_color }}"
-                               class="noca-color-custom-input"
-                               {% if not is_edit_allowed %}disabled{% endif %}>
+                {% if is_edit_allowed %}
+                    <input type="hidden"
+                           name="color"
+                           id="color-value"
+                           form="edit-form"
+                           value="{{ _init_color }}">
+                    <div class="d-flex flex-wrap gap-1 align-items-center"
+                         id="balloon-color-picker">
+                        {% for hex in balloon_colors %}
+                            <button type="button"
+                                    class="noca-balloon-opt btn p-0"
+                                    data-color="{{ hex }}"
+                                    title="{{ hex }}">
+                                <img src="{{ request.url_for('balloon', color=hex[1:]) }}"
+                                     height="40"
+                                     alt="">
+                            </button>
+                        {% endfor %}
+                        <span class="vr align-self-stretch mx-1"></span>
+                        <div class="position-relative">
+                            <label for="color-custom-input"
+                                   class="btn btn-sm btn-outline-secondary noca-balloon-opt"
+                                   id="custom-color-btn"
+                                   aria-label="Choose a custom balloon color"
+                                   title="Custom color">{{ render_icon(icon="colorize", classes="fs-5") }}</label>
+                            <input type="color"
+                                   id="color-custom-input"
+                                   value="{{ _init_color }}"
+                                   class="noca-color-custom-input">
+                        </div>
+                        <img id="balloon-preview"
+                             height="40"
+                             src="{{ request.url_for('balloon', color=_init_color[1:]) }}"
+                             alt="selected color"
+                             class="ms-1 noca-balloon-custom-preview">
                     </div>
-                    <img id="balloon-preview"
-                         height="40"
-                         src="{{ request.url_for('balloon', color=_init_color[1:]) }}"
-                         alt="selected color"
-                         class="ms-1 noca-balloon-custom-preview">
-                </div>
+                {% else %}
+                    <div>
+                        <img src="{{ request.url_for('balloon', color=_init_color[1:]) }}"
+                             height="40"
+                             alt="Problem balloon color ({{ _init_color }})"
+                             title="{{ _init_color }}">
+                    </div>
+                {% endif %}
             </div>
         </div>
         <div class="row g-3 mt-1">

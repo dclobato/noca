@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -13,13 +13,15 @@ from sqlalchemy import and_, func, or_, select
 
 from shared.enumerations import JudgmentStatus, RoleEnum
 from web.dependencies import ContestContext, get_contest_context
-from web.models.clarification import Clarification
 from web.models.contest import Task
 from web.models.problem import Problem
 from web.models.submission import Submission, SubmissionJudgment
 from web.models.users import User
-from web.services.contest_service import build_contest_clock_payload
-from web.services.task_service import can_view_tasks
+from web.services.clarification_service import (
+    count_pending_clarifications,
+    count_unread_clarification_answers,
+)
+from web.services.contest_service import build_contest_clock_payload, build_contest_rules_summary
 
 router = APIRouter(prefix="/c/{slug}", tags=["contest_dashboard"])
 
@@ -30,28 +32,9 @@ def _html(response: object) -> HTMLResponse:
 
 @dataclass(frozen=True)
 class DashboardCounters:
-    clarifications_pending: int | None
+    clarifications_attention: int | None
     runs_without_verdict: int | None
     tasks_pending: int | None
-
-
-async def _build_clarifications_pending_count(ctx: ContestContext, team_id: str | None = None) -> int:
-    query = (
-        select(func.count(Clarification.id))
-        .join(User, Clarification.team_id == User.id)
-        .where(
-            and_(
-                User.contest_id == ctx.contest.id,
-                Clarification.answered_at.is_(None),
-                Clarification.hidden.is_(False),
-            )
-        )
-    )
-    if team_id is not None:
-        query = query.where(Clarification.team_id == team_id)
-    result = await ctx.session.execute(query)
-    count = result.scalar() or 0
-    return int(count)
 
 
 async def _build_runs_without_verdict_count(ctx: ContestContext, team_id: str | None = None) -> int:
@@ -105,25 +88,28 @@ async def dashboard(request: Request, ctx: ContestContext = Depends(get_contest_
 
     if isinstance(actor, User):
         role = actor.role
-        team_id = actor.id if role == RoleEnum.TEAM else None
 
-        clarifications_pending: int | None = None
+        clarifications_attention: int | None = None
         runs_without_verdict: int | None = None
         tasks_pending: int | None = None
 
         if role in (RoleEnum.ADMIN, RoleEnum.UBERADMIN, RoleEnum.JUDGE):
-            clarifications_pending = await _build_clarifications_pending_count(ctx)
+            clarifications_attention = await count_pending_clarifications(ctx.session, ctx.contest)
             runs_without_verdict = await _build_runs_without_verdict_count(ctx)
             tasks_pending = await _build_tasks_pending_count(ctx)
         elif role == RoleEnum.STAFF:
             tasks_pending = await _build_tasks_pending_count(ctx)
         elif role == RoleEnum.TEAM:
-            clarifications_pending = await _build_clarifications_pending_count(ctx, team_id)
-            runs_without_verdict = await _build_runs_without_verdict_count(ctx, team_id)
-            tasks_pending = await _build_tasks_pending_count(ctx, team_id)
+            clarifications_attention = await count_unread_clarification_answers(
+                ctx.session,
+                ctx.contest,
+                actor.id,
+            )
+            runs_without_verdict = await _build_runs_without_verdict_count(ctx, actor.id)
+            tasks_pending = await _build_tasks_pending_count(ctx, actor.id)
 
         counters = DashboardCounters(
-            clarifications_pending=clarifications_pending,
+            clarifications_attention=clarifications_attention,
             runs_without_verdict=runs_without_verdict,
             tasks_pending=tasks_pending,
         )
@@ -136,7 +122,7 @@ async def dashboard(request: Request, ctx: ContestContext = Depends(get_contest_
                 "current_user": actor,
                 "contest": ctx.contest,
                 "counters": counters,
-                "can_view_tasks": can_view_tasks(actor, ctx.contest),
+                "rules": build_contest_rules_summary(ctx.contest),
             },
         )
     )

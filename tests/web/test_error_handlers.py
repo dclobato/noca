@@ -11,14 +11,18 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi_flash import FlashService
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.sessions import SessionMiddleware
 
 import web.main as main_module
+from shared.enumerations import RoleEnum
 from shared.error_handlers import create_validation_exception_handler
 from web.error_handlers import (
     _backend_config,
@@ -26,6 +30,7 @@ from web.error_handlers import (
     http_exception_response,
     unexpected_exception_handler,
 )
+from web.models.contest import Contest
 
 
 class _FakeTemplates:
@@ -101,6 +106,32 @@ def _http_exception_app() -> main_module.FastAPI:
     @app.get("/needs-int")
     async def needs_int(value: int) -> HTMLResponse:
         return HTMLResponse(str(value))
+
+    return app
+
+
+def _forbidden_redirect_app(session: AsyncSession) -> main_module.FastAPI:
+    """Build a small app that exposes both role-specific dashboard targets."""
+    app = _http_exception_app()
+    app.add_middleware(SessionMiddleware, secret_key="forbidden-redirect-test")
+    app.state.db_session = async_sessionmaker(session.bind, expire_on_commit=False)
+
+    @app.get("/denied")
+    async def denied() -> None:
+        raise HTTPException(status_code=403)
+
+    @app.get("/c/{slug}/", name="contest_dashboard")
+    async def contest_dashboard(request: Request, slug: str) -> JSONResponse:
+        return JSONResponse(
+            {
+                "slug": slug,
+                "flashes": FlashService(request).get_flashed_messages(with_categories=True),
+            }
+        )
+
+    @app.get("/uberadmin/", name="uberadmin_dashboard")
+    async def uberadmin_dashboard(request: Request) -> JSONResponse:
+        return JSONResponse({"flashes": FlashService(request).get_flashed_messages(with_categories=True)})
 
     return app
 
@@ -193,6 +224,85 @@ async def test_web_api_method_not_allowed_uses_neutral_body() -> None:
     # Rewriting the body must not drop a protocol-required header: RFC 9110
     # makes Allow mandatory on a 405 and the router already computed it.
     assert "GET" in (response.headers.get("allow") or "")
+
+
+@pytest.mark.asyncio
+async def test_unauthenticated_forbidden_response_is_not_redirected() -> None:
+    app = _http_exception_app()
+
+    @app.get("/denied")
+    async def denied() -> None:
+        raise HTTPException(status_code=403)
+
+    transport = ASGITransport(app=app, raise_app_exceptions=True)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/denied")
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Forbidden"}
+
+
+@pytest.mark.asyncio
+async def test_logged_in_contest_user_forbidden_response_redirects_with_role_alert(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    running_contest: Contest,
+) -> None:
+    async def resolve_contest(_session: AsyncSession, contest_id: str) -> Contest | None:
+        """Expose the fixture's uncommitted contest to the handler test session."""
+        return running_contest if contest_id == running_contest.id else None
+
+    token_result = SimpleNamespace(
+        aud=RoleEnum.USER.value,
+        extra_data={"contest_id": running_contest.id},
+    )
+    monkeypatch.setattr("web.error_handlers.get_validated_auth_token", lambda _request: token_result)
+    monkeypatch.setattr("web.error_handlers.get_contest_by_id", resolve_contest)
+    app = _forbidden_redirect_app(session)
+
+    transport = ASGITransport(app=app, raise_app_exceptions=True)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/denied", follow_redirects=False)
+        dashboard = await client.get(response.headers["location"])
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"http://test/c/{running_contest.login_slug}/"
+    assert dashboard.json() == {
+        "slug": running_contest.login_slug,
+        "flashes": [
+            [
+                "danger",
+                "Access to this feature is forbidden for your User role. "
+                "You have been returned to the contest dashboard.",
+            ]
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_logged_in_uberadmin_forbidden_htmx_response_redirects_with_role_alert(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+) -> None:
+    token_result = SimpleNamespace(aud=RoleEnum.UBERADMIN.value, extra_data={})
+    monkeypatch.setattr("web.error_handlers.get_validated_auth_token", lambda _request: token_result)
+    app = _forbidden_redirect_app(session)
+
+    transport = ASGITransport(app=app, raise_app_exceptions=True)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/denied", headers={"HX-Request": "true"})
+        dashboard = await client.get(response.headers["hx-redirect"])
+
+    assert response.status_code == 403
+    assert response.headers["hx-redirect"] == "http://test/uberadmin/"
+    assert response.text == ""
+    assert dashboard.json()["flashes"] == [
+        [
+            "danger",
+            "Access to this feature is forbidden for your Uber Admin role. "
+            "You have been returned to the UberAdmin dashboard.",
+        ]
+    ]
 
 
 @pytest.mark.asyncio

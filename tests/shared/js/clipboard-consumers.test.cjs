@@ -29,11 +29,15 @@ class FakeElement {
     this.innerHTML = "<span>copy</span> Copy";
     this.textContent = "";
     this.clickHandler = null;
+    this.eventHandlers = {};
+    this.dataset = {};
+    this.checked = false;
     this.selectors = selectors;
     this.children = [];
   }
 
   addEventListener(eventName, handler) {
+    this.eventHandlers[eventName] = handler;
     if (eventName === "click") this.clickHandler = handler;
   }
 
@@ -89,6 +93,90 @@ async function testAnimatorConsumer() {
   assert.equal(button.textContent, "Copied!");
 }
 
+function testAnimatorDisableConfirmation() {
+  const form = new FakeElement("animator-access-form");
+  const toggle = new FakeElement("animator_enabled");
+  const modalElement = new FakeElement("animator-disable-confirm-modal");
+  const confirmButton = new FakeElement("confirm-animator-disable-btn");
+  let modalShown = 0;
+  let modalHidden = 0;
+  let submitted = 0;
+  let prevented = false;
+  form.requestSubmit = function () {
+    submitted += 1;
+  };
+
+  const context = {
+    bootstrap: {
+      Modal: function (element) {
+        assert.equal(element, modalElement);
+        return {
+          show() {
+            modalShown += 1;
+          },
+          hide() {
+            modalHidden += 1;
+          },
+        };
+      },
+    },
+    document: {
+      addEventListener() {},
+      getElementById(id) {
+        if (id === form.id) return form;
+        if (id === toggle.id) return toggle;
+        if (id === modalElement.id) return modalElement;
+        if (id === confirmButton.id) return confirmButton;
+        return null;
+      },
+    },
+    Element: FakeElement,
+    Promise,
+    setTimeout() {},
+    window: {},
+  };
+  vm.createContext(context);
+  vm.runInContext(animatorScript, context);
+
+  toggle.checked = true;
+  form.eventHandlers.submit({
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  assert.equal(modalShown, 0);
+  assert.equal(prevented, false);
+
+  toggle.checked = false;
+  form.eventHandlers.submit({
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  assert.equal(modalShown, 1);
+  assert.equal(prevented, true);
+
+  modalElement.eventHandlers["hidden.bs.modal"]();
+  assert.equal(toggle.checked, true);
+
+  prevented = false;
+  toggle.checked = false;
+  form.eventHandlers.submit({
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  assert.equal(modalShown, 2);
+  assert.equal(prevented, true);
+
+  confirmButton.eventHandlers.click();
+  modalElement.eventHandlers["hidden.bs.modal"]();
+  assert.equal(modalHidden, 1);
+  assert.equal(submitted, 1);
+  assert.equal(confirmButton.disabled, true);
+  assert.equal(toggle.checked, false);
+}
+
 async function testArenaConsumer() {
   const button = new FakeElement("copy-codes-btn");
   const label = new FakeElement("", ["[data-copy-label]"]);
@@ -138,6 +226,7 @@ async function testArenaConsumer() {
 
 Promise.resolve()
   .then(testAnimatorConsumer)
+  .then(testAnimatorDisableConfirmation)
   .then(testArenaConsumer)
   .catch((error) => {
     process.nextTick(() => {

@@ -788,7 +788,12 @@ The task queue (`TaskType` enum) provides in-contest services:
 - Data-level: Contest scoping in all queries (`contest_id` filters)
 - Action-level: Granular permission checks (for example, a contest administrator
   or the contest chief judge can override a verdict; UberAdmin cannot because
-  the audit row references a contest user)
+  the audit row references a contest user). The same pair carries a second
+  granular permission: a contest administrator or the contest chief judge may
+  publish a clarification announcement at any point in the contest lifecycle,
+  while an ordinary judge may only do so while the contest is running — so
+  setup and post-contest notices are possible without widening who may answer
+  clarifications
 
 **Contest scoping:**
 - All users (except UBERADMIN) are tied to exactly one `contest_id`

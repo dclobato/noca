@@ -306,9 +306,9 @@ nested there because a policy only means something when there is an editorial to
 release. Absent means `never`, an unknown value is refused, and Contest — which
 has no such column — parses it and exports it back as `null`.
 
-Finished contests whose scoreboard has been released (`is_past` and
-`release_scoreboard_after_end` — the same gate as the team submissions download)
-expose their complete problem materials to **anonymous** callers:
+Finished contests whose problem set has been released (`is_past` and
+`release_problem_set_after_end`) expose their complete problem materials to
+**anonymous** callers:
 `GET /problem-set/{slug}.zip` (listed in Web's public auth allowlist) streams one
 ZIP with an `index.json` manifest plus each problem's full version-2 package
 spliced under `problems/{ordinal:03d}-{label}/`. Because the packages are built
@@ -316,13 +316,42 @@ with `require_importable=False`, a contest holding an interactive problem whose
 validator source was removed still exports. The package-merge step lives in
 `shared/services/problem_package/merge.py` and is shared with contest backups.
 
+That flag is deliberately **not** the scoreboard's. Publishing standings and
+publishing every secret test case, validator source and editorial are separate
+decisions with separate audiences — a contest may release its problems and
+editorials for study while standings stay embargoed, or release standings while
+keeping test data private so the problems can be reused in a mirror contest — so
+each has its own column and all four combinations are legal. Only the second half
+decoupled: `is_past` remains an unconditional `AND` in the route, because
+publishing secret material mid-contest would break the contest itself. Since
+`is_past` derives from `start_time + duration_minutes`, extending a running
+contest withdraws the download again, which is the safe direction and needs no
+bookkeeping. `release_scoreboard_after_end` continues to gate the scoreboard and
+the team submissions download, and the migration that introduced the split
+backfills from it, because every contest with a released scoreboard was already
+serving this archive.
+
+Two admin surfaces write the flag, and both are usable in any contest state:
+a contest-configuration radio on the metadata form — setting it before the end
+arms the publication for then, which needs no scheduler because the gate is
+evaluated per request — and `POST /c/{slug}/admin/release-problem-set`, whose
+guard is asymmetric: publishing requires `is_past` (arming is the form's job)
+while withdrawing is always allowed, serving as both Revoke after the end and
+Cancel on an armed contest. An armed contest shows the pending publication and
+its Cancel on the admin dashboard, so the decision cannot be forgotten between
+configuration and contest end. Both directions are audited through
+`shared.services.admin_audit`, publication at warning severity.
+
 Since that endpoint is anonymous, it is Web's most exposed one: when
 `NOCA_WEB_PUBLIC_PROBLEM_PACK_PATH` is set, `web/services/problem_set_cache.py`
 builds each contest's archive once, publishes it atomically (temp sibling +
 rename) with a `.sha256` sidecar, and serves the cached file while the sidecar
 digest matches; concurrent first-hit requests are serialized by a per-slug lock,
 and the gate check itself is one indexed query per request. Without the setting,
-every download is rebuilt — a development-only posture.
+every download is rebuilt — a development-only posture. Withdrawing a release
+also discards that contest's cached archive, so a later re-release cannot serve
+an archive built before the problems were edited; the gate, not the discard, is
+what makes the withdrawal effective everywhere.
 
 Contest **backups** are versioned independently. Version 3 adds the nullable
 problem editorial column, while version 2 introduced the stored strategy. Strict
@@ -491,7 +520,10 @@ failures, throttle
 lockouts, existing-account signup attempts, and — through
 `shared.services.admin_audit` (`event_type="admin_action"`) — destructive and
 privilege admin actions, all committed in the same transaction as the mutation
-they describe. Arena admins view the log at `/admin/dashboard/security-events`;
+they describe. `POST /c/{slug}/admin/release-scoreboard` is one of them, at
+warning severity and with no revoke half to record: revealing every result the
+freeze held back is irreversible through the API, so the audit row is the only
+record of who made the standings public. Arena admins view the log at `/admin/dashboard/security-events`;
 uberadmins view and filter it at `/uberadmin/security-events`. Retention is a
 shared `security_events_reaper` loop that each HTTP runtime runs over its own
 module ownership set — Web prunes `module=web`, Arena prunes `module in
@@ -526,6 +558,15 @@ from the cause, the animator's requirement that an unknown slug, a disabled
 contest, and the control kill switch stay indistinguishable holds for the neutral
 body exactly as it did for the framework default.
 
+Web adds one authenticated-browser policy on top of that shared neutral error
+contract. Its HTTP exception handler intercepts every `403` raised by a route,
+dependency, or service after authentication, resolves the actor's role from the
+validated token, and redirects contest users to `/c/{slug}/` or UberAdmins to
+`/uberadmin/`. A danger flash names the role that cannot access the feature.
+Normal requests use a `303`, which safely turns denied POSTs into dashboard GETs;
+HTMX requests use `HX-Redirect`. An unauthenticated `403` remains an ordinary
+HTTP error response.
+
 Integer request parameters are bounded through `shared.http_params` (`DbId`,
 `PageNumber`). PostgreSQL `integer` is 32-bit while Python integers are unbounded,
 so an unbounded parameter reaches a query and raises
@@ -559,7 +600,10 @@ The web module is the server-rendered contest administration and participant-fac
 FastAPI app. It owns authentication and authorization, contest management, problem
 management, Auto-Limit profiling requests, contest-scoped user management,
 clarifications, staff task queues, submission lifecycle actions, scoreboards, and
-chief-judge workflows.
+chief-judge workflows. It applies authentication by default outside a small public
+route allowlist. Role and capability gates may raise `403` at any layer; the Web
+exception boundary converts that result into the role-aware dashboard redirect and
+flash described above.
 
 ### `autojudge/`
 

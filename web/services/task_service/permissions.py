@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -11,13 +11,14 @@ from __future__ import annotations
 from shared.enumerations import RoleEnum
 from web.models.contest import Contest
 from web.models.users import UberAdmin, User
+from web.services.chief_judge_permissions import is_chief_judge
 
-
-def is_chief_judge(actor: User | UberAdmin, contest: Contest) -> bool:
-    """Return whether the actor is the chief judge of this contest."""
-    if isinstance(actor, UberAdmin) or actor.role != RoleEnum.JUDGE:
-        return False
-    return contest.chief_judge_id is not None and actor.id == contest.chief_judge_id
+__all__ = [
+    "can_force_release_tasks",
+    "can_handle_tasks",
+    "can_view_tasks",
+    "is_chief_judge",
+]
 
 
 def can_handle_tasks(actor: User | UberAdmin, contest: Contest) -> bool:

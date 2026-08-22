@@ -37,6 +37,7 @@ from web.routes import contest_admin_animator as contest_admin_animator_routes
 from web.routes.assets import router as assets_router
 from web.routes.contest_admin_animator import router as animator_router
 from web.services.authentication_service import AuthAction, AuthenticationService
+from web.template_globals import register_template_globals
 
 TEST_JWT_SECRET = "test-secret-key-for-tests-only-32bytes"
 
@@ -58,8 +59,7 @@ def _build_app(session: AsyncSession) -> tuple[FastAPI, AuthenticationService]:
     shared_dir = Path(__file__).resolve().parents[2] / "shared"
     templates = Jinja2Templates(directory=web_dir / "template")
     templates.env.globals["app_version"] = "test"
-    templates.env.globals["RoleEnum"] = RoleEnum
-    templates.env.globals["role_labels"] = {role.value: role.value.title() for role in RoleEnum}
+    register_template_globals(templates)
     setup_flash(templates)
     app.state.templates = templates
     app.state.db_session = async_sessionmaker(session.bind, expire_on_commit=False)
@@ -218,10 +218,10 @@ async def test_non_admin_forbidden(session: AsyncSession, running_contest: Conte
 
 
 @pytest.mark.asyncio
-async def test_admin_page_has_one_operators_target_and_toggle(
+async def test_admin_page_shows_animator_cards_only_after_enabling_access(
     session: AsyncSession, running_contest: Contest, admin_user: User
 ) -> None:
-    """Render one HTMX target and preserve the PRG access toggle."""
+    """Hide Animator configuration until the PRG access toggle enables it."""
     await _make_site(session, running_contest, "Site A")
     app, auth_service = _build_app(session)
     await session.commit()
@@ -234,28 +234,102 @@ async def test_admin_page_has_one_operators_target_and_toggle(
             data={"animator_enabled": "yes"},
             follow_redirects=False,
         )
+        enabled_page = await client.get(f"/c/{running_contest.login_slug}/admin/animator/")
 
     assert page.status_code == 200
-    assert page.text.count('id="animator-operators"') == 1
+    assert 'id="animator-operators"' not in page.text
+    assert "Medal cutoffs settings" not in page.text
+    assert "Operator credentials" not in page.text
     shared_clipboard_position = page.text.index("clipboard.js?v=test")
     animator_settings_position = page.text.index("animator-settings.js?v=test")
     assert shared_clipboard_position < animator_settings_position
-    assert "Site A" in page.text
-    assert 'name="style"' not in page.text
-    for band, label in (("gold", "Gold"), ("silver", "Silver"), ("bronze", "Bronze")):
-        assert f'src="http://testserver/assets/medal/{band}"' in page.text
-        assert f'<span class="animator-medal-heading-label">{label}</span>' in page.text
-        assert f"{label} ≤" not in page.text
     assert toggle.status_code == 303
+    assert enabled_page.status_code == 200
+    assert enabled_page.text.count('id="animator-operators"') == 1
+    assert "Medal cutoffs settings" in enabled_page.text
+    assert "Operator credentials" in enabled_page.text
+    assert "Site A" in enabled_page.text
+    assert 'name="style"' not in enabled_page.text
+    for band, label in (("gold", "Gold"), ("silver", "Silver"), ("bronze", "Bronze")):
+        assert f'src="http://testserver/assets/medal/{band}"' in enabled_page.text
+        assert enabled_page.text.count(f'<span class="animator-medal-heading-label">{label}</span>') == 1
+        assert f"{label} ≤" not in enabled_page.text
     await session.refresh(running_contest)
     assert running_contest.animator_enabled is True
 
 
 @pytest.mark.asyncio
-async def test_admin_page_keeps_global_medals_editable_without_sites(
+async def test_disabling_animator_revokes_all_contest_credentials(
+    session: AsyncSession,
+    running_contest: Contest,
+    admin_user: User,
+    uberadmin: UberAdmin,
+) -> None:
+    """Warn before disable and revoke only this contest's credentials."""
+    running_contest.animator_enabled = True
+    site = await _make_site(session, running_contest, "Site A")
+    await animator_access_service.create_global_secret(
+        session,
+        contest_id=running_contest.id,
+        label="Global",
+    )
+    await animator_access_service.create_site_secret(
+        session,
+        contest_id=running_contest.id,
+        site_id=site.id,
+        label="Site",
+    )
+    other = await _other_contest(session, uberadmin)
+    await animator_access_service.create_global_secret(
+        session,
+        contest_id=other.id,
+        label="Other",
+    )
+    app, auth_service = _build_app(session)
+    await session.commit()
+    token = _actor_token(
+        auth_service,
+        username=admin_user.username,
+        role=RoleEnum.ADMIN,
+        contest_id=running_contest.id,
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("noca_access_token", token)
+        enabled_page = await client.get(f"/c/{running_contest.login_slug}/admin/animator/")
+        response = await client.post(
+            f"/c/{running_contest.login_slug}/admin/animator/settings",
+            data={},
+            follow_redirects=False,
+        )
+        disabled_page = await client.get(response.headers["location"])
+
+    assert "permanently revokes all operator credentials" in enabled_page.text
+    assert 'id="animator-disable-confirm-modal"' in enabled_page.text
+    assert 'id="confirm-animator-disable-btn"' in enabled_page.text
+    assert "This action cannot be undone." in enabled_page.text
+    assert response.status_code == 303
+    await session.refresh(running_contest)
+    assert running_contest.animator_enabled is False
+    assert await animator_access_service.list_site_secrets(session, running_contest.id) == []
+    assert len(await animator_access_service.list_site_secrets(session, other.id)) == 1
+    assert "Animator disabled. All operator credentials have been revoked." in disabled_page.text
+    audit_rows = await list_recent_security_events(session, event_type=ADMIN_ACTION_EVENT_TYPE)
+    assert len(audit_rows) == 1
+    assert audit_rows[0].metadata == {
+        "action": "animator_toggle",
+        "target_type": "contest",
+        "target_id": running_contest.id,
+        "detail": "animator_enabled=False; revoked_credentials=2",
+    }
+
+
+@pytest.mark.asyncio
+async def test_admin_page_keeps_global_medal_row_editable_without_sites(
     session: AsyncSession, running_contest: Contest, admin_user: User
 ) -> None:
-    """Render the separate global block even when no per-site rows exist."""
+    """Render the global row in the combined table when no sites exist."""
+    running_contest.animator_enabled = True
     app, auth_service = _build_app(session)
     await session.commit()
     token = _actor_token(
@@ -270,9 +344,12 @@ async def test_admin_page_keeps_global_medals_editable_without_sites(
         page = await client.get(f"/c/{running_contest.login_slug}/admin/animator/")
 
     assert page.status_code == 200
-    global_heading = page.text.index("Global medal cutoffs")
-    site_heading = page.text.index("Per-site medal cutoffs")
-    assert global_heading < site_heading
+    assert "Global medal cutoffs" not in page.text
+    assert "Per-site medal cutoffs" not in page.text
+    assert "Whole contest" in page.text
+    assert "Medal cutoffs for the contest-wide scoreboard, reveal ceremony, and each contest site" in page.text
+    for label in ("Gold", "Silver", "Bronze"):
+        assert page.text.count(f'<span class="animator-medal-heading-label">{label}</span>') == 1
     for band in ("gold", "silver", "bronze"):
         assert f'name="global_{band}_cutoff"' in page.text
     assert "This contest has no sites yet." in page.text
@@ -595,6 +672,7 @@ async def test_site_credential_returns_partial_once_and_emails_admin(
     session: AsyncSession, running_contest: Contest, admin_user: User
 ) -> None:
     """Create a site token, email it, and never expose its digest."""
+    running_contest.animator_enabled = True
     site = await _make_site(session, running_contest, "Site A")
     admin_user.email = "admin@example.com"
     app, auth_service = _build_app(session)

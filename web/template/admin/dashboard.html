@@ -1,24 +1,12 @@
 {% extends "_base.html" %}
-{% from "_macros.html" import dashboard_card, render_icon %}
+{% from "_macros.html" import admin_breadcrumb, dashboard_action_card, dashboard_card with context %}
 {% block title_suffix %}
     - Contest Admin Dashboard
 {% endblock title_suffix %}
 {% block breadcrumb %}
-    <nav aria-label="breadcrumb">
-        <ol class="breadcrumb mb-0">
-            {% if current_user.role == RoleEnum.UBERADMIN.value %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for("uberadmin_dashboard") }}">Uberadmin Dashboard</a>
-                </li>
-                <li class="breadcrumb-item">{{ contest.login_slug }}</li>
-            {% else %}
-                <li class="breadcrumb-item">
-                    <a href="{{ request.url_for('contest_dashboard', slug=contest.login_slug) }}">Contest Dashboard</a>
-                </li>
-            {% endif %}
-            <li class="breadcrumb-item active" aria-current="page">Administration</li>
-        </ol>
-    </nav>
+    {% call admin_breadcrumb(under_administration=False) %}
+        Administration
+    {% endcall %}
 {% endblock breadcrumb %}
 {% block content %}
     <div class="container py-5">
@@ -37,27 +25,67 @@
             {{ dashboard_card(request.url_for('animator_settings', slug=contest.login_slug) , "slideshow", "Animator", "Reveal access, medals & credentials", True, filled=True) }}
             {% if contest.is_past %}
                 {% if not contest.release_scoreboard_after_end %}
-                    <div class="col-sm-6 col-md-4 col-lg-3">
-                        <form method="post"
-                              action="{{ request.url_for('contest_admin_release_scoreboard', slug=contest.login_slug) }}"
-                              onsubmit="return confirm('Release the final scoreboard? This will reveal all pending results and cannot be undone.')">
-                            <button type="submit"
-                                    class="card card-body w-100 text-start border-0 shadow-sm hover-shadow p-0 bg-white btn-glow">
-                                <div class="d-flex align-items-center gap-3 p-3">
-                                    {{ render_icon(icon="emoji_events", filled=True, classes="fs-2") }}
-                                    <div>
-                                        <div class="fw-semibold">Release Final Scoreboard</div>
-                                        <div class="text-muted small">Reveal pending results</div>
-                                    </div>
-                                </div>
-                            </button>
-                        </form>
-                    </div>
+                    {{ dashboard_action_card(request.url_for('contest_admin_release_scoreboard', slug=contest.login_slug) ,
+                    "emoji_events",
+                    "Release Final Scoreboard",
+                    "Reveal pending results",
+                    "Release the final scoreboard? This will reveal all pending results and cannot be undone.") }}
                 {% else %}
                     {{ dashboard_card('#', 'emoji_events', 'Final Scoreboard Released', 'Results are public', True, filled=True) }}
+                {% endif %}
+            {% endif %}
+            {# Problem-set release: independent of the scoreboard. Publishing exposes every
+               statement, test case, validator source and editorial to anonymous visitors, so
+               this card is marked as consequential on three channels -- a leading rule, a
+               kicker word and a warning icon -- none of which is colour alone. #}
+            {% if contest.is_past and not contest.release_problem_set_after_end %}
+                {{ dashboard_action_card(request.url_for('contest_admin_release_problem_set', slug=contest.login_slug) ,
+                "warning",
+                "Release Problem Set",
+                "Statements, test cases & editorials",
+                "Publish the problem set? Every statement, test case, validator source and editorial becomes publicly downloadable by anyone, with no login.",
+                hidden_fields={'release': 'yes'},
+                tone="consequential",
+                kicker="Becomes public") }}
+            {% elif contest.release_problem_set_after_end %}
+                {# Resolved before the call rather than branched inside `confirm_text`: both
+                   values are static literals, and keeping the branch in template text (not an
+                   `on*` handler) means a future edit that interpolates a contest name cannot
+                   break out of an attribute the way it could a JS string literal. #}
+                {% set withdraw_confirm %}
+                    {%- if contest.is_past -%}
+                        Withdraw the problem set from public download?
+                    {%- else -%}
+                        Cancel the scheduled publication? The problem set will not be published when the contest ends.
+                    {%- endif -%}
+                {% endset %}
+                {% if contest.is_past %}
+                    {{ dashboard_action_card(request.url_for('contest_admin_release_problem_set', slug=contest.login_slug) ,
+                    "warning",
+                    "Problem Set Released",
+                    "Downloadable by anyone — revoke",
+                    withdraw_confirm,
+                    hidden_fields={'release': 'no'},
+                    tone="live",
+                    kicker="Public now") }}
+                {% else %}
+                    {{ dashboard_action_card(request.url_for('contest_admin_release_problem_set', slug=contest.login_slug) ,
+                    "warning",
+                    "Publication Scheduled",
+                    "Nothing is public yet — cancel",
+                    withdraw_confirm,
+                    hidden_fields={'release': 'no'},
+                    tone="consequential",
+                    kicker="Publishes at contest end") }}
                 {% endif %}
             {% endif %}
         </div>
         {# /row #}
     </div>
 {% endblock content %}
+{% block extra_script %}
+    {# The action cards declare their confirmation as `data-confirm`; this is the
+       delegated listener that honours it. #}
+    <script src="{{ request.url_for('static_js', path='confirm-submit.js') }}"
+            defer></script>
+{% endblock extra_script %}

@@ -1,498 +1,354 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
 {% block title_suffix %}
     — Create Contest
 {% endblock title_suffix %}
 {% block extra_head %}
-    <link rel="stylesheet"
-          href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
-    <script src="{{ request.url_for('static_shared_js', path='slugify.js') }}?v={{ app_version }}"
-            defer></script>
-    <script src="{{ request.url_for('static_js', path='contest-slug.js') }}"
-            defer></script>
-    <script src="{{ request.url_for('static_js', path='language-checkbox-actions.js') }}?v={{ app_version }}"
-            defer></script>
-    <script src="{{ request.url_for('static_js', path='contest-create-confirm.js') }}"
-            defer></script>
+    {% if not created_credential %}
+        <link rel="stylesheet"
+              href="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.css') }}">
+        <script src="{{ request.url_for('static_shared_js', path='slugify.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_js', path='contest-slug.js') }}"
+                defer></script>
+        <script src="{{ request.url_for('static_js', path='language-checkbox-actions.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_js', path='contest-form-wizard.js') }}?v={{ app_version }}"
+                defer></script>
+        <script src="{{ request.url_for('static_js', path='contest-create-confirm.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
 {% endblock extra_head %}
 {% block content %}
-    <div class="container py-5">
-        <div class="d-flex justify-content-between align-items-end mb-4 gap-3">
-            <div>
-                <h1 class="h3 mb-1">Create Contest</h1>
-                <p class="text-muted mb-0">Set up a new contest and its initial admin account.</p>
+    {% if created_credential %}
+        {% include "uberadmin/_contest_creation_success.html" %}
+    {% else %}
+        <div class="container py-5">
+            <div class="d-flex justify-content-between align-items-end mb-4 gap-3">
+                <div>
+                    <h1 class="h3 mb-1">Create Contest</h1>
+                    <p class="text-muted mb-0">Set up a new contest and its initial admin account.</p>
+                </div>
+                <a href="{{ request.url_for("uberadmin_dashboard") }}"
+                   class="btn btn-outline-secondary btn-sm">Back to dashboard</a>
             </div>
-            <a href="{{ request.url_for("uberadmin_dashboard") }}"
-               class="btn btn-outline-secondary btn-sm">Back to dashboard</a>
-        </div>
-        <div class="row g-4">
-            <div class="col-12 col-lg-8">
-                <div class="card shadow-sm">
-                    <div class="card-body">
-                        {% if errors %}
-                            <div class="alert alert-danger py-2 small" role="alert">
-                                {% if errors | length == 1 %}
-                                    {{ errors[0] }}
-                                {% else %}
-                                    <ul class="mb-0 ps-3">
-                                        {% for e in errors %}<li>{{ e }}</li>{% endfor %}
-                                    </ul>
-                                {% endif %}
-                            </div>
-                        {% endif %}
-                        <form method="post"
-                              action="{{ request.url_for("add_contest_submit") }}"
-                              novalidate>
-                            {# ── IDENTIFICATION ─────────────────────────────────────────── #}
-                            <p class="noca-section-heading">Identification</p>
-                            <div class="mb-3">
-                                <label for="contest_name" class="form-label">Contest name</label>
-                                <input type="text"
-                                       class="form-control"
-                                       id="contest_name"
-                                       name="contest_name"
-                                       value="{{ form_data.contest_name }}"
-                                       required>
-                            </div>
-                            <div class="row g-3 mb-3">
-                                <div class="col-12 col-sm-4">
-                                    <label for="login_slug" class="form-label">Slug</label>
-                                    <div class="input-group">
-                                        <span class="input-group-text text-muted">/c/</span>
-                                        <input type="text"
-                                               class="form-control"
-                                               id="login_slug"
-                                               name="login_slug"
-                                               value="{{ form_data.login_slug }}"
-                                               placeholder="my-contest-2026"
-                                               required>
-                                    </div>
-                                    <div class="form-text">Lowercase letters, numbers, and hyphens only. Used in all contest-specific URLs.</div>
-                                </div>
-                                <div class="col-12 col-sm-8">
-                                    <label for="contest_url" class="form-label">Contest website URL</label>
-                                    <input type="text"
-                                           class="form-control"
-                                           id="contest_url"
-                                           name="contest_url"
-                                           value="{{ form_data.contest_url }}"
-                                           placeholder="https://contest.example.com"
-                                           required>
-                                </div>
-                            </div>
-                            {# ── WHEN ───────────────────────────────────────────────────── #}
-                            <p class="noca-section-heading">When</p>
-                            <div class="row g-3 mb-3">
-                                <div class="col-12 col-sm-5">
-                                    <label for="start_time" class="form-label">Start date/time</label>
-                                    <input type="text"
-                                           class="form-control noca-datetime-input"
-                                           id="start_time"
-                                           name="start_time"
-                                           value="{{ form_data.start_time }}"
-                                           data-fp-datetime
-                                           required>
-                                </div>
-                                <div class="col-12 col-sm-4">
-                                    <label for="contest_timezone" class="form-label">Contest timezone</label>
-                                    <select class="form-select"
-                                            id="contest_timezone"
-                                            name="contest_timezone"
-                                            required>
-                                        <option value=""
-                                                disabled
-                                                {% if not form_data.contest_timezone and form_data.contest_timezone != 'America/Sao_Paulo' %}selected{% endif %}>
-                                            Select timezone…
-                                        </option>
-                                        {% for iana, label in timezone_choices %}
-                                            <option value="{{ iana }}"
-                                                    {% if form_data.contest_timezone == iana %}selected{% endif %}>
-                                                {{ label }}
-                                            </option>
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                                <div class="col-12 col-sm-3">
-                                    <label for="duration_minutes" class="form-label">Duration</label>
-                                    <div class="input-group">
-                                        <input type="number"
-                                               class="form-control"
-                                               id="duration_minutes"
-                                               name="duration_minutes"
-                                               value="{{ form_data.duration_minutes }}"
-                                               min="1"
-                                               required>
-                                        <span class="input-group-text">minutes</span>
-                                    </div>
-                                </div>
-                            </div>
-                            {# ── TIMING ─────────────────────────────────────────────────── #}
-                            <p class="noca-section-heading">Timing</p>
-                            <div class="row g-3 mb-3">
-                                <div class="col-12 col-sm-6">
-                                    <label for="stop_updating_scoreboard" class="form-label">Stop updating scoreboard</label>
-                                    <div class="input-group">
-                                        <input type="number"
-                                               class="form-control"
-                                               id="stop_updating_scoreboard"
-                                               name="stop_updating_scoreboard"
-                                               value="{{ form_data.stop_updating_scoreboard }}"
-                                               min="1"
-                                               required>
-                                        <span class="input-group-text">minutes</span>
-                                    </div>
-                                </div>
-                                <div class="col-12 col-sm-6">
-                                    <label for="stop_answers_after" class="form-label">Stop answers after</label>
-                                    <div class="input-group">
-                                        <input type="number"
-                                               class="form-control"
-                                               id="stop_answers_after"
-                                               name="stop_answers_after"
-                                               value="{{ form_data.stop_answers_after }}"
-                                               min="1"
-                                               required>
-                                        <span class="input-group-text">minutes</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="row g-3 mb-3">
-                                <div class="col-12 col-sm-4">
-                                    <label for="clarifications_timeout_minutes" class="form-label">Clarifications timeout</label>
-                                    <div class="input-group">
-                                        <input type="number"
-                                               class="form-control"
-                                               id="clarifications_timeout_minutes"
-                                               name="clarifications_timeout_minutes"
-                                               value="{{ form_data.clarifications_timeout_minutes }}"
-                                               min="0"
-                                               placeholder="0 = until contest end"
-                                               required>
-                                        <span class="input-group-text">minutes</span>
-                                    </div>
-                                    <div class="form-text">0 = until contest end</div>
-                                </div>
-                                <div class="col-12 col-sm-4">
-                                    <label for="tasks_timeout_minutes" class="form-label">Tasks timeout</label>
-                                    <div class="input-group">
-                                        <input type="number"
-                                               class="form-control"
-                                               id="tasks_timeout_minutes"
-                                               name="tasks_timeout_minutes"
-                                               value="{{ form_data.tasks_timeout_minutes }}"
-                                               min="0"
-                                               placeholder="0 = until contest end"
-                                               required>
-                                        <span class="input-group-text">minutes</span>
-                                    </div>
-                                    <div class="form-text">0 = until contest end</div>
-                                </div>
-                                <div class="col-12 col-sm-4">
-                                    <label for="review_timeout_minutes" class="form-label">Review timeout</label>
-                                    <div class="input-group">
-                                        <input type="number"
-                                               class="form-control"
-                                               id="review_timeout_minutes"
-                                               name="review_timeout_minutes"
-                                               value="{{ form_data.review_timeout_minutes }}"
-                                               min="0"
-                                               placeholder="0 = until contest end"
-                                               required>
-                                        <span class="input-group-text">minutes</span>
-                                    </div>
-                                    <div class="form-text">0 = until contest end</div>
-                                </div>
-                            </div>
-                            {% include "_timing_timeline.html" %}
-                            {# ── RULES ──────────────────────────────────────────────────── #}
-                            <p class="noca-section-heading">Rules</p>
-                            <div class="row g-3 mb-3">
-                                <div class="col-6">
-                                    <label for="wa_penalty" class="form-label">"Wrong answer" penalty</label>
-                                    <div class="input-group">
-                                        <input type="number"
-                                               class="form-control"
-                                               id="wa_penalty"
-                                               name="wa_penalty"
-                                               value="{{ form_data.wa_penalty }}"
-                                               min="0"
-                                               {% if is_locked %}disabled{% endif %}>
-                                        <span class="input-group-text">minutes</span>
-                                    </div>
-                                    <label for="max_problem_file_size_bytes" class="form-label">Max problem file size</label>
-                                    <div class="input-group">
-                                        <input type="number"
-                                               class="form-control"
-                                               id="max_problem_file_size_bytes"
-                                               name="max_problem_file_size_bytes"
-                                               value="{{ form_data.max_problem_file_size_bytes }}"
-                                               min="0"
-                                               placeholder="0 = no limit"
-                                               {% if is_locked %}disabled{% endif %}>
-                                        <span class="input-group-text">bytes</span>
-                                    </div>
-                                    <div class="form-text">0 = no limit</div>
-                                </div>
-                                <div class="col-6">
-                                    <table class="table table-sm table-borderless mb-3 mx-auto w-auto">
-                                        <tbody>
-                                            <th>Criteria</th>
-                                            <th class="noca-rules-radio-col">Yes</th>
-                                            <th class="noca-rules-radio-col">No</th>
-                                            <tr>
-                                                <td class="align-middle">Accept PE as AC</td>
-                                                <td class="align-middle noca-rules-radio-col">
-                                                    <div class="form-check mb-0">
-                                                        <input class="form-check-input"
-                                                               type="radio"
-                                                               id="accept_pe_yes"
-                                                               name="accept_pe"
-                                                               value="yes"
-                                                               {% if form_data.accept_pe %}checked{% endif %}
-                                                               {% if is_locked %}disabled{% endif %}>
-                                                    </div>
-                                                </td>
-                                                <td class="align-middle noca-rules-radio-col">
-                                                    <div class="form-check mb-0">
-                                                        <input class="form-check-input"
-                                                               type="radio"
-                                                               id="accept_pe_no"
-                                                               name="accept_pe"
-                                                               value="no"
-                                                               {% if not form_data.accept_pe %}checked{% endif %}
-                                                               {% if is_locked %}disabled{% endif %}>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td class="align-middle">Show problem's limits</td>
-                                                <td class="align-middle noca-rules-radio-col">
-                                                    <div class="form-check mb-0">
-                                                        <input class="form-check-input"
-                                                               type="radio"
-                                                               id="show_limits_yes"
-                                                               name="show_limits"
-                                                               value="yes"
-                                                               {% if form_data.show_limits %}checked{% endif %}
-                                                               {% if is_locked %}disabled{% endif %}>
-                                                    </div>
-                                                </td>
-                                                <td class="align-middle noca-rules-radio-col">
-                                                    <div class="form-check mb-0">
-                                                        <input class="form-check-input"
-                                                               type="radio"
-                                                               id="show_limits_no"
-                                                               name="show_limits"
-                                                               value="no"
-                                                               {% if not form_data.show_limits %}checked{% endif %}
-                                                               {% if is_locked %}disabled{% endif %}>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td class="align-middle">CE adds penalty</td>
-                                                <td class="align-middle noca-rules-radio-col">
-                                                    <div class="form-check mb-0">
-                                                        <input class="form-check-input"
-                                                               type="radio"
-                                                               id="ce_adds_penalty_yes"
-                                                               name="ce_adds_penalty"
-                                                               value="yes"
-                                                               {% if form_data.ce_adds_penalty %}checked{% endif %}
-                                                               {% if is_locked %}disabled{% endif %}>
-                                                    </div>
-                                                </td>
-                                                <td class="align-middle noca-rules-radio-col">
-                                                    <div class="form-check mb-0">
-                                                        <input class="form-check-input"
-                                                               type="radio"
-                                                               id="ce_adds_penalty_no"
-                                                               name="ce_adds_penalty"
-                                                               value="no"
-                                                               {% if not form_data.ce_adds_penalty %}checked{% endif %}
-                                                               {% if is_locked %}disabled{% endif %}>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td class="align-middle">Final verdict from autojudge</td>
-                                                <td class="align-middle noca-rules-radio-col">
-                                                    <div class="form-check mb-0">
-                                                        <input class="form-check-input"
-                                                               type="radio"
-                                                               id="autojudge_only_yes"
-                                                               name="autojudge_only"
-                                                               value="yes"
-                                                               {% if form_data.autojudge_only %}checked{% endif %}
-                                                               {% if is_locked %}disabled{% endif %}>
-                                                    </div>
-                                                </td>
-                                                <td class="align-middle noca-rules-radio-col">
-                                                    <div class="form-check mb-0">
-                                                        <input class="form-check-input"
-                                                               type="radio"
-                                                               id="autojudge_only_no"
-                                                               name="autojudge_only"
-                                                               value="no"
-                                                               {% if not form_data.autojudge_only %}checked{% endif %}
-                                                               {% if is_locked %}disabled{% endif %}>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td class="align-middle">Allow print task</td>
-                                                <td class="align-middle noca-rules-radio-col">
-                                                    <div class="form-check mb-0">
-                                                        <input class="form-check-input"
-                                                               type="radio"
-                                                               id="allow_print_requests_yes"
-                                                               name="allow_print_requests"
-                                                               value="yes"
-                                                               {% if form_data.allow_print_requests %}checked{% endif %}>
-                                                    </div>
-                                                </td>
-                                                <td class="align-middle noca-rules-radio-col">
-                                                    <div class="form-check mb-0">
-                                                        <input class="form-check-input"
-                                                               type="radio"
-                                                               id="allow_print_requests_no"
-                                                               name="allow_print_requests"
-                                                               value="no"
-                                                               {% if not form_data.allow_print_requests %}checked{% endif %}>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            {# ── LANGUAGES ──────────────────────────────────────────────── #}
-                            <p class="noca-section-heading">Languages</p>
-                            <div class="mb-3" data-language-selection>
-                                <div class="form-text mb-2">
-                                    Select which languages teams may use. This selection can still be updated until the contest starts.
-                                </div>
-                                {% if not languages %}
-                                    <div class="alert alert-warning py-2 small" role="alert">
-                                        No active languages are configured. Please add languages in the language registry first.
-                                    </div>
-                                {% else %}
-                                    <div class="d-flex flex-wrap gap-2 mb-2">
-                                        <button type="button"
-                                                class="btn btn-outline-secondary btn-sm"
-                                                data-language-selection-action="select-all">
-                                            {{ render_icon("check_box", classes="me-1") }}Select all
-                                        </button>
-                                        <button type="button"
-                                                class="btn btn-outline-secondary btn-sm"
-                                                data-language-selection-action="clear-all">
-                                            {{ render_icon("check_box_outline_blank", classes="me-1") }}Clear all
-                                        </button>
-                                    </div>
-                                    <div class="row g-2">
-                                        {% for lang in languages %}
-                                            <div class="col-6 col-sm-4 col-md-3">
-                                                <div class="form-check">
-                                                    <input class="form-check-input"
-                                                           type="checkbox"
-                                                           id="lang_{{ lang.id }}"
-                                                           name="language_ids"
-                                                           value="{{ lang.id }}"
-                                                           data-lang-name="{{ lang.name }}"
-                                                           data-lang-icon="{{ lang.icon }}"
-                                                           {% if lang.id in (form_data.language_ids or []) %}checked{% endif %}>
-                                                    <label class="form-check-label d-inline-flex align-items-center gap-1"
-                                                           for="lang_{{ lang.id }}">
-                                                        <i class="{{ lang.icon }}" aria-hidden="true"></i>{{ lang.name }}
-                                                    </label>
-                                                </div>
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-                            </div>
-                            {# ── OWNER ──────────────────────────────────────────────────── #}
-                            <p class="noca-section-heading">Owner</p>
-                            <div class="row g-3 mb-3">
-                                <div class="col-12 col-sm-8">
-                                    <label for="owner_fullname" class="form-label">Full name</label>
-                                    <input type="text"
-                                           class="form-control"
-                                           id="owner_fullname"
-                                           name="owner_fullname"
-                                           value="{{ form_data.owner_fullname }}"
-                                           autocomplete="off"
-                                           required>
-                                </div>
-                                <div class="col-12 col-sm-4">
-                                    <label for="owner_username" class="form-label">Contest username</label>
-                                    <input type="text"
-                                           class="form-control"
-                                           id="owner_username"
-                                           name="owner_username"
-                                           value="{{ form_data.owner_username }}"
-                                           autocomplete="off"
-                                           required>
-                                </div>
-                            </div>
-                            <div class="row g-3 mb-4">
-                                <div class="col-12 col-sm-6">
-                                    <label for="owner_email" class="form-label">Email</label>
-                                    <input type="email"
-                                           class="form-control"
-                                           id="owner_email"
-                                           name="owner_email"
-                                           value="{{ form_data.owner_email }}"
-                                           autocomplete="off">
-                                    <div class="form-text">Optional. Used to send credentials by email.</div>
-                                </div>
-                                <div class="col-12 col-sm-6">
-                                    <label for="owner_password" class="form-label">
-                                        Password <span class="text-muted small">(leave blank to auto-generate)</span>
-                                    </label>
-                                    <input type="text"
-                                           class="form-control"
-                                           id="owner_password"
-                                           name="owner_password"
-                                           value="{{ form_data.owner_password }}"
-                                           autocomplete="off">
-                                </div>
-                            </div>
-                            <button type="button"
-                                    class="btn btn-primary btn-sm"
-                                    id="open-contest-confirm-modal">Create contest</button>
-                        </form>
-                        <div class="modal fade"
-                             id="contest-create-confirm-modal"
-                             tabindex="-1"
-                             aria-labelledby="contest-create-confirm-label"
-                             aria-hidden="true">
-                            <div class="modal-dialog">
-                                <div class="modal-content">
-                                    <div class="modal-header">
-                                        <h5 class="modal-title" id="contest-create-confirm-label">Confirm Contest Creation</h5>
-                                        <button type="button"
-                                                class="btn-close"
-                                                data-bs-dismiss="modal"
-                                                aria-label="Close"></button>
-                                    </div>
-                                    <div class="modal-body">
-                                        <div class="alert alert-warning py-2 small mb-3" role="alert">
-                                            <strong>Warning:</strong> The allowed language set can be changed only until the contest starts.
-                                        </div>
-                                        <p class="mb-1 small fw-semibold">Selected languages:</p>
-                                        <ul id="confirm-language-list" class="mb-0 small">
+            <div class="row g-4">
+                <div class="col-12">
+                    <div class="card shadow-sm">
+                        <div class="card-body">
+                            {% if errors %}
+                                <div class="alert alert-danger py-2 small" role="alert">
+                                    <p class="fw-semibold mb-1">Review the contest details before continuing.</p>
+                                    {% if errors | length == 1 %}
+                                        {{ errors[0] }}
+                                    {% else %}
+                                        <ul class="mb-0 ps-3">
+                                            {% for error in errors %}<li>{{ error }}</li>{% endfor %}
                                         </ul>
-                                        <p id="confirm-no-languages" class="text-danger small mb-0 d-none">
-                                            No languages selected. Please select at least one language.
-                                        </p>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                            <form method="post"
+                                  id="contest-create-form"
+                                  action="{{ request.url_for("add_contest_submit") }}"
+                                  data-contest-wizard
+                                  novalidate>
+                                <nav class="noca-contest-wizard-nav mb-4"
+                                     aria-label="Contest setup progress">
+                                    <div class="progress"
+                                         role="progressbar"
+                                         aria-label="Contest setup progress"
+                                         aria-valuemin="1"
+                                         aria-valuemax="4"
+                                         aria-valuenow="1">
+                                        <div class="progress-bar" data-wizard-progress></div>
                                     </div>
-                                    <div class="modal-footer">
+                                    <ol class="noca-contest-wizard-steps">
+                                        <li class="is-active" data-wizard-step-indicator>Identification &amp; When</li>
+                                        <li data-wizard-step-indicator>Timing &amp; Rules</li>
+                                        <li data-wizard-step-indicator>Publication &amp; Languages</li>
+                                        <li data-wizard-step-indicator>Owner</li>
+                                    </ol>
+                                </nav>
+                                {% set form_mode = "create" %}
+                                {% set is_locked = false %}
+                                <div data-wizard-panel>
+                                    {% include "_partials/contest_form_identification.html" %}
+                                    {% include "_partials/contest_form_when.html" %}
+                                    <div class="noca-wizard-actions">
+                                        <button type="button" class="btn btn-primary btn-sm" data-wizard-next>Continue to timing and rules</button>
+                                    </div>
+                                </div>
+                                <div data-wizard-panel>
+                                    {% include "_partials/contest_form_timing.html" %}
+                                    {% include "_partials/contest_form_rules.html" %}
+                                    <div class="noca-wizard-actions">
                                         <button type="button"
-                                                class="btn btn-secondary btn-sm"
-                                                data-bs-dismiss="modal">Cancel</button>
+                                                class="btn btn-outline-secondary btn-sm"
+                                                data-wizard-back>Back</button>
+                                        <button type="button" class="btn btn-primary btn-sm" data-wizard-next>Continue to publication and languages</button>
+                                    </div>
+                                </div>
+                                <div data-wizard-panel>
+                                    {% include "_partials/contest_form_publication.html" %}
+                                    {% include "_partials/contest_form_languages.html" %}
+                                    <div class="noca-wizard-actions">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary btn-sm"
+                                                data-wizard-back>Back</button>
+                                        <button type="button" class="btn btn-primary btn-sm" data-wizard-next>Continue to owner</button>
+                                    </div>
+                                </div>
+                                <div data-wizard-panel>
+                                    <section class="noca-contest-form-section">
+                                        <h2 class="noca-section-heading">Owner</h2>
+                                        <div class="alert alert-info small" role="status">
+                                            The admin credentials appear only once after the contest is created. Save or send them before leaving this page.
+                                        </div>
+                                        <div class="row g-3 mb-3">
+                                            <div class="col-12 col-sm-8">
+                                                <label for="owner_fullname" class="form-label">Full name</label>
+                                                <input type="text"
+                                                       class="form-control"
+                                                       id="owner_fullname"
+                                                       name="owner_fullname"
+                                                       value="{{ form_data.owner_fullname }}"
+                                                       autocomplete="off"
+                                                       required>
+                                            </div>
+                                            <div class="col-12 col-sm-4">
+                                                <label for="owner_username" class="form-label">Contest username</label>
+                                                <input type="text"
+                                                       class="form-control"
+                                                       id="owner_username"
+                                                       name="owner_username"
+                                                       value="{{ form_data.owner_username }}"
+                                                       autocomplete="off"
+                                                       required>
+                                            </div>
+                                        </div>
+                                        <div class="row g-3">
+                                            <div class="col-12 col-sm-6">
+                                                <label for="owner_email" class="form-label">Email</label>
+                                                <input type="email"
+                                                       class="form-control"
+                                                       id="owner_email"
+                                                       name="owner_email"
+                                                       value="{{ form_data.owner_email }}"
+                                                       autocomplete="off"
+                                                       aria-describedby="owner_email_help">
+                                                <div class="form-text" id="owner_email_help">Optional. Use this to send the credentials by email.</div>
+                                            </div>
+                                            <div class="col-12 col-sm-6">
+                                                <label for="owner_password" class="form-label">Initial password</label>
+                                                <input type="text"
+                                                       class="form-control"
+                                                       id="owner_password"
+                                                       name="owner_password"
+                                                       value="{{ form_data.owner_password }}"
+                                                       autocomplete="off"
+                                                       aria-describedby="owner_password_help">
+                                                <div class="form-text" id="owner_password_help">Leave blank to generate a secure password.</div>
+                                            </div>
+                                        </div>
+                                    </section>
+                                    <div class="noca-wizard-actions">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary btn-sm"
+                                                data-wizard-back>Back</button>
                                         <button type="button"
                                                 class="btn btn-primary btn-sm"
-                                                id="confirm-create-contest-btn">Confirm &amp; Create</button>
+                                                id="open-contest-confirm-modal">Review and create contest</button>
+                                    </div>
+                                </div>
+                            </form>
+                            <div class="modal fade"
+                                 id="contest-create-confirm-modal"
+                                 tabindex="-1"
+                                 aria-labelledby="contest-create-confirm-label"
+                                 aria-hidden="true">
+                                <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title" id="contest-create-confirm-label">Create this contest?</h5>
+                                            <button type="button"
+                                                    class="btn-close"
+                                                    data-bs-dismiss="modal"
+                                                    aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <p class="text-muted small mb-4">
+                                                Confirm every detail below. The contest and its owner account will be created together.
+                                            </p>
+                                            <div class="noca-contest-review-grid">
+                                                <section class="noca-contest-review-section"
+                                                         aria-labelledby="confirm-identification-heading">
+                                                    <h6 id="confirm-identification-heading">Identification</h6>
+                                                    <dl>
+                                                        <div>
+                                                            <dt>Name</dt>
+                                                            <dd id="confirm-contest-name">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Login slug</dt>
+                                                            <dd id="confirm-login-slug">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Website</dt>
+                                                            <dd id="confirm-contest-url">
+                                                            </dd>
+                                                        </div>
+                                                    </dl>
+                                                </section>
+                                                <section class="noca-contest-review-section"
+                                                         aria-labelledby="confirm-schedule-heading">
+                                                    <h6 id="confirm-schedule-heading">When &amp; timing</h6>
+                                                    <dl>
+                                                        <div>
+                                                            <dt>Starts</dt>
+                                                            <dd id="confirm-start-time">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Timezone</dt>
+                                                            <dd id="confirm-timezone">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Duration</dt>
+                                                            <dd id="confirm-duration">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Scoreboard stops</dt>
+                                                            <dd id="confirm-scoreboard-stop">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Answers stop</dt>
+                                                            <dd id="confirm-answers-stop">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Clarification timeout</dt>
+                                                            <dd id="confirm-clarification-timeout">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Task timeout</dt>
+                                                            <dd id="confirm-task-timeout">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Review timeout</dt>
+                                                            <dd id="confirm-review-timeout">
+                                                            </dd>
+                                                        </div>
+                                                    </dl>
+                                                </section>
+                                                <section class="noca-contest-review-section"
+                                                         aria-labelledby="confirm-rules-heading">
+                                                    <h6 id="confirm-rules-heading">Rules</h6>
+                                                    <dl>
+                                                        <div>
+                                                            <dt>Wrong-answer penalty</dt>
+                                                            <dd id="confirm-wa-penalty">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Problem file limit</dt>
+                                                            <dd id="confirm-file-size">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Show limits</dt>
+                                                            <dd id="confirm-show-limits">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Autojudge only</dt>
+                                                            <dd id="confirm-autojudge-only">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Print requests</dt>
+                                                            <dd id="confirm-print-requests">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Accept presentation errors</dt>
+                                                            <dd id="confirm-accept-pe">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Compile errors add penalty</dt>
+                                                            <dd id="confirm-ce-penalty">
+                                                            </dd>
+                                                        </div>
+                                                    </dl>
+                                                </section>
+                                                <section class="noca-contest-review-section"
+                                                         aria-labelledby="confirm-owner-heading">
+                                                    <h6 id="confirm-owner-heading">Owner</h6>
+                                                    <dl>
+                                                        <div>
+                                                            <dt>Full name</dt>
+                                                            <dd id="confirm-owner-fullname">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Username</dt>
+                                                            <dd id="confirm-owner-username">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Email</dt>
+                                                            <dd id="confirm-owner-email">
+                                                            </dd>
+                                                        </div>
+                                                        <div>
+                                                            <dt>Initial password</dt>
+                                                            <dd id="confirm-owner-password">
+                                                            </dd>
+                                                        </div>
+                                                    </dl>
+                                                </section>
+                                            </div>
+                                            <div class="alert alert-warning py-2 small mb-3" role="alert">
+                                                The allowed language set can be changed only until the contest starts.
+                                            </div>
+                                            <div class="alert alert-warning py-2 small mb-3 d-none"
+                                                 id="confirm-publication-warning"
+                                                 role="alert">
+                                                <strong>The complete problem set will become public when the contest ends.</strong>
+                                                This includes secret test cases, validator source, and editorials.
+                                            </div>
+                                            <p class="mb-1 small fw-semibold">
+                                                Publication: <span id="confirm-publication"></span>
+                                            </p>
+                                            <p class="mb-1 small fw-semibold">Selected languages:</p>
+                                            <ul id="confirm-language-list" class="mb-0 small">
+                                            </ul>
+                                            <p id="confirm-no-languages" class="text-danger small mb-0 d-none">
+                                                Select at least one language before creating the contest.
+                                            </p>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button"
+                                                    class="btn btn-secondary btn-sm"
+                                                    data-bs-dismiss="modal">Continue editing</button>
+                                            <button type="button"
+                                                    class="btn btn-primary btn-sm"
+                                                    id="confirm-create-contest-btn">Create contest</button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -500,84 +356,16 @@
                     </div>
                 </div>
             </div>
-            <div class="col-12 col-lg-4">
-                <div class="card shadow-sm h-100">
-                    <div class="card-header fw-semibold">Generated Credentials</div>
-                    <div class="card-body">
-                        {% if created_credential %}
-                            <div class="alert alert-success py-2 small" role="alert">Contest created successfully.</div>
-                            <p class="mb-2">
-                                <span class="fw-semibold">Contest:</span> {{ created_credential.contest_name }}
-                            </p>
-                            <p class="mb-2">
-                                <span class="fw-semibold">Slug:</span> <code>/c/{{ created_credential.contest_slug }}/</code>
-                            </p>
-                            <hr class="my-2">
-                            <p class="mb-2">
-                                <span class="fw-semibold">Admin username:</span> <code>{{ created_credential.username }}</code>
-                            </p>
-                            <p class="mb-3">
-                                <span class="fw-semibold">Initial password:</span> <code>{{ created_credential.password }}</code>
-                            </p>
-                            <p class="mb-2">
-                                <span class="fw-semibold">Email:</span> {{ created_credential.email or "No email" }}
-                            </p>
-                            <div class="d-flex flex-wrap gap-2">
-                                <form method="post"
-                                      action="{{ request.url_for("download_contest_credentials_json") }}">
-                                    <input type="hidden"
-                                           name="contest_slug"
-                                           value="{{ created_credential.contest_slug }}">
-                                    <input type="hidden"
-                                           name="username"
-                                           value="{{ created_credential.username }}">
-                                    <input type="hidden"
-                                           name="password"
-                                           value="{{ created_credential.password }}">
-                                    <button type="submit" class="btn btn-outline-primary btn-sm">Download credentials JSON</button>
-                                </form>
-                                {% if created_credential.email %}
-                                    <form method="post"
-                                          action="{{ request.url_for("send_contest_credentials_email") }}">
-                                        <input type="hidden"
-                                               name="contest_slug"
-                                               value="{{ created_credential.contest_slug }}">
-                                        <input type="hidden"
-                                               name="contest_name"
-                                               value="{{ created_credential.contest_name }}">
-                                        <input type="hidden"
-                                               name="fullname"
-                                               value="{{ created_credential.fullname }}">
-                                        <input type="hidden"
-                                               name="username"
-                                               value="{{ created_credential.username }}">
-                                        <input type="hidden"
-                                               name="password"
-                                               value="{{ created_credential.password }}">
-                                        <input type="hidden" name="email" value="{{ created_credential.email }}">
-                                        <button type="submit" class="btn btn-outline-primary btn-sm">Send credentials by email</button>
-                                    </form>
-                                {% endif %}
-                            </div>
-                            {% if email_delivery_message %}
-                                <div class="alert {% if email_delivery_success %} alert-success {% else %} alert-danger {% endif %} py-2 small mt-3 mb-0">
-                                    {{ email_delivery_message }}
-                                </div>
-                            {% endif %}
-                        {% else %}
-                            <p class="text-muted small mb-0">After creating a contest, the admin username/password pair will be shown here.</p>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
         </div>
-    </div>
+    {% endif %}
 {% endblock content %}
 {% block extra_script %}
-    <script src="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.js') }}"></script>
-    <script src="{{ request.url_for('static_vendor', path='flatpickr/l10n/default.min.js') }}"></script>
-    <script src="{{ request.url_for('static_vendor', path='flatpickr/plugins/rangePlugin.min.js') }}"></script>
-    <script src="{{ request.url_for('static_shared_js', path='flatpickr-init.js') }}?v={{ app_version }}"></script>
-    <script src="{{ request.url_for('static_js', path='contest-timing-timeline.js') }}"
-            defer></script>
+    {% if not created_credential %}
+        <script src="{{ request.url_for('static_vendor', path='flatpickr/flatpickr.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='flatpickr/l10n/default.min.js') }}"></script>
+        <script src="{{ request.url_for('static_vendor', path='flatpickr/plugins/rangePlugin.min.js') }}"></script>
+        <script src="{{ request.url_for('static_shared_js', path='flatpickr-init.js') }}?v={{ app_version }}"></script>
+        <script src="{{ request.url_for('static_js', path='contest-timing-timeline.js') }}?v={{ app_version }}"
+                defer></script>
+    {% endif %}
 {% endblock extra_script %}

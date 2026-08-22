@@ -505,9 +505,20 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    # NOCA's Valkey is a coordination store (queues, locks, TTL markers, reveal
+    # session state), not a blob cache, so `--maxmemory-policy noeviction` is
+    # deliberate: under pressure a write fails loudly with an OOM error the
+    # application can log, instead of an eviction policy silently discarding
+    # queue entries, locks, or a live reveal ceremony.
+    #
+    # `--maxmemory` must stay comfortably below `mem_limit`: allocator
+    # fragmentation, client output buffers, and the RDB fork's copy-on-write all
+    # count against the cgroup limit but not against `maxmemory`. Setting the two
+    # equal would reintroduce the kernel OOM kill this is meant to prevent.
+    # See docs/CONFIG.md, "Valkey / Redis" -> "Server memory bounds".
     command:
-      valkey-server --loglevel verbose
-    mem_limit: 1g   # Set maximum memory limit for Redis
+      valkey-server --loglevel verbose --maxmemory 768mb --maxmemory-policy noeviction
+    mem_limit: 1g   # Container ceiling; keep >= ~1.3x the --maxmemory above
     volumes:
       - valkey-data:/data
     networks:
