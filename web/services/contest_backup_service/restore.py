@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -111,7 +111,10 @@ async def restore_contest(
         )
         await restore_submissions(session, submissions, state)
         await restore_judgments(session, judgments, state)
-        await restore_clarifications(session, clarifications, state)
+        # The archive's own recorded roles: what an archive predating
+        # `clarifications.is_announcement` uses to classify its announcement rows.
+        role_by_user_id = {str(user["id"]): user.get("role") for user in users}
+        await restore_clarifications(session, clarifications, state, role_by_user_id)
         await restore_tasks(session, tasks, state)
         await session.commit()
     except Exception as exc:

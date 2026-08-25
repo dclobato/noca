@@ -91,9 +91,9 @@ variant with identical `404` behavior.
 | Method | URL | Name | Description |
 |--------|-----|------|-------------|
 | `GET` | `/c/{slug}/` | `animator_contest_page` | Presentation launcher. Shows a prominent global section followed by every contest site, with scoped links to the animated scoreboard, reveal projector, and reveal controller. Renders `contest_index.html`; it loads no presentation JavaScript. |
-| `GET` | `/c/{slug}/scoreboard?scope=…` | `animator_scoreboard_page` | Public live-scoreboard presentation page for `global` (the default) or one validated contest site. A static HTML shell (no scoreboard state embedded) that fetches `/meta` and the scoped `/snapshot` client-side, renders the standings and a locally ticking contest timer, and then opens the contest live SSE connection. It embeds only wiring config: the `/meta`, scoped `/snapshot`, and `/events` URLs, the selected site name, `data-poll-fallback` (`NOCA_ANIMATOR_POLL_FALLBACK_SECONDS`), and `data-balloon-base`/`data-star-base`/`data-medal-base`. Renders `animator.html`. |
-| `GET` | `/c/{slug}/meta` | `animator_contest_meta` | Contest identity, problem labels and balloon colors, start/end/freeze timing, current public `is_frozen` state, and per-site medal-cutoff summary with team counts. An ended contest with `release_scoreboard_after_end=true` reports `is_frozen=false`. Returns `ContestMetaResponse`. |
-| `GET` | `/c/{slug}/snapshot?scope=…` | `animator_contest_snapshot` | Public ICPC scoreboard snapshot computed with the shared `compute_icpc` for `global` or one validated site scope, plus a server-generated `version` (equal to `generated_at`) for client refresh and a freeze-safe `pending_submissions` array. Each standing includes `team_fullname`, `site_name`, and `medal` — the band that row's rank falls into under the cutoffs in force for the requested scope (the site's own for a site scope, the contest's `global_*_cutoff` triple for `global`), or `null` when the row wins no medal or the scope has no cutoffs configured; each problem cell includes the accumulated attempt `penalty`, including while unsolved. Post-freeze submissions remain hidden while the contest runs and after an unreleased end; an ended, released contest exposes all final results and reports `is_frozen=false`, matching Web. Site scope filters teams and their submissions before scoring, so ranks and first-solver markers are local to that site. Returns `ScoreboardSnapshotResponse`. |
+| `GET` | `/c/{slug}/scoreboard?scope=…` | `animator_scoreboard_page` | Public live-scoreboard presentation page for `global` (the default) or one validated contest site. A static HTML shell (no scoreboard state embedded) that fetches `/meta` and the scoped `/snapshot` client-side, renders the standings and a locally ticking contest timer, and then opens the contest live SSE connection. Before the contest starts the feeds carry no problem set, so the page shows a **"The contest has not started yet."** banner in place of the board — sharing the ceremony projector's own banner style — while the countdown and the live connection badge keep running; it re-reads `/meta` on a capped timer (at most a minute) because no SSE event marks the start instant, and swaps in the roster and problem columns as soon as the gate opens. Team names open the shared media modal in photo-only mode: the page embeds the canonical `data-scope` and route-derived `data-photo-base`, but no audio URL or audio element. Other wiring includes the `/meta`, scoped `/snapshot`, and `/events` URLs, the selected site name, `data-poll-fallback` (`NOCA_ANIMATOR_POLL_FALLBACK_SECONDS`), and the balloon/star/medal asset bases. Renders `animator.html`. |
+| `GET` | `/c/{slug}/meta` | `animator_contest_meta` | Contest identity, problem labels and balloon colors, start/end/freeze timing, current public `is_frozen` state, and per-site medal-cutoff summary with team counts. An ended contest with `release_scoreboard_after_end=true` reports `is_frozen=false`. **Before the contest starts `problems` is empty and `has_started=false`**: the number of problems and their balloon colors are contest secrets until the start instant, exactly as Web's own scoreboard gate treats them. Sites remain visible in both states — the launcher is built from them and a venue is not part of that secret. Returns `ContestMetaResponse`. |
+| `GET` | `/c/{slug}/snapshot?scope=…` | `animator_contest_snapshot` | Public ICPC scoreboard snapshot computed with the shared `compute_icpc` for `global` or one validated site scope, plus a server-generated `version` (equal to `generated_at`) for client refresh and a freeze-safe `pending_submissions` array. Each standing includes `team_fullname`, `site_name`, and `medal` — the band that row's rank falls into under the cutoffs in force for the requested scope (the site's own for a site scope, the contest's `global_*_cutoff` triple for `global`), or `null` when the row wins no medal or the scope has no cutoffs configured; each problem cell includes the accumulated attempt `penalty`, including while unsolved. Post-freeze submissions remain hidden while the contest runs and after an unreleased end; an ended, released contest exposes all final results and reports `is_frozen=false`, matching Web. Site scope filters teams and their submissions before scoring, so ranks and first-solver markers are local to that site. **Before the contest starts the response is empty in every scope** — no `problems`, no `balloon_colors`, no `standings`, no `pending_submissions` — and carries `has_started=false`, which is what lets a client tell that gate apart from a contest with no teams. Returns `ScoreboardSnapshotResponse`. |
 | `GET` | `/c/{slug}/events` | `animator_contest_events` | Live Server-Sent Events stream (native `EventSourceResponse` / typed `ServerSentEvent`). Fans out `verdict` (finalized judgment, no logs; redacted to `{"redacted": true}` while the contest is frozen), `submission` (new-submission nudge `{submission_id, team_id, problem_id}`, suppressed entirely while frozen), `scoreboard_refresh` (bare signal to refetch `/snapshot`), and `timer_tick` (`{"server_time": "<ISO8601 UTC>"}`) events for this contest. FastAPI sends a native 15 s idle-only comment heartbeat. Resolves the contest through the **detached** short-lived resolver (`get_enabled_contest_detached`) so the long-lived stream holds no PostgreSQL connection, with the same `404` uniformity. PostgreSQL snapshots remain authoritative. |
 
 ### Streaming notes (`/events`)
@@ -163,6 +163,11 @@ The page script drives the live scoreboard on top of the `/events` stream:
   **Ended**. When the authoritative snapshot reports `is_frozen=false`, the
   connection pill stays hidden, and the client opens neither SSE nor fallback
   polling.
+- **Team photo modal.** Each team name is a Bootstrap data-API button. Keyed
+  refreshes update the existing button instead of replacing it, so Bootstrap can
+  return keyboard focus to the original trigger after the dialog closes. The
+  shared modal fetches only the scoped photo route; scoreboard markup and client
+  wiring contain no audio element, audio URL, or playback lifecycle.
 
 ---
 
@@ -214,7 +219,7 @@ contest by `animator/services/public_scope_service.py`.
   with a heavier rule on each band's last row and a focused-row class driven by
   `focused_team_id`.
 - **Team modal.** Team names render as `<button data-bs-toggle="modal"
-  data-bs-target="#ceremony-team-modal" data-team-id="…">`. Using Bootstrap's
+  data-bs-target="#team-media-modal" data-team-id="…">`. Using Bootstrap's
   **data API** rather than a programmatic `modal.show()` is deliberate: in
   Bootstrap 5.3 focus restoration lives in the data-API click handler, so a
   programmatic open would trap focus correctly and then return it nowhere. One
@@ -307,10 +312,10 @@ contest by `animator/services/public_scope_service.py`.
 
 ## Team media (`animator/routes/team_media.py`)
 
-Router prefix: `/c/{slug}`. Serves the photo and the optional audio clip
-the ceremony's team modal opens. Public and credential-free, scoped by the same
-`?scope=` value, and resolved through one shared scoped lookup so the two routes'
-scope predicates cannot drift.
+Router prefix: `/c/{slug}`. Serves photos to live scoreboards and ceremonies,
+plus the optional audio clip used only by the ceremony. Both routes are public
+and credential-free, scoped by the same `?scope=` value, and resolved through
+one shared scoped lookup so their scope predicates cannot drift.
 
 | Method | URL | Name | Description |
 |--------|-----|------|-------------|
@@ -404,7 +409,7 @@ ceremony. It is a **static shell**, not a control operation.
 
 | Method | URL | Name | Description |
 |--------|-----|------|-------------|
-| `GET` | `/c/{slug}/control?scope=…` | `animator_control_page` | Renders `control.html`: the secret prompt, the scope selector preselected to the validated global or site scope, single-step and ten-step controls, the jump-team selector, and the current-state readout. Carries the initial scope, five command URLs, the `/control/state` URL, and the public `/meta` URL as `data-*` attributes. |
+| `GET` | `/c/{slug}/control?scope=…` | `animator_control_page` | Renders `control.html`: the secret prompt, the scope selector preselected to the validated global or site scope, single-step and ten-step controls, jump-to-pending, the jump-team selector, and the current-state readout. Carries the initial scope, six command URLs, the `/control/state` URL, and the public `/meta` URL as `data-*` attributes. |
 
 - **It accepts no credential parameter of any kind.** There is no `?secret=`, so a
   token cannot reach an access log, a `Referer`, or browser history through this
@@ -541,6 +546,10 @@ the spectator feed also serves.
    parameter dependencies, which would invert this order.
 3. **Credential** — `Authorization: Bearer <operator-token>`, resolved through
    the shared digest service (`shared.services.animator_access_service`).
+4. **Controller ownership** — every **mutating** command additionally requires
+   an active controller lease under the caller's resolved scope and a matching
+   `X-Animator-Controller-Id` header (see *Controller lease* below). `GET
+   /control/state` is read-only and lease-independent.
 
 The order is load-bearing: a token is never resolved for a contest the caller may
 not know exists, and a switched-off deployment never answers in an
@@ -599,6 +608,7 @@ command applies normally.
 | `POST` | `/c/{slug}/control/start-reveal` | `animator_control_start` | Open the ceremony this credential authorizes. Body (optional): `{"site_id": <site id or null>, "restart": false}`. Builds the frozen universe from current data on a fresh or restarted session; an `idle` session (fresh, or returned to idle by `reset`) starts over its existing universe. An already `revealing`/`done` session is refused with `409` unless `restart` is `true`. |
 | `POST` | `/c/{slug}/control/step` | `animator_control_step` | Reveal exactly one relevant frozen submission — or, on a row with nothing left, move the cursor up one. No body. |
 | `POST` | `/c/{slug}/control/back` | `animator_control_back` | Un-reveal the most recent submission (an exact `pop`). No body. |
+| `POST` | `/c/{slug}/control/jump-pending` | `animator_control_jump_pending` | Advance cursor-only steps until the next `?` is focused, then stop before revealing it. An already-focused pending cell is an exact no-op. No body. |
 | `POST` | `/c/{slug}/control/reset` | `animator_control_reset` | Empty the reveal log and return the ceremony to `idle`. No body. |
 | `POST` | `/c/{slug}/control/jump-team` | `animator_control_jump_team` | Replay ordinary steps until `team_id` is focused. Body: `{"team_id": "<id>"}`. |
 | `GET` | `/c/{slug}/control/state` | `animator_control_state` | Current projection. Read-only: takes no lock, saves nothing, publishes nothing. |
@@ -627,10 +637,13 @@ leave the server.
 |---|---|
 | Unknown slug, `animator_enabled=false`, or `NOCA_ANIMATOR_ENABLE_CONTROL=false` | `404` (bare, identical bodies) |
 | Missing, malformed, wrong-scheme, blank, unknown, or other-contest token; scope mismatch on `start-reveal` | `403`, single generic `{"detail": "Invalid operator credential"}` |
+| Missing or malformed `X-Animator-Controller-Id` on a mutating command | `422` — rejected before the store is touched |
+| Another controller owns this scope, or this controller lost its lease | `409`, **no** `Retry-After` |
 | Command on a scope with no stored session (including an expired key) | `404` |
 | The credential's site is no longer a site of this contest | `404` |
 | `start-reveal` on a `revealing`/`done` session without `restart` | `409` |
-| `step`/`jump-team` on a session that was never started | `409` |
+| `step`/`jump-team`/`jump-pending` on a session that was never started | `409` |
+| `jump-pending` when no pending submission remains | `409`, with no mutation |
 | `jump-team` to a team that can never become focused | `409` |
 | `jump-team` to a team outside the ceremony's scope | `400` |
 | Malformed request body (unknown field, missing `team_id`) | `422` |
@@ -682,3 +695,64 @@ leave the server.
   `WARNING`, and only unusable persisted state adds an `ERROR` with a traceback.
   Contention and a briefly unavailable store are self-healing conditions and
   never produce one.
+
+---
+
+## Controller lease (`animator/routes/controller_lease.py`)
+
+Router prefix: `/c/{slug}/control/controller-lease`. The authenticated
+single-controller ownership API for one ceremony scope. It exists so that two
+operator panels — the browser control page and the Android remote are both
+shipped controllers — cannot drive the same global or site ceremony, while any
+number of read-only projectors keep working untouched.
+
+### Gates and identity
+
+The same contest gate, kill switch, and credential gate apply in the same order
+as the command API, plus the same `ControlAuditRoute` audit boundary. On top of
+the bearer token every lease request carries an opaque `X-Animator-Controller-Id`
+header matching `^[A-Za-z0-9_-]{8,128}$` (`animator.models.controller_lease`).
+The id is **not a credential**: it identifies one loaded panel, is generated per
+panel (a UUID), lives only in that panel's memory, and never appears in a URL,
+the DOM, storage, or a log. Lease values in Valkey hold nothing but this id — no
+tokens, digests, or addresses.
+
+### Operations
+
+| Method | URL | Name | Description |
+|--------|-----|------|-------------|
+| `POST` | `/c/{slug}/control/controller-lease/claim` | `animator_controller_lease_claim` | Claim an empty lease, or re-claim idempotently while already the owner. A second controller for the scope gets `409`. |
+| `POST` | `/c/{slug}/control/controller-lease/heartbeat` | `animator_controller_lease_heartbeat` | Renew only the caller's active lease; refreshes its TTL. |
+| `POST` | `/c/{slug}/control/controller-lease/release` | `animator_controller_lease_release` | Release only the caller's active lease. Best-effort on page teardown; TTL expiry remains authoritative. |
+| `POST` | `/c/{slug}/control/controller-lease/takeover` | `animator_controller_lease_takeover` | Replace the current owner — or claim an empty one — after explicit operator confirmation. Succeeds only while the per-scope mutation lock is free, so a takeover never interrupts a mutation in flight; the former controller is fenced from every later heartbeat and command by the atomic replacement itself. |
+
+### Response shape
+
+All four return `ControllerLeaseResponse`
+(`animator/models/controller_lease.py`): `status` (`claimed`, `renewed`,
+`released`, or `taken_over`), `lease_ttl_seconds`, and
+`heartbeat_interval_seconds` — timing only. No response ever names the current
+holder: a blocked panel learns *that* it does not own the scope, never *who*
+does.
+
+### Status codes
+
+| Condition | Status |
+|---|---|
+| Unknown slug, disabled contest, or kill switch off | `404` (bare) |
+| Invalid credential | `403` |
+| Another controller owns the scope, or the caller lost ownership | `409`, **no** `Retry-After` |
+| A reveal mutation is in progress (takeover), or the store is unavailable | `503` with `Retry-After: 1` — fail closed; ownership is never granted from stale local state |
+| Missing or malformed controller-id header | `422` |
+
+### Client contract
+
+Both shipped controllers follow one lifecycle: generate the id at load, claim
+after the credential validates, renew on a bounded interval (promptly again on
+`visibilitychange`/`pageshow` restoration), release best-effort on
+`pagehide`/background via `fetch(..., {keepalive: true})`, and stop commands and
+heartbeats immediately when an operation reports lost ownership. Read-only and
+lease-lost panels keep receiving authoritative state through the lease-free
+`GET /control/state` and offer **Take over control…** behind a modal warning
+that the other panel immediately loses command authority. There is no automatic
+takeover.

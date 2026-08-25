@@ -35,7 +35,7 @@
                         </thead>
                         <tbody>
                             {% for c in clarifications %}
-                                {% set unread_answer = current_user.role == RoleEnum.TEAM.value and c.team_id == current_user.id and c.answered_at is not none and c.answer_read_at is none %}
+                                {% set unread_answer = c.unread %}
                                 <tr id="{{ c.id }}"
                                     class="noca-clickable-row {% if unread_answer %}table-info{% endif %} {% if c.hidden and current_user.role in (RoleEnum.UBERADMIN.value, RoleEnum.ADMIN.value, RoleEnum.JUDGE.value) %}opacity-50 text-decoration-line-through{% endif %}"
                                     tabindex="0"
@@ -59,7 +59,9 @@
                                             <span class="badge bg-secondary ms-1">Hidden</span>
                                         {% else %}
                                             {% if c.answer is not none %}
-                                                {% if unread_answer %}<span class="visually-hidden">New answer.</span>{% endif %}
+                                                {% if unread_answer %}
+                                                    <span class="visually-hidden">{{ "New announcement." if c.is_announcement else "New answer." }}</span>
+                                                {% endif %}
                                                 <span class="badge bg-success">Answered</span>
                                             {% elif c.acquired_at is not none %}
                                                 <span class="badge bg-info text-dark">Working on</span>
@@ -125,7 +127,7 @@
                                                     <form method="post"
                                                           action="{{ request.url_for('contest_clarifications_releaselock', slug=contest.login_slug) }}"
                                                           class="noca-icon-btn-wrap"
-                                                          onsubmit="return confirm('Release the lock on this clarification? The current holder will lose their hold.');">
+                                                          data-confirm="Release the lock on this clarification? The current holder will lose their hold.">
                                                         <input type="hidden" name="clarification_id" value="{{ c.id }}">
                                                         <button type="submit"
                                                                 class="btn btn-outline-danger noca-icon-btn"

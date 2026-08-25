@@ -25,6 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.noca.animator.remote.core.RevealPhase
 import org.noca.animator.remote.ui.AnimatorRemoteTheme
@@ -41,6 +44,7 @@ class MainActivity : ComponentActivity() {
             AnimatorRemoteTheme {
                 val viewModel: RemoteViewModel = viewModel()
                 val state by viewModel.state.collectAsStateWithLifecycle()
+                RemoteLifecycle(viewModel)
 
                 // A ceremony can sit on one team for minutes while an announcer
                 // talks. The screen locking mid-reveal would cost the operator a
@@ -66,6 +70,29 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+}
+
+/** Connects lease heartbeats and best-effort release to foreground lifecycle. */
+@Composable
+private fun RemoteLifecycle(viewModel: RemoteViewModel) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> viewModel.onForeground()
+                Lifecycle.Event.ON_STOP -> viewModel.onBackground()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            viewModel.onForeground()
+        }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.onBackground()
         }
     }
 }

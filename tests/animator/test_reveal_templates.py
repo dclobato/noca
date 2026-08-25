@@ -107,11 +107,11 @@ async def test_projector_wires_scope_and_media_bases(session: AsyncSession, uber
         'id="ceremony-progress"',
         'id="ceremony-status"',
         'id="ceremony-empty"',
-        'id="ceremony-team-modal"',
-        'id="ceremony-team-photo"',
-        'id="ceremony-photo-fallback"',
-        'id="ceremony-team-audio"',
-        'id="ceremony-audio-status"',
+        'id="team-media-modal"',
+        'id="team-media-photo"',
+        'id="team-media-photo-fallback"',
+        'id="team-media-audio"',
+        'id="team-media-audio-status"',
     ]:
         assert hook in html, hook
     assert 'class="animator-scoreboard ceremony-board"' in html
@@ -133,7 +133,7 @@ async def test_projector_modal_ships_no_audio_source(session: AsyncSession, uber
     ceremony = await seed_ceremony(session, uberadmin)
     html = await _get(session.bind, _ceremony_url(ceremony))  # type: ignore[arg-type]
 
-    audio_tag = html[html.index('id="ceremony-team-audio"') : html.index("</audio>")]
+    audio_tag = html[html.index('id="team-media-audio"') : html.index("</audio>")]
     # The clip URL is assigned per team after the modal opens, and removed on
     # close; a src here would start downloading every team's audio at page load.
     assert "src=" not in audio_tag
@@ -142,7 +142,7 @@ async def test_projector_modal_ships_no_audio_source(session: AsyncSession, uber
     assert "hidden" in audio_tag
     # Native controls remain the fallback whenever autoplay is refused.
     assert "autoplay" not in audio_tag
-    photo_tag = html[html.index('id="ceremony-team-photo"') : html.index(">", html.index('id="ceremony-team-photo"'))]
+    photo_tag = html[html.index('id="team-media-photo"') : html.index(">", html.index('id="team-media-photo"'))]
     assert "src=" not in photo_tag
     assert "hidden" in photo_tag
 
@@ -155,7 +155,7 @@ async def test_projector_accessibility_contracts(session: AsyncSession, uberadmi
     assert 'role="status"' in html
     assert 'scope="col"' in html
     assert "<caption" in html
-    assert 'aria-labelledby="ceremony-team-modal-label"' in html
+    assert 'aria-labelledby="team-media-modal-label"' in html
     assert 'href="#animator-main"' in html  # skip link from the base template
     assert 'aria-label="Close"' in html
 
@@ -169,11 +169,12 @@ async def test_projector_loads_only_ceremony_assets(session: AsyncSession, ubera
     for script in [
         "cell-format.js",
         "animator-keyed-rows.js",
+        "animator-team-cell.js",
         "animator-render.js",
         "animator-animate.js",
         "ceremony-transport.js",
         "ceremony-render.js",
-        "ceremony-modal.js",
+        "team-media-modal.js",
         "ceremony.js",
     ]:
         assert script in html, script
@@ -181,11 +182,12 @@ async def test_projector_loads_only_ceremony_assets(session: AsyncSession, ubera
     # renderer that reads it off window.
     assert html.index("cell-format.js") < html.index("ceremony-render.js")
     assert html.index("animator-keyed-rows.js") < html.index("animator-render.js")
+    assert html.index("animator-team-cell.js") < html.index("animator-render.js")
     assert html.index("animator-render.js") < html.index("ceremony-render.js")
     assert html.index("animator-animate.js") < html.index("ceremony.js?")
     assert html.index("ceremony-transport.js") < html.index("ceremony.js?")
     assert html.index("ceremony-render.js") < html.index("ceremony.js?")
-    assert html.index("ceremony-modal.js") < html.index("ceremony.js?")
+    assert html.index("team-media-modal.js") < html.index("ceremony.js?")
     # The live-scoreboard client has no DOM to drive here.
     assert "animator-board.js" not in html
     assert "animator-live.js" not in html
@@ -225,6 +227,11 @@ async def test_control_page_carries_every_command_url(session: AsyncSession, ube
         ("data-back-url", f"{base}/back"),
         ("data-reset-url", f"{base}/reset"),
         ("data-jump-url", f"{base}/jump-team"),
+        ("data-jump-pending-url", f"{base}/jump-pending"),
+        ("data-lease-claim-url", f"{base}/controller-lease/claim"),
+        ("data-lease-heartbeat-url", f"{base}/controller-lease/heartbeat"),
+        ("data-lease-release-url", f"{base}/controller-lease/release"),
+        ("data-lease-takeover-url", f"{base}/controller-lease/takeover"),
         ("data-meta-url", f"http://test/c/{ceremony.slug}/meta"),
     ]:
         assert f'{attribute}="{url}"' in html, attribute
@@ -255,6 +262,7 @@ async def test_control_page_documents_its_shortcuts(session: AsyncSession, ubera
     assert "Keyboard:" in html
     assert 'id="control-scope"' in html  # site selector for start-reveal
     assert 'id="control-jump-team"' in html
+    assert 'id="control-jump-pending"' in html
     assert 'id="control-back-ten"' in html
     assert 'id="control-step-ten"' in html
     assert 'id="control-start-over"' in html
@@ -262,6 +270,11 @@ async def test_control_page_documents_its_shortcuts(session: AsyncSession, ubera
     assert 'id="control-reset"' in html
     assert 'id="control-reload"' in html
     assert 'id="control-confirmation-modal"' in html
+    assert 'id="control-ownership-status"' in html
+    assert 'id="control-takeover"' in html
+    assert 'id="control-ownership-retry"' in html
+    assert 'id="control-takeover-modal"' in html
+    assert "The other controller panel immediately loses command authority" in html
     assert "Back 10" in html
     assert "Step 10" in html
     for action in [
@@ -286,9 +299,13 @@ async def test_control_page_documents_its_shortcuts(session: AsyncSession, ubera
     assert 'role="alert"' in html
     assert "ceremony.css" in html
     assert "control.js" in html
+    assert "control-lease.js" in html
+    assert "control-ownership.js" in html
     # The panel names teams through the same shared rule the projector uses.
     assert "cell-format.js" in html
     assert html.index("cell-format.js") < html.index("control.js")
+    assert html.index("control-lease.js") < html.index("control.js")
+    assert html.index("control-ownership.js") < html.index("control.js")
     assert "<script>" not in html
 
 
@@ -370,9 +387,10 @@ def test_ceremony_css_covers_the_projector_contracts() -> None:
         ".ceremony-row--focused",
         ".ceremony-cell--pending",
         ".ceremony-cell--next",
-        ".ceremony-team-photo",
     ]:
         assert selector in css, selector
+    assert ".team-media-photo" in shared_css
+    assert ".team-media-photo" not in css
     # The medal rules are shared, not ceremony-local: a copy here would be free
     # to drift from the live board's. What must not appear in ceremony.css is a
     # *rule declaration* -- naming the selectors in a comment that points readers
@@ -414,11 +432,11 @@ def test_ceremony_css_covers_the_projector_contracts() -> None:
     assert "background-color" in static_fallback[: static_fallback.index("}")]
     # Real photos retain their intrinsic size but cannot exceed 75% of the
     # projector viewport. The checked-in placeholder expands to that width.
-    photo_rule = css[css.index(".ceremony-team-photo") :]
+    photo_rule = shared_css[shared_css.index(".team-media-photo") :]
     assert "75vw" in photo_rule[: photo_rule.index("}")]
-    placeholder_rule = css[css.index(".ceremony-team-photo--placeholder") :]
+    placeholder_rule = shared_css[shared_css.index(".team-media-photo--placeholder") :]
     assert "width: 75vw" in placeholder_rule[: placeholder_rule.index("}")]
-    dialog_rule = css[css.index(".ceremony-team-dialog") :]
+    dialog_rule = shared_css[shared_css.index(".team-media-dialog") :]
     assert "75vw" in dialog_rule[: dialog_rule.index("}")]
     site_rule = shared_css[shared_css.index(".animator-team-secondary {") :]
     site_rule = site_rule[: site_rule.index("}")]
@@ -428,7 +446,7 @@ def test_ceremony_css_covers_the_projector_contracts() -> None:
 
 def test_ceremony_scripts_avoid_innerhtml() -> None:
     js_dir = _STATIC_DIR / "js"
-    for name in ["ceremony-render.js", "ceremony-modal.js", "ceremony.js", "control.js", "cell-format.js"]:
+    for name in ["ceremony-render.js", "team-media-modal.js", "ceremony.js", "control.js", "cell-format.js"]:
         source = (js_dir / name).read_text(encoding="utf-8")
         assert "innerHTML" not in source, name
 

@@ -39,7 +39,13 @@ from shared.db_schema import (
 )
 from shared.enumerations import ALL_CONTEST_ROLES, ProblemValidatorType
 
-from .models import LEGACY_FORMAT_VERSION, PREVIOUS_FORMAT_VERSION, ContestBackupError
+from .announcement import announcement_flag_for_backup_row
+from .models import (
+    EDITORIAL_FORMAT_VERSION,
+    LEGACY_FORMAT_VERSION,
+    PREVIOUS_FORMAT_VERSION,
+    ContestBackupError,
+)
 from .row_validation import (
     as_mapping,
     index_rows,
@@ -139,7 +145,7 @@ def validate_backup_integrity(
         test_case_by_id,
         user_by_id,
     )
-    _validate_clarifications(clarification_rows, problem_by_id, user_by_id)
+    _validate_clarifications(clarification_rows, problem_by_id, user_by_id, manifest["format_version"])
     _validate_tasks(task_rows, problem_by_id, user_by_id)
 
 
@@ -305,17 +311,36 @@ def _validate_judgments(
             validate_optional_user_reference(child.get("actor_user_id"), user_by_id, "judgment audit actor")
 
 
+# Versions that predate ``clarifications.is_announcement``. A version-4 archive omitting
+# it is malformed, exactly as a version-2 archive omitting the editorial is.
+_OPTIONAL_CLARIFICATION_COLUMNS_BY_VERSION = {
+    LEGACY_FORMAT_VERSION: {"is_announcement"},
+    PREVIOUS_FORMAT_VERSION: {"is_announcement"},
+    EDITORIAL_FORMAT_VERSION: {"is_announcement"},
+}
+
+
 def _validate_clarifications(
     rows: list[dict[str, Any]],
     problem_by_id: Mapping[str, dict[str, Any]],
     user_by_id: Mapping[str, dict[str, Any]],
+    format_version: int,
 ) -> None:
+    role_by_user_id = {user_id: row.get("role") for user_id, row in user_by_id.items()}
     for row in rows:
-        clarification = validate_row(clarifications, row, "clarification")
+        clarification = validate_row(
+            clarifications,
+            row,
+            "clarification",
+            optional_columns=_OPTIONAL_CLARIFICATION_COLUMNS_BY_VERSION.get(format_version, set()),
+        )
         validate_optional_reference(clarification.get("problem_id"), problem_by_id, "clarification problem")
         require_reference(clarification.get("team_id"), user_by_id, "clarification team")
         for column in ("judge_id", "hidden_by_judge_id", "hidden_by_admin_id"):
             validate_optional_user_reference(clarification.get(column), user_by_id, f"clarification {column}")
+        # Resolved through the same helper the restorer uses, so the checker cannot
+        # accept a row the restorer would classify differently.
+        announcement_flag_for_backup_row(clarification, role_by_user_id)
 
 
 def _validate_tasks(

@@ -34,7 +34,12 @@ async def mark_answers_read(
     ctx: ContestContext = Depends(get_contest_context),
     clarification_ids: list[str] = Form(default_factory=list),
 ) -> Response:
-    """Acknowledge answers that were rendered to their requesting team."""
+    """Acknowledge what was rendered to the viewing team.
+
+    Covers both kinds of notification the Clarifications list carries: answers to the
+    team's own questions, and contest announcements. Announcement acknowledgement is
+    idempotent, so a full page load racing the 60 s HTMX refresh is harmless.
+    """
     ensure_allowed_role(ctx.actor, (RoleEnum.TEAM,))
     assert isinstance(ctx.actor, User)
     await mark_clarification_answers_read(

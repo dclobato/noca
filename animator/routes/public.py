@@ -32,6 +32,7 @@ from animator.models.responses import (
     ScoreboardRefreshPayload,
     ScoreboardSnapshotResponse,
 )
+from animator.routes.team_media import media_base_url
 from animator.services.contest_feed_service import build_meta_response, build_snapshot_response
 from animator.services.event_stream_service import EVENT_SCOREBOARD_REFRESH, AnimatorEventStream
 
@@ -117,7 +118,9 @@ async def scoreboard_page(
                 request.url_for("animator_contest_snapshot", slug=slug).include_query_params(scope=scope.canonical)
             ),
             "events_url": str(request.url_for("animator_contest_events", slug=slug)),
+            "scope": scope.canonical,
             "scope_name": scope.site_name,
+            "photo_base": media_base_url(request, "animator_team_photo", slug),
             "poll_fallback_seconds": settings.POLL_FALLBACK_SECONDS,
             "balloon_base": balloon_base,
             "star_base": star_base,

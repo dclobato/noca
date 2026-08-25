@@ -47,8 +47,10 @@
     typeof module !== "undefined" && module.exports
       ? require("./animator-keyed-rows.js")
       : (typeof window !== "undefined" ? window : {}).AnimatorKeyedRows;
-
-  var MODAL_SELECTOR = "#ceremony-team-modal";
+  var teamCell =
+    typeof module !== "undefined" && module.exports
+      ? require("./animator-team-cell.js")
+      : (typeof window !== "undefined" ? window : {}).AnimatorTeamCell;
 
   // Natural label order: length first, then lexicographic. "B" < "Z" < "AA".
   function compareLabels(a, b) {
@@ -184,32 +186,11 @@
   // The team-name trigger. data-bs-toggle/data-bs-target are what make Bootstrap
   // open the shared modal *and* return focus here when it closes.
   function renderTeamCell(doc, team, medalBase) {
-    var th = doc.createElement("th");
-    th.setAttribute("scope", "row");
-    th.setAttribute("class", "animator-col-team");
-    var button = doc.createElement("button");
-    button.setAttribute("type", "button");
-    button.setAttribute("class", "ceremony-team-name animator-team-primary");
-    button.setAttribute("data-bs-toggle", "modal");
-    button.setAttribute("data-bs-target", MODAL_SELECTOR);
-    button.setAttribute("data-team-id", team.team_id);
-    // The audience reads the team's name, never its login. The title carries the
-    // same text so a truncated long name is still readable on hover, and the
-    // modal reuses it as its heading.
-    var label = format.teamLabel(team);
-    button.setAttribute("title", label);
-    setText(button, label);
-    th.appendChild(button);
-    if (team.site_name) {
-      th.appendChild(
-        cell(doc, "span", "ceremony-team-site animator-team-secondary", team.site_name),
-      );
-    }
-    var medalImage = scoreboardRender.createMedalImage(doc, medalBase, team.medal);
-    if (medalImage) {
-      th.appendChild(medalImage);
-    }
-    return th;
+    return teamCell.createTeamCell(doc, team, {
+      siteClass: "ceremony-team-site animator-team-secondary",
+      medalBase: medalBase,
+      createMedalImage: scoreboardRender.createMedalImage,
+    });
   }
 
   function renderRow(doc, team, labels, options) {
@@ -308,7 +289,7 @@
   }
 
   return {
-    MODAL_SELECTOR: MODAL_SELECTOR,
+    MODAL_SELECTOR: teamCell.MODAL_SELECTOR,
     compareLabels: compareLabels,
     problemLabels: problemLabels,
     renderHeader: renderHeader,

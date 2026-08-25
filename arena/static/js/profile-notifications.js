@@ -1,10 +1,14 @@
 /*
  * NOCA -- Next Online Contest Administrator
- * Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+ * Copyright (c) 2026 The NOCA Authors (see AUTHORS)
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
+
+// Deletion confirmations on this page are plain `data-confirm` forms: the
+// delegated listener in shared `confirm-submit.js` (loaded by `_base.html`)
+// honours them. Keeping a second copy here would ask the same question twice.
 
 (() => {
   "use strict";
@@ -13,21 +17,6 @@
   if (!pane) {
     return;
   }
-
-  /**
-   * Intercept delete form submissions and ask for confirmation before
-   * allowing the POST to proceed.
-   */
-  pane.addEventListener("submit", (event) => {
-    const form = event.target.closest("form[data-confirm]");
-    if (!form) {
-      return;
-    }
-    const message = form.dataset.confirm || "Remove this notification?";
-    if (!window.confirm(message)) {
-      event.preventDefault();
-    }
-  });
 
   /**
    * When a notification link is clicked:

@@ -43,6 +43,7 @@ internal fun CommandPad(
     onBack: () -> Unit,
     onStepMany: () -> Unit,
     onBackMany: () -> Unit,
+    onJumpPending: () -> Unit,
     onStart: () -> Unit,
     onStartOver: () -> Unit,
     onReset: () -> Unit,
@@ -111,6 +112,16 @@ internal fun CommandPad(
                     ) {
                         Text("10 ▶▶")
                     }
+                }
+            }
+
+            if (visibility.jumpPendingVisible) {
+                OutlinedButton(
+                    onClick = onJumpPending,
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Jump to next pending")
                 }
             }
         }

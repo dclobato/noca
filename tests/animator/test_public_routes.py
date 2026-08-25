@@ -13,6 +13,8 @@ seed data (helpers in ``_feed_seed``) through the animator Core service.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -75,6 +77,51 @@ async def test_meta_enabled_returns_payload(session: AsyncSession, uberadmin: Ub
     # No secret-bearing fields leak into the payload.
     assert "secret" not in str(body).lower()
     assert "password" not in str(body).lower()
+
+
+async def test_feeds_leak_nothing_before_the_contest_starts(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """Regression: the anonymous feeds must not disclose the problem set early.
+
+    Web withholds its scoreboard, clarifications, and runs before the start
+    instant so the *number of problems* and their balloon colors stay secret.
+    These endpoints need no credential at all, so a leak here would defeat that
+    gate entirely for anyone who can guess a slug.
+    """
+    contest = await make_contest(
+        session,
+        uberadmin,
+        slug="route-not-started",
+        start_time=datetime.now(UTC) + timedelta(hours=2),
+    )
+    await seed_dataset(session, contest, uberadmin, teams=2, problems=3, submissions=0)
+    await session.commit()
+
+    app = _build_app(session.bind)  # type: ignore[arg-type]
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        meta = await client.get("/c/route-not-started/meta")
+        snapshot = await client.get("/c/route-not-started/snapshot")
+
+    assert meta.status_code == 200
+    meta_body = meta.json()
+    assert meta_body["has_started"] is False
+    assert meta_body["problems"] == []
+    # The sites the launcher is built from stay visible; they are not the secret.
+    assert meta_body["sites"][0]["team_count"] == 2
+
+    assert snapshot.status_code == 200
+    snapshot_body = snapshot.json()
+    assert snapshot_body["has_started"] is False
+    assert snapshot_body["problems"] == []
+    assert snapshot_body["balloon_colors"] == []
+    assert snapshot_body["standings"] == []
+    assert snapshot_body["pending_submissions"] == []
+    # Beyond the emptied fields: no seeded problem's label or balloon color may
+    # appear anywhere in either payload, however it got there.
+    for body in (meta_body, snapshot_body):
+        rendered = str(body)
+        assert "ff0000" not in rendered, "a balloon color reached a pre-start payload"
+        for label in ("'A'", "'B'", "'C'"):
+            assert label not in rendered, f"problem label {label} reached a pre-start payload"
 
 
 async def test_snapshot_enabled_returns_payload(session: AsyncSession, uberadmin: UberAdmin) -> None:

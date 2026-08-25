@@ -72,6 +72,24 @@
             </div>
         {% endif %}
         <div class="d-flex align-items-center gap-2 noca-navbar-identity order-2 order-lg-4">
+            {# Theme control. It lives with the account controls rather than in the
+               footer because a display preference is personal chrome, and the footer
+               is below the fold on every long page. It keeps the shared
+               `theme-toggle-btn` id, which is the entire contract of
+               `shared/static/js/theme-toggle.js`, so nothing about persistence
+               changes. The icon is a bare <i> rather than the `render_icon` macro:
+               that script replaces the button's innerHTML on every toggle, so a class
+               set here would survive exactly until the first click -- the glyph is
+               styled through the button instead. The name matches what the script
+               writes for the default light theme, so the control is named correctly
+               before the script runs. #}
+            <button type="button"
+                    id="theme-toggle-btn"
+                    class="noca-navbar-theme-toggle"
+                    aria-label="Switch to dark mode"
+                    title="Switch to dark mode">
+                <i class="material-symbols-outlined" aria-hidden="true">dark_mode</i>
+            </button>
             {{ role_pill(current_user, contest=contest if in_contest else None, compact=True) }}
             <div class="dropdown">
                 <button type="button"

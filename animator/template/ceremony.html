@@ -65,42 +65,9 @@
             </table>
         </div>
     </div>
-    <div class="modal fade"
-         id="ceremony-team-modal"
-         tabindex="-1"
-         aria-labelledby="ceremony-team-modal-label"
-         aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered ceremony-team-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 class="modal-title fs-5" id="ceremony-team-modal-label">Team</h2>
-                    <button type="button"
-                            class="btn-close"
-                            data-bs-dismiss="modal"
-                            aria-label="Close"></button>
-                </div>
-                <div class="modal-body ceremony-modal-body">
-                    <img id="ceremony-team-photo" class="ceremony-team-photo" alt="" hidden>
-                    {# Shown only if the photo request itself fails. The server
-                       always resolves an in-scope team to some image, but a
-                       network failure or a deleted team must not leave broken
-                       image chrome on a projector. #}
-                    <p id="ceremony-photo-fallback" class="ceremony-photo-fallback" hidden>No photo available for this team.</p>
-                    {# No src: it is assigned per team after the modal is shown, and
-                       removed on close so playback and any in-flight download stop. #}
-                    <audio id="ceremony-team-audio"
-                           class="ceremony-team-audio"
-                           controls
-                           preload="none"
-                           hidden>Your browser does not support audio playback.</audio>
-                    <p id="ceremony-audio-status"
-                       class="ceremony-audio-status"
-                       role="status"
-                       aria-live="polite"></p>
-                </div>
-            </div>
-        </div>
-    </div>
+    {% with team_modal_audio_enabled=true %}
+        {% include "_partials/_team_media_modal.html" %}
+    {% endwith %}
 {% endblock %}
 {% block page_scripts %}
     {# The live-scoreboard client is deliberately not loaded here: this page has
@@ -108,10 +75,11 @@
        both presentations build identical balloon headers. #}
     <script src="{{ request.url_for('animator_static_js', path='cell-format.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('animator_static_js', path='animator-keyed-rows.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='animator-team-cell.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('animator_static_js', path='animator-render.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('animator_static_js', path='animator-animate.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('animator_static_js', path='ceremony-transport.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('animator_static_js', path='ceremony-render.js') }}?v={{ app_version }}"></script>
-    <script src="{{ request.url_for('animator_static_js', path='ceremony-modal.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='team-media-modal.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('animator_static_js', path='ceremony.js') }}?v={{ app_version }}"></script>
 {% endblock %}

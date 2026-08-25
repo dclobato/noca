@@ -256,6 +256,28 @@
     white-space: nowrap;
 }
 
+/* Remaining time earns colour in the last half hour. White stays the resting
+   state, so the shift is the exception rather than a palette the eye tunes out,
+   and the countdown text itself keeps saying how long is left -- the colour is
+   a second encoding of a value that is already written out, never the only one.
+   No pulse, no flash: a clock a contestant checks every few seconds does not
+   need motion to be noticed, and motion here would compete with the work.
+
+   The `ended` step is a step down rather than up. Once the contest is over the
+   clock is spent information, and holding it at full white would keep drawing
+   the eye to the one value on the bar that can no longer change. */
+.noca-navbar-countdown[data-urgency="warning"] {
+    color: var(--noca-urgency-warning);
+}
+
+.noca-navbar-countdown[data-urgency="critical"] {
+    color: var(--noca-urgency-critical);
+}
+
+.noca-navbar-countdown[data-urgency="ended"] {
+    color: var(--noca-urgency-ended);
+}
+
 /* The contest name supports the countdown rather than competing with it: the
    label step, dimmed, and truncating rather than pushing the identity cluster
    off the row. */
@@ -325,6 +347,43 @@
 
 .noca-navbar-profile::after {
     color: rgb(255 255 255 / 72%);
+}
+
+/* The theme control is icon-only: the glyph states the action and the accessible
+   name (rewritten by `theme-toggle.js` on every flip) carries it for assistive
+   technology. It borrows the account toggle's hover and focus treatment so the
+   two read as one cluster, and it holds a fixed square so the row loses the
+   username before it loses this control. The glyph is targeted through the
+   button because the script replaces the icon element on every toggle. */
+.noca-navbar-theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: rgb(255 255 255 / 78%);
+    line-height: 1;
+}
+
+.noca-navbar-theme-toggle:hover,
+.noca-navbar-theme-toggle:focus-visible {
+    border-color: rgb(255 255 255 / 24%);
+    background-color: rgb(255 255 255 / 10%);
+    color: #fff;
+}
+
+.noca-navbar-theme-toggle:focus-visible {
+    outline: 2px solid var(--noca-brand-on-surface);
+    outline-offset: 2px;
+}
+
+.noca-navbar-theme-toggle .material-symbols-outlined {
+    font-size: 1.25rem;
 }
 
 .noca-navbar-avatar {

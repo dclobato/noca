@@ -47,6 +47,7 @@ from animator.models.reveal_session import REVEAL_STATE_VERSION, RevealSessionSt
 from animator.routes.control import router as control_router
 from animator.routes.reveal_public import router as reveal_public_router
 from animator.services.contest_queries import load_enabled_contest
+from animator.services.controller_lease_service import ControllerLeaseService
 from animator.services.reveal_session_store import RevealSessionStore
 from shared.reveal_schema import GLOBAL_SCOPE
 from shared.services.animator_access_service import create_global_secret, create_site_secret
@@ -67,6 +68,7 @@ few enough that the ordinary unit suite does not turn into a stress test."""
 
 KEY_A = "idem-key-aaaaaaaa"
 KEY_B = "idem-key-bbbbbbbb"
+CONTROLLER_ID = "controller-test-0001"
 
 
 @pytest.fixture(autouse=True)
@@ -96,7 +98,10 @@ class Fixture:
     @property
     def headers(self) -> dict[str, str]:
         """Operator authorization header."""
-        return {"Authorization": f"Bearer {self.token}"}
+        return {
+            "Authorization": f"Bearer {self.token}",
+            "X-Animator-Controller-Id": "controller-test-0001",
+        }
 
 
 async def _seed(session: AsyncSession, uberadmin: UberAdmin) -> Fixture:
@@ -134,6 +139,10 @@ def _key(headers: dict[str, str], key: str) -> dict[str, str]:
 
 async def _started(fixture: Fixture, app: FastAPI) -> None:
     """Open the global ceremony so later commands have a session to act on."""
+    await ControllerLeaseService(
+        app.state.valkey_runtime,
+        ttl_seconds=settings.CONTROLLER_LEASE_TTL_SECONDS,
+    ).claim(fixture.ceremony.contest_id, GLOBAL_SCOPE, CONTROLLER_ID)
     async with _client(app) as client:
         started = await client.post(f"{fixture.url}/start-reveal", json={}, headers=fixture.headers)
     assert started.status_code == 200
@@ -163,7 +172,7 @@ async def runtime() -> AsyncIterator[ValkeyRuntime]:
 async def test_crash_before_lock_changes_nothing(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """F1. A death before the lock leaves no trace and blocks no one."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
 
     valkey.crash_before = "lock"
@@ -185,7 +194,7 @@ async def test_crash_before_save_leaves_state_unchanged_and_lock_free(
 ) -> None:
     """F2. A death between lock and save loses the command, nothing else."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     await _started(fixture, app)
     before = dict(valkey.strings)
@@ -213,7 +222,7 @@ async def test_crash_after_save_keeps_state_and_spectators_recover(session: Asyn
     is what closes the gap.
     """
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     await _started(fixture, app)
     published_before = len(valkey.published)
@@ -241,7 +250,7 @@ async def test_crash_after_publish_is_not_fatal(session: AsyncSession, uberadmin
     state is durable and the operator's command has genuinely succeeded.
     """
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     await _started(fixture, app)
 
@@ -258,7 +267,7 @@ async def test_crash_during_release_leaves_a_lock_that_contends_then_expires(
 ) -> None:
     """F4. A death while releasing keeps the command but leaks the lease."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     await _started(fixture, app)
 
@@ -292,7 +301,7 @@ async def test_crash_during_release_leaves_a_lock_that_contends_then_expires(
 async def test_retry_with_same_key_replays_without_advancing(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """F5. The response was lost; asking again returns it, unchanged."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     await _started(fixture, app)
 
@@ -307,6 +316,25 @@ async def test_retry_with_same_key_replays_without_advancing(session: AsyncSessi
     assert valkey.publishes == publishes, "a replay nudges nobody"
 
 
+async def test_jump_pending_no_op_is_idempotent(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """Stopping on an already-pending cell records and safely replays once."""
+    fixture = await _seed(session, uberadmin)
+    valkey = FakeValkey(bootstrap_controller_leases=True)
+    app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
+    await _started(fixture, app)
+
+    async with _client(app) as client:
+        first = await client.post(f"{fixture.url}/jump-pending", headers=_key(fixture.headers, KEY_A))
+        saves, publishes = valkey.saves, valkey.publishes
+        retry = await client.post(f"{fixture.url}/jump-pending", headers=_key(fixture.headers, KEY_A))
+
+    assert first.status_code == retry.status_code == 200
+    assert first.json()["next_cell"] is not None
+    assert retry.json() == first.json()
+    assert valkey.saves == saves
+    assert valkey.publishes == publishes
+
+
 async def test_retry_without_a_key_applies_twice(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """The protection is opt-in, and its absence is honest, not silent.
 
@@ -314,7 +342,7 @@ async def test_retry_without_a_key_applies_twice(session: AsyncSession, uberadmi
     command and why an operator without one must reload instead of retrying.
     """
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
     await _started(fixture, app)
 
     async with _client(app) as client:
@@ -328,7 +356,7 @@ async def test_retry_without_a_key_applies_twice(session: AsyncSession, uberadmi
 async def test_superseded_key_is_refused_not_reapplied(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """A retry the ceremony has moved past is a stated refusal, never a second step."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     await _started(fixture, app)
 
@@ -348,7 +376,7 @@ async def test_superseded_key_is_refused_not_reapplied(session: AsyncSession, ub
 async def test_key_reused_for_a_different_command_is_refused(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """One key names one command; honoring it for another would apply the wrong one."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     await _started(fixture, app)
 
@@ -366,7 +394,7 @@ async def test_key_reused_for_a_different_command_is_refused(session: AsyncSessi
 async def test_malformed_key_is_rejected_before_the_store(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """A key that cannot be recorded must not be accepted as if it had been."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     await _started(fixture, app)
     saves = valkey.saves
@@ -382,7 +410,7 @@ async def test_malformed_key_is_rejected_before_the_store(session: AsyncSession,
 async def test_receipt_ring_is_bounded(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """The ring keeps the newest commands and forgets beyond its bound."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     await _started(fixture, app)
 
@@ -404,7 +432,7 @@ async def test_restart_discards_the_ring_so_an_old_key_applies(session: AsyncSes
     explicitly rather than left to be inferred from the restart semantics.
     """
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
     await _started(fixture, app)
 
     async with _client(app) as client:
@@ -439,8 +467,8 @@ async def test_two_replicas_racing_one_scope_apply_exactly_one_command(
     fixture = await _seed(session, uberadmin)
     backing: dict[str, str] = {}
     held = asyncio.Event()
-    valkey_a = FakeValkey(strings=backing, hold_lock_until=held)
-    valkey_b = FakeValkey(strings=backing)
+    valkey_a = FakeValkey(strings=backing, hold_lock_until=held, bootstrap_controller_leases=True)
+    valkey_b = FakeValkey(strings=backing, bootstrap_controller_leases=True)
     # One lock namespace for both replicas: two processes, one Valkey.
     valkey_b.locks = valkey_a.locks
     app_a = _build_app(session.bind, valkey_a)  # type: ignore[arg-type]
@@ -480,8 +508,8 @@ async def test_two_replicas_on_different_scopes_do_not_contend(session: AsyncSes
     assert site_token  # a second credential for the same scope is still one scope
 
     backing: dict[str, str] = {}
-    valkey_a = FakeValkey(strings=backing)
-    valkey_b = FakeValkey(strings=backing)
+    valkey_a = FakeValkey(strings=backing, bootstrap_controller_leases=True)
+    valkey_b = FakeValkey(strings=backing, bootstrap_controller_leases=True)
     valkey_b.locks = valkey_a.locks
     app_a = _build_app(session.bind, valkey_a)  # type: ignore[arg-type]
     app_b = _build_app(session.bind, valkey_b)  # type: ignore[arg-type]
@@ -490,7 +518,10 @@ async def test_two_replicas_on_different_scopes_do_not_contend(session: AsyncSes
         session, contest_id=fixture.ceremony.contest_id, site_id=fixture.ceremony.site_a, label="site a"
     )
     await session.commit()
-    site_headers = {"Authorization": f"Bearer {site_a_token}"}
+    site_headers = {
+        "Authorization": f"Bearer {site_a_token}",
+        "X-Animator-Controller-Id": "controller-site-0001",
+    }
 
     async with _client(app_a) as client_a, _client(app_b) as client_b:
         opened_global, opened_site = await asyncio.gather(
@@ -522,7 +553,7 @@ async def test_unusable_state_fails_closed_and_restart_recovers(
 ) -> None:
     """No unreadable payload is ever silently reset; the operator must say so."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     await _started(fixture, app)
 
@@ -560,7 +591,11 @@ async def test_missed_nudge_still_leaves_state_readable_by_spectators(
 ) -> None:
     """A nudge that never lands does not cost the ceremony a step."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey(publish_ok=failure == "raising", publish_raises=failure == "raising")
+    valkey = FakeValkey(
+        publish_ok=failure == "raising",
+        publish_raises=failure == "raising",
+        bootstrap_controller_leases=True,
+    )
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     await _started(fixture, app)
 
@@ -697,7 +732,8 @@ async def test_real_state_key_ttl_matches_a_running_contest(
     fixture = await _seed(session, uberadmin)
     store = _store(runtime)
     contest = await _contest_record(session, fixture, started_ago=timedelta(0))
-    async with store.mutate(contest, None, command="start") as handle:
+    await ControllerLeaseService(runtime, ttl_seconds=45).claim(contest.id, GLOBAL_SCOPE, CONTROLLER_ID)
+    async with store.mutate(contest, None, controller_id=CONTROLLER_ID, command="start") as handle:
         handle.set_result(_idle_state(fixture))
 
     ttl = await valkey_client.ttl(reveal_state_key(fixture.ceremony.contest_id, GLOBAL_SCOPE))
@@ -716,7 +752,8 @@ async def test_real_state_key_ttl_floors_at_the_margin_after_the_end(
     fixture = await _seed(session, uberadmin)
     store = _store(runtime)
     contest = await _contest_record(session, fixture, started_ago=timedelta(days=1))
-    async with store.mutate(contest, None, command="start") as handle:
+    await ControllerLeaseService(runtime, ttl_seconds=45).claim(contest.id, GLOBAL_SCOPE, CONTROLLER_ID)
+    async with store.mutate(contest, None, controller_id=CONTROLLER_ID, command="start") as handle:
         handle.set_result(_idle_state(fixture))
 
     ttl = await valkey_client.ttl(reveal_state_key(fixture.ceremony.contest_id, GLOBAL_SCOPE))
@@ -732,9 +769,10 @@ async def test_real_lock_lease_is_bounded(
     fixture = await _seed(session, uberadmin)
     store = _store(runtime)
     contest = await _contest_record(session, fixture, started_ago=timedelta(days=1))
+    await ControllerLeaseService(runtime, ttl_seconds=45).claim(contest.id, GLOBAL_SCOPE, CONTROLLER_ID)
     lock_key = reveal_lock_key(fixture.ceremony.contest_id, GLOBAL_SCOPE)
 
-    async with store.mutate(contest, None, command="step"):
+    async with store.mutate(contest, None, controller_id=CONTROLLER_ID, command="step"):
         ttl = await valkey_client.ttl(lock_key)
 
     assert 0 < ttl <= 30, "the lease is short and always bounded"

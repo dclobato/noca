@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Mapped, relationship
 
+from shared.db_schema import clarification_reads as clarification_reads_table
 from shared.db_schema import clarifications as clarifications_table
 from web.database import Base
 
@@ -26,6 +27,7 @@ class Clarification(Base):
     problem_id: Mapped[str | None]
     question: Mapped[str]
     is_contest_public: Mapped[bool]
+    is_announcement: Mapped[bool]
     answer: Mapped[str | None]
     created_timestamp_seconds: Mapped[int]
     answered_at: Mapped[datetime | None]
@@ -55,3 +57,17 @@ class Clarification(Base):
         back_populates="hidden_clarifications_as_admin",
         foreign_keys="[Clarification.hidden_by_admin_id]",
     )
+
+
+class ClarificationRead(Base):
+    """One team's read marker for one announcement.
+
+    An announcement is a single row read by many teams, so its read state cannot live in
+    the per-row ``Clarification.answer_read_at`` scalar. Absence of a row means unread.
+    """
+
+    __table__ = clarification_reads_table
+
+    clarification_id: Mapped[str]
+    user_id: Mapped[str]
+    read_at: Mapped[datetime]

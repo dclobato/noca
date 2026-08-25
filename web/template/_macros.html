@@ -49,10 +49,12 @@
    and background, so the structure lives here once.
 
    `confirm_text` is declared as `data-confirm` and handled by the delegated
-   listener in `confirm-submit.js`; pages using this macro must load that script.
-   Keeping it out of an `onsubmit` attribute keeps the string inside ordinary
-   template text -- reachable by a future translation pass, and escaped by Jinja
-   as an attribute rather than as a JavaScript literal.
+   listener in the shared `confirm-submit.js`, which both modules' `_base.html`
+   load on every page -- callers need no include of their own (and must not add
+   one: two live listeners would ask the same question twice). Keeping it out of
+   an `onsubmit` attribute keeps the string inside ordinary template text --
+   reachable by a future translation pass, and escaped by Jinja as an attribute
+   rather than as a JavaScript literal.
 
    `hidden_fields` is a name -> value mapping posted with the form. `tone` and
    `kicker` share the vocabulary and `_TONE_CLASSES` map declared above

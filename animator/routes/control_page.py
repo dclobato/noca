@@ -44,9 +44,9 @@ async def control_page(
 ) -> Response:
     """Render the operator control panel for one enabled contest.
 
-    The template receives only URLs: the five command endpoints, the read-only
-    state endpoint, and the public ``/meta`` feed the panel reads to build its
-    scope selector. No ceremony state and no credential is embedded.
+    The template receives only URLs: six command endpoints, four controller-
+    lease endpoints, the read-only state endpoint, and the public ``/meta``
+    feed. No ceremony state and no credential is embedded.
 
     Args:
         request: Current request, used to build URLs and reach the templates.
@@ -57,6 +57,8 @@ async def control_page(
         The rendered control shell.
     """
     slug = contest.login_slug
+    control_base = str(request.url_for("animator_control_state", slug=slug)).removesuffix("/state")
+    lease_base = f"{control_base}/controller-lease"
     return request.app.state.templates.TemplateResponse(  # type: ignore[no-any-return]
         request,
         "control.html",
@@ -71,6 +73,11 @@ async def control_page(
             "back_url": str(request.url_for("animator_control_back", slug=slug)),
             "reset_url": str(request.url_for("animator_control_reset", slug=slug)),
             "jump_url": str(request.url_for("animator_control_jump_team", slug=slug)),
+            "jump_pending_url": str(request.url_for("animator_control_jump_pending", slug=slug)),
+            "lease_claim_url": f"{lease_base}/claim",
+            "lease_heartbeat_url": f"{lease_base}/heartbeat",
+            "lease_release_url": f"{lease_base}/release",
+            "lease_takeover_url": f"{lease_base}/takeover",
         },
     )
 

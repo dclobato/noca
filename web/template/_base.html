@@ -35,11 +35,18 @@
         {% block shared_content_scripts %}
             <script src="{{ request.url_for('static_shared_js', path='markdown-directives.js') }}?v={{ app_version }}"
                     defer></script>
+            <script src="{{ request.url_for('static_shared_js', path='noca-math-shield.js') }}?v={{ app_version }}"
+                    defer></script>
             <script src="{{ request.url_for('static_shared_js', path='noca-markdown.js') }}?v={{ app_version }}"
                     defer></script>
             <script src="{{ request.url_for('static_shared_js', path='contest-clock-utils.js') }}?v={{ app_version }}"
                     defer></script>
         {% endblock %}
+        {# Deliberately OUTSIDE the overridable `shared_content_scripts` block:
+           the login pages replace that block without calling `super()`, and the
+           `data-confirm` listener must exist on every page regardless. #}
+        <script src="{{ request.url_for('static_shared_js', path='confirm-submit.js') }}?v={{ app_version }}"
+                defer></script>
     </head>
     <body class="d-flex flex-column min-vh-100">
         {% set _bc %}

@@ -4,6 +4,42 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [18.0.0] - 2026-08-25
+
+### Features
+
+- **web:** Move the theme control into the application chrome
+- **web:** Colour the contest countdown by remaining-time urgency
+- **animator:** Enforce one active reveal controller per ceremony scope
+- **scripts:** Add Arena category bulk-edit and recolor tools
+- **animator:** Show team photos on scoreboards
+- **animator:** Add jump to next pending control
+- **animator-remote:** Allow cleartext HTTP in release builds too
+
+### Bug Fixes
+
+- **valkey:** Isolate test pubsub channels
+- **animator:** Remove vendor footer links
+- **animator:** Withhold the problem set before the contest starts
+- **animator-remote:** Copy sources into the Kotlin test container
+- **animator:** Close controller-lease panel dead ends from review
+- **animator:** Make lease renewal retries actually reach the server
+- **animator:** Make the scoreboard live badge a solid, calmer dot
+- **shared:** Shield LaTeX math from Marked's backslash-escape rule
+- **web,arena:** Make data-confirm work on every page, not just judgment ones
+- **web,shared:** Notify teams about judge/admin announcements
+- **web:** Align announcement notifications with the list's visibility rule
+
+### Documentation
+
+- Record real_docker's CI exclusion as a choice, not a limit
+
+### Build & CI
+
+- **animator-remote:** Build the APK in a container, and sign the release
+
+
+
 ## [17.4.0] - 2026-08-22
 
 ### Features

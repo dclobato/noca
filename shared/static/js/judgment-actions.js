@@ -4,23 +4,25 @@
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-// The three behaviours the judgment-data pages need from the browser.
+// The two behaviours the judgment-data pages need from the browser.
 //
 // Everything on those pages is an ordinary form that posts immediately, so there
-// is no client-side model to maintain -- only three courtesies:
+// is no client-side model to maintain -- only two courtesies:
 //
-// 1. `data-confirm` on a form asks before a destructive or wholesale action.
-// 2. `data-clears-typed-rows` on a file input warns when uploading would discard
+// 1. `data-clears-typed-rows` on a file input warns when uploading would discard
 //    test-case rows the author typed but has not saved. Those rows are the one
 //    piece of state the server has not seen, so they are the only thing an
 //    upload can cost.
-// 3. A per-row `data-tc-replace-trigger` opens its row's hidden file input, and
+// 2. A per-row `data-tc-replace-trigger` opens its row's hidden file input, and
 //    choosing a file submits that row's form: replacing one case offline is a
 //    single decision and should not need a second click.
 //
-// All three are declared in markup rather than wired per page, and all three are
-// delegated on the document so a fragment swapped in by the reorder endpoint
-// keeps them.
+// Both are declared in markup rather than wired per page, and both are delegated
+// on the document so a fragment swapped in by the reorder endpoint keeps them.
+//
+// `data-confirm` is NOT one of these anymore: that listener moved to
+// `confirm-submit.js`, which both modules' `_base.html` load on every page.
+// Keeping a copy here as well would ask the same question twice on these pages.
 
 (() => {
   "use strict";
@@ -37,12 +39,6 @@
       if (container) container.replaceChildren();
     });
   };
-
-  document.addEventListener("submit", (event) => {
-    const form = event.target.closest("form[data-confirm]");
-    if (!form) return;
-    if (!window.confirm(form.dataset.confirm)) event.preventDefault();
-  });
 
   document.addEventListener("click", (event) => {
     const trigger = event.target.closest("[data-tc-replace-trigger]");

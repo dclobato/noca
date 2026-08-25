@@ -72,13 +72,19 @@ async def make_contest(
     ce_adds_penalty: bool = False,
     wa_penalty: int = 20,
     release_scoreboard_after_end: bool = False,
+    start_time: datetime | None = None,
 ) -> Contest:
-    """Create and flush a contest with the given scoring options."""
+    """Create and flush a contest with the given scoring options.
+
+    ``start_time`` defaults to the module's fixed ``START``, which is in the past
+    for the route tests that run against the real clock. Passing a future instant
+    is how a test exercises the pre-start gate.
+    """
     contest = Contest(
         contest_name="Feed Contest",
         contest_url="http://feed.example.com",
         login_slug=slug or f"feed-{uuid.uuid4().hex[:8]}",
-        start_time=START,
+        start_time=start_time if start_time is not None else START,
         duration_minutes=300,
         stop_answers_after=300,
         stop_updating_scoreboard=stop_updating_scoreboard,

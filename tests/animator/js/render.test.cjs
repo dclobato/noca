@@ -299,7 +299,7 @@ function findByTag(node, tag) {
   assert.ok(row.textContent.indexOf(longName) !== -1);
 })();
 
-// ── Team cell: full name on the first line, site on the second ───────────────
+// ── Team cell: modal trigger on the first line, site on the second ───────────
 (function testTeamCellOrder() {
   const row = render.buildRow(doc, [], {
     rank: 1,
@@ -312,11 +312,17 @@ function findByTag(node, tag) {
     problems: {},
   });
   const th = row.childNodes[1];
+  const buttons = findByTag(th, "button");
   const spans = findByTag(th, "span");
-  assert.strictEqual(spans[0].getAttribute("class"), "animator-team-primary");
-  assert.strictEqual(spans[0].textContent, "Ada Lovelace", "first line is the full name");
-  assert.strictEqual(spans[1].getAttribute("class"), "animator-team-secondary");
-  assert.strictEqual(spans[1].textContent, "Campus Centro", "second line is the site");
+  assert.strictEqual(buttons.length, 1);
+  assert.strictEqual(buttons[0].getAttribute("class"), "team-media-trigger animator-team-primary");
+  assert.strictEqual(buttons[0].getAttribute("data-bs-toggle"), "modal");
+  assert.strictEqual(buttons[0].getAttribute("data-bs-target"), "#team-media-modal");
+  assert.strictEqual(buttons[0].getAttribute("data-team-id"), "t1");
+  assert.strictEqual(buttons[0].getAttribute("title"), "Ada Lovelace");
+  assert.strictEqual(buttons[0].textContent, "Ada Lovelace", "the trigger carries the full name");
+  assert.strictEqual(spans[0].getAttribute("class"), "animator-team-secondary");
+  assert.strictEqual(spans[0].textContent, "Campus Centro", "the second line is the site");
 
   // No full name or site: the login id is the single primary line.
   const row2 = render.buildRow(doc, [], {
@@ -328,9 +334,24 @@ function findByTag(node, tag) {
     total_time: 0,
     problems: {},
   });
+  const buttons2 = findByTag(row2.childNodes[1], "button");
   const spans2 = findByTag(row2.childNodes[1], "span");
-  assert.strictEqual(spans2.length, 1, "no second line when full name is absent");
-  assert.strictEqual(spans2[0].textContent, "team02");
+  assert.strictEqual(buttons2[0].textContent, "team02");
+  assert.strictEqual(spans2.length, 0, "no second line when the site is absent");
+
+  const hostile = '<img src=x onerror="alert(1)">';
+  const hostileRow = render.buildRow(doc, [], {
+    rank: 1,
+    team_id: "hostile",
+    team_name: hostile,
+    team_fullname: hostile,
+    problems_solved: 0,
+    total_time: 0,
+    problems: {},
+  });
+  const hostileButton = findByTag(hostileRow.childNodes[1], "button")[0];
+  assert.strictEqual(hostileButton.textContent, hostile);
+  assert.strictEqual(hostileButton.getAttribute("title"), hostile);
 })();
 
 // ── Timer projection: all four states + invalid ─────────────────────────────
@@ -425,13 +446,20 @@ function findByTag(node, tag) {
   assert.strictEqual(tbody.children.length, 2);
   const t1First = tbody.children[0];
   assert.strictEqual(t1First.getAttribute("data-team-id"), "t1");
+  const t1Trigger = findByTag(t1First.children[1], "button")[0];
   // A transient flash a full rebuild would drop; reconciliation must keep it.
   t1First.children[4].classList.add("animator-cell--flash-solved");
 
   // t2 overtakes t1, a new t3 appears.
   render.renderStandings(doc, tbody, problems, [
     row(1, "t2", { problems_solved: 1, total_time: 5, problems: { A: cell({ solved: true }) } }),
-    row(2, "t1", { problems_solved: 1, total_time: 10, problems: { A: cell({ solved: true }) } }),
+    row(2, "t1", {
+      team_fullname: "Team One Renamed",
+      site_name: "Campus Norte",
+      problems_solved: 1,
+      total_time: 10,
+      problems: { A: cell({ solved: true }) },
+    }),
     row(3, "t3"),
   ]);
   assert.deepStrictEqual(
@@ -441,6 +469,11 @@ function findByTag(node, tag) {
   );
   const t1Second = tbody.children[1];
   assert.strictEqual(t1Second, t1First, "surviving row keeps element identity");
+  const refreshedTrigger = findByTag(t1Second.children[1], "button")[0];
+  assert.strictEqual(refreshedTrigger, t1Trigger, "Bootstrap relatedTarget survives a live refresh");
+  assert.strictEqual(refreshedTrigger.textContent, "Team One Renamed");
+  assert.strictEqual(refreshedTrigger.getAttribute("title"), "Team One Renamed");
+  assert.strictEqual(findByTag(t1Second.children[1], "span")[0].textContent, "Campus Norte");
   assert.ok(t1Second.children[4].hasClass("animator-cell--flash-solved"), "transient class survives re-render");
   assert.strictEqual(t1Second.children[0].textContent, "2", "rank updated in place");
 

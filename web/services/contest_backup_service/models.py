@@ -13,18 +13,23 @@ from dataclasses import dataclass, field
 from typing import Any
 
 #: Backup ZIP format version. Bump on any breaking layout change.
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 
 #: The original archive version this server still restores.
 LEGACY_FORMAT_VERSION = 1
 
-#: The prior archive format, which carries strategy fields but predates editorial.
+#: The archive format that carries strategy fields but predates editorial.
 PREVIOUS_FORMAT_VERSION = 2
+
+#: The archive format that carries the problem editorial but predates the stored
+#: announcement flag on clarification rows.
+EDITORIAL_FORMAT_VERSION = 3
 
 #: Every archive version this server restores.
 SUPPORTED_FORMAT_VERSIONS: tuple[int, ...] = (
     LEGACY_FORMAT_VERSION,
     PREVIOUS_FORMAT_VERSION,
+    EDITORIAL_FORMAT_VERSION,
     FORMAT_VERSION,
 )
 

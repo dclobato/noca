@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from animator.config import settings
 from animator.models.reveal_session import RevealSessionState
 from animator.routes.control import router as control_router
+from animator.routes.controller_lease import router as controller_lease_router
 from shared.app_logging import MainConsoleFormatter
 from shared.reveal_schema import GLOBAL_SCOPE
 from shared.services.animator_access_service import create_global_secret, create_site_secret, digest_token
@@ -85,6 +86,7 @@ def _build_app(engine: AsyncEngine, valkey: FakeValkey) -> FastAPI:
     app = FastAPI()
     app.state.db_session = async_sessionmaker(engine, expire_on_commit=False)
     app.state.valkey_runtime = valkey
+    app.include_router(controller_lease_router)
     app.include_router(control_router)
     return app
 
@@ -96,7 +98,10 @@ def _client(app: FastAPI) -> AsyncClient:
 
 def _auth(token: str) -> dict[str, str]:
     """Build the operator authorization header."""
-    return {"Authorization": f"Bearer {token}"}
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Animator-Controller-Id": "controller-test-0001",
+    }
 
 
 class Fixture:
@@ -134,9 +139,82 @@ async def _seed(session: AsyncSession, uberadmin: UberAdmin) -> Fixture:
 # ---------------------------------------------------------------------------
 
 
+async def test_controller_lease_claim_heartbeat_release_and_takeover(
+    session: AsyncSession,
+    uberadmin: UberAdmin,
+) -> None:
+    """Authenticated lease routes expose timing but never owner identity."""
+    fixture = await _seed(session, uberadmin)
+    valkey = FakeValkey(bootstrap_controller_leases=False)
+    app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
+    headers_a = _auth(fixture.global_token)
+    headers_b = {**headers_a, "X-Animator-Controller-Id": "controller-test-0002"}
+    lease_url = f"{fixture.url}/controller-lease"
+
+    async with _client(app) as client:
+        claimed = await client.post(f"{lease_url}/claim", headers=headers_a)
+        repeated = await client.post(f"{lease_url}/claim", headers=headers_a)
+        conflict = await client.post(f"{lease_url}/claim", headers=headers_b)
+        renewed = await client.post(f"{lease_url}/heartbeat", headers=headers_a)
+        taken = await client.post(f"{lease_url}/takeover", headers=headers_b)
+        lost = await client.post(f"{lease_url}/heartbeat", headers=headers_a)
+        released = await client.post(f"{lease_url}/release", headers=headers_b)
+
+    assert claimed.status_code == repeated.status_code == renewed.status_code == 200
+    assert conflict.status_code == lost.status_code == 409
+    assert taken.status_code == released.status_code == 200
+    assert claimed.json() == {
+        "status": "claimed",
+        "lease_ttl_seconds": settings.CONTROLLER_LEASE_TTL_SECONDS,
+        "heartbeat_interval_seconds": settings.CONTROLLER_HEARTBEAT_SECONDS,
+    }
+    assert "controller" not in claimed.text
+
+
+async def test_mutations_require_controller_header_but_state_does_not(
+    session: AsyncSession,
+    uberadmin: UberAdmin,
+) -> None:
+    """Only the five mutating routes require controller ownership metadata."""
+    fixture = await _seed(session, uberadmin)
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
+    authorization_only = {"Authorization": f"Bearer {fixture.global_token}"}
+
+    async with _client(app) as client:
+        mutation = await client.post(f"{fixture.url}/start-reveal", json={}, headers=authorization_only)
+        state = await client.get(f"{fixture.url}/state", headers=authorization_only)
+
+    assert mutation.status_code == 422
+    assert state.status_code == 404
+
+
+async def test_controller_lease_unavailable_and_takeover_contention_are_retryable(
+    session: AsyncSession,
+    uberadmin: UberAdmin,
+) -> None:
+    """Lease uncertainty and mutation overlap return retryable 503 responses."""
+    fixture = await _seed(session, uberadmin)
+    unavailable = FakeValkey(unavailable=True, bootstrap_controller_leases=False)
+    unavailable_app = _build_app(session.bind, unavailable)  # type: ignore[arg-type]
+    headers = _auth(fixture.global_token)
+    lease_url = f"{fixture.url}/controller-lease"
+
+    async with _client(unavailable_app) as client:
+        failed = await client.post(f"{lease_url}/claim", headers=headers)
+
+    contended = FakeValkey(bootstrap_controller_leases=False)
+    contended.locks[reveal_lock_key(fixture.ceremony.contest_id, GLOBAL_SCOPE)] = "writer"
+    contended_app = _build_app(session.bind, contended)  # type: ignore[arg-type]
+    async with _client(contended_app) as client:
+        blocked = await client.post(f"{lease_url}/takeover", headers=headers)
+
+    assert failed.status_code == blocked.status_code == 503
+    assert failed.headers["Retry-After"] == blocked.headers["Retry-After"] == "1"
+
+
 async def test_start_step_back_reset_and_state_round_trip(session: AsyncSession, uberadmin: UberAdmin) -> None:
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     headers = _auth(fixture.global_token)
 
@@ -178,7 +256,7 @@ async def test_start_step_back_reset_and_state_round_trip(session: AsyncSession,
 
 async def test_jump_team_focuses_the_requested_team(session: AsyncSession, uberadmin: UberAdmin) -> None:
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
     headers = _auth(fixture.global_token)
 
     async with _client(app) as client:
@@ -187,6 +265,55 @@ async def test_jump_team_focuses_the_requested_team(session: AsyncSession, ubera
 
     assert jumped.status_code == 200
     assert jumped.json()["focused_team_id"] == fixture.ceremony.a2
+
+
+async def test_jump_pending_skips_cursor_only_steps_without_revealing(
+    session: AsyncSession, uberadmin: UberAdmin
+) -> None:
+    fixture = await _seed(session, uberadmin)
+    valkey = FakeValkey(bootstrap_controller_leases=True)
+    app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
+    headers = _auth(fixture.global_token)
+
+    async with _client(app) as client:
+        response = await client.post(f"{fixture.url}/start-reveal", json={}, headers=headers)
+        current = response.json()
+        while current["next_cell"] is not None:
+            current = (await client.post(f"{fixture.url}/step", headers=headers)).json()
+        assert current["phase"] == "revealing"
+        revealed_before = current["revealed_count"]
+        focus_before = current["focused_team_id"]
+
+        jumped = await client.post(f"{fixture.url}/jump-pending", headers=headers)
+
+    assert jumped.status_code == 200
+    assert jumped.json()["next_cell"] is not None
+    assert jumped.json()["revealed_count"] == revealed_before
+    assert jumped.json()["focused_team_id"] != focus_before
+
+
+async def test_jump_pending_refuses_when_no_pending_submission_remains(
+    session: AsyncSession, uberadmin: UberAdmin
+) -> None:
+    fixture = await _seed(session, uberadmin)
+    valkey = FakeValkey(bootstrap_controller_leases=True)
+    app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
+    headers = _auth(fixture.site_b_token)
+
+    async with _client(app) as client:
+        started = await client.post(
+            f"{fixture.url}/start-reveal",
+            json={"site_id": fixture.ceremony.site_b},
+            headers=headers,
+        )
+        valkey.trace.clear()
+        refused = await client.post(f"{fixture.url}/jump-pending", headers=headers)
+
+    assert started.status_code == 200
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == "No pending submission remains in this ceremony."
+    assert valkey.saves == 0
+    assert valkey.publishes == 0
 
 
 async def test_no_op_mutation_still_saves_and_publishes_exactly_once(
@@ -198,7 +325,7 @@ async def test_no_op_mutation_still_saves_and_publishes_exactly_once(
     "never reached the server".
     """
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     headers = _auth(fixture.global_token)
 
@@ -217,7 +344,7 @@ async def test_no_op_mutation_still_saves_and_publishes_exactly_once(
 async def test_ceremony_reaches_done_and_step_is_idempotent(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """A site with no frozen runs still walks its rows, then stays ``done``."""
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
     headers = _auth(fixture.site_b_token)
 
     async with _client(app) as client:
@@ -245,7 +372,7 @@ async def test_ceremony_reaches_done_and_step_is_idempotent(session: AsyncSessio
 
 async def test_site_ceremony_is_scoped_to_its_own_teams(session: AsyncSession, uberadmin: UberAdmin) -> None:
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
     headers = _auth(fixture.site_a_token)
 
     async with _client(app) as client:
@@ -268,7 +395,7 @@ async def test_site_ceremony_is_scoped_to_its_own_teams(session: AsyncSession, u
 
 async def test_site_and_global_sessions_are_independent(session: AsyncSession, uberadmin: UberAdmin) -> None:
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
 
     async with _client(app) as client:
         await client.post(f"{fixture.url}/start-reveal", json={}, headers=_auth(fixture.global_token))
@@ -298,7 +425,7 @@ async def test_disabled_contest_and_unknown_slug_are_indistinguishable(
 
     await make_contest(session, uberadmin, slug="ctl-disabled", animator_enabled=False)
     await session.commit()
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
 
     async with _client(app) as client:
         disabled = await client.post("/c/ctl-disabled/control/step", headers=_auth("whatever"))
@@ -320,7 +447,7 @@ async def test_contest_gate_runs_before_token_resolution(session: AsyncSession, 
 
     await make_contest(session, uberadmin, slug="ctl-off", animator_enabled=False)
     await session.commit()
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
 
     async with _client(app) as client:
         with_valid = await client.get("/c/ctl-off/control/state", headers=_auth(fixture.global_token))
@@ -338,6 +465,7 @@ async def test_contest_gate_runs_before_token_resolution(session: AsyncSession, 
         ("post", "step", None),
         ("post", "back", None),
         ("post", "reset", None),
+        ("post", "jump-pending", None),
         ("post", "jump-team", {"team_id": "t"}),
         ("get", "state", None),
     ],
@@ -352,7 +480,7 @@ async def test_kill_switch_disables_every_route(
 ) -> None:
     fixture = await _seed(session, uberadmin)
     monkeypatch.setattr(settings, "ENABLE_CONTROL", False)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
 
     async with _client(app) as client:
@@ -384,7 +512,7 @@ async def test_contest_gate_runs_before_the_kill_switch(
     fixture = await _seed(session, uberadmin)
     monkeypatch.setattr(settings, "ENABLE_CONTROL", False)
     engine: AsyncEngine = session.bind  # type: ignore[assignment]
-    app = _build_app(engine, FakeValkey())
+    app = _build_app(engine, FakeValkey(bootstrap_controller_leases=True))
 
     queries = 0
 
@@ -408,7 +536,7 @@ async def test_kill_switch_runs_before_token_resolution(
 ) -> None:
     """The same malformed credential yields 404 while off and 403 while on."""
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
 
     async with _client(app) as client:
         monkeypatch.setattr(settings, "ENABLE_CONTROL", False)
@@ -440,7 +568,7 @@ async def test_malformed_or_invalid_credentials_are_one_generic_403(
     session: AsyncSession, uberadmin: UberAdmin, headers: dict[str, str]
 ) -> None:
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
 
     async with _client(app) as client:
@@ -456,7 +584,7 @@ async def test_malformed_or_invalid_credentials_are_one_generic_403(
 async def test_token_from_another_contest_is_rejected(session: AsyncSession, uberadmin: UberAdmin) -> None:
     first = await _seed(session, uberadmin)
     second = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
 
     async with _client(app) as client:
         response = await client.get(f"{second.url}/state", headers=_auth(first.global_token))
@@ -469,7 +597,7 @@ async def test_site_token_cannot_start_another_scope(
     session: AsyncSession, uberadmin: UberAdmin, body_site: str
 ) -> None:
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     payload = {"site_id": fixture.ceremony.site_b} if body_site == "site_b" else {"site_id": None}
 
@@ -484,7 +612,7 @@ async def test_site_token_cannot_start_another_scope(
 
 async def test_global_token_cannot_start_a_site_scope(session: AsyncSession, uberadmin: UberAdmin) -> None:
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
 
     async with _client(app) as client:
@@ -503,7 +631,7 @@ async def test_post_start_commands_reject_any_caller_supplied_scope(
 ) -> None:
     """A site token's later commands touch only that site, and refuse scope input."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
 
     async with _client(app) as client:
@@ -548,7 +676,7 @@ async def test_start_on_active_session_is_refused_without_side_effects(
     session: AsyncSession, uberadmin: UberAdmin
 ) -> None:
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     headers = _auth(fixture.global_token)
 
@@ -567,7 +695,7 @@ async def test_start_on_active_session_is_refused_without_side_effects(
 
 async def test_explicit_restart_rebuilds_the_session(session: AsyncSession, uberadmin: UberAdmin) -> None:
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
     headers = _auth(fixture.global_token)
 
     async with _client(app) as client:
@@ -581,7 +709,7 @@ async def test_explicit_restart_rebuilds_the_session(session: AsyncSession, uber
 
 async def test_reset_then_start_is_allowed(session: AsyncSession, uberadmin: UberAdmin) -> None:
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
     headers = _auth(fixture.global_token)
 
     async with _client(app) as client:
@@ -606,6 +734,7 @@ async def test_reset_then_start_is_allowed(session: AsyncSession, uberadmin: Ube
         ("post", "step", None),
         ("post", "back", None),
         ("post", "reset", None),
+        ("post", "jump-pending", None),
         ("post", "jump-team", {"team_id": "anything"}),
         ("get", "state", None),
     ],
@@ -618,7 +747,7 @@ async def test_commands_without_a_session_return_404(
     payload: dict[str, Any] | None,
 ) -> None:
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
 
     async with _client(app) as client:
@@ -633,7 +762,7 @@ async def test_commands_without_a_session_return_404(
 
 async def test_jump_to_unknown_team_is_400_and_unreachable_is_409(session: AsyncSession, uberadmin: UberAdmin) -> None:
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     headers = _auth(fixture.global_token)
 
@@ -658,7 +787,7 @@ async def test_jump_backwards_is_409_because_the_cursor_only_climbs(
     already passed — which is what ``back`` is for.
     """
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     headers = _auth(fixture.global_token)
 
@@ -682,14 +811,16 @@ async def test_jump_backwards_is_409_because_the_cursor_only_climbs(
 
 async def test_malformed_request_bodies_are_422(session: AsyncSession, uberadmin: UberAdmin) -> None:
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
     headers = _auth(fixture.global_token)
 
     async with _client(app) as client:
         no_team = await client.post(f"{fixture.url}/jump-team", json={}, headers=headers)
+        jump_pending_extra = await client.post(f"{fixture.url}/jump-pending", json={"nope": 1}, headers=headers)
         extra_field = await client.post(f"{fixture.url}/start-reveal", json={"nope": 1}, headers=headers)
 
     assert no_team.status_code == 422
+    assert jump_pending_extra.status_code == 422
     assert extra_field.status_code == 422
 
 
@@ -700,7 +831,7 @@ async def test_malformed_request_bodies_are_422(session: AsyncSession, uberadmin
 
 async def test_lock_contention_is_retryable_503(session: AsyncSession, uberadmin: UberAdmin) -> None:
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     # Another writer already holds the scope's lock.
     valkey.locks[reveal_lock_key(fixture.ceremony.contest_id, GLOBAL_SCOPE)] = "other-writer"
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
@@ -718,7 +849,7 @@ async def test_store_unavailable_is_retryable_503(
     session: AsyncSession, uberadmin: UberAdmin, method: str, suffix: str
 ) -> None:
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey(unavailable=True)
+    valkey = FakeValkey(unavailable=True, bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
 
     async with _client(app) as client:
@@ -733,7 +864,7 @@ async def test_corrupt_persisted_state_is_500_without_retry_hint(
     session: AsyncSession, uberadmin: UberAdmin, method: str, suffix: str
 ) -> None:
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     valkey.strings[reveal_state_key(fixture.ceremony.contest_id, GLOBAL_SCOPE)] = "{not json"
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
 
@@ -749,7 +880,7 @@ async def test_corrupt_persisted_state_is_500_without_retry_hint(
 async def test_restart_recovers_from_corrupt_persisted_state(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """The documented recovery works: restart never reads the broken payload."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     state_key = reveal_state_key(fixture.ceremony.contest_id, GLOBAL_SCOPE)
     valkey.strings[state_key] = "{not json"
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
@@ -770,9 +901,9 @@ async def test_restart_recovers_from_corrupt_persisted_state(session: AsyncSessi
 async def test_contention_is_warned_and_corruption_is_errored(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """Expected 503s stay warnings; only unusable state gets an ERROR traceback."""
     fixture = await _seed(session, uberadmin)
-    contended = FakeValkey()
+    contended = FakeValkey(bootstrap_controller_leases=True)
     contended.locks[reveal_lock_key(fixture.ceremony.contest_id, GLOBAL_SCOPE)] = "other-writer"
-    corrupt = FakeValkey()
+    corrupt = FakeValkey(bootstrap_controller_leases=True)
     corrupt.strings[reveal_state_key(fixture.ceremony.contest_id, GLOBAL_SCOPE)] = "{not json"
     headers = _auth(fixture.global_token)
 
@@ -794,7 +925,7 @@ async def test_contention_is_warned_and_corruption_is_errored(session: AsyncSess
 async def test_publish_failure_after_durable_save_still_succeeds(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """Matches Phase 11: a saved mutation is complete even if the nudge fails."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey(publish_ok=False)
+    valkey = FakeValkey(publish_ok=False, bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
 
     async with _client(app) as client:
@@ -811,7 +942,7 @@ async def test_session_survives_a_process_restart(session: AsyncSession, uberadm
     durable: dict[str, str] = {}
     headers = _auth(fixture.global_token)
 
-    first = _build_app(session.bind, FakeValkey(strings=durable))  # type: ignore[arg-type]
+    first = _build_app(session.bind, FakeValkey(strings=durable, bootstrap_controller_leases=True))  # type: ignore[arg-type]
     async with _client(first) as client:
         await client.post(f"{fixture.url}/start-reveal", json={}, headers=headers)
         await client.post(f"{fixture.url}/step", headers=headers)
@@ -819,7 +950,7 @@ async def test_session_survives_a_process_restart(session: AsyncSession, uberadm
 
     # The first "process" is gone: new app, new store, new fake client — the only
     # thing carried over is the persisted state itself.
-    second = _build_app(session.bind, FakeValkey(strings=durable))  # type: ignore[arg-type]
+    second = _build_app(session.bind, FakeValkey(strings=durable, bootstrap_controller_leases=True))  # type: ignore[arg-type]
     async with _client(second) as client:
         resumed = await client.get(f"{fixture.url}/state", headers=headers)
         stepped = await client.post(f"{fixture.url}/step", headers=headers)
@@ -837,7 +968,7 @@ async def test_session_survives_a_process_restart(session: AsyncSession, uberadm
 async def test_response_never_exposes_raw_session_state(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """The projection carries counts, never the frozen ids or the reveal log."""
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
     headers = _auth(fixture.global_token)
 
     async with _client(app) as client:
@@ -898,7 +1029,7 @@ def _release_control_logs(attached: list[tuple[logging.Logger, logging.Handler, 
 async def test_invalid_credentials_are_audited(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """A rejected credential is logged too — it never reaches a route function."""
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
     stream, attached = _capture_control_logs()
     try:
         async with _client(app) as client:
@@ -944,7 +1075,7 @@ async def test_every_request_produces_exactly_one_audit_record(
     await make_contest(session, uberadmin, slug="audit-disabled", animator_enabled=False)
     await session.commit()
 
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     corrupt_key = reveal_state_key(fixture.ceremony.contest_id, GLOBAL_SCOPE)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     good = _auth(fixture.global_token)
@@ -1011,26 +1142,28 @@ async def test_every_request_produces_exactly_one_audit_record(
 async def test_audit_record_names_the_command_on_every_exit_path(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """Even a pre-route refusal is named for the command it attempted."""
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
 
     with _records() as captured:
         async with _client(app) as client:
             await client.post(f"{fixture.url}/start-reveal", json={"bad": 1}, headers=_auth(fixture.global_token))
             await client.post(f"{fixture.url}/jump-team", json={}, headers=_auth("bogus"))
+            await client.post(f"{fixture.url}/jump-pending", headers=_auth("bogus"))
             await client.post(f"{fixture.url}/back", headers=_auth("bogus"))
 
     lines = _audit_lines(captured)
-    assert len(lines) == 3
+    assert len(lines) == 4
     # start-reveal and jump-team normalize to the command vocabulary the
     # successful paths use, so one audit query covers both.
     assert "command=start" in lines[0] and "outcome=invalid_request" in lines[0]
     assert "command=jump" in lines[1] and "outcome=invalid_credential" in lines[1]
-    assert "command=back" in lines[2] and "outcome=invalid_credential" in lines[2]
+    assert "command=jump_pending" in lines[2] and "outcome=invalid_credential" in lines[2]
+    assert "command=back" in lines[3] and "outcome=invalid_credential" in lines[3]
 
 
 async def test_tokens_never_appear_in_responses_or_formatted_logs(session: AsyncSession, uberadmin: UberAdmin) -> None:
     fixture = await _seed(session, uberadmin)
-    app = _build_app(session.bind, FakeValkey())  # type: ignore[arg-type]
+    app = _build_app(session.bind, FakeValkey(bootstrap_controller_leases=True))  # type: ignore[arg-type]
 
     stream, attached = _capture_control_logs()
     try:
@@ -1068,7 +1201,7 @@ async def test_tokens_never_appear_in_responses_or_formatted_logs(session: Async
 async def test_state_response_is_a_projection_of_the_stored_state(session: AsyncSession, uberadmin: UberAdmin) -> None:
     """/state agrees with the persisted payload without echoing it."""
     fixture = await _seed(session, uberadmin)
-    valkey = FakeValkey()
+    valkey = FakeValkey(bootstrap_controller_leases=True)
     app = _build_app(session.bind, valkey)  # type: ignore[arg-type]
     headers = _auth(fixture.global_token)
 

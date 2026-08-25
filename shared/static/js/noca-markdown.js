@@ -8,13 +8,30 @@
  * The single Markdown rendering pipeline for every NOCA surface.
  *
  * Pipeline, in order:
+ *   0. NocaMathShield.shieldMathSpans()         — hide LaTeX bodies from Marked
  *   1. NocaMarkdownDirectives.prepareMarkdown() — NOCA directives, literal `\$`
  *   2. marked.parse()                          — Markdown → HTML
- *   3. DOMPurify.sanitize()                    — strip unsafe HTML
- *   4. DOM injection
- *   5. Mermaid                                 — promote and run fenced diagrams
- *   6. KaTeX renderMathInElement()             — inline/display math
- *   7. NocaMarkdownDirectives.apply()          — directive paragraphs → classes
+ *   3. NocaMathShield.restoreMathSpans()        — put LaTeX bodies back
+ *   4. DOMPurify.sanitize()                    — strip unsafe HTML
+ *   5. DOM injection
+ *   6. Mermaid                                 — promote and run fenced diagrams
+ *   7. KaTeX renderMathInElement()             — inline/display math
+ *   8. NocaMarkdownDirectives.apply()          — directive paragraphs → classes
+ *
+ * Steps 0 and 3 (see `noca-math-shield.js`) exist because Marked applies
+ * CommonMark's generic backslash-escape rule to LaTeX exactly like any other
+ * text (`\{` becomes `{`, a matrix row's `\\` becomes `\`), which corrupts
+ * the source before KaTeX ever sees it. `shieldMathSpans()` replaces each
+ * `$…$`/`$$…$$` body with an opaque, single-line placeholder token before
+ * Marked runs, so Marked cannot misinterpret any character inside it (and,
+ * with `breaks: true`, cannot split a multiline body across a `<br>`).
+ * Restoring happens BEFORE sanitizing, not after: `restoreMathSpans()` is a
+ * blind string substitution that can land inside an HTML attribute value
+ * (e.g. raw HTML the author wrote containing a `$`, such as
+ * `title="$x" onmouseover="alert(1)$"`), so it must run before DOMPurify has
+ * the chance to inspect and strip whatever that substitution introduces —
+ * restoring after sanitizing would splice unsanitized markup into HTML
+ * DOMPurify already approved, defeating it entirely.
  *
  * Pages bind declaratively; no page ships its own copy of this pipeline:
  *
@@ -26,7 +43,10 @@
  *     <div class="noca-markdown" data-noca-markdown>{{ value | e }}</div>
  *
  * Every optional dependency is feature-detected, so a page that omits Mermaid
- * or KaTeX still renders Markdown rather than failing.
+ * or KaTeX still renders Markdown rather than failing. `noca-math-shield.js`
+ * is required, not optional — every page that loads this module must load it
+ * first (see `docs/SHARED_SERVICES.md`); its absence degrades `toHtml()` back
+ * to the pre-shielding, escape-vulnerable behavior rather than failing.
  */
 (function () {
     'use strict';
@@ -77,12 +97,26 @@
 
         marked.setOptions({ breaks: true, gfm: true });
 
+        var shielded = window.NocaMathShield
+            ? window.NocaMathShield.shieldMathSpans(rawMarkdown)
+            : { markdown: rawMarkdown, spans: {} };
         var prepared = window.NocaMarkdownDirectives
-            ? window.NocaMarkdownDirectives.prepareMarkdown(rawMarkdown)
-            : rawMarkdown;
+            ? window.NocaMarkdownDirectives.prepareMarkdown(shielded.markdown)
+            : shielded.markdown;
         var html = marked.parse(prepared);
+        // Restore BEFORE sanitizing, not after: restoration is a blind string
+        // substitution that can land inside an attribute value (e.g. a `$`
+        // inside raw HTML the author wrote, such as `title="$x"
+        // onmouseover="alert(1)$"`), which would otherwise splice unsanitized
+        // markup into HTML DOMPurify already approved. Sanitizing last means
+        // DOMPurify inspects the actual final HTML — including anything a
+        // restored body introduces — and strips anything dangerous exactly as
+        // it would for hand-authored input.
+        var restored = window.NocaMathShield
+            ? window.NocaMathShield.restoreMathSpans(html, shielded.spans)
+            : html;
 
-        return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
+        return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(restored) : restored;
     }
 
     /**

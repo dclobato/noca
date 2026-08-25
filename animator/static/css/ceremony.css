@@ -72,11 +72,9 @@
     font-weight: 600;
 }
 
-.ceremony-empty {
-    padding: 2rem 0;
-    font-size: var(--noca-type-title);
-    color: var(--bs-secondary-color);
-}
+/* `.ceremony-empty` -- the "nothing to show yet" banner -- lives in animator.css,
+   which every animator page loads, because the live scoreboard shows the same
+   banner before the contest starts. A copy here would be free to drift. */
 
 /* The board scrolls inside its own container so the page never scrolls
    sideways, and the projector keeps the header visible on a 16:9 screen. */
@@ -95,22 +93,6 @@
    `.animator-medal-watermark`, and `.animator-row--band-end` in
    animator-scoreboard.css, which _base.html loads on every animator page. Only
    ceremony-specific states belong in this file. */
-
-.ceremony-team-name {
-    padding: 0;
-    border: 0;
-    font: inherit;
-    font-weight: 600;
-    text-align: left;
-    text-decoration: none;
-    color: inherit;
-    background: none;
-}
-
-.ceremony-team-name:hover,
-.ceremony-team-name:focus-visible {
-    text-decoration: underline;
-}
 
 /* ── Rank and focus ────────────────────────────────────────────────────────
    Medal styling is deliberately *not* here: the watermark, the band-end rule,
@@ -186,45 +168,6 @@
     font-weight: 700;
 }
 
-/* ── Team modal ────────────────────────────────────────────────────────── */
-.ceremony-team-dialog {
-    max-width: min(calc(75vw + 2rem), calc(100vw - 2rem));
-}
-
-.ceremony-modal-body {
-    max-height: 80vh;
-    overflow-y: auto;
-    text-align: center;
-}
-
-.ceremony-team-photo {
-    max-width: min(75vw, 100%);
-    height: auto;
-    border-radius: 0.5rem;
-}
-
-.ceremony-team-photo--placeholder {
-    width: 75vw;
-}
-
-.ceremony-photo-fallback {
-    margin: 2rem 0;
-    font-size: var(--noca-type-body);
-    color: var(--bs-secondary-color);
-}
-
-.ceremony-team-audio {
-    display: block;
-    width: 100%;
-    margin-top: 1rem;
-}
-
-.ceremony-audio-status {
-    margin: 0.5rem 0 0;
-    font-size: var(--noca-type-label);
-    color: var(--bs-secondary-color);
-}
-
 /* ── Operator control panel ────────────────────────────────────────────── */
 .control-app {
     max-width: 60rem;
@@ -248,6 +191,19 @@
     display: flex;
     gap: 0.5rem;
     align-items: center;
+}
+
+.control-ownership {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+    padding: 0.75rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.375rem;
+    background-color: var(--bs-tertiary-bg);
 }
 
 .control-row {
@@ -306,7 +262,7 @@
     .ceremony-app *::before,
     .ceremony-app *::after,
     .control-app *,
-    #ceremony-team-modal * {
+    #team-media-modal * {
         transition: none !important;
         animation: none !important;
         scroll-behavior: auto !important;

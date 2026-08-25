@@ -47,6 +47,7 @@
             {# Helper modules load before the orchestrator, which reads them off window. #}
             <script src="{{ request.url_for('animator_static_js', path='cell-format.js') }}?v={{ app_version }}"></script>
             <script src="{{ request.url_for('animator_static_js', path='animator-keyed-rows.js') }}?v={{ app_version }}"></script>
+            <script src="{{ request.url_for('animator_static_js', path='animator-team-cell.js') }}?v={{ app_version }}"></script>
             <script src="{{ request.url_for('animator_static_js', path='animator-render.js') }}?v={{ app_version }}"></script>
             <script src="{{ request.url_for('animator_static_js', path='animator-diff.js') }}?v={{ app_version }}"></script>
             <script src="{{ request.url_for('animator_static_js', path='animator-animate.js') }}?v={{ app_version }}"></script>
@@ -55,6 +56,7 @@
             <script src="{{ request.url_for('animator_static_js', path='animator-pending.js') }}?v={{ app_version }}"></script>
             <script src="{{ request.url_for('animator_static_js', path='animator-connection-status.js') }}?v={{ app_version }}"></script>
             <script src="{{ request.url_for('animator_static_js', path='animator-events.js') }}?v={{ app_version }}"></script>
+            <script src="{{ request.url_for('animator_static_js', path='team-media-modal.js') }}?v={{ app_version }}"></script>
             <script src="{{ request.url_for('animator_static_js', path='animator.js') }}?v={{ app_version }}"></script>
         {% endblock %}
         {% block extra_script %}{% endblock %}

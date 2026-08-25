@@ -26,6 +26,11 @@ const URLS = {
   back: "/c/x/control/back",
   reset: "/c/x/control/reset",
   jump: "/c/x/control/jump-team",
+  jumpPending: "/c/x/control/jump-pending",
+  leaseClaim: "/c/x/control/controller-lease/claim",
+  leaseHeartbeat: "/c/x/control/controller-lease/heartbeat",
+  leaseRelease: "/c/x/control/controller-lease/release",
+  leaseTakeover: "/c/x/control/controller-lease/takeover",
 };
 
 class Element {
@@ -75,10 +80,10 @@ class Element {
   }
 }
 
-function jsonResponse(body) {
+function jsonResponse(status, body) {
   return {
-    ok: true,
-    status: 200,
+    ok: status < 300,
+    status,
     json: () => Promise.resolve(body),
   };
 }
@@ -93,7 +98,22 @@ function buildDocument() {
 
   const root = add("control-app");
   root.setAttribute("data-initial-scope", "global");
-  Object.entries(URLS).forEach(([name, url]) => root.setAttribute("data-" + name + "-url", url));
+  // Attribute names must match control.html exactly, kebab case included.
+  const ATTRIBUTE_URLS = {
+    meta: URLS.meta,
+    state: URLS.state,
+    start: URLS.start,
+    step: URLS.step,
+    back: URLS.back,
+    reset: URLS.reset,
+    jump: URLS.jump,
+    "jump-pending": URLS.jumpPending,
+    "lease-claim": URLS.leaseClaim,
+    "lease-heartbeat": URLS.leaseHeartbeat,
+    "lease-release": URLS.leaseRelease,
+    "lease-takeover": URLS.leaseTakeover,
+  };
+  Object.entries(ATTRIBUTE_URLS).forEach(([name, url]) => root.setAttribute("data-" + name + "-url", url));
 
   [
     ["control-secret-form", "form"],
@@ -105,6 +125,12 @@ function buildDocument() {
     ["control-scope-label", "span"],
     ["control-jump-row", "div"],
     ["control-jump-team", "select"],
+    ["control-ownership-status", "span"],
+    ["control-ownership-detail", "span"],
+    ["control-takeover", "button"],
+    ["control-ownership-retry", "button"],
+    ["control-takeover-modal", "div"],
+    ["control-takeover-confirm", "button"],
     ["control-confirmation-modal", "div"],
     ["control-confirmation-modal-label", "h2"],
     ["control-confirmation-message", "p"],
@@ -124,6 +150,7 @@ function buildDocument() {
     ["control-back", "button"],
     ["control-back-ten", "button"],
     ["control-jump", "button"],
+    ["control-jump-pending", "button"],
   ].forEach(([id, tagName]) => add(id, tagName));
 
   return {
@@ -136,49 +163,100 @@ function buildDocument() {
   };
 }
 
-async function main() {
-  const { doc, elements } = buildDocument();
-  const calls = [];
-  let modalShowCount = 0;
-  const idleProjection = {
-    contest_id: "c1",
-    scope: "global",
-    site_id: null,
-    site_name: null,
-    phase: "idle",
-    focused_team_id: null,
-    revealed_count: 0,
-    frozen_count: 7,
-    medal_cutoffs: null,
-    teams: [],
-  };
-  const previousWindow = global.window;
-  global.window = {
-    bootstrap: {
-      Modal: {
-        getOrCreateInstance() {
-          return {
-            show() {
-              modalShowCount += 1;
-            },
-            hide() {},
-          };
+const IDLE_PROJECTION = {
+  contest_id: "c1",
+  scope: "global",
+  site_id: null,
+  site_name: null,
+  phase: "idle",
+  focused_team_id: null,
+  revealed_count: 0,
+  frozen_count: 7,
+  medal_cutoffs: null,
+  teams: [],
+};
+
+const SEEKING_PROJECTION = {
+  ...IDLE_PROJECTION,
+  phase: "revealing",
+  focused_team_id: "team-1",
+  next_cell: null,
+};
+
+const LEASE_TIMINGS = { status: "claimed", lease_ttl_seconds: 45, heartbeat_interval_seconds: 10 };
+
+function makeWindow(calls, responders) {
+  const windowListeners = {};
+  return {
+    window: {
+      addEventListener(type, listener) {
+        (windowListeners[type] = windowListeners[type] || []).push(listener);
+      },
+      removeEventListener() {},
+      dispatchWindowEvent(type) {
+        (windowListeners[type] || []).forEach((listener) => listener({}));
+      },
+      AnimatorControlLease: require(
+        path.join(__dirname, "..", "..", "..", "animator", "static", "js", "control-lease.js"),
+      ),
+      AnimatorControlOwnership: require(
+        path.join(__dirname, "..", "..", "..", "animator", "static", "js", "control-ownership.js"),
+      ),
+      bootstrap: {
+        Modal: {
+          getOrCreateInstance() {
+            return {
+              show() {
+                responders.modalShowCount += 1;
+              },
+              hide() {},
+            };
+          },
         },
       },
+      fetch(url, init) {
+        calls.push({ url, init: init || {} });
+        const responder = responders.routes[url];
+        if (!responder) {
+          throw new Error("Unexpected URL: " + url);
+        }
+        return responder();
+      },
     },
-    fetch(url, init) {
-      calls.push({ url, init: init || {} });
-      if (url === URLS.meta) {
-        return Promise.resolve(jsonResponse({ sites: [] }));
-      }
-      if (url === URLS.state || url === URLS.start) {
-        return Promise.resolve(jsonResponse(idleProjection));
-      }
-      throw new Error("Unexpected URL: " + url);
-    },
+    windowListeners,
   };
+}
 
+async function withWindow(run) {
+  const previousWindow = global.window;
+  const calls = [];
+  const responders = { modalShowCount: 0, routes: {} };
+  const { window: fakeWindow, windowListeners } = makeWindow(calls, responders);
+  global.window = fakeWindow;
   try {
+    await run({ calls, responders, dispatchWindowEvent: (type) => windowListeners[type] || [] });
+  } finally {
+    // Close the page the way a real teardown would: pagehide releases the
+    // lease and clears the heartbeat timer, so no live timer outlives the test.
+    (windowListeners.pagehide || []).forEach((listener) => listener({}));
+    await new Promise((resolve) => setImmediate(resolve));
+    if (previousWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = previousWindow;
+    }
+  }
+}
+
+async function main() {
+  await withWindow(async ({ calls, responders }) => {
+    const { doc, elements } = buildDocument();
+    responders.routes[URLS.meta] = () => Promise.resolve(jsonResponse(200, { sites: [] }));
+    responders.routes[URLS.state] = () => Promise.resolve(jsonResponse(200, IDLE_PROJECTION));
+    responders.routes[URLS.start] = () => Promise.resolve(jsonResponse(200, IDLE_PROJECTION));
+    responders.routes[URLS.leaseClaim] = () => Promise.resolve(jsonResponse(200, LEASE_TIMINGS));
+    responders.routes[URLS.leaseRelease] = () => Promise.resolve(jsonResponse(200, { ...LEASE_TIMINGS, status: "released" }));
+
     controlApi.boot(doc);
     elements["control-secret"].value = "operator-secret";
     elements["control-secret-form"].dispatch("submit");
@@ -186,7 +264,7 @@ async function main() {
 
     assert.strictEqual(elements["control-start-over"].hidden, false);
     elements["control-start-over"].dispatch("click");
-    assert.strictEqual(modalShowCount, 1, "Start over opens its confirmation modal");
+    assert.strictEqual(responders.modalShowCount, 1, "Start over opens its confirmation modal");
     elements["control-confirmation-confirm"].dispatch("click");
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -196,15 +274,55 @@ async function main() {
       site_id: null,
       restart: true,
     });
-  } finally {
-    if (previousWindow === undefined) {
-      delete global.window;
-    } else {
-      global.window = previousWindow;
-    }
-  }
-
+  });
   console.log("control DOM contract: idle Start over sends restart=true");
+
+  await withWindow(async ({ calls, responders }) => {
+    const { doc, elements } = buildDocument();
+    responders.routes[URLS.meta] = () => Promise.resolve(jsonResponse(200, { sites: [] }));
+    responders.routes[URLS.state] = () =>
+      Promise.resolve(jsonResponse(500, { detail: controlApi.UNUSABLE_STATE_DETAIL }));
+    responders.routes[URLS.leaseClaim] = () => Promise.resolve(jsonResponse(200, LEASE_TIMINGS));
+    responders.routes[URLS.leaseRelease] = () => Promise.resolve(jsonResponse(200, { ...LEASE_TIMINGS, status: "released" }));
+
+    controlApi.boot(doc);
+    elements["control-secret"].value = "operator-secret";
+    elements["control-secret-form"].dispatch("submit");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // The stored payload is unreadable, but the credential is fine: the panel
+    // must still claim the lease so the documented Rebuild-state recovery is
+    // reachable instead of every button staying disabled behind the warning.
+    const claimCall = calls.find((call) => call.url === URLS.leaseClaim);
+    assert.ok(claimCall, "an unusable state load does not skip the lease claim");
+    assert.strictEqual(elements["control-error"].textContent.includes("Rebuild state"), true);
+    assert.strictEqual(elements["control-rebuild"].disabled, false, "Rebuild is clickable once in control");
+  });
+  console.log("control DOM contract: unusable state still claims and enables Rebuild");
+
+  await withWindow(async ({ calls, responders }) => {
+    const { doc, elements } = buildDocument();
+    responders.routes[URLS.meta] = () => Promise.resolve(jsonResponse(200, { sites: [] }));
+    responders.routes[URLS.state] = () => Promise.resolve(jsonResponse(200, SEEKING_PROJECTION));
+    responders.routes[URLS.jumpPending] = () => Promise.resolve(jsonResponse(200, SEEKING_PROJECTION));
+    responders.routes[URLS.leaseClaim] = () => Promise.resolve(jsonResponse(200, LEASE_TIMINGS));
+    responders.routes[URLS.leaseRelease] = () =>
+      Promise.resolve(jsonResponse(200, { ...LEASE_TIMINGS, status: "released" }));
+
+    controlApi.boot(doc);
+    elements["control-secret"].value = "operator-secret";
+    elements["control-secret-form"].dispatch("submit");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.strictEqual(elements["control-jump-pending"].hidden, false);
+    elements["control-jump-pending"].dispatch("click");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const jumpCall = calls.find((call) => call.url === URLS.jumpPending);
+    assert.ok(jumpCall, "the visible control sends jump-pending");
+    assert.strictEqual(jumpCall.init.body, undefined);
+  });
+  console.log("control DOM contract: Jump to next pending sends a bodiless command");
 }
 
 main().catch((error) => {

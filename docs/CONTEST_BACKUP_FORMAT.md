@@ -1,4 +1,4 @@
-# Full Contest Backup Format (v3)
+# Full Contest Backup Format (v4)
 
 This document describes the portable ZIP archive produced by the Web
 `contest_backup_service` when an uberadmin exports a whole contest, and how the
@@ -106,7 +106,7 @@ offline-cracking/reuse warning.
 
 The importer applies these gates before it creates database rows or files.
 
-1. **Manifest gate:** a supported `format_version` (1, 2, or 3), presence of all
+1. **Manifest gate:** a supported `format_version` (1, 2, 3, or 4), presence of all
    required JSON members, and every referenced per-problem folder.
 2. **Safe members:** reject path traversal, absolute names, drive letters,
    duplicate members, and excessive member counts.
@@ -132,10 +132,32 @@ The historical replay format intentionally excludes these operational assets.
 
 ## Versioning
 
-The archive is versioned by `format_version` (currently `3`, `FORMAT_VERSION` in
+The archive is versioned by `format_version` (currently `4`, `FORMAT_VERSION` in
 `web/services/contest_backup_service/models.py`). This server restores versions
-**1, 2, and 3**; anything else is refused. Bump it on any breaking layout change and
+**1, 2, 3, and 4**; anything else is refused. Bump it on any breaking layout change and
 update this document.
+
+### Version 4: the stored announcement flag
+
+Version 4 adds the `is_announcement` column to every row in `clarifications.json`.
+It is `NOT NULL` in the live table, and strict row validation compares archived rows
+with that table, so a v4 archive that omits the key is refused as malformed rather
+than quietly defaulted to `false` — which would demote every announcement it holds.
+
+Versions 1 to 3 predate the column and may omit it. Such an archive carries exactly
+one signal about the question: the role its own `users.json` recorded for the row's
+author, which is the rule the application applied until the column landed. So the
+rule here is the same **explicit wins, infer only on absence** the strategy uses, and
+for the same reason — it is written once, in
+`web/services/contest_backup_service/announcement.py`, because both the integrity
+checker and the restorer consult it, and an archive must not validate as one kind of
+row and restore as another. An archive labelled 1-3 that *does* state the flag
+(captured after the column landed, before this bump) keeps what it states.
+
+The per-team read markers in `clarification_reads` are deliberately **not** archived.
+They are per-team UI state, not contest content, and their absence means "unread",
+which is the safe default for a restored contest: every announcement it carries shows
+as new to the restored teams.
 
 ### Version 3: problem editorials
 

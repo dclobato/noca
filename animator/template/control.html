@@ -24,7 +24,12 @@
          data-step-url="{{ step_url }}"
          data-back-url="{{ back_url }}"
          data-reset-url="{{ reset_url }}"
-         data-jump-url="{{ jump_url }}">
+         data-jump-url="{{ jump_url }}"
+         data-jump-pending-url="{{ jump_pending_url }}"
+         data-lease-claim-url="{{ lease_claim_url }}"
+         data-lease-heartbeat-url="{{ lease_heartbeat_url }}"
+         data-lease-release-url="{{ lease_release_url }}"
+         data-lease-takeover-url="{{ lease_takeover_url }}">
         <header class="animator-header">
             <h1 class="animator-title">{{ contest_name }}</h1>
             <p class="animator-status-line">
@@ -56,6 +61,22 @@
                  class="control-panel"
                  aria-label="Ceremony commands"
                  hidden>
+            <div class="control-ownership" aria-live="polite">
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <span id="control-ownership-status" class="badge text-bg-secondary">Checking control</span>
+                    <span id="control-ownership-detail">Verifying command authority for this panel.</span>
+                </div>
+                <div class="control-row mb-0">
+                    <button type="button"
+                            id="control-takeover"
+                            class="btn btn-outline-danger btn-sm"
+                            hidden>Take over control&hellip;</button>
+                    <button type="button"
+                            id="control-ownership-retry"
+                            class="btn btn-secondary btn-sm"
+                            hidden>Retry ownership check</button>
+                </div>
+            </div>
             <div class="control-row">
                 <label class="form-label" for="control-scope">Ceremony</label>
                 <select id="control-scope" class="form-select form-select-sm">
@@ -82,6 +103,10 @@
                         class="btn btn-secondary btn-sm"
                         hidden>&larr; Back</button>
                 <button type="button" id="control-step" class="btn btn-primary btn-sm" hidden>Step &rarr;</button>
+                <button type="button"
+                        id="control-jump-pending"
+                        class="btn btn-outline-primary btn-sm"
+                        hidden>Jump to next pending</button>
                 <button type="button"
                         id="control-step-ten"
                         class="btn btn-outline-primary btn-sm"
@@ -198,9 +223,42 @@
                 </div>
             </div>
         </div>
+        <div class="modal fade"
+             id="control-takeover-modal"
+             tabindex="-1"
+             aria-labelledby="control-takeover-modal-label"
+             aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title fs-5" id="control-takeover-modal-label">Take over ceremony control?</h2>
+                        <button type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-0">
+                            The other controller panel immediately loses command authority. Its projection stays
+                            visible, but its buttons and shortcuts can no longer change the ceremony.
+                        </p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                data-bs-dismiss="modal">Cancel</button>
+                        <button type="button"
+                                id="control-takeover-confirm"
+                                class="btn btn-danger btn-sm">Take over control</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 {% endblock %}
 {% block page_scripts %}
     <script src="{{ request.url_for('animator_static_js', path='cell-format.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='control-lease.js') }}?v={{ app_version }}"></script>
+    <script src="{{ request.url_for('animator_static_js', path='control-ownership.js') }}?v={{ app_version }}"></script>
     <script src="{{ request.url_for('animator_static_js', path='control.js') }}?v={{ app_version }}"></script>
 {% endblock %}

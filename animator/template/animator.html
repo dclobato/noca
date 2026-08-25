@@ -14,7 +14,9 @@
          data-meta-url="{{ meta_url }}"
          data-snapshot-url="{{ snapshot_url }}"
          data-events-url="{{ events_url }}"
+         data-scope="{{ scope }}"
          data-scope-name="{{ scope_name or '' }}"
+         data-photo-base="{{ photo_base }}"
          data-balloon-base="{{ balloon_base }}"
          data-star-base="{{ star_base }}"
          data-medal-base="{{ medal_base }}"
@@ -65,6 +67,14 @@
                     class="btn btn-primary btn-sm animator-retry">Retry</button>
         </div>
         <div id="animator-empty" class="animator-empty" hidden>No teams are on the scoreboard yet.</div>
+        {# Pre-start gate: the feeds publish no problems until the contest opens,
+           so this banner stands in for the whole board rather than dressing up an
+           empty one. #}
+        <div id="animator-not-started"
+             class="ceremony-empty"
+             role="status"
+             aria-live="polite"
+             hidden>The contest has not started yet.</div>
         <section id="animator-pending"
                  class="animator-pending"
                  aria-labelledby="animator-pending-heading"
@@ -90,7 +100,10 @@
         </section>
         <div class="animator-board-scroll" hidden>
             <table id="animator-scoreboard" class="animator-scoreboard">
-                <caption class="visually-hidden">Live contest scoreboard, ranked by problems solved and penalty time.</caption>
+                <caption class="visually-hidden">
+                    Live contest scoreboard, ranked by problems solved and penalty time. Select a team name to see its
+                    photo.
+                </caption>
                 <thead>
                     <tr id="animator-problem-header">
                         <th scope="col" class="animator-col-rank">#</th>
@@ -104,4 +117,7 @@
             </table>
         </div>
     </div>
+    {% with team_modal_audio_enabled=false %}
+        {% include "_partials/_team_media_modal.html" %}
+    {% endwith %}
 {% endblock %}

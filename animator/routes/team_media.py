@@ -4,7 +4,7 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Scoped team photo and audio delivery for the ceremony's team modal.
+"""Scoped team photo and audio delivery for public Animator presentations.
 
 Both routes share one scoped lookup, one conditional-request implementation, and
 one caching policy; they differ only in what "no usable media" means. A photo
@@ -61,6 +61,20 @@ the same modal does not refetch megabytes.
 
 _CACHE_CONTROL = f"public, max-age={_CACHE_MAX_AGE}"
 """This media is public presentation data — no per-viewer variation."""
+
+
+def media_base_url(request: Request, route_name: str, slug: str) -> str:
+    """Return the route-derived ``/teams`` base used by presentation clients.
+
+    Args:
+        request: Current request, used for reverse-proxy-aware URL generation.
+        route_name: Named team-media route used to derive the base.
+        slug: Contest login slug.
+
+    Returns:
+        Absolute URL ending at the route's ``/teams`` segment.
+    """
+    return str(request.url_for(route_name, slug=slug, team_id="_")).rsplit("/", 2)[0]
 
 
 def build_etag(image: TeamImage, dta_foto: datetime | None) -> str:

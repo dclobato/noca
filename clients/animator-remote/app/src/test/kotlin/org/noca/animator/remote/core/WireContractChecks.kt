@@ -12,6 +12,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
 
 // What the client puts on the wire and reads back off it: models, URLs, request
 // shapes, and control visibility. The fixtures are generated from the animator's
@@ -50,6 +51,33 @@ internal fun metaFixtureParses() {
     assertEquals("Site 1", meta.sites.first().name)
     // The balloon colour arrives WITHOUT a leading '#'.
     assertEquals("ff0000", meta.problems.first().balloonColor)
+    assertEquals(true, meta.hasStarted)
+}
+
+internal fun controllerLeaseFixtureParses() {
+    val lease = assertNotNull(parseControllerLeaseResponse(leaseJson()), "lease fixture must parse")
+    assertEquals("claimed", lease.status)
+    assertEquals(45, lease.leaseTtlSeconds)
+    assertEquals(10, lease.heartbeatIntervalSeconds)
+    assertNull(lease.serverTime)
+}
+
+internal fun metaWithoutHasStartedDecodesAsStarted() {
+    // A server predating `has_started` had no pre-start gate: it published the
+    // problem set at all times, so a payload of its is a started contest as far
+    // as this client can tell. Flipping this default to false would blank every
+    // live board served by an older deployment, which is why the contract is
+    // pinned here and not left to the model's comment alone.
+    //
+    // The consequence to know is the other direction: a *pre-start* payload from
+    // such a server also decodes as started. That is the leak `has_started`
+    // exists to close, and it is closed by upgrading the server -- no client
+    // default can close it, because the payload carries nothing to close it with.
+    val parsed = AnimatorJson.parseToJsonElement(fixture("meta.json")) as JsonObject
+    val withoutField = JsonObject(parsed - "has_started").toString()
+    val meta = assertNotNull(parseContestMeta(withoutField), "a payload without has_started must still parse")
+    assertEquals(true, meta.hasStarted)
+    assertEquals(2, meta.problems.size)
 }
 
 internal fun unknownFieldsAreIgnored() {
@@ -136,6 +164,18 @@ internal fun urlsAreTrailingSlashSafe() {
     assertEquals("https://animator.example.com/c/maratona-2026/control/start-reveal", without.start)
     assertEquals("https://animator.example.com/c/maratona-2026/control/jump-team", without.jump)
     assertEquals(
+        "https://animator.example.com/c/maratona-2026/control/jump-pending",
+        without.jumpPending,
+    )
+    assertEquals(
+        "https://animator.example.com/c/maratona-2026/control/controller-lease/claim",
+        without.leaseClaim,
+    )
+    assertEquals(
+        "https://animator.example.com/c/maratona-2026/control/controller-lease/heartbeat",
+        without.leaseHeartbeat,
+    )
+    assertEquals(
         "https://animator.example.com/c/maratona-2026/meta",
         metaUrl("https://animator.example.com//", "maratona-2026"),
     )
@@ -180,6 +220,14 @@ internal fun controlVisibilityTruthTable() {
     assertTrue(!revealing.startVisible)
     assertTrue(revealing.startOverVisible && revealing.resetVisible)
     assertTrue(revealing.stepVisible && revealing.backVisible && revealing.jumpVisible)
+    assertTrue(revealing.jumpPendingVisible)
+    assertTrue(
+        !controlsForState(
+            projectionInPhase(RevealPhase.REVEALING).copy(
+                nextCell = NextRevealCell("team-1", "problem-1", "A"),
+            ),
+        ).jumpPendingVisible,
+    )
     // Back is NOT gated on revealed_count: a step can be a pure cursor move, so
     // "0 revealed" does not mean "nothing to undo".
     assertTrue(
@@ -188,7 +236,7 @@ internal fun controlVisibilityTruthTable() {
 
     val done = controlsForState(projectionInPhase(RevealPhase.DONE))
     assertTrue(done.startOverVisible && done.resetVisible && done.backVisible)
-    assertTrue(!done.stepVisible && !done.jumpVisible)
+    assertTrue(!done.stepVisible && !done.jumpVisible && !done.jumpPendingVisible)
 }
 
 // ---------------------------------------------------------------------------
@@ -204,11 +252,12 @@ internal fun bodilessCommandsSendNoBody() = runBlocking {
         { client.step() },
         { client.back() },
         { client.reset() },
+        { client.jumpPending() },
     )
     for (command in commands) {
         command()
         val request = transport.last()
-        // step/back/reset request models are extra="forbid"; even "{}" is
+        // step/back/reset/jump-pending request models are extra="forbid"; even "{}" is
         // pointless and any stray field would be a 422.
         assertNull(request.body, "a bodiless command must send no body")
         assertTrue("Content-Type" !in request.headers, "no body means no Content-Type")
@@ -256,13 +305,75 @@ internal fun freshKeyPerAttempt() = runBlocking {
     client.step()
     client.step()
     client.back()
+    client.jumpPending()
 
     val sentKeys = transport.sent.mapNotNull { it.headers["Idempotency-Key"] }
-    assertEquals(3, sentKeys.size)
+    assertEquals(4, sentKeys.size)
     assertEquals(sentKeys.toSet().size, sentKeys.size, "two deliberate presses are two commands")
     for (key in sentKeys) {
         assertTrue(IDEMPOTENCY_KEY_PATTERN.matches(key), "key must satisfy the server's pattern: $key")
     }
     // A v4 UUID — the production generator — also satisfies the server pattern.
     assertTrue(IDEMPOTENCY_KEY_PATTERN.matches(java.util.UUID.randomUUID().toString()))
+}
+
+internal fun controllerHeaderCoversEveryMutation() = runBlocking {
+    val transport = FakeTransport()
+    transport.responder = { HttpResponse(200, projectionJson()) }
+    val client = unlockedClient(transport)
+
+    client.start(null, false)
+    client.step()
+    client.back()
+    client.reset()
+    client.jump("team-00000001")
+    client.jumpPending()
+
+    assertEquals(6, transport.sent.size)
+    for (request in transport.sent) {
+        assertEquals("controller-00000001", request.headers[CONTROLLER_ID_HEADER])
+        assertEquals(HttpMethod.POST, request.method)
+    }
+    assertTrue(CONTROLLER_ID_PATTERN.matches(java.util.UUID.randomUUID().toString()))
+}
+
+internal fun stateGetIsControllerIndependent() = runBlocking {
+    val transport = FakeTransport()
+    transport.responder = { HttpResponse(200, projectionJson()) }
+    val client = unlockedClient(transport)
+    client.loadState()
+    assertTrue(CONTROLLER_ID_HEADER !in transport.last().headers)
+}
+
+internal fun leaseOperationsUseDedicatedEndpoints() = runBlocking {
+    val transport = FakeTransport()
+    val client = CommandClient(
+        transport,
+        ENDPOINTS,
+        controllerId = "controller-00000001",
+        newKey = { "key-00000001" },
+    )
+    client.setSecret("operator-token")
+    transport.responder = { HttpResponse(200, leaseJson()) }
+
+    client.claimLease()
+    client.heartbeatLease()
+    client.takeoverLease()
+    client.releaseLease()
+
+    assertEquals(
+        listOf(
+            ENDPOINTS.leaseClaim,
+            ENDPOINTS.leaseHeartbeat,
+            ENDPOINTS.leaseTakeover,
+            ENDPOINTS.leaseRelease,
+        ),
+        transport.sent.map { it.url },
+    )
+    for (request in transport.sent) {
+        assertEquals("controller-00000001", request.headers[CONTROLLER_ID_HEADER])
+        assertEquals("Bearer operator-token", request.headers["Authorization"])
+        assertTrue("Idempotency-Key" !in request.headers)
+        assertNull(request.body)
+    }
 }

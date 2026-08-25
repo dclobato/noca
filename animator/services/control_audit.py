@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -90,7 +90,11 @@ def scope_label(site_id: str | None) -> str:
     return site_id if site_id is not None else GLOBAL_SCOPE
 
 
-_PATH_COMMANDS: Final = {"start-reveal": "start", "jump-team": "jump"}
+_PATH_COMMANDS: Final = {
+    "start-reveal": "start",
+    "jump-team": "jump",
+    "jump-pending": "jump_pending",
+}
 
 _STATUS_OUTCOMES: Final = {
     404: "not_found",
@@ -106,9 +110,10 @@ def command_from_path(path: str) -> str:
 
     The audit boundary has no command argument — it wraps requests that may have
     been refused before reaching a route function — so it names the attempt from
-    the path. The mapping normalizes the two URL segments that differ from their
+    the path. The mapping normalizes URL segments that differ from their
     command names, so one audit query covers accepted and rejected attempts on a
-    single vocabulary (``start``, ``jump``, …).
+    single vocabulary (``start``, ``jump``, ``jump_pending``, …). The underscore
+    in ``jump_pending`` matches the persisted command literal.
 
     Args:
         path: Request path, e.g. ``/c/x/control/start-reveal``.

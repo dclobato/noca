@@ -22,6 +22,13 @@ from __future__ import annotations
 import asyncio
 from typing import Final, Literal
 
+from animator.services.controller_lease_service import (
+    _ACQUIRE_MUTATION_SCRIPT,
+    _CLAIM_SCRIPT,
+    _HEARTBEAT_SCRIPT,
+    _RELEASE_SCRIPT,
+    _TAKEOVER_SCRIPT,
+)
 from animator.services.reveal_session_store import _LOAD_STATE_SCRIPT, _RELEASE_LOCK_SCRIPT
 from shared.reveal_schema import RevealStateChangedEvent
 
@@ -64,6 +71,7 @@ class FakeRevealStoreClient:
         crash_before: CrashPoint | None = None,
         crash_after: CrashPoint | None = None,
         hold_lock_until: asyncio.Event | None = None,
+        bootstrap_controller_leases: bool = False,
     ) -> None:
         """Create a fake, optionally over shared backing state.
 
@@ -80,6 +88,11 @@ class FakeRevealStoreClient:
                 makes contention *deterministic*: a second writer can be sent in
                 while the first is provably still holding the lease, instead of
                 hoping the event loop interleaves two mutations that never block.
+            bootstrap_controller_leases: Treat the first mutation as test setup
+                having already claimed its lease. **Off by default** so a test
+                cannot silently skip the ownership gate: legacy route/store
+                suites opt in explicitly, while ownership tests exercise the
+                real claim path instead.
         """
         self.strings: dict[str, str] = strings if strings is not None else {}
         self.locks: dict[str, str] = {}
@@ -89,6 +102,7 @@ class FakeRevealStoreClient:
         self.crash_before = crash_before
         self.crash_after = crash_after
         self.hold_lock_until = hold_lock_until
+        self.bootstrap_controller_leases = bootstrap_controller_leases
         self.published: list[RevealStateChangedEvent] = []
         self.trace: list[str] = []
 
@@ -143,6 +157,42 @@ class FakeRevealStoreClient:
                 del self.locks[key]
                 return 1
             return 0
+        if script == _CLAIM_SCRIPT:
+            key, controller_id, _ttl = args
+            owner = self.strings.get(key)
+            if owner is None or owner == controller_id:
+                self.strings[key] = controller_id
+                return 1
+            return 0
+        if script == _HEARTBEAT_SCRIPT:
+            key, controller_id, _ttl = args
+            return 1 if self.strings.get(key) == controller_id else 0
+        if script == _RELEASE_SCRIPT:
+            key, controller_id = args
+            if self.strings.get(key) == controller_id:
+                del self.strings[key]
+                return 1
+            return 0
+        if script == _TAKEOVER_SCRIPT:
+            lease_key, lock_key, controller_id, _ttl = args
+            if lock_key in self.locks:
+                return 0
+            self.strings[lease_key] = controller_id
+            return 1
+        if script == _ACQUIRE_MUTATION_SCRIPT:
+            lease_key, lock_key, controller_id, token, _ttl = args
+            self._crash_before("lock")
+            if lease_key not in self.strings and self.bootstrap_controller_leases:
+                self.strings[lease_key] = controller_id
+            if self.strings.get(lease_key) != controller_id:
+                return -1
+            if lock_key in self.locks:
+                return 0
+            self.locks[lock_key] = token
+            self._crash_after("lock")
+            if self.hold_lock_until is not None:
+                await self.hold_lock_until.wait()
+            return 1
         raise AssertionError(f"unexpected script: {script!r}")
 
     async def fenced_save_reveal_state(
@@ -177,6 +227,11 @@ class FakeRevealStoreClient:
     def expire_locks(self) -> None:
         """Simulate every lock lease expiring."""
         self.locks.clear()
+
+    def expire_strings(self, *keys: str) -> None:
+        """Simulate selected expiring string keys reaching their TTL."""
+        for key in keys:
+            self.strings.pop(key, None)
 
     @property
     def saves(self) -> int:

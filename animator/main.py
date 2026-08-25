@@ -32,6 +32,7 @@ from animator.error_handlers import register_error_handlers
 from animator.routes.assets import router as assets_router
 from animator.routes.control import router as control_router
 from animator.routes.control_page import router as control_page_router
+from animator.routes.controller_lease import router as controller_lease_router
 from animator.routes.health import router as health_router
 from animator.routes.index import router as index_router
 from animator.routes.public import router as public_router
@@ -256,6 +257,7 @@ app.include_router(team_media_router)
 # The operator's HTML shell is registered before the audited command router: it is
 # a credential-free page, not a control attempt, and must not be audited as one.
 app.include_router(control_page_router)
+app.include_router(controller_lease_router)
 app.include_router(control_router)
 
 

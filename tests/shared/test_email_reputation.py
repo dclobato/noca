@@ -142,9 +142,15 @@ def test_missing_fields_use_safe_defaults() -> None:
 
 _LIVE_KEY = os.environ.get("NOCA_IPQUALITYSCORE_APIKEY")
 
+# Two decorators, two jobs. `skipif` is what makes these skip without a key;
+# `real_ipqualityscore` is what tells the suite-wide skip audit in
+# `tests/conftest.py` that this skip is a sanctioned external-service one rather
+# than a test that quietly stopped running. They hit the same paid API as
+# `test_ip_reputation.py`, which already carried the marker.
 live = pytest.mark.skipif(not _LIVE_KEY, reason="NOCA_IPQUALITYSCORE_APIKEY not set")
 
 
+@pytest.mark.real_ipqualityscore
 @live
 def test_live_good_email() -> None:
     svc = EmailReputationService(_LIVE_KEY, NetworkService())
@@ -155,6 +161,7 @@ def test_live_good_email() -> None:
     assert result.sanitized_email
 
 
+@pytest.mark.real_ipqualityscore
 @live
 def test_live_bad_email() -> None:
     svc = EmailReputationService(_LIVE_KEY, NetworkService())

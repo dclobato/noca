@@ -30,7 +30,7 @@
   //   timer:    object exposing setFrozen(bool) (optional)
   //   pending:  object exposing render(pendingSubmissions) (optional)
   //   activity: object exposing reconcile(previous, next) (optional)
-  //   refs:     { standings, loading, empty, board, medalBase }
+  //   refs:     { standings, loading, empty, notStarted, board, medalBase }
   //   setHidden(el, hidden): visibility toggle
   function createBoard(deps) {
     var problems = [];
@@ -43,7 +43,33 @@
     // Render in authoritative server order, animate the delta from the previously
     // applied snapshot, and sync the timer's freeze state. The board cells hold
     // no focusable content, so replacing the tbody cannot move focus.
+    //
+    // A pre-start snapshot (`has_started === false`) carries no problems and no
+    // standings at all -- the feed withholds them so the problem count and the
+    // balloon colors stay secret until the contest opens -- so it returns early
+    // with its own banner rather than rendering a board that has nothing to draw.
+    // The check lives here because this is the single place a snapshot reaches
+    // the DOM, so every live refresh re-evaluates it and the board appears by
+    // itself at the start.
     function applySnapshot(snapshot) {
+      if (snapshot.has_started === false) {
+        deps.setHidden(deps.refs.loading, true);
+        deps.setHidden(deps.refs.notStarted, false);
+        deps.setHidden(deps.refs.empty, true);
+        deps.setHidden(deps.refs.board, true);
+        if (deps.timer) {
+          deps.timer.setFrozen(snapshot.is_frozen);
+        }
+        if (deps.pending) {
+          deps.pending.render([]);
+        }
+        // The baseline is cleared rather than set to this snapshot: the first
+        // post-start standings are a new board, not a delta from an empty one,
+        // so animating them in from nothing would be wrong. Clearing it here
+        // means correctness does not depend on the caller remembering to reset.
+        previous = null;
+        return;
+      }
       var firstTops = deps.applier.measureRows();
       // The medal base must be forwarded here: the renderer builds each row's
       // watermark <img> src from it, and this is the only call site that reaches
@@ -58,6 +84,7 @@
       deps.setHidden(deps.refs.loading, true);
       // Empty placeholder is hidden when there ARE rows; board is hidden when
       // there are none.
+      deps.setHidden(deps.refs.notStarted, true);
       deps.setHidden(deps.refs.empty, hasRows);
       deps.setHidden(deps.refs.board, !hasRows);
       if (previous) {

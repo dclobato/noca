@@ -349,11 +349,13 @@ Provides:
   or climb one row when that row has nothing left
 - `back(dataset, state)` — undo the last step of either kind, by `pop`
 - `reset(dataset, state)` — empty the trail and return to `idle`
+- `jump_pending(dataset, state)` — climb cursor-only rows until the next
+  pending cell is focused, without revealing it
 - `jump_team(dataset, state, team_id)` — repeat `step` until the target focuses
 - `relevant_frozen_submissions` / `focus_at_cursor` / `team_relevant_runs` /
   `next_reveal_id` — the pure selection helpers the commands are built from
-- `RevealTransitionError` → `RevealNotStartedError`, `UnknownTeamError`,
-  `UnreachableTeamError`
+- `RevealTransitionError` → `RevealNotStartedError`,
+  `NoPendingSubmissionError`, `UnknownTeamError`, `UnreachableTeamError`
 
 Command-state matrix:
 
@@ -363,6 +365,7 @@ Command-state matrix:
 | `step` | `RevealNotStartedError` | reveal one run, or climb one row | no-op, state unchanged |
 | `back` | empty trail: exact no-op | empty trail: exact no-op; otherwise `pop` → `revealing` | empty trail: exact no-op; otherwise `pop` → `revealing` |
 | `reset` | no-op | empty trail, `idle`, no focus | empty trail, `idle`, no focus |
+| `jump_pending` | `RevealNotStartedError` | stop before the next pending cell; none left → `NoPendingSubmissionError` | `NoPendingSubmissionError` |
 | `jump_team` | scope-check, then `RevealNotStartedError` | bounded repeated `step` | `UnreachableTeamError` |
 
 Behavior notes:
@@ -409,6 +412,12 @@ Behavior notes:
   the loop is bounded by the frozen-universe length — every step consumes one id,
   so exceeding that bound means no progress is possible and the target raises
   `UnreachableTeamError`.
+- **`jump_pending` never reveals.** While the phase is `revealing`, an absent
+  `next_reveal_cell` means the next `_step_state` is a pure cursor move. The
+  command checks that condition before every step and stops as soon as a cell
+  appears. It is an exact no-op when a pending cell is already focused and
+  raises `NoPendingSubmissionError` without saving or publishing when none
+  remains; it never sweeps the ceremony to `done` as a side effect.
 - **No dependency.** `transitions` and `python-statemachine` both model a mutable
   object advanced by callbacks and offer no exact inverse. Here the whole scoring
   history is one ordered log and every other value is recomputed, so a library
@@ -429,6 +438,52 @@ Behavior notes:
 
 ---
 
+## `services/controller_lease_service.py`
+
+Purpose:
+
+- server-enforced single-controller ownership per `(contest_id, scope)`, so two
+  operator panels cannot drive one global or site ceremony while read-only
+  projectors remain untouched
+
+Provides:
+
+- `ControllerLeaseService(client, *, ttl_seconds)` — claim / heartbeat / release
+  / takeover over any `ControllerLeaseClient` (`eval`-only Protocol satisfied by
+  `ValkeyRuntime` structurally)
+- `acquire_controller_mutation_lock(client, *, contest_id, scope, controller_id,
+  lock_token, lock_ttl_seconds)` — the atomic "verify ownership **and** take the
+  command lock" gate used by `RevealSessionStore.mutate`
+- typed errors: `ControllerLeaseError` → `ControllerLeaseUnavailableError`
+  (Valkey unreachable → fail closed), `ControllerLeaseConflictError` (another
+  owner), `ControllerLeaseLostError` (not the owner / expired),
+  `ControllerLeaseContendedError` (a mutation is in flight)
+- `ControllerLeaseResult(status, ttl_seconds)` with status `claimed`,
+  `renewed`, `released`, or `taken_over`
+
+Behavior notes:
+
+- **Integer-only script returns.** Every Lua script ends in an explicit,
+  distinct non-nil integer per outcome, and `None` from `eval` means exactly
+  "unavailable → fail closed". This matters because `eval` also returns `None`
+  when a script returns nil/false: conflating the two would turn an outage into
+  a spurious ownership decision.
+- **Claim is a compare-and-set, not `SET NX`.** Absent → `SET EX ttl`;
+  present and ours → refresh `EXPIRE` (idempotent re-claim); present and
+  foreign → conflict. A plain NX would answer a legitimate owner's retried
+  claim with its own conflict.
+- **Takeover replaces atomically and fences by replacement.** One script refuses
+  while the mutation-lock key exists, else overwrites the lease key with the new
+  id. An empty lease is takeover-as-claim — deliberate, so a fresh panel can
+  always recover authority after expiry through the same confirmed modal. The
+  former owner is fenced from later heartbeats and commands because its id no
+  longer compares equal anywhere.
+- **Leases carry only the opaque controller id** — no tokens, digests, or
+  addresses — and are isolated by exact scope: controllers of different sites or
+  global never block each other.
+
+---
+
 ## `services/reveal_session_store.py`
 
 Purpose:
@@ -444,14 +499,24 @@ Provides:
 - `scope_for(site_id)` — `site_id`, or `"global"` for a global ceremony
 - `ttl_seconds_for(contest, now=None)` — contest-end + margin, floored at margin
 - `load(contest_id, site_id)` — validated load, or `None` on a genuine miss
-- `mutate(contest, site_id, *, command, now=None)` — async context manager that
-  locks the scope, yields a `MutationHandle` (`load()` / `set_result(state)`),
+- `mutate(contest, site_id, *, controller_id, command, now=None)` — async context manager that
+  atomically verifies the caller's controller lease and locks the scope, yields a
+  `MutationHandle` (`load()` / `set_result(state)`),
   and on exit fenced-saves then publishes only if a result was set
 - typed errors: `RevealStoreError` → `RevealStoreUnavailableError`,
   `RevealStoreLockedError`, `RevealStoreLockLostError`, `RevealStorePayloadError`
 
 Behavior notes:
 
+- **Ownership and the lock are one atomic step.** Lock acquisition is no longer
+  a bare `SET NX`: `acquire_controller_mutation_lock` (see
+  `services/controller_lease_service.py`) runs one Lua script that verifies the
+  caller's controller lease *and* acquires the per-command mutation lock in the
+  same transaction, so a controller that lost ownership cannot pass a check and
+  race a takeover before its command's lock is acquired. A lost lease surfaces
+  as `ControllerLeaseLostError` (→ `409`), contention as
+  `RevealStoreLockedError` (→ `503`), an unavailable store as
+  `RevealStoreUnavailableError`.
 - **Fenced write, not just fenced release.** The state write and the lock-token
   check are one Lua transaction (`shared…revelation.fenced_save_state_script`):
   the state is written with `EX` *only while the lock still holds this writer's
@@ -593,8 +658,9 @@ Behavior notes:
 - **Restart clears the ring.** `start` + `restart=true` discards the old state
   and therefore its receipts, so a key from before the rebuild identifies nothing
   and its command applies normally. A rebuilt ceremony is a new ceremony.
-- **Engine errors pass through** (`RevealNotStartedError`, `UnknownTeamError`,
-  `UnreachableTeamError`), as do store errors; the route owns status mapping.
+- **Engine errors pass through** (`RevealNotStartedError`,
+  `NoPendingSubmissionError`, `UnknownTeamError`, `UnreachableTeamError`), as do
+  store errors; the route owns status mapping.
 
 ---
 
@@ -638,6 +704,9 @@ Behavior notes:
   a liability with no diagnostic upside; the flag is enough to see whether retry
   protection was in play. A replayed command is audited `outcome=replayed`, not
   `success`, so one operator action is never counted as two commands.
+- **Path names normalize to the persisted command vocabulary.** In particular,
+  `/jump-pending` is recorded as `command=jump_pending`, matching the receipt
+  and event literal rather than the hyphenated URL segment.
 - **Trusted client IP.** Uses the shared
   `network_utils.validation.get_ip_from_request`, i.e. the proxy-corrected
   `request.client.host`, never a raw `X-Forwarded-For`. `animator/main.py` runs
@@ -910,13 +979,25 @@ Provides:
 - `build_snapshot(session, contest, now=None, site_id=None)` — the underlying
   shared `ScoreboardSnapshot`
 - `snapshot_to_response(snapshot, pending_submissions=None, *, teams,
-  wa_penalty)` — the Animator response mapper, including team site names and
-  accumulated per-cell attempt penalties
+  wa_penalty, cutoffs=None, has_started=True)` — the Animator response mapper,
+  including team site names and accumulated per-cell attempt penalties
 - `build_pending_submissions(standings, submission_records, judgments, teams,
   problem_records, freeze_at_seconds)` — the authoritative, freeze-safe pending list
 
 Behavior notes:
 
+- **Pre-start gate.** Before `contest.start_time` neither feed publishes a
+  problem set: `/meta` returns an empty `problems` list and `/snapshot` returns
+  empty `problems`, `balloon_colors`, `standings`, and `pending_submissions`.
+  Both carry `has_started=false` so a client can render a "not started yet"
+  banner rather than mistaking the gate for a contest with no teams. Web already
+  withholds its scoreboard, clarifications, and runs before the start precisely
+  so the *number of problems* and their balloon colors stay secret; this
+  anonymous feed must not be the way around that, which is why the gate lives in
+  the private `_project` helper (nothing is queried, so nothing can leak through
+  a future builder that forgets it) and in `build_meta_response`. Sites stay
+  visible in both states: the launcher is built from them, and a venue's name
+  and team count are not part of the secret.
 - **Freeze visibility.** The snapshot uses
   `viewer_sees_frozen=contest.is_frozen_at(now)` and
   `freeze_at_seconds = stop_updating_scoreboard * 60`. Reaching the cutoff hides
@@ -1064,9 +1145,9 @@ Behavior notes on the control dependencies:
 
 ## Client modules (`static/js/`)
 
-The ceremony interfaces are split into pure, headlessly testable UMD modules plus
-thin browser glue. Contract tests live in `tests/animator/js/` and run under Node
-through `tests/animator/test_ceremony_js.py`.
+Animator presentation clients are split into pure, headlessly testable UMD
+modules plus thin browser glue. Contract tests live in `tests/animator/js/` and
+run under Node through the Animator test wrappers.
 
 ### `cell-format.js` (`window.AnimatorCellFormat`)
 
@@ -1100,6 +1181,18 @@ authoritative server order, creates new rows, and removes departed rows. Each
 renderer supplies only its surface-specific row builder and updater. Stable row
 identity lets `animator-animate.js` measure and animate the same painted element,
 so the two presentations cannot drift into different FLIP behavior.
+
+### `animator-team-cell.js` (`window.AnimatorTeamCell`)
+
+Shared team-cell presentation for the live scoreboard and reveal ceremony.
+
+- `createTeamCell(doc, team, options)` creates the row header with the team-media
+  Bootstrap trigger, optional site line, and medal watermark.
+- `syncTeamCell(doc, th, team, options)` updates the existing trigger's text,
+  title, team id, and modal attributes while preserving the exact button object.
+  The live keyed renderer can therefore refresh standings while a modal is open
+  without invalidating Bootstrap's `relatedTarget` or losing focus restoration.
+- All team names use `textContent`; hostile names never become markup.
 
 ### `animator-animate.js` (`window.AnimatorAnimate`)
 
@@ -1151,7 +1244,8 @@ Pure DOM rendering for the projection; every function takes an explicit `doc`.
   highlight; the renderer never guesses which cell is next. The shared keyed
   reconciler reuses and reorders surviving rows, so a reconnect cannot duplicate
   the board or discard the element that FLIP must animate.
-- Team names render as Bootstrap **data-API** modal triggers
+- Team names render through `animator-team-cell.js` as Bootstrap **data-API**
+  modal triggers
   (`data-bs-toggle`/`data-bs-target`/`data-team-id`). This is required for
   accessibility, not cosmetic: Bootstrap 5.3 restores focus to the trigger only
   through that handler, so a programmatic `modal.show()` would leave a keyboard
@@ -1159,9 +1253,10 @@ Pure DOM rendering for the projection; every function takes an explicit `doc`.
 - All text is written with `textContent` and attributes with `setAttribute`, so a
   hostile team name stays inert.
 
-### `ceremony-modal.js` (`window.CeremonyModal`)
+### `team-media-modal.js` (`window.AnimatorTeamModal`)
 
-The reusable team modal, with its elements injected so it is testable headlessly.
+The reusable team modal, with injected elements and an explicit `audioEnabled`
+mode so it is testable headlessly and shared by both presentations.
 
 - `onShow(event)` reads the team from `event.relatedTarget`, opens a new load
   *generation*, and fetches the scoped photo. It reads
@@ -1179,6 +1274,10 @@ The reusable team modal, with its elements injected so it is testable headlessly
   a player when a policy rejection precedes its `404`. A promise rejection alone
   cannot distinguish those two cases, which is why the `error` listener is the
   discriminator.
+- In scoreboard photo-only mode, `audioEnabled=false` makes `onShown()` return
+  `skipped` before any audio access. The controller requires no audio element,
+  status element, or audio base, and the scoreboard does not bind the `shown`
+  event, so it cannot request or play team audio.
 - Every media listener — photo and audio alike — is scoped to a **load
   generation** opened by `onShow` and closed by `teardown`, so a previous team's
   late failure cannot hide the current team's working photo or player.
@@ -1201,6 +1300,54 @@ bases to the live scoreboard's shared problem-metadata extractor, so
 first-solver cells render the star in both presentations. It replaced Phase 13's
 `ceremony-boot.js`, which was a placeholder.
 
+### `control-lease.js` (`window.AnimatorControlLease`)
+
+The ephemeral controller-identity transport; `createLeaseClient(deps)` with
+injectable `fetchImpl`, timer functions, visibility/page targets, and a state
+handler, so the whole lifecycle runs under Node with fake timers.
+
+- Generates **one controller id per loaded panel** (`crypto.randomUUID`, with a
+  time-and-random fallback shaped like the idempotency-key fallback). The id is
+  read once into a closure variable and travels only in the
+  `X-Animator-Controller-Id` header — never a URL, the DOM, storage, or a log;
+  a source scan in `control-lease.test.cjs` pins this.
+- `claim(secret)` / `heartbeat()` / `takeover()` / `release(keepalive)` map the
+  four lease routes onto panel states (`active`, `read-only`, `lease-lost`,
+  `unavailable`, `released`) emitted through the state handler. A `409` on claim
+  means another controller owns the scope (read-only); a `409` anywhere else
+  means this panel lost ownership and stops commanding immediately. Anything
+  non-stated is unavailable → fail closed.
+- Heartbeats reschedule from the server's returned cadence
+  (`heartbeat_interval_seconds`), not a client constant.
+- **A blip does not cost command authority.** A heartbeat that fails without a
+  stated ownership answer (network error, `503`) is retried ~`ttl/3` later,
+  twice, inside the remaining TTL — the panel stays fail-closed while retrying
+  (`pending`) and only reports unavailable once the budget is exhausted. A
+  stated `409` is terminal immediately.
+- `visibilitychange`/`pageshow` renewal fires only when actually visible, so a
+  backgrounded tab does not burn attempts while throttled; `pagehide` sends one
+  best-effort `release` with `keepalive: true`. A page restored from the
+  back-forward cache still holds its credential, so it **re-claims on
+  `pageshow`** instead of sitting on "released"; claim's idempotent
+  compare-and-set means it lands read-only rather than stealing the scope if
+  another controller took over meanwhile. TTL expiry remains authoritative for
+  every path.
+
+### `control-ownership.js` (`window.AnimatorControlOwnership`)
+
+The ownership state machine and operator-panel glue;
+`createOwnershipController(deps)` wraps a lease client and renders the four
+panel states plus pending/released into the status badge and detail line.
+
+- Commands are enabled **only** in the active state: `setCommandsEnabled` gates
+  every mutating button and keyboard shortcut through `control.js`.
+- **Take over control…** renders only in read-only or lease-lost states and
+  always goes through `confirmTakeover` — `control.js` shows its modal warning
+  that the other panel immediately loses command authority, and takeover fires
+  only from the modal's confirm button. There is no automatic takeover.
+- Retry exists only in the unavailable state and re-runs a claim — which can
+  never steal the scope from another owner.
+
 ### `control.js` (`window.AnimatorControl`)
 
 `createCommandClient(deps)` is the pure command client; `boot(doc)` is the glue.
@@ -1214,8 +1361,14 @@ first-solver cells render the star in both presentations. It replaced Phase 13's
   panel that looks unlocked.
 - `start(siteId, restart)` sends `{site_id, restart}` (explicit `null` for the
   global ceremony) because the server compares that value for exact equality with
-  the token's scope; `jump(teamId)` sends `{team_id}`; `step`/`back`/`reset` send
-  **no** body, matching the API's `extra="forbid"` models.
+  the token's scope; `jump(teamId)` sends `{team_id}`;
+  `step`/`back`/`reset`/`jumpPending` send **no** body, matching the API's
+  `extra="forbid"` models.
+- **Jump to next pending** appears only while a ceremony is revealing and its
+  projection has no `next_cell`. It sends one server command, not a client-side
+  step sequence, so lease, idempotency, persistence, and ambiguity handling
+  remain identical to every other mutation. The Android `ControlVisibility`,
+  `CommandClient`, `RemoteViewModel`, and `CommandPad` mirror this rule.
 - **Every mutating attempt carries a fresh `Idempotency-Key`** (a `randomUUID`,
   or a time-and-random fallback where `crypto.randomUUID` is unavailable). Fresh
   *per attempt*: two deliberate presses of "step" are two commands and must both
@@ -1224,6 +1377,12 @@ first-solver cells render the star in both presentations. It replaced Phase 13's
 - `stepMany(10)` and `backMany(10)` issue the existing scope-free command ten
   times in strict sequence. They stop on the first response that is not a
   confirmed success; no bulk endpoint or command-bus message exists.
+- **Every mutating attempt carries the controller id** from the wired
+  `AnimatorControlOwnership` alongside its fresh `Idempotency-Key`, and `run`
+  refuses to fire at all unless the ownership controller reports active — so a
+  read-only, lease-lost, or unavailable panel suppresses commands before the
+  network is touched. A `409` whose detail names lost ownership marks the lease
+  lost (stopping heartbeats and commands) while staying a stated refusal.
 - **`isDefinitive(status)` splits the failure model.** Stated refusals
   (`400/403/404/409/422`) changed nothing and re-enable the controls immediately.
   Everything else — network failure and any `5xx`, including the store's `503`,

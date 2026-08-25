@@ -14,20 +14,60 @@ The ceremony is normally driven from `GET /c/{slug}/control?scope=…` in a brow
 During a real award ceremony the operator is on stage, away from the machine
 driving the projector, and a laptop browser is an awkward remote. This app is the
 same control surface on a phone: enter the animator URL, the contest slug, the
-ceremony scope, and an operator token, then drive `step` / `back` / `jump` from
-large buttons.
+ceremony scope, and an operator token, then drive `step`, `back`, jump-to-team,
+and jump-to-pending from large buttons.
 
-It talks to the existing control API and needs **no server changes**.
+It talks to the control API, including its controller lease. The app and animator
+server must be upgraded in lockstep: a server that requires controller ownership
+rejects mutations from an older remote with `422`.
 
 ## What it does
 
-- All six control commands: `start-reveal`, `step`, `back`, `reset`, `jump-team`, `state`
+- All seven control commands: `start-reveal`, `step`, `back`, `reset`,
+  `jump-team`, `jump-pending`, and `state`
 - Step 10 / Back 10, as bounded client-side sequences of single commands
+- Jump to next pending, which stops before the next `?` without revealing it
 - Status header: scope, phase, `revealed / frozen` counts, and the next cell
 - Tappable standings list, rendered from the projection, for `jump-team`
 - Live sync from the ceremony's public SSE nudge feed, with reconnect backoff
 - The operator token stored encrypted under an Android Keystore key
 - Screen kept awake while a ceremony is `revealing`
+- One active controller lease per ceremony scope, with read-only fallback and
+  explicit takeover
+
+## Controller lease
+
+After the server accepts the operator credential, the remote claims
+`/c/{slug}/control/controller-lease/claim`. It generates a UUID controller id
+for the running app process and sends it only in the
+`X-Animator-Controller-Id` header. The id never enters a URL, log, setting, or
+persistent storage.
+
+While the app is foregrounded, it renews ownership at the interval returned by
+the server. The current contract uses a 45-second lease and a 10-second heartbeat.
+A renewal that collides with an in-flight command is simply retried next tick
+and does not count against the blip budget; a transport or store blip is
+tolerated twice inside the lease TTL, and each retry is a real round trip rather
+than a short-circuit on the ownership the blip left unverified. The panel is
+fail-closed while retrying — commands are disabled and the projection stays
+visible — and re-enables itself as soon as a renewal succeeds, so a one-second
+network hiccup costs no manual recovery. Only an exhausted budget reports
+control unavailable. Backgrounding or disposing the controller stops heartbeats
+and attempts a best-effort release; expiry remains authoritative if that request
+doesn't arrive.
+
+The remote exposes four ownership states:
+
+- **Active:** ceremony mutations are enabled.
+- **Read-only:** another controller owns the scope; state remains visible.
+- **Lease lost:** ownership moved or expired; commands and heartbeats stop.
+- **Unavailable:** ownership couldn't be verified; commands fail closed while
+  the last projection remains visible.
+
+The remote never takes over automatically. **Take over control…** appears only
+when the remote is read-only or has lost its lease, and its confirmation warns
+that the former panel immediately loses command authority. `GET /control/state`
+remains lease-independent, so every state can still reconcile the ceremony.
 
 ## The safety rule this app is built around
 
@@ -53,99 +93,185 @@ says someone changed the ceremony, not that this operator's command applied.
 
 ## Prerequisites
 
-- **JDK 17 or newer.** Temurin is fine, and Android Studio's bundled JDK 21 (JBR)
-  works as-is. The build targets Java 17 bytecode but deliberately does **not** pin
-  a toolchain, so it runs on whichever JDK starts Gradle — a JDK 17 installation
-  specifically is not required.
-- **Android command-line tools**, unless you are building from Android Studio.
-- A phone with **Android 8.0 (API 26)** or newer.
+Building this app needs **Docker** and nothing else. The toolchain — a JDK, the
+Android SDK, and the build tools that sign an APK — lives in a container defined
+by this project, so a NOCA checkout stays what it otherwise is: a Python uv
+workspace with no Java on it.
 
-## Building with Android Studio
+- **Docker**, with a local daemon. See
+  [Building with the build container](#building-with-the-build-container).
+- A phone with **Android 8.0 (API 26)** or newer, to install the result on.
 
-Open `clients/animator-remote` as the project root — **not** the repository root,
-which is a Python uv workspace Studio cannot make sense of. Studio then reads
-`settings.gradle.kts`, offers to install the SDK packages `compileSdk = 36` needs,
-and the Gradle wrapper pins its own Gradle version, so the IDE's bundled one is not
-used.
+There is deliberately no documented host-toolchain or IDE path. One supported way
+to build means the version pins in `gradle/libs.versions.toml` describe what
+actually produced an APK, rather than what one machine happened to have
+installed.
 
-- Run the contract tests from the Gradle panel, or `app` → `Run 'Tests in ...'` on
-  `CoreContractTest`.
-- Build an APK with the `assembleDebug` task, or deploy straight to a device with
-  **Run**.
-- If Studio prompts to upgrade AGP, decline unless you intend to: the version is
-  pinned deliberately (see *Versions* at the end) and the upgrade assistant will
-  rewrite `gradle/libs.versions.toml`.
-- `local.properties` is generated by Studio and is gitignored.
+## Building with the build container
 
-The command-line path below needs no IDE and is what CI-style builds should use.
+A NOCA checkout has no JDK and no Android SDK. Rather than requiring both on
+every machine that might need to cut an APK, `tools/build-container/Dockerfile`
+carries them, and `tools/build-apk.sh` drives it.
 
-## Building on Windows from the command line
-
-Everything below is `cmd.exe`; PowerShell works with the usual `$env:` syntax.
-
-**1. Install a JDK and point `JAVA_HOME` at it**
-
-```bat
-set JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-17
-set PATH=%JAVA_HOME%\bin;%PATH%
-java -version
+```bash
+cd clients/animator-remote
+tools/build-apk.sh --debug          # unsigned debug APK, no keystore needed
+tools/build-apk.sh                  # signed release APK (see the next section)
 ```
 
-**2. Install the Android command-line tools**
+The first invocation builds the image, which downloads roughly 1 GB of Android
+SDK; after that a clean build is a couple of minutes and an incremental one is
+seconds. Output lands in the normal place, `app/build/outputs/apk/<variant>/`,
+owned by you rather than by root — the container runs as your uid:gid.
 
-Download `commandlinetools-win-*.zip` from
-<https://developer.android.com/studio#command-line-tools-only> and extract it so
-the layout is exactly:
+Other entry points:
 
+| Command | Does |
+| --- | --- |
+| `tools/build-apk.sh --debug` | `:app:assembleDebug` |
+| `tools/build-apk.sh` | `:app:assembleRelease`, refusing to run unsigned |
+| `tools/build-apk.sh -- :app:test` | any Gradle task, passed through verbatim |
+| `tools/build-apk.sh --shell` | interactive shell in the toolchain |
+| `tools/build-apk.sh --rebuild-image` | rebuild the image before building |
+
+### What the image is, and is not
+
+It is a **developer** image: `noca/animator-remote-build`, JDK 21 plus
+`platforms;android-36`, `build-tools;36.0.0`, `platform-tools`, and pre-accepted
+licences. It is deliberately absent from `containers/build.sh`,
+`containers/docker-bake.hcl`, and the published image set — nothing in a NOCA
+deployment runs it, it has no runtime contract with any module, and it can be
+deleted at any time (`docker rmi noca/animator-remote-build`).
+
+Two version facts are load-bearing and will bite on the next upgrade:
+
+- **JDK 21, not the judge images' JDK 25.** Gradle 8.14.5 supports up to Java 24;
+  JDK 25 needs Gradle 9.1. The Kotlin and Java judge containers therefore cannot
+  build this app, despite carrying a Kotlin toolchain — and they hold no Android
+  SDK either. `tools/run-core-tests.sh` legitimately uses the Kotlin judge image
+  because the contract tests are plain JVM Kotlin with no Android in them.
+- **`buildToolsVersion` is pinned** in `app/build.gradle.kts` to the version the
+  image installs. Left at AGP's default it would move on an AGP bump, and the
+  build would then try to download build-tools at build time into an SDK the
+  build user cannot write.
+
+### Caches, and cleaning up
+
+Gradle's dependency cache lives in the named volume
+`noca-animator-remote-gradle`, so it survives between builds and is not scattered
+through your home directory. Reclaim it with:
+
+```bash
+docker volume rm noca-animator-remote-gradle    # ~1 GB of Maven artifacts
+docker rmi noca/animator-remote-build           # ~2.5 GB of toolchain
 ```
-C:\Android\cmdline-tools\latest\bin\sdkmanager.bat
+
+The script needs a **local** Docker daemon, because it bind-mounts the working
+tree. This is the one place it diverges from `tools/run-core-tests.sh`, which
+copies sources in so it survives a remote or sibling daemon under Gitea Actions.
+A Gradle build reads the whole project, writes hundreds of megabytes of
+intermediates, and is only tolerable because its cache persists — none of which
+survives a copy-in/copy-out round trip.
+
+The repository root is mounted at its own host path rather than at `/work`,
+because `app/build.gradle.kts` reads the version from `../../../pyproject.toml`.
+Mounting only the client would silently fall back to requiring
+`-PanimatorRemoteVersion`.
+
+## Building a signed release APK
+
+The app is signed with a **self-managed release key**. There is no Play App
+Signing safety net behind it, which makes one consequence worth stating plainly
+before anything else: *if this keystore is lost, no future build can ever update
+an installed copy of the app.* Every operator would have to uninstall — losing
+their stored token — and reinstall. Back it up somewhere that survives the
+machine.
+
+### 1. Create the keystore, once
+
+Run `keytool` in the build container, which already has the JDK:
+
+```bash
+tools/build-apk.sh --shell
+keytool -genkeypair -v \
+    -keystore ~/noca-animator-remote.keystore -storetype PKCS12 \
+    -alias animator-remote -keyalg RSA -keysize 4096 -validity 10000 \
+    -dname "CN=NOCA, O=NOCA, C=BR"
 ```
 
-The `latest` directory level matters — `sdkmanager` fails without it.
+`-validity 10000` (about 27 years) is the conventional value: an expired
+certificate cannot sign an update. Keep the keystore **outside** the repository —
+`.gitignore` covers `*.keystore`, `*.jks`, and `keystore.properties`, but a file
+that is never in the tree cannot be committed by an ignore rule that someone
+edits later.
 
-**3. Install the SDK packages and accept the licences**
+### 2. Supply it to the build
 
-```bat
-set ANDROID_HOME=C:\Android
-set PATH=%ANDROID_HOME%\cmdline-tools\latest\bin;%ANDROID_HOME%\platform-tools;%PATH%
+Two sources, checked per value, environment first:
 
-sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-sdkmanager --licenses
+```bash
+export NOCA_ANDROID_KEYSTORE=~/noca-animator-remote.keystore
+export NOCA_ANDROID_KEYSTORE_PASSWORD=...
+export NOCA_ANDROID_KEY_ALIAS=animator-remote
+export NOCA_ANDROID_KEY_PASSWORD=...
+tools/build-apk.sh
 ```
 
-`platforms;android-36` and the `build-tools` major version must match
-`compileSdk` in `app/build.gradle.kts`. This step downloads roughly 600 MB.
+The script bind-mounts the keystore **read-only** at a path outside the working
+tree and passes the passwords as container environment variables rather than as
+`docker run` arguments, which would be visible in `ps` to every user on the host
+for the length of the build.
 
-**4. Build the APK**
-
-```bat
-cd clients\animator-remote
-gradlew.bat :app:assembleDebug
-```
-
-The first run also downloads Gradle 8.14.5 and the dependency graph. The result
-is:
-
-```
-app\build\outputs\apk\debug\app-debug.apk
-```
-
-If Gradle cannot find the SDK, create `clients\animator-remote\local.properties`:
+Or put them in `clients/animator-remote/keystore.properties` (gitignored), which
+saves exporting four variables in every shell:
 
 ```properties
-sdk.dir=C:\\Android
+storeFile=/home/you/noca-animator-remote.keystore
+storePassword=...
+keyAlias=animator-remote
+keyPassword=...
 ```
 
-**5. Install it on the phone**
+`storeFile` may point anywhere: the script reads it, mounts that keystore into
+the container read-only, and overrides only that one value, so the keystore stays
+outside the repository while the other three values come from the file. A
+relative path resolves against the project root instead. Environment wins per
+value, so the file can hold the boring parts while a password stays in the
+environment.
 
-Over USB with debugging enabled:
+Partial credentials — three of the four — **fail the build**. The alternative is
+an APK that is silently unsigned, which is only discovered when a phone refuses
+to install it. For the same reason, `assembleRelease` with no credentials at all
+fails at configuration time rather than producing `app-release-unsigned.apk`.
 
-```bat
-adb install -r app\build\outputs\apk\debug\app-debug.apk
+### 3. Verify before distributing
+
+Check what actually signed the file before it leaves your machine, using the same
+container that produced it:
+
+```bash
+docker run --rm -v "$PWD:$PWD" -w "$PWD" noca/animator-remote-build \
+    apksigner verify --verbose --print-certs \
+    app/build/outputs/apk/release/app-release.apk
 ```
 
-Or copy the `.apk` to the phone and open it, allowing installation from this
-source when prompted.
+Expect `Verified using v2 scheme (APK Signature Scheme v2): true` and your own
+certificate DN. Without `--verbose`, `apksigner` prints the certificate but not
+the scheme lines. v1 (JAR signing) is correctly **false**: at `minSdk 26` every
+supported device verifies v2, so AGP omits the legacy signature.
+
+### About Play Store publishing
+
+Play has not accepted APKs for new applications since August 2021 — it requires
+an **Android App Bundle**, and an AAB requires enrolling in Play App Signing,
+where Google holds the app signing key and you hold an upload key. That is a
+different signing model from the self-managed key above.
+
+Nothing here blocks that move: `:app:bundleRelease` already picks up the same
+`signingConfig` and the same guard, so it works the day you decide to enrol. What
+changes is the meaning of the keystore — it becomes an *upload* key, recoverable
+through Play support rather than irreplaceable — and the artifact you upload.
+Until then, `assembleRelease` produces the APK you hand to operators directly.
 
 ## Server prerequisites
 
@@ -184,27 +310,48 @@ The safety-critical logic lives in `app/src/main/kotlin/.../core/`, which import
 no Android and no OkHttp: HTTP is an injected function type. That is what makes it
 verifiable without a device.
 
-**On Windows, with the SDK installed:**
-
-```bat
-gradlew.bat :app:testDebugUnitTest
-```
-
-**On any machine with Docker, without an Android SDK:**
+Two ways to run them, both container-based:
 
 ```bash
-tools/run-core-tests.sh
+tools/build-apk.sh -- :app:testDebugUnitTest   # the full Gradle test task
+tools/run-core-tests.sh                        # the core contract checks alone
 ```
 
-That reuses NOCA's own `noca-judge-kotlin` compile image (JDK + `kotlinc` + the
+The second reuses NOCA's own `noca-judge-kotlin` compile image (JDK + `kotlinc` + the
 kotlinx-serialization plugin) and fetches only the serialization and coroutines
 runtime jars. Both paths run the same checks, from the same file.
+
+It uses the rolling `:compile` tag deliberately: a version-pinned tag ages into a
+permanent skip once it is no longer the image a checkout actually has. Set
+`NOCA_KOTLIN_IMAGE` to reproduce against a specific build.
+
+A missing image is pulled rather than treated as an absent toolchain — skipping
+is the right answer only when the environment genuinely cannot run this, not when
+the image is one `docker pull` away. The pull happens only when the image is
+absent, so a developer who already has it stays offline-capable and pays nothing;
+`NOCA_KOTLIN_NO_PULL` disables it.
+
+Sources and jars are copied into the container with `docker cp` rather than
+bind-mounted, so the script is correct wherever the Docker daemon is not the
+machine running it. Under Gitea Actions the job is itself a container holding the
+*host* daemon's socket, with the checkout in a Docker volume: a `-v` there is
+resolved against the host filesystem, where the path does not exist, so Docker
+mounts a freshly created empty directory and the build fails with "no source
+files" while every path looks right from outside. Copying also makes the
+read-only guarantee absolute — the container never sees the working tree.
 
 Both are wired into the Python suite:
 
 - `tests/animator/test_remote_core_kotlin.py` runs the script above and **skips**
   when Docker or the image is absent, mirroring how
   `tests/animator/test_ceremony_js.py` wraps the Node tests for `control.js`.
+  That leniency is switched off where the coverage is load-bearing: under `CI`,
+  or wherever `NOCA_KOTLIN_REQUIRED` is set, every reason it would have skipped
+  becomes a failure instead. A skip is indistinguishable from a pass, and this
+  test spent a release cycle skipping on a stale image pin without saying so.
+  `NOCA_KOTLIN_REQUIRED` wins in both directions whenever it is present at all,
+  so a CI environment that truly cannot run Docker opts out deliberately —
+  setting it to an empty value, `0`, `false`, or `no` — rather than by accident.
 - `tests/animator/test_remote_client_contract.py` needs no Kotlin toolchain and
   **never skips**. It validates the shared JSON fixtures against the animator's own
   Pydantic models and checks that the Kotlin models name every field those models
@@ -223,27 +370,35 @@ If that contract test fails after a server-side change, regenerate the fixtures 
   removed, data restored to another device) is discarded and the operator is
   re-prompted.
 - `allowBackup="false"`: even the ciphertext stays out of cloud and adb backups.
-- Release builds forbid cleartext HTTP. The **debug** build type allows it, scoped
-  to `src/debug/AndroidManifest.xml`, so you can test against
-  `http://<lan-ip>:8003` without ever shipping that exception.
+- **Cleartext HTTP is permitted in every build, release included**
+  (`usesCleartextTraffic="true"` in `src/main/AndroidManifest.xml`). A contest
+  venue commonly runs the animator as `http://<lan-ip>:8003`, and enforcing TLS
+  would make the shipped remote unusable exactly where it is needed. The cost is
+  real and worth restating: the token is a bearer credential, taking over a live
+  ceremony is a supported operation, so anyone observing the venue network can
+  capture the token and seize the reveal. Use an HTTPS animator wherever one
+  exists, and treat a token used over cleartext as disclosed once the contest
+  ends. Android has no middle setting here — the flag is per app. Narrowing it
+  means a `res/xml/network_security_config.xml` naming each permitted host,
+  which must know the venue address at build time.
 - OkHttp's automatic `retryOnConnectionFailure` is **disabled**: a silent re-send
   of a failed `POST` is exactly the event this app must surface rather than hide.
 - The SSE nudge feed is credential-free and is subscribed to without the token.
+- The controller id is an in-memory UUID sent only as
+  `X-Animator-Controller-Id`. It is not a credential and is never persisted.
 
-## Releasing a shareable APK
+## Distributing the APK
 
-`gradlew.bat :app:assembleRelease` produces an **unsigned** APK, which cannot be
-installed. To get a shareable one, use Android Studio: **Build → Generate Signed
-App Bundle / APK… → APK**, create or select a keystore, choose the **release**
-variant. The result is `app/release/app-release.apk`.
+Build it as above, then hand `app/build/outputs/apk/release/app-release.apk` to
+each operator over USB (`adb install -r <file>`) or any file transfer; the phone
+asks them to allow installation from that source.
 
-Choose APK, not App Bundle — an `.aab` is only useful for a Play Store upload.
+Four things to know before handing the file out:
 
-Three things to know before handing the file out:
-
-- **Release builds refuse cleartext HTTP.** The exception lives only in
-  `src/debug/AndroidManifest.xml`, so a shared APK talks HTTPS only. Anyone
-  needing a `http://<lan-ip>:8003` dev animator needs a debug build.
+- **The APK talks cleartext HTTP if asked to**, in release as much as in debug,
+  so it works against a venue animator with no TLS. That also means an operator
+  token travels unencrypted on such a link — see [Security notes](#security-notes)
+  before handing the file to people who will use it on untrusted wifi.
 - **A release APK is a different app from a debug one.** Debug carries
   `applicationIdSuffix = ".debug"`, so the two install side by side and do not
   share settings or the stored token.
@@ -251,9 +406,10 @@ Three things to know before handing the file out:
   is not a credential, so possession of the file grants no ceremony access. Each
   operator enters their own token, encrypted per device. Distribute the token
   separately from the app.
-
-Guard the keystore and its passwords: a release signed with a different key forces
-every user to uninstall before updating, which also discards their stored token.
+- **Signing key changes are destructive.** An APK signed with a different key
+  than the installed one cannot update it: every operator must uninstall first,
+  which discards their stored token. This is the practical reason the keystore
+  matters more than the APK does.
 
 ## Versions
 

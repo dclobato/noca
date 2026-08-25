@@ -87,6 +87,10 @@ def test_arena_icon_title_does_not_make_a_decorative_icon_semantic() -> None:
             'material-symbols-outlined" aria-hidden="true"',
         ),
         (
+            "web/template/_partials/_navbar.html",
+            'material-symbols-outlined" aria-hidden="true"',
+        ),
+        (
             "animator/template/_partials/_footer.html",
             'material-symbols-outlined" aria-hidden="true"',
         ),

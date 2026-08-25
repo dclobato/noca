@@ -9,7 +9,7 @@
 Phase 14 splits the projector and the operator panel into pure, testable UMD
 modules: ``ceremony-render.js`` (deterministic column order, medal bands,
 focus, pending cells, and the Bootstrap modal-trigger contract),
-``ceremony-modal.js`` (photo/audio URL scoping and the three playback outcomes
+``team-media-modal.js`` (photo/audio URL scoping and the three playback outcomes
 plus idempotent teardown), and ``control.js`` (bearer-only credential handling
 and the ambiguous-outcome lock that prevents a double reveal).
 
@@ -49,9 +49,9 @@ def test_ceremony_render_contract() -> None:
     _run_node_contract("ceremony-render.test.cjs")
 
 
-def test_ceremony_modal_contract() -> None:
-    """Scoped media URLs, autoplay/blocked/unavailable outcomes, and teardown."""
-    _run_node_contract("ceremony-modal.test.cjs")
+def test_team_media_modal_contract() -> None:
+    """Test scoped image-only and audio-enabled media-modal behavior."""
+    _run_node_contract("team-media-modal.test.cjs")
 
 
 def test_control_contract() -> None:
@@ -62,3 +62,13 @@ def test_control_contract() -> None:
 def test_control_dom_contract() -> None:
     """Idle Start over sends the rebuild flag through the real DOM glue."""
     _run_node_contract("control-dom.test.cjs")
+
+
+def test_control_lease_contract() -> None:
+    """Controller identity, renewal, recovery events, and pagehide release."""
+    _run_node_contract("control-lease.test.cjs")
+
+
+def test_control_ownership_contract() -> None:
+    """Read-only, lease-loss, takeover, and unavailable UI behavior."""
+    _run_node_contract("control-ownership.test.cjs")

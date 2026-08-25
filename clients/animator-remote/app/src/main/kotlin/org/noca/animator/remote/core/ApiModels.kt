@@ -153,8 +153,32 @@ data class ContestMeta(
     @SerialName("end_time") val endTime: String = "",
     @SerialName("freeze_at") val freezeAt: String = "",
     @SerialName("is_frozen") val isFrozen: Boolean = false,
+    // Whether the contest has begun. Until it has, the feed publishes an empty
+    // `problems` list on purpose -- the problem count and balloon colors are
+    // contest secrets before the start -- so a remote client must not read
+    // "no problems" as "this contest has none".
+    //
+    // The default deliberately diverges from the server, which always states the
+    // field and treats absence as nothing at all. Here absence means the payload
+    // came from a server predating the field, and such a server had no pre-start
+    // gate to report: it published problems at all times. Decoding as `true` is
+    // therefore what that payload actually meant. The consequence to know is that
+    // a pre-start payload from an old server decodes as started -- which is
+    // exactly the leak this field exists to close, and it is closed by upgrading
+    // the server, not the client. A client-side default of `false` would not fix
+    // it and would blank every live board served by an older deployment.
+    @SerialName("has_started") val hasStarted: Boolean = true,
     val problems: List<ProblemMeta> = emptyList(),
     val sites: List<SiteMeta> = emptyList(),
+)
+
+/** Response shared by the four controller-lease operations. */
+@Serializable
+data class ControllerLeaseResponse(
+    val status: String,
+    @SerialName("lease_ttl_seconds") val leaseTtlSeconds: Int,
+    @SerialName("heartbeat_interval_seconds") val heartbeatIntervalSeconds: Int,
+    @SerialName("server_time") val serverTime: String? = null,
 )
 
 /**
@@ -211,3 +235,7 @@ fun parseProjection(body: String): RevealProjection? =
 /** Decodes the contest meta feed, or `null` when the payload is not one. */
 fun parseContestMeta(body: String): ContestMeta? =
     runCatching { AnimatorJson.decodeFromString<ContestMeta>(body) }.getOrNull()
+
+/** Decodes a controller-lease response, or `null` when the payload is not one. */
+fun parseControllerLeaseResponse(body: String): ControllerLeaseResponse? =
+    runCatching { AnimatorJson.decodeFromString<ControllerLeaseResponse>(body) }.getOrNull()

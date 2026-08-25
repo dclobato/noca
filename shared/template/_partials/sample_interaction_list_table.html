@@ -7,7 +7,9 @@
 
   Shared sample-interaction list table, rendered by both the Web (contest admin)
   and Arena modules. Mirrors testcase_list_table.html so the same shared JS
-  (tc-reorder-sortable.js, judgment-actions.js) drives both lists. Context:
+  (tc-reorder-sortable.js) drives both lists; row-removal confirmations are plain
+  `data-confirm` forms handled by confirm-submit.js, which `_base.html` loads on
+  every page. Context:
     interaction_rows  list[shared.services.sample_interactions.SampleInteractionRowView]
     is_edit_allowed   bool
     si_reorder_target DOM id the move endpoint re-renders (defaults to "si-list")

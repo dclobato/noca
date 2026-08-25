@@ -84,3 +84,57 @@ data class SequenceOutcome(
     val completed: Int,
     val last: CommandOutcome,
 )
+
+/** Whether this process may issue ceremony mutations. */
+enum class ControllerLeaseState {
+    UNCLAIMED,
+    ACTIVE,
+    READ_ONLY,
+    LOST,
+    UNAVAILABLE,
+}
+
+/** Result of a controller-lease operation. */
+sealed interface LeaseOutcome {
+    data class Active(val lease: ControllerLeaseResponse) : LeaseOutcome
+    data object ReadOnly : LeaseOutcome
+    data object Lost : LeaseOutcome
+    data class Unavailable(val cause: String) : LeaseOutcome
+    data object AuthFailure : LeaseOutcome
+    data object Released : LeaseOutcome
+    data object Suppressed : LeaseOutcome
+}
+
+/**
+ * Consecutive heartbeat blips (transport failure or `503`) tolerated inside the
+ * lease TTL before the ticker gives up and surfaces an ownership problem.
+ *
+ * The server's validator requires `TTL >= 3x heartbeat`, so two missed ticks
+ * (~20 s at the default 10 s cadence) still leave comfortable margin before a
+ * 45 s lease expires — a one-second network blip must not cost command
+ * authority plus a manual recovery click.
+ */
+const val MAX_MISSED_HEARTBEATS: Int = 2
+
+/** What the heartbeat ticker should do after one renewal attempt. */
+enum class HeartbeatStep {
+    /** Renewal confirmed; reset the miss counter and keep the cadence. */
+    CONFIRMED,
+
+    /** No authoritative answer (transport busy with a command, or a blip still inside the miss budget); retry next tick. */
+    RETRY,
+
+    /** Ownership ended or is unverifiable within the budget; surface the outcome and stop the loop. */
+    TERMINATE,
+}
+
+/**
+ * Pure decision for the heartbeat loop, so the "a suppressed renewal must not
+ * kill the ticker" rule is testable on a plain JVM without Android types.
+ */
+fun heartbeatStep(outcome: LeaseOutcome, missedHeartbeats: Int): HeartbeatStep = when {
+    outcome is LeaseOutcome.Active -> HeartbeatStep.CONFIRMED
+    outcome is LeaseOutcome.Suppressed -> HeartbeatStep.RETRY
+    outcome is LeaseOutcome.Unavailable && missedHeartbeats < MAX_MISSED_HEARTBEATS -> HeartbeatStep.RETRY
+    else -> HeartbeatStep.TERMINATE
+}

@@ -45,6 +45,8 @@ def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.PORT == 8003
     assert settings.POLL_FALLBACK_SECONDS == 15
     assert settings.ENABLE_CONTROL is False
+    assert settings.CONTROLLER_LEASE_TTL_SECONDS == 45
+    assert settings.CONTROLLER_HEARTBEAT_SECONDS == 10
     assert settings.BRAND_NAME == "NOCA Animator"
     assert settings.HEALTHMON_URL == ""
     assert settings.STARTUP_TIMEOUT_SECONDS == 60
@@ -88,6 +90,33 @@ def test_poll_fallback_lower_bound(monkeypatch: pytest.MonkeyPatch) -> None:
     """A poll-fallback below one second is rejected."""
     with pytest.raises(ValueError):
         _make_settings(monkeypatch, NOCA_ANIMATOR_POLL_FALLBACK_SECONDS="0")
+
+
+def test_controller_lease_env_names_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Controller timings bind to their explicit animator environment names."""
+    settings = _make_settings(
+        monkeypatch,
+        NOCA_ANIMATOR_CONTROLLER_LEASE_TTL_SECONDS="90",
+        NOCA_ANIMATOR_CONTROLLER_HEARTBEAT_SECONDS="25",
+    )
+
+    assert settings.CONTROLLER_LEASE_TTL_SECONDS == 90
+    assert settings.CONTROLLER_HEARTBEAT_SECONDS == 25
+
+
+@pytest.mark.parametrize(("ttl", "heartbeat"), [("29", "10"), ("30", "11")])
+def test_controller_lease_ttl_must_cover_three_heartbeats(
+    monkeypatch: pytest.MonkeyPatch,
+    ttl: str,
+    heartbeat: str,
+) -> None:
+    """A lease that cannot survive two missed heartbeats is rejected."""
+    with pytest.raises(ValueError, match="at least 3 times"):
+        _make_settings(
+            monkeypatch,
+            NOCA_ANIMATOR_CONTROLLER_LEASE_TTL_SECONDS=ttl,
+            NOCA_ANIMATOR_CONTROLLER_HEARTBEAT_SECONDS=heartbeat,
+        )
 
 
 def test_urls_and_log_level(monkeypatch: pytest.MonkeyPatch) -> None:

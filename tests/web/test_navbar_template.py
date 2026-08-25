@@ -34,7 +34,7 @@ from web.services.task_service.permissions import can_view_tasks
 from web.template_globals import ROLE_BADGE_CLASSES, ROLE_ICONS, ROLE_LABELS, template_globals
 
 # Every destination the navbar can link to, and the roles that may see it.
-NAVBAR_ENDPOINTS = {
+NAVBAR_ENDPOINTS: dict[str, set[RoleEnum]] = {
     "contest_score": set(RoleEnum),
     "contest_problems": {role for role in RoleEnum if role is not RoleEnum.USER},
     "contest_clarifications": {RoleEnum.ADMIN, RoleEnum.UBERADMIN, RoleEnum.JUDGE, RoleEnum.TEAM},
@@ -245,7 +245,9 @@ def test_navbar_endpoints_exist_in_the_real_application() -> None:
     """
     from web.main import app
 
-    mounted = {route.name for route in app.routes if getattr(route, "name", None)}
+    # Starlette types the table as `BaseRoute`, which carries no `name`; only
+    # the routed subclasses do, so the attribute is read defensively.
+    mounted = {name for route in app.routes if (name := getattr(route, "name", None)) is not None}
 
     assert set(NAVBAR_ENDPOINTS) <= mounted
     assert {"contest_dashboard", "contests_list", "uberadmin_dashboard", "profile_get", "logout"} <= mounted
@@ -469,6 +471,53 @@ def test_the_phase_pill_starts_hidden_and_is_driven_by_the_clock() -> None:
     assert "hidden" in html
 
 
+def test_the_theme_control_rides_in_the_identity_cluster() -> None:
+    """The preference control sits with the account controls, not in the footer.
+
+    The id is the whole contract of `shared/static/js/theme-toggle.js`, so the
+    move reuses the existing persistence rather than reimplementing it.
+    """
+    html = _render(_user(RoleEnum.TEAM), _contest())
+
+    assert 'id="theme-toggle-btn"' in html
+    assert 'aria-label="Switch to dark mode"' in html
+    assert "noca-navbar-theme-toggle" in html
+
+    cluster = html.index("noca-navbar-identity")
+    toggle = html.index('id="theme-toggle-btn"')
+    account = html.index('id="noca-navbar-account-toggle"')
+    assert cluster < toggle < account
+
+
+def test_the_theme_icon_carries_no_class_the_toggle_script_would_destroy() -> None:
+    """`theme-toggle.js` replaces the button's innerHTML on every flip.
+
+    A class on the glyph therefore survives exactly until the first click, which
+    is how the Arena topbar icon silently lost its sizing. The navbar styles the
+    glyph through the button instead.
+    """
+    html = _render(_user(RoleEnum.ADMIN), _contest())
+
+    icon = html[html.index('id="theme-toggle-btn"') :]
+    icon = icon[: icon.index("</button>")]
+    assert '<i class="material-symbols-outlined" aria-hidden="true">dark_mode</i>' in icon
+
+
+def test_the_footer_control_only_survives_where_there_is_no_navbar() -> None:
+    """Exactly one `#theme-toggle-btn` per page keeps the id binding unambiguous.
+
+    `_base.html` renders the navbar only for a signed-in user, so the footer
+    control is what anonymous pages keep -- and it must not double up with the
+    navbar one for everybody else.
+    """
+    footer = (_ROOT / "web" / "template" / "_partials" / "_footer.html").read_text(encoding="utf-8")
+
+    guard = footer.index("{% if not current_user %}")
+    toggle = footer.index('id="theme-toggle-btn"')
+    end = footer.index("{% endif %}")
+    assert guard < toggle < end
+
+
 def test_an_unmapped_role_fails_visibly() -> None:
     """A role added without a label must not render as its raw enum value."""
     mystery = type(
@@ -503,3 +552,53 @@ def test_no_destination_nests_under_another_except_the_dashboard() -> None:
     ]
 
     assert nested == [], f"destinations nested under a sibling: {nested}"
+
+
+def test_the_countdown_carries_no_urgency_until_the_clock_reports_one() -> None:
+    """Remaining time and contest phase are two questions, so two hooks.
+
+    The countdown element takes `data-urgency` and the phase marker keeps
+    `data-phase`; neither is derived from the other, since a frozen contest can
+    still have hours to run. The attribute is deliberately absent from the
+    template: the bar first paints "Updating...", which is not a contest state,
+    and defaulting to the resting white avoids flashing a colour the clock has
+    not yet earned. What the driver then does with the hook is pinned
+    behaviourally in `tests/web/js/contest-clock.test.cjs`.
+    """
+    html = _render(_user(RoleEnum.TEAM), _contest())
+
+    assert 'id="contest-countdown"' in html
+    assert "data-urgency" not in html
+
+
+def test_urgency_colours_come_from_shared_tokens_and_rest_on_white() -> None:
+    """No inline styles, no per-page hex: the states name tokens.
+
+    White stays the default so the shift reads as an exception, and the tokens
+    carry an explicit dark-ground mapping because the navbar sets
+    `data-bs-theme="dark"` on itself regardless of the page theme.
+    """
+    root = Path(__file__).resolve().parents[2]
+    chrome = (root / "web/static/css/contest/_chrome.css").read_text(encoding="utf-8")
+    tokens = (root / "shared/static/css/tokens.css").read_text(encoding="utf-8")
+
+    for state in ("warning", "critical", "ended"):
+        rule = f'.noca-navbar-countdown[data-urgency="{state}"]'
+        assert rule in chrome
+        assert f"var(--noca-urgency-{state})" in chrome.split(rule, 1)[1].split("}", 1)[0]
+        assert f"--noca-urgency-{state}:" in tokens
+
+    dark = tokens.split('[data-bs-theme="dark"] {', 1)[1]
+    assert "--noca-urgency-warning:" in dark
+    assert "--noca-urgency-critical:" in dark
+    # The resting state is the plain white the countdown has always been, and
+    # nothing animates: colour is the only thing this change adds. `rsplit`
+    # skips the narrow-viewport font-size override earlier in the file and
+    # lands on the base rule.
+    tail = chrome.rsplit(".noca-navbar-countdown {", 1)[1]
+    base = tail.split("}", 1)[0]
+    urgency_block = tail.split("/* The contest name", 1)[0]
+
+    assert "color: #fff;" in base
+    assert "animation" not in urgency_block
+    assert "@keyframes" not in chrome

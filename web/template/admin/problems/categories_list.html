@@ -63,7 +63,7 @@
                                                 <form method="post"
                                                       action="{{ request.url_for('delete_category', category_id=cat.id) }}"
                                                       class="noca-icon-btn-wrap"
-                                                      onsubmit="return confirm('Delete category {{ cat.name | e }}?')">
+                                                      data-confirm="Delete category {{ cat.name | e }}?">
                                                     <button type="submit"
                                                             class="btn btn-outline-danger noca-icon-btn"
                                                             aria-label="Delete category {{ cat.name }}"

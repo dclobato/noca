@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -28,7 +28,10 @@ import valkey.asyncio as aiovalkey
 
 from autojudge.config import settings
 from shared.queue_schema import ArenaVerdictEvent, JobKind, VerdictEvent
-from shared.services.valkey_service import _publish_arena_verdict_with_client
+from shared.services.valkey_service import (
+    _publish_arena_verdict_with_client,
+    _publish_verdict_with_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -356,7 +359,7 @@ async def publish_verdict(valkey: Valkey_Client, event: VerdictEvent) -> None:
         event: Verdict event to publish.
     """
     try:
-        await valkey.publish(settings.queue_results_channel, event.model_dump_json())
+        await _publish_verdict_with_client(valkey, event)
     except Exception as exc:
         logger.error(
             f"Failed to publish verdict event '{event.verdict}' for submission {event.submission_id}: {str(exc)}"

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -44,7 +44,7 @@ from .arena import (
     arena_worker_command_audit,
     arena_worker_pause_state,
 )
-from .clarification import clarifications
+from .clarification import clarification_reads, clarifications
 from .contest import contest_languages, contests, site_secrets, sites, tasks
 from .language import languages
 from .problem import (
@@ -106,6 +106,7 @@ __all__ = [
     "arena_users",
     "arena_worker_command_audit",
     "arena_worker_pause_state",
+    "clarification_reads",
     "clarifications",
     "contest_languages",
     "contests",

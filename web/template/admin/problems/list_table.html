@@ -79,7 +79,7 @@
                                                 <form method="post"
                                                       action="{{ request.url_for('remove_problem', slug=contest.login_slug, problem_id=p.id) }}"
                                                       class="noca-icon-btn-wrap"
-                                                      onsubmit="return confirm('Remove problem {{ p.title | e }}?')">
+                                                      data-confirm="Remove problem {{ p.title | e }}?">
                                                     <button type="submit"
                                                             class="btn btn-outline-danger noca-icon-btn"
                                                             aria-label="Remove problem {{ label }}"

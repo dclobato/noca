@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -24,6 +24,7 @@ import valkey.asyncio as aivalkey
 
 from shared.reveal_schema import RevealStateChangedEvent
 from shared.services.valkey_service.constants import (
+    REVEAL_CONTROLLER_KEY_PREFIX,
     REVEAL_LOCK_KEY_PREFIX,
     REVEAL_STATE_KEY_PREFIX,
     REVELATION_CHANNEL_PREFIX,
@@ -33,6 +34,7 @@ __all__ = [
     "InvalidRevelationScopeError",
     "fenced_save_state_script",
     "publish_revelation_with_client",
+    "reveal_controller_key",
     "reveal_lock_key",
     "reveal_state_key",
     "revelation_channel",
@@ -102,6 +104,13 @@ def reveal_lock_key(contest_id: str, scope: str) -> str:
     validate_component("contest_id", contest_id)
     validate_component("scope", scope)
     return f"{REVEAL_LOCK_KEY_PREFIX}:{contest_id}:{scope}"
+
+
+def reveal_controller_key(contest_id: str, scope: str) -> str:
+    """Build the active-controller lease key for one ceremony scope."""
+    validate_component("contest_id", contest_id)
+    validate_component("scope", scope)
+    return f"{REVEAL_CONTROLLER_KEY_PREFIX}:{contest_id}:{scope}"
 
 
 def revelation_channel(contest_id: str, scope: str) -> str:

@@ -124,6 +124,20 @@ class Settings(BaseSettings):
             "alive. The TTL is refreshed on every successful mutation (60 s - 24 h; default 1 h)."
         ),
     )
+    CONTROLLER_LEASE_TTL_SECONDS: int = Field(
+        default=45,
+        ge=3,
+        le=3600,
+        validation_alias="NOCA_ANIMATOR_CONTROLLER_LEASE_TTL_SECONDS",
+        description="Lifetime in seconds of a reveal controller ownership lease.",
+    )
+    CONTROLLER_HEARTBEAT_SECONDS: int = Field(
+        default=10,
+        ge=1,
+        le=1200,
+        validation_alias="NOCA_ANIMATOR_CONTROLLER_HEARTBEAT_SECONDS",
+        description="Recommended seconds between controller lease heartbeats.",
+    )
 
     # ------------------------------------------------------------------
     # Worker presence
@@ -201,6 +215,16 @@ class Settings(BaseSettings):
             raise ValueError(
                 "NOCA_ANIMATOR_WORKER_PRESENCE_TTL_SECONDS must be greater than "
                 "NOCA_ANIMATOR_WORKER_PRESENCE_INTERVAL_SECONDS."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_controller_lease_settings(self) -> Settings:
+        """Keep the lease alive through at least two missed heartbeats."""
+        if self.CONTROLLER_LEASE_TTL_SECONDS < 3 * self.CONTROLLER_HEARTBEAT_SECONDS:
+            raise ValueError(
+                "NOCA_ANIMATOR_CONTROLLER_LEASE_TTL_SECONDS must be at least 3 times "
+                "NOCA_ANIMATOR_CONTROLLER_HEARTBEAT_SECONDS."
             )
         return self
 

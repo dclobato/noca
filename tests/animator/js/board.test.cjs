@@ -68,6 +68,7 @@ function makeDeps() {
       standings: { id: "standings" },
       loading: { id: "loading" },
       empty: { id: "empty" },
+      notStarted: { id: "notStarted" },
       board: { id: "board" },
       medalBase: "/assets/medal",
     },
@@ -115,6 +116,42 @@ function makeDeps() {
   board.createBoard(noRows.deps).applySnapshot({ is_frozen: false, standings: [] });
   assert.strictEqual(noRows.calls.hiddenBy.empty, false, "with no teams the empty placeholder is shown");
   assert.strictEqual(noRows.calls.hiddenBy.board, true, "with no teams the board is hidden");
+})();
+
+// ── Pre-start snapshots show the banner instead of an empty board ────────────
+// The feed withholds the problem set until the contest opens, so a snapshot with
+// has_started === false must not be drawn as "no teams yet": that would tell the
+// audience the wrong thing, and the board would render a header with no columns.
+(function testPreStartBanner() {
+  const preStart = makeDeps();
+  board.createBoard(preStart.deps).applySnapshot({ is_frozen: false, has_started: false, standings: [] });
+  assert.strictEqual(preStart.calls.hiddenBy.notStarted, false, "the pre-start banner is shown");
+  assert.strictEqual(preStart.calls.hiddenBy.empty, true, "the empty-teams placeholder stays hidden");
+  assert.strictEqual(preStart.calls.hiddenBy.board, true, "the board stays hidden");
+
+  assert.strictEqual(preStart.calls.render.length, 0, "a pre-start snapshot renders no standings at all");
+  assert.deepStrictEqual(preStart.calls.pending, [[]], "any stale pending list is cleared");
+  assert.deepStrictEqual(preStart.calls.frozen, [false], "freeze state still reaches the timer");
+
+  // The same board, once the contest starts, drops the banner and draws rows.
+  const started = makeDeps();
+  const b = board.createBoard(started.deps);
+  b.applySnapshot({ is_frozen: false, has_started: false, standings: [] });
+  b.applySnapshot({ is_frozen: false, has_started: true, standings: [{ team_id: "t1" }] });
+  assert.strictEqual(started.calls.hiddenBy.notStarted, true, "the banner is hidden once the contest starts");
+  assert.strictEqual(started.calls.hiddenBy.board, false, "the board appears once the contest starts");
+  // The first real standings are a new board, not a delta from the empty
+  // pre-start one, so they must not animate in from nothing. The board clears
+  // its own baseline, so this holds without the caller resetting it.
+  assert.strictEqual(started.calls.apply, 0, "the first post-start snapshot is treated as a first render");
+})();
+
+// ── A snapshot without the flag is treated as started (no silent blanking) ────
+(function testMissingFlagIsStarted() {
+  const { deps, calls } = makeDeps();
+  board.createBoard(deps).applySnapshot({ is_frozen: false, standings: [{ team_id: "t1" }] });
+  assert.strictEqual(calls.hiddenBy.notStarted, true, "an absent has_started never hides a live board");
+  assert.strictEqual(calls.hiddenBy.board, false);
 })();
 
 // ── reset() clears the previous snapshot so the next apply does not animate ───

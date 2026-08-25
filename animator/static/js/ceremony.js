@@ -19,7 +19,7 @@
   var renderApi = window.CeremonyRender;
   var scoreboardRender = window.AnimatorRender;
   var animationApi = window.AnimatorAnimate;
-  var modalApi = window.CeremonyModal;
+  var modalApi = window.AnimatorTeamModal;
   var root = document.getElementById("ceremony-app");
   if (!transportApi || !renderApi || !scoreboardRender || !animationApi || !modalApi || !root) {
     return;
@@ -32,7 +32,7 @@
   var boardScroll = document.querySelector(".ceremony-board-scroll");
   var tbody = document.getElementById("ceremony-standings");
   var headerRow = document.getElementById("ceremony-header-row");
-  var modalEl = document.getElementById("ceremony-team-modal");
+  var modalEl = document.getElementById("team-media-modal");
   var scope = root.getAttribute("data-scope");
   var medalBase = root.getAttribute("data-medal-base");
   var headerProblems = [];
@@ -51,11 +51,12 @@
 
   // ── Team modal ────────────────────────────────────────────────────────────
   var teamModal = modalApi.createTeamModal({
-    photoEl: document.getElementById("ceremony-team-photo"),
-    audioEl: document.getElementById("ceremony-team-audio"),
-    titleEl: document.getElementById("ceremony-team-modal-label"),
-    statusEl: document.getElementById("ceremony-audio-status"),
-    photoFallbackEl: document.getElementById("ceremony-photo-fallback"),
+    audioEnabled: true,
+    photoEl: document.getElementById("team-media-photo"),
+    audioEl: document.getElementById("team-media-audio"),
+    titleEl: document.getElementById("team-media-modal-label"),
+    statusEl: document.getElementById("team-media-audio-status"),
+    photoFallbackEl: document.getElementById("team-media-photo-fallback"),
     photoBase: root.getAttribute("data-photo-base"),
     audioBase: root.getAttribute("data-audio-base"),
     scope: scope,

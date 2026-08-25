@@ -15,9 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from animator.config import settings
 from animator.database import get_db
 from animator.models.command_receipt import IDEMPOTENCY_KEY_PATTERN
+from animator.models.controller_lease import CONTROLLER_ID_HEADER, CONTROLLER_ID_PATTERN
 from animator.models.query_records import ContestRecord
 from animator.services.contest_feed_service import load_enabled_contest
 from animator.services.control_audit import note_control_outcome, scope_label
+from animator.services.controller_lease_service import ControllerLeaseService
 from animator.services.public_scope_service import PublicScope, resolve_public_scope
 from animator.services.reveal_session_store import RevealSessionStore, RevealStoreClient
 from shared.reveal_schema import GLOBAL_SCOPE
@@ -185,6 +187,14 @@ def get_reveal_store(valkey: Valkey) -> RevealSessionStore:
 RevealStore = Annotated[RevealSessionStore, Depends(get_reveal_store)]
 
 
+def get_controller_lease_service(valkey: Valkey) -> ControllerLeaseService:
+    """Build the scoped controller-lease service over the Valkey runtime."""
+    return ControllerLeaseService(valkey, ttl_seconds=settings.CONTROLLER_LEASE_TTL_SECONDS)
+
+
+ControllerLease = Annotated[ControllerLeaseService, Depends(get_controller_lease_service)]
+
+
 async def get_control_contest(request: Request, contest: EnabledContest) -> ContestRecord:
     """Resolve an enabled contest and then apply the control kill switch.
 
@@ -336,3 +346,22 @@ def get_idempotency_key(
 
 
 IdempotencyKey = Annotated[str | None, Depends(get_idempotency_key)]
+
+
+def get_controller_id(
+    controller_id: Annotated[
+        str,
+        Header(
+            alias=CONTROLLER_ID_HEADER,
+            min_length=8,
+            max_length=128,
+            pattern=CONTROLLER_ID_PATTERN,
+            description="Opaque per-panel identifier for active controller ownership.",
+        ),
+    ],
+) -> str:
+    """Return the validated controller id without logging or persisting it."""
+    return controller_id
+
+
+ControllerId = Annotated[str, Depends(get_controller_id)]

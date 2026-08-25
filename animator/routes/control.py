@@ -58,6 +58,7 @@ from fastapi import APIRouter, HTTPException, Request
 from animator.dependencies import (
     FORBIDDEN_DETAIL,
     ControlContest,
+    ControllerId,
     DbSession,
     IdempotencyKey,
     OperatorScope,
@@ -75,7 +76,13 @@ from animator.services.control_service import (
     ReusedKeyError,
     SupersededCommandError,
 )
+from animator.services.controller_lease_service import (
+    ControllerLeaseContendedError,
+    ControllerLeaseLostError,
+    ControllerLeaseUnavailableError,
+)
 from animator.services.reveal_engine import (
+    NoPendingSubmissionError,
     RevealNotStartedError,
     RevealTransition,
     UnknownTeamError,
@@ -109,6 +116,27 @@ gets **no** such hint: retrying cannot repair it."""
 # Exception -> (status, detail, outcome, retryable). Ordered most specific
 # first; lookup is by isinstance, so a subclass must precede its base.
 _ERROR_MAP: tuple[tuple[type[Exception], int, str, str, bool], ...] = (
+    (
+        ControllerLeaseLostError,
+        409,
+        "This controller no longer owns the ceremony.",
+        "lease_lost",
+        False,
+    ),
+    (
+        ControllerLeaseContendedError,
+        503,
+        "Another command is mutating this reveal session; retry shortly.",
+        "contended",
+        True,
+    ),
+    (
+        ControllerLeaseUnavailableError,
+        503,
+        "Controller ownership is unavailable; retry shortly.",
+        "store_unavailable",
+        True,
+    ),
     (MissingSessionError, 404, "No reveal session has been started for this scope.", "no_session", False),
     (
         ActiveSessionError,
@@ -134,6 +162,13 @@ _ERROR_MAP: tuple[tuple[type[Exception], int, str, str, bool], ...] = (
     (UnknownSiteError, 404, "The credential's site does not belong to this contest.", "unknown_site", False),
     (UnknownTeamError, 400, "The requested team is not part of this ceremony's scope.", "unknown_team", False),
     (RevealNotStartedError, 409, "The reveal session has not been started.", "not_started", False),
+    (
+        NoPendingSubmissionError,
+        409,
+        "No pending submission remains in this ceremony.",
+        "no_pending_submission",
+        False,
+    ),
     (
         UnreachableTeamError,
         409,
@@ -224,6 +259,7 @@ async def _run(
     contest: ContestRecord,
     scope: ResolvedScope,
     *,
+    controller_id: str,
     command: RevealCommand,
     idempotency_key: str | None,
     team_id: str | None = None,
@@ -237,6 +273,7 @@ async def _run(
         store: The durable reveal-session store.
         contest: The enabled contest.
         scope: The scope the operator's credential authorizes.
+        controller_id: Opaque id that must own the controller lease.
         command: The command to apply.
         idempotency_key: The caller's key, when one was sent.
         team_id: Jump target; only for ``jump``.
@@ -255,6 +292,7 @@ async def _run(
             db,
             store,
             contest,
+            controller_id=controller_id,
             site_id=scope.site_id,
             command=command,
             team_id=team_id,
@@ -279,6 +317,7 @@ async def start_reveal(
     db: DbSession,
     store: RevealStore,
     scope: OperatorScope,
+    controller_id: ControllerId,
     idempotency_key: IdempotencyKey,
     body: StartRevealRequest | None = None,
 ) -> RevealProjectionResponse:
@@ -303,6 +342,7 @@ async def start_reveal(
         store,
         contest,
         scope,
+        controller_id=controller_id,
         command="start",
         idempotency_key=idempotency_key,
         restart=payload.restart,
@@ -316,6 +356,7 @@ async def step(
     db: DbSession,
     store: RevealStore,
     scope: OperatorScope,
+    controller_id: ControllerId,
     idempotency_key: IdempotencyKey,
     body: EmptyCommandRequest | None = None,
 ) -> RevealProjectionResponse:
@@ -325,7 +366,16 @@ async def step(
     JSON (a smuggled ``site_id``, say) is rejected with ``422`` rather than
     silently ignored.
     """
-    return await _run(request, db, store, contest, scope, command="step", idempotency_key=idempotency_key)
+    return await _run(
+        request,
+        db,
+        store,
+        contest,
+        scope,
+        controller_id=controller_id,
+        command="step",
+        idempotency_key=idempotency_key,
+    )
 
 
 @router.post("/back", name="animator_control_back", response_model=RevealProjectionResponse)
@@ -335,6 +385,7 @@ async def back(
     db: DbSession,
     store: RevealStore,
     scope: OperatorScope,
+    controller_id: ControllerId,
     idempotency_key: IdempotencyKey,
     body: EmptyCommandRequest | None = None,
 ) -> RevealProjectionResponse:
@@ -342,7 +393,43 @@ async def back(
 
     Takes no input; ``body`` only rejects unexpected JSON with ``422``.
     """
-    return await _run(request, db, store, contest, scope, command="back", idempotency_key=idempotency_key)
+    return await _run(
+        request,
+        db,
+        store,
+        contest,
+        scope,
+        controller_id=controller_id,
+        command="back",
+        idempotency_key=idempotency_key,
+    )
+
+
+@router.post("/jump-pending", name="animator_control_jump_pending", response_model=RevealProjectionResponse)
+async def jump_pending(
+    request: Request,
+    contest: ControlContest,
+    db: DbSession,
+    store: RevealStore,
+    scope: OperatorScope,
+    controller_id: ControllerId,
+    idempotency_key: IdempotencyKey,
+    body: EmptyCommandRequest | None = None,
+) -> RevealProjectionResponse:
+    """Advance cursor-only steps until the next pending cell is focused.
+
+    Takes no input; ``body`` only rejects unexpected JSON with ``422``.
+    """
+    return await _run(
+        request,
+        db,
+        store,
+        contest,
+        scope,
+        controller_id=controller_id,
+        command="jump_pending",
+        idempotency_key=idempotency_key,
+    )
 
 
 @router.post("/reset", name="animator_control_reset", response_model=RevealProjectionResponse)
@@ -352,6 +439,7 @@ async def reset(
     db: DbSession,
     store: RevealStore,
     scope: OperatorScope,
+    controller_id: ControllerId,
     idempotency_key: IdempotencyKey,
     body: EmptyCommandRequest | None = None,
 ) -> RevealProjectionResponse:
@@ -359,7 +447,16 @@ async def reset(
 
     Takes no input; ``body`` only rejects unexpected JSON with ``422``.
     """
-    return await _run(request, db, store, contest, scope, command="reset", idempotency_key=idempotency_key)
+    return await _run(
+        request,
+        db,
+        store,
+        contest,
+        scope,
+        controller_id=controller_id,
+        command="reset",
+        idempotency_key=idempotency_key,
+    )
 
 
 @router.post("/jump-team", name="animator_control_jump_team", response_model=RevealProjectionResponse)
@@ -369,6 +466,7 @@ async def jump_team(
     db: DbSession,
     store: RevealStore,
     scope: OperatorScope,
+    controller_id: ControllerId,
     idempotency_key: IdempotencyKey,
     body: JumpTeamRequest,
 ) -> RevealProjectionResponse:
@@ -379,6 +477,7 @@ async def jump_team(
         store,
         contest,
         scope,
+        controller_id=controller_id,
         command="jump",
         idempotency_key=idempotency_key,
         team_id=body.team_id,

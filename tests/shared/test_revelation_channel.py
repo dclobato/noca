@@ -23,7 +23,9 @@ from shared.reveal_schema import (
     RevealStateChangedEvent,
 )
 from shared.services.valkey_service import (
+    REVELATION_CHANNEL_PREFIX,
     InvalidRevelationScopeError,
+    reveal_controller_key,
     reveal_lock_key,
     reveal_state_key,
     revelation_channel,
@@ -59,13 +61,22 @@ def test_lock_key_format() -> None:
     assert reveal_lock_key("abc", "s1") == "animator:reveal:lock:abc:s1"
 
 
+def test_controller_key_format() -> None:
+    assert reveal_controller_key("abc", "global") == "animator:reveal:controller:abc:global"
+
+
 def test_channel_format() -> None:
-    assert revelation_channel("abc", "global") == "revelation:events:abc:global"
+    assert revelation_channel("abc", "global") == f"{REVELATION_CHANNEL_PREFIX}:abc:global"
 
 
 def test_keys_and_channel_embed_both_components() -> None:
     cid, scope = str(uuid4()), str(uuid4())
-    for built in (reveal_state_key(cid, scope), reveal_lock_key(cid, scope), revelation_channel(cid, scope)):
+    for built in (
+        reveal_state_key(cid, scope),
+        reveal_lock_key(cid, scope),
+        reveal_controller_key(cid, scope),
+        revelation_channel(cid, scope),
+    ):
         assert cid in built
         assert scope in built
 

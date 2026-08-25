@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime
 from dataclasses import dataclass
 
+from shared.enumerations import RoleEnum
 from shared.services.lock_service import LockBatchResult
 from web.models.clarification import Clarification
 from web.models.users import UberAdmin, User
@@ -26,6 +27,8 @@ class ClarificationView:
     question: str
     answer: str | None
     is_contest_public: bool
+    is_announcement: bool
+    unread: bool
     answered_at: datetime.datetime | None
     answer_read_at: datetime.datetime | None
     acquired_at: datetime.datetime | None
@@ -37,7 +40,44 @@ class ClarificationView:
     acquired_by_me: bool
 
 
-def to_view(clari: Clarification, *, show_judge: bool, actor_id: str | None) -> ClarificationView:
+def is_unread_for(
+    clari: Clarification,
+    *,
+    actor: User | UberAdmin,
+    read_announcement_ids: frozenset[str],
+) -> bool:
+    """Decide whether *actor* has an unread notification on this clarification.
+
+    This is the single definition the dashboard counter, the list highlight, and the
+    acknowledgement endpoint all answer to. Only a team is ever notified: about an answer
+    to a question it asked, or about an announcement it has not acknowledged.
+
+    Args:
+        clari: Clarification being projected.
+        actor: Viewer the projection is for.
+        read_announcement_ids: Announcement ids this actor has already read.
+
+    Returns:
+        True when the actor should see this row highlighted as new.
+    """
+    if isinstance(actor, UberAdmin) or actor.role != RoleEnum.TEAM:
+        return False
+    if clari.hidden:
+        return False
+    if clari.is_announcement:
+        # The Python-side mirror of `announcement_visible_to_teams()`: a team is never
+        # notified about a row its own list would not show it.
+        return clari.is_contest_public and clari.id not in read_announcement_ids
+    return clari.team_id == actor.id and clari.answered_at is not None and clari.answer_read_at is None
+
+
+def to_view(
+    clari: Clarification,
+    *,
+    show_judge: bool,
+    actor_id: str | None,
+    unread: bool,
+) -> ClarificationView:
     """Project one clarification to its role-scoped DTO."""
     return ClarificationView(
         id=clari.id,
@@ -46,6 +86,8 @@ def to_view(clari: Clarification, *, show_judge: bool, actor_id: str | None) -> 
         question=clari.question,
         answer=clari.answer,
         is_contest_public=clari.is_contest_public,
+        is_announcement=clari.is_announcement,
+        unread=unread,
         answered_at=clari.answered_at,
         answer_read_at=clari.answer_read_at,
         acquired_at=None,
@@ -64,12 +106,18 @@ def merge_clarification_views(
     actor: User | UberAdmin,
     show_judge: bool,
     lock_batch: LockBatchResult,
+    read_announcement_ids: frozenset[str] = frozenset(),
 ) -> list[ClarificationView]:
-    """Merge database clarifications with lock state for UI consumption."""
+    """Merge database clarifications with lock and read state for UI consumption."""
     actor_id = None if isinstance(actor, UberAdmin) else actor.id
     views: list[ClarificationView] = []
     for clari in clarifications:
-        view = to_view(clari, show_judge=show_judge, actor_id=actor_id)
+        view = to_view(
+            clari,
+            show_judge=show_judge,
+            actor_id=actor_id,
+            unread=is_unread_for(clari, actor=actor, read_announcement_ids=read_announcement_ids),
+        )
         if clari.answered_at is not None:
             views.append(view)
             continue

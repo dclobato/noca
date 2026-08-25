@@ -99,6 +99,21 @@ class ContestRecord:
         """Freeze boundary expressed in contest-relative seconds."""
         return self.stop_updating_scoreboard * 60
 
+    def has_started_at(self, now: datetime) -> bool:
+        """Whether the contest has begun at wall-clock ``now``.
+
+        Before the start instant the animator publishes no problem set at all:
+        how many problems a contest has and their balloon colors are secrets
+        until it opens, matching the Web scoreboard's own pre-start gate.
+
+        Args:
+            now: Reference instant (timezone-aware, or naive and assumed UTC).
+
+        Returns:
+            True once ``now`` has reached the start instant.
+        """
+        return ensure_utc(now) >= self.start_time_utc
+
     def is_frozen_at(self, now: datetime) -> bool:
         """Whether the public scoreboard is frozen at wall-clock ``now``.
 

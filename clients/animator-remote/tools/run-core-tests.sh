@@ -15,13 +15,43 @@
 # kotlinc, and the kotlinx-serialization compiler plugin; only the serialization
 # and coroutines runtime jars are fetched (once) from Maven Central.
 #
+# The image is the rolling `:compile` tag rather than a version-pinned one. A pin
+# here ages into a permanent skip: the script never pulls, so once the pinned tag
+# is no longer what a developer has locally, this test stops running and says
+# nothing about it. The rolling tag is the one a NOCA checkout already has, and
+# these checks assert wire shapes and control flow -- not compiler behavior -- so
+# tracking the current toolchain is the safer default. Pin through
+# NOCA_KOTLIN_IMAGE when reproducing against a specific build.
+#
+# Sources and jars are copied into the container rather than bind-mounted,
+# because this script must work where the Docker daemon is not the machine
+# running the script. Under Gitea Actions the job itself runs in a container
+# holding the *host* daemon's socket, and the checkout lives in a Docker volume;
+# a `-v "$PWD:/work"` there is resolved against the host filesystem, where the
+# path does not exist, so Docker creates an empty directory and mounts that. The
+# build then failed with "no source files" while every path looked right from
+# outside. `docker cp` streams from the *client's* filesystem over the API, so it
+# is correct for a remote, rootless, or sibling daemon alike -- and a copy also
+# gives the read-only guarantee the mounts were there for, since the container
+# cannot reach the working tree at all.
+#
+# A missing image is pulled rather than treated as "toolchain absent". Skipping
+# is the right answer only when the environment genuinely cannot run this; it is
+# the wrong answer when the image is one `docker pull` away, because a skip is
+# silent about the coverage it drops. The pull happens only when the image is
+# absent, so a developer with it already stays offline-capable and pays nothing.
+#
+# Exit 127 still means "unavailable here"; the pytest wrapper owns whether that
+# is a skip or a failure, and makes it a failure in CI.
+#
 # Usage:  tools/run-core-tests.sh
-# Env:    NOCA_KOTLIN_IMAGE   override the compile image
+# Env:    NOCA_KOTLIN_IMAGE   override the compile image (e.g. a pinned tag)
 #         NOCA_KOTLIN_LIB_DIR override the jar cache directory
+#         NOCA_KOTLIN_NO_PULL set to skip the pull of a missing image
 
 set -euo pipefail
 
-IMAGE="${NOCA_KOTLIN_IMAGE:-dclobato/noca-judge-kotlin:compile-v13.2.0}"
+IMAGE="${NOCA_KOTLIN_IMAGE:-dclobato/noca-judge-kotlin:compile}"
 LIB_DIR="${NOCA_KOTLIN_LIB_DIR:-$HOME/.cache/noca-animator-remote/libs}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -35,8 +65,15 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-    echo "the Kotlin compile image '$IMAGE' is not present locally" >&2
-    exit 127
+    if [ -n "${NOCA_KOTLIN_NO_PULL:-}" ]; then
+        echo "the Kotlin compile image '$IMAGE' is not present and pulling is disabled" >&2
+        exit 127
+    fi
+    echo "pulling $IMAGE" >&2
+    if ! docker pull "$IMAGE" >&2; then
+        echo "the Kotlin compile image '$IMAGE' is not present and could not be pulled" >&2
+        exit 127
+    fi
 fi
 
 mkdir -p "$LIB_DIR"
@@ -59,12 +96,10 @@ fetch_jar kotlinx-serialization-core-jvm "$SERIALIZATION_VERSION"
 fetch_jar kotlinx-serialization-json-jvm "$SERIALIZATION_VERSION"
 fetch_jar kotlinx-coroutines-core-jvm "$COROUTINES_VERSION"
 
-# The sources are mounted read-only and every build artifact stays inside the
-# container, so a test run cannot touch the working tree.
-exec docker run --rm \
-    -v "$PROJECT_DIR:/work:ro" \
-    -v "$LIB_DIR:/libs:ro" \
-    -w /work \
+# Create the container stopped, fill it, then run it. `docker cp` into a created
+# container is what makes this work off a non-local daemon; see the note above.
+CONTAINER="$(docker create \
+    -w / \
     --entrypoint sh \
     "$IMAGE" -c '
 set -eu
@@ -74,15 +109,28 @@ CP="$(ls /libs/*.jar | tr "\n" ":")/opt/kotlinc/lib/kotlin-test.jar:/opt/kotlinc
 # Every test source except CoreContractTest.kt, which is the Gradle-only JUnit
 # entry point: `kotlin.test.Test` needs a test framework on the classpath, and
 # this run deliberately has none.
-TESTS="$(find app/src/test/kotlin -name "*.kt" ! -name "CoreContractTest.kt" | sort | tr "\n" " ")"
+TESTS="$(find /app/src/test/kotlin -name "*.kt" ! -name "CoreContractTest.kt" | sort | tr "\n" " ")"
 
 kotlinc -nowarn -classpath "$CP" \
     -Xplugin=/opt/kotlinc/lib/kotlinx-serialization-compiler-plugin.jar \
-    app/src/main/kotlin/org/noca/animator/remote/core/*.kt \
+    /app/src/main/kotlin/org/noca/animator/remote/core/*.kt \
     $TESTS \
     -d /tmp/build
 
 java -cp "/tmp/build:$CP" \
-    -Danimator.remote.fixtures=/work/app/src/test/resources/fixtures \
+    -Danimator.remote.fixtures=/app/src/test/resources/fixtures \
     org.noca.animator.remote.core.CoreContractKt
-'
+')"
+
+cleanup() {
+    docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+# Neither destination exists in the image, so each receives the *contents* of its
+# source directory -- `/app/src/...` and `/libs/*.jar`, which is what the script
+# above expects.
+docker cp "$PROJECT_DIR/app" "$CONTAINER:/app" >/dev/null
+docker cp "$LIB_DIR" "$CONTAINER:/libs" >/dev/null
+
+docker start -a "$CONTAINER"

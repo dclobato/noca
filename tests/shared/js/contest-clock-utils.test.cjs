@@ -21,7 +21,7 @@ const context = { window: {} };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(utilityPath, "utf8"), context);
 
-const { countdownText, formatDuration, contestPhase, phaseLabel } =
+const { countdownText, countdownUrgency, formatDuration, contestPhase, phaseLabel } =
   context.window.ContestClockUtils;
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;
@@ -58,6 +58,58 @@ assert.equal(
   countdownText(90 * MINUTE + 1, 0, 90 * MINUTE),
   "The contest is over",
 );
+
+// ── Remaining-time urgency ───────────────────────────────────────────────────
+// A separate axis from the phase below: only "how much time is left". The
+// boundaries belong to the more urgent state, so a clock reading exactly 30:00
+// is already amber and one reading exactly 5:00 is already red.
+{
+  const S = 0;
+  const E = 5 * HOUR;
+
+  // The wait for a contest to start is never urgent -- not even in its last
+  // five minutes, where the countdown starts showing seconds.
+  assert.equal(countdownUrgency(-3 * HOUR, S, E), "normal");
+  assert.equal(countdownUrgency(-MINUTE, S, E), "normal");
+  assert.equal(countdownUrgency(-SECOND, S, E), "normal");
+
+  assert.equal(countdownUrgency(S, S, E), "normal");
+  assert.equal(countdownUrgency(E - 2 * HOUR, S, E), "normal");
+
+  // Exactly 30 minutes left is already the warning state; one millisecond more
+  // than that is not.
+  assert.equal(countdownUrgency(E - 30 * MINUTE - 1, S, E), "normal");
+  assert.equal(countdownUrgency(E - 30 * MINUTE, S, E), "warning");
+  assert.equal(countdownUrgency(E - 17 * MINUTE, S, E), "warning");
+  assert.equal(countdownUrgency(E - 5 * MINUTE - 1, S, E), "warning");
+
+  // Exactly 5 minutes left is already critical, and stays so through the end
+  // moment itself -- the contest is still running on that millisecond, which is
+  // the same boundary countdownText treats as "0s until end".
+  assert.equal(countdownUrgency(E - 5 * MINUTE, S, E), "critical");
+  assert.equal(countdownUrgency(E - SECOND, S, E), "critical");
+  assert.equal(countdownUrgency(E, S, E), "critical");
+
+  // Past the end moment the clock is spent, matching "The contest is over".
+  assert.equal(countdownUrgency(E + 1, S, E), "ended");
+  assert.equal(countdownUrgency(E + HOUR, S, E), "ended");
+
+  // Urgency and countdown text agree about where the contest ends.
+  assert.equal(countdownText(E, S, E), "0s until end");
+  assert.equal(countdownText(E + 1, S, E), "The contest is over");
+
+  // A contest shorter than the thresholds is urgent from its first second
+  // rather than dividing by a window it never has.
+  assert.equal(countdownUrgency(0, 0, 3 * MINUTE), "critical");
+  assert.equal(countdownUrgency(0, 0, 20 * MINUTE), "warning");
+
+  // Urgency is independent of phase: a frozen contest with hours to run is not
+  // urgent, and a still-unfrozen one in its last minutes is.
+  assert.equal(contestPhase(2 * HOUR, S, E, HOUR, null), "frozen");
+  assert.equal(countdownUrgency(2 * HOUR, S, E), "normal");
+  assert.equal(contestPhase(E - MINUTE, S, E, null, null), "running");
+  assert.equal(countdownUrgency(E - MINUTE, S, E), "critical");
+}
 
 // ── Contest phase ────────────────────────────────────────────────────────────
 // Mirrors contest_clock_state() in

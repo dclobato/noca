@@ -57,6 +57,10 @@
   var RELOADING_STATE = "Reloading authoritative ceremony state…";
   var UNUSABLE_STATE_DETAIL = "The stored reveal session is unusable.";
   var DEFINITIVE_STATUSES = [400, 403, 404, 409, 422];
+  // The one authored `409` that means controller ownership specifically ended.
+  // Must match animator/routes/controller_lease.py verbatim; the Android client
+  // pins the same string.
+  var LEASE_LOST_DETAIL = "This controller no longer owns the ceremony.";
 
   // A failure the server described is definitive: nothing was applied.
   // Everything else (no status at all, or 5xx) is ambiguous.
@@ -99,6 +103,7 @@
         stepVisible: false,
         backVisible: false,
         jumpVisible: false,
+        jumpPendingVisible: false,
       };
     }
     if (stateLoadFailed) {
@@ -109,6 +114,7 @@
         stepVisible: false,
         backVisible: false,
         jumpVisible: false,
+        jumpPendingVisible: false,
       };
     }
     if (!projection) {
@@ -121,6 +127,7 @@
         stepVisible: false,
         backVisible: false,
         jumpVisible: false,
+        jumpPendingVisible: false,
       };
     }
     if (projection.phase === "idle") {
@@ -136,6 +143,7 @@
         stepVisible: false,
         backVisible: false,
         jumpVisible: false,
+        jumpPendingVisible: false,
       };
     }
     var revealing = projection.phase === "revealing";
@@ -146,18 +154,19 @@
       stepVisible: revealing,
       backVisible: true,
       jumpVisible: revealing,
+      jumpPendingVisible: revealing && !projection.next_cell,
     };
   }
 
-  // deps: { fetchImpl, urls, onState, onStatus, onError, setBusy, onAuthFailure,
-  //         onReconcileFailure }
+  // deps: { fetchImpl, urls, ownership, onState, onStatus, onError, setBusy,
+  //         onAuthFailure, onReconcileFailure }
   function createCommandClient(deps) {
     var secret = null;
     var busy = false;
     var blocked = false; // Set after an ambiguous outcome until reconciliation.
     var sequenceActive = false;
 
-    function headers(withBody, idempotencyKey) {
+    function headers(withBody, idempotencyKey, controllerId) {
       var result = { Accept: "application/json", Authorization: "Bearer " + secret };
       if (withBody) {
         result["Content-Type"] = "application/json";
@@ -165,12 +174,18 @@
       if (idempotencyKey) {
         result["Idempotency-Key"] = idempotencyKey;
       }
+      if (controllerId) {
+        result["X-Animator-Controller-Id"] = controllerId;
+      }
       return result;
     }
 
     function request(url, options) {
       var opts = options || {};
-      var init = { method: opts.method || "GET", headers: headers(!!opts.body, opts.idempotencyKey) };
+      var init = {
+        method: opts.method || "GET",
+        headers: headers(!!opts.body, opts.idempotencyKey, opts.controllerId),
+      };
       if (opts.body) {
         init.body = JSON.stringify(opts.body);
       }
@@ -255,7 +270,7 @@
     }
 
     function run(url, options) {
-      if (busy || blocked || secret === null) {
+      if (busy || blocked || secret === null || !deps.ownership.canCommand()) {
         return Promise.resolve(null);
       }
       busy = true;
@@ -265,6 +280,7 @@
       // this panel never issues by itself — reuses a key.
       var opts = options || {};
       opts.idempotencyKey = makeIdempotencyKey();
+      opts.controllerId = deps.ownership.controllerHeader();
       return request(url, opts).then(
         function (projection) {
           busy = false;
@@ -280,6 +296,19 @@
           if (error.status === 403) {
             // The credential is invalid or expired: forget it and re-prompt.
             handleForbidden();
+            return null;
+          }
+          if (error.status === 409 && error.detail === LEASE_LOST_DETAIL) {
+            // A stated refusal: nothing was applied, so the ambiguity lock must
+            // NOT engage. Without this, a panel that lost ownership and then
+            // took over again would show "in control" while every command
+            // silently no-ops on `blocked` until an explicit reload.
+            blocked = false;
+            if (!sequenceActive) {
+              deps.setBusy(false);
+            }
+            deps.ownership.markLost(error);
+            deps.onError(error.detail, error);
             return null;
           }
           if (isDefinitive(error.status)) {
@@ -308,7 +337,7 @@
     // introduced, and an ambiguous result can never consume an extra step.
     function repeat(url, count, statusLabel) {
       var total = typeof count === "number" && isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
-      if (total === 0 || busy || blocked || secret === null) {
+      if (total === 0 || busy || blocked || secret === null || !deps.ownership.canCommand()) {
         return Promise.resolve(null);
       }
       var completed = 0;
@@ -381,6 +410,9 @@
       jump: function (teamId) {
         return run(deps.urls.jump, { method: "POST", body: { team_id: teamId } });
       },
+      jumpPending: function () {
+        return run(deps.urls.jumpPending, { method: "POST" });
+      },
     };
   }
 
@@ -416,6 +448,12 @@
       scopeLabel: doc.getElementById("control-scope-label"),
       jumpRow: doc.getElementById("control-jump-row"),
       jumpTeam: doc.getElementById("control-jump-team"),
+      ownershipStatus: doc.getElementById("control-ownership-status"),
+      ownershipDetail: doc.getElementById("control-ownership-detail"),
+      takeover: doc.getElementById("control-takeover"),
+      ownershipRetry: doc.getElementById("control-ownership-retry"),
+      takeoverModal: doc.getElementById("control-takeover-modal"),
+      takeoverConfirm: doc.getElementById("control-takeover-confirm"),
       confirmationModal: doc.getElementById("control-confirmation-modal"),
       confirmationTitle: doc.getElementById("control-confirmation-modal-label"),
       confirmationMessage: doc.getElementById("control-confirmation-message"),
@@ -437,6 +475,7 @@
       back: doc.getElementById("control-back"),
       backTen: doc.getElementById("control-back-ten"),
       jump: doc.getElementById("control-jump"),
+      jumpPending: doc.getElementById("control-jump-pending"),
     };
     // The last projection the server confirmed; feeds the visibility mapping,
     // the start-over modal counts, and the keyboard gating.
@@ -445,6 +484,10 @@
     var stateLoadFailed = false;
     var pendingDestructiveAction = null;
     var confirmationModal = window.bootstrap.Modal.getOrCreateInstance(els.confirmationModal);
+    var takeoverModal = window.bootstrap.Modal.getOrCreateInstance(els.takeoverModal);
+    var confirmTakeover = null;
+    var commandBusy = false;
+    var commandAuthority = false;
 
     function setStatus(text) {
       if (els.status) {
@@ -461,11 +504,17 @@
     }
 
     function setBusy(isBusy) {
+      commandBusy = isBusy;
       Object.keys(buttons).forEach(function (name) {
         if (buttons[name]) {
-          buttons[name].disabled = isBusy;
+          buttons[name].disabled = isBusy || (name !== "reload" && !commandAuthority);
         }
       });
+    }
+
+    function setCommandsEnabled(enabled) {
+      commandAuthority = enabled;
+      setBusy(commandBusy);
     }
 
     function renderState(projection) {
@@ -477,6 +526,7 @@
       buttons.stepTen.hidden = !controls.stepVisible;
       buttons.back.hidden = !controls.backVisible;
       buttons.backTen.hidden = !controls.backVisible;
+      buttons.jumpPending.hidden = !controls.jumpPendingVisible;
       els.jumpRow.hidden = !controls.jumpVisible;
       // Once a session exists the projection names the token's scope, so the
       // selector has nothing left to declare — collapse it to static text. A
@@ -518,6 +568,49 @@
       buttons.jump.disabled = teams.length === 0;
     }
 
+    var lease = window.AnimatorControlLease.createLeaseClient({
+      fetchImpl: function (url, init) {
+        return window.fetch(url, init);
+      },
+      urls: {
+        claim: root.getAttribute("data-lease-claim-url"),
+        heartbeat: root.getAttribute("data-lease-heartbeat-url"),
+        release: root.getAttribute("data-lease-release-url"),
+        takeover: root.getAttribute("data-lease-takeover-url"),
+      },
+      visibilityTarget: doc,
+      pageTarget: window,
+      getVisibility: function () {
+        return doc.visibilityState;
+      },
+      randomUUID:
+        typeof crypto !== "undefined" && crypto && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID.bind(crypto)
+          : null,
+    });
+    var ownership = window.AnimatorControlOwnership.createOwnershipController({
+      lease: lease,
+      elements: {
+        label: els.ownershipStatus,
+        detail: els.ownershipDetail,
+        takeover: els.takeover,
+        retry: els.ownershipRetry,
+      },
+      setCommandsEnabled: setCommandsEnabled,
+      confirmTakeover: function (confirmed) {
+        confirmTakeover = confirmed;
+        takeoverModal.show();
+      },
+    });
+    els.takeoverConfirm.addEventListener("click", function () {
+      var confirmed = confirmTakeover;
+      confirmTakeover = null;
+      takeoverModal.hide();
+      if (confirmed) {
+        confirmed();
+      }
+    });
+
     var client = createCommandClient({
       fetchImpl: function (url, init) {
         return window.fetch(url, init);
@@ -529,7 +622,9 @@
         back: root.getAttribute("data-back-url"),
         reset: root.getAttribute("data-reset-url"),
         jump: root.getAttribute("data-jump-url"),
+        jumpPending: root.getAttribute("data-jump-pending-url"),
       },
+      ownership: ownership,
       onState: function (projection) {
         lastProjection = projection;
         stateUnusable = false;
@@ -599,16 +694,31 @@
       els.panel.hidden = false;
       setError("");
       setStatus("");
-      client.loadState().catch(function (error) {
-        stateUnusable = isUnusableStateError(error);
-        stateLoadFailed = !stateUnusable;
-        renderState(null);
-        setError(
-          stateUnusable
-            ? "The stored reveal state cannot be read. Use Rebuild state to replace it."
-            : "The ceremony state could not be loaded.",
-        );
-      });
+      client
+        .loadState()
+        .catch(function (error) {
+          // Record the load failure for the controls mapping, but do NOT stop
+          // here: claiming the lease depends only on the credential, and the
+          // documented recovery for an unusable stored payload (Rebuild state,
+          // i.e. start-reveal + restart) needs command authority even when the
+          // state cannot be read. Skipping the claim here used to leave every
+          // button disabled behind a "Use Rebuild state" message.
+          stateUnusable = isUnusableStateError(error);
+          stateLoadFailed = !stateUnusable;
+          renderState(null);
+          setError(
+            stateUnusable
+              ? "The stored reveal state cannot be read. Use Rebuild state to replace it."
+              : "The ceremony state could not be loaded.",
+          );
+          return null;
+        })
+        .then(function () {
+          if (client.hasSecret()) {
+            return ownership.claim(value);
+          }
+          return null;
+        });
     });
 
     // The scope a start body must declare: the projection's own site once a
@@ -691,12 +801,15 @@
         client.jump(els.jumpTeam.value);
       }
     });
+    buttons.jumpPending.addEventListener("click", function () {
+      client.jumpPending();
+    });
     buttons.reload.addEventListener("click", function () {
       client.reload();
     });
 
     doc.addEventListener("keydown", function (event) {
-      if (isFormControl(event.target) || !client.hasSecret()) {
+      if (isFormControl(event.target) || !client.hasSecret() || !ownership.canCommand()) {
         return;
       }
       var controls = controlsForState(lastProjection, stateUnusable, stateLoadFailed);
@@ -727,6 +840,7 @@
     RECONCILE_FAILED: RECONCILE_FAILED,
     RELOADING_STATE: RELOADING_STATE,
     UNUSABLE_STATE_DETAIL: UNUSABLE_STATE_DETAIL,
+    LEASE_LOST_DETAIL: LEASE_LOST_DETAIL,
     createCommandClient: createCommandClient,
     controlsForState: controlsForState,
     isDefinitive: isDefinitive,

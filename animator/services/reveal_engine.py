@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -45,6 +45,9 @@ Command-state matrix
 |               | ``RevealNotStarted``   |                        | ``Error``              |
 |               | ``Error``              |                        |                        |
 +---------------+------------------------+------------------------+------------------------+
+| jump_pending  | ``RevealNotStarted``   | seek next pending cell | ``NoPendingSubmission``|
+|               | ``Error``              | or no-pending error    | ``Error``              |
++---------------+------------------------+------------------------+------------------------+
 
 ``start()``, ``step()`` and ``back()`` all end in the same single recomputation
 (:func:`_recompute`), so phase and focus are derived one way only. ``back()`` on
@@ -78,12 +81,14 @@ from animator.services.reveal_projection import build_team_reveal_views, compute
 from shared.services.scoreboard_projection import TeamStanding, submission_sort_key
 
 __all__ = [
+    "NoPendingSubmissionError",
     "RevealNotStartedError",
     "RevealTransition",
     "RevealTransitionError",
     "UnknownTeamError",
     "UnreachableTeamError",
     "back",
+    "jump_pending",
     "jump_team",
     "next_reveal_cell",
     "project",
@@ -112,6 +117,14 @@ class RevealNotStartedError(RevealTransitionError):
         """
         self.command = command
         super().__init__(f"{command}() requires a started session; call start() first")
+
+
+class NoPendingSubmissionError(RevealTransitionError):
+    """Raised when no pending frozen submission remains ahead of the cursor."""
+
+    def __init__(self) -> None:
+        """Describe the refusal without exposing submission data."""
+        super().__init__("no pending frozen submission remains in this ceremony")
 
 
 class UnknownTeamError(RevealTransitionError, LookupError):
@@ -511,3 +524,46 @@ def jump_team(dataset: RevealDataset, state: RevealSessionState, team_id: str) -
         current = advanced
 
     raise UnreachableTeamError(team_id)
+
+
+def jump_pending(dataset: RevealDataset, state: RevealSessionState) -> RevealTransition:
+    """Advance cursor-only steps until the next pending cell is focused.
+
+    In a revealing projection, ``next_reveal_cell()`` is absent exactly when
+    the next :func:`_step_state` call is a pure cursor advance. Checking that
+    condition before every step proves this command can never reveal a frozen
+    submission: it stops as soon as an ordinary ``step`` would change a cell.
+
+    An already-focused pending cell is an exact no-op. When no pending cell
+    remains, the command raises instead of sweeping the ceremony to ``done``.
+    The loop shares :func:`jump_team`'s bound and no-progress guard because each
+    successful cursor advance appends one entry to the step trail.
+
+    Args:
+        dataset: The scoped ceremony dataset.
+        state: The current session state.
+
+    Returns:
+        The first transition whose next ordinary step would reveal a cell.
+
+    Raises:
+        RevealNotStartedError: If the session is still idle.
+        NoPendingSubmissionError: If no pending submission remains ahead.
+    """
+    if state.phase == "idle":
+        raise RevealNotStartedError("jump_pending")
+    if state.phase == "done":
+        raise NoPendingSubmissionError()
+    if next_reveal_cell(dataset, state) is not None:
+        return project(dataset, state)
+
+    current = state
+    for _ in range(len(state.frozen_submission_ids) + len(dataset.teams) + 1):
+        advanced = _step_state(dataset, current)
+        if advanced.step_log == current.step_log and advanced.phase == current.phase:
+            raise NoPendingSubmissionError()
+        current = advanced
+        if next_reveal_cell(dataset, current) is not None:
+            return project(dataset, current)
+
+    raise NoPendingSubmissionError()

@@ -32,6 +32,10 @@
     typeof module !== "undefined" && module.exports
       ? require("./animator-keyed-rows.js")
       : (typeof window !== "undefined" ? window : {}).AnimatorKeyedRows;
+  var teamCell =
+    typeof module !== "undefined" && module.exports
+      ? require("./animator-team-cell.js")
+      : (typeof window !== "undefined" ? window : {}).AnimatorTeamCell;
 
   var HEX_COLOR = /^[0-9a-fA-F]{3,8}$/;
   var MEDAL_BANDS = ["gold", "silver", "bronze"];
@@ -357,26 +361,13 @@
     return td;
   }
 
-  // Fill the team header cell. Rebuilt each update (it is never a flash target),
-  // so a rename would still be reflected.
+  // Refresh the team header cell while retaining its modal trigger. The helper
+  // rebuilds only presentation siblings, so renames still appear immediately.
   function fillTeamCell(doc, th, standing, medalBase) {
-    th.replaceChildren();
-    // First line: full name (prominent). Second line: site (muted). The login is
-    // only a fallback when no full name exists.
-    var primary = doc.createElement("span");
-    primary.setAttribute("class", "animator-team-primary");
-    primary.textContent = format.teamLabel(standing);
-    th.appendChild(primary);
-    if (standing.site_name) {
-      var secondary = doc.createElement("span");
-      secondary.setAttribute("class", "animator-team-secondary");
-      secondary.textContent = standing.site_name;
-      th.appendChild(secondary);
-    }
-    var medalImage = createMedalImage(doc, medalBase, standing.medal);
-    if (medalImage) {
-      th.appendChild(medalImage);
-    }
+    teamCell.syncTeamCell(doc, th, standing, {
+      medalBase: medalBase,
+      createMedalImage: createMedalImage,
+    });
   }
 
   function buildRow(doc, problems, standing, options) {

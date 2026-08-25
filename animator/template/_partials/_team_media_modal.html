@@ -1,0 +1,46 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
+<div class="modal fade"
+     id="team-media-modal"
+     tabindex="-1"
+     aria-labelledby="team-media-modal-label"
+     aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered team-media-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="team-media-modal-label">Team</h2>
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
+            <div class="modal-body team-media-modal-body">
+                <img id="team-media-photo" class="team-media-photo" alt="" hidden>
+                {# A failed request or decode must show readable fallback text,
+                   never broken-image chrome. In-scope teams normally resolve
+                   to a photo, avatar, or the checked-in placeholder. #}
+                <p id="team-media-photo-fallback"
+                   class="team-media-photo-fallback"
+                   hidden>No photo available for this team.</p>
+                {% if team_modal_audio_enabled %}
+                    {# No src: the controller assigns it after the dialog opens
+                       and removes it on close to stop playback and downloads. #}
+                    <audio id="team-media-audio"
+                           class="team-media-audio"
+                           controls
+                           preload="none"
+                           hidden>Your browser does not support audio playback.</audio>
+                    <p id="team-media-audio-status"
+                       class="team-media-audio-status"
+                       role="status"
+                       aria-live="polite"></p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>

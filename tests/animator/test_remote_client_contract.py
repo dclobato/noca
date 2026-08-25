@@ -41,6 +41,14 @@ _CLIENT_ROOT = _REPO_ROOT / "clients" / "animator-remote"
 _KOTLIN_CORE = _CLIENT_ROOT / "app" / "src" / "main" / "kotlin" / "org" / "noca" / "animator" / "remote" / "core"
 _FIXTURES = _CLIENT_ROOT / "app" / "src" / "test" / "resources" / "fixtures"
 
+try:
+    from animator.models.controller_lease import ControllerLeaseResponse
+except ImportError:
+    ControllerLeaseResponse = None
+
+_EXPECTED_CONTROLLER_ID_HEADER = "X-Animator-Controller-Id"
+_EXPECTED_CONTROLLER_ID_PATTERN = r"^[A-Za-z0-9_-]{8,128}$"
+
 
 def _kotlin(name: str) -> str:
     """Return the text of one Kotlin core source file."""
@@ -106,6 +114,17 @@ def test_projection_fixture_validates_against_the_server_model() -> None:
 def test_meta_fixture_validates_against_the_server_model() -> None:
     """The shared meta fixture is a real ``ContestMetaResponse``."""
     ContestMetaResponse.model_validate(_fixture("meta.json"))
+
+
+def test_lease_fixture_matches_the_pending_server_contract() -> None:
+    """Pin timings now and validate with the server model as soon as it lands."""
+    payload = _fixture("controller-lease.json")
+    assert payload["lease_ttl_seconds"] == 45
+    assert payload["heartbeat_interval_seconds"] == 10
+    assert isinstance(payload["status"], str)
+    if ControllerLeaseResponse is not None:
+        ControllerLeaseResponse.model_validate(payload)
+        assert set(payload) == _serialized_keys(ControllerLeaseResponse)
 
 
 @pytest.mark.parametrize(
@@ -210,6 +229,34 @@ def test_kotlin_idempotency_pattern_matches_the_server() -> None:
     assert match.group(1) == IDEMPOTENCY_KEY_PATTERN
 
 
+def test_kotlin_controller_contract_matches_the_server() -> None:
+    """The UUID-like pattern and dedicated header must remain exact literals."""
+    source = _kotlin("CommandClient.kt")
+    pattern = re.search(r'CONTROLLER_ID_PATTERN\s*:\s*Regex\s*=\s*Regex\("([^"]+)"\)', source)
+    header = re.search(r'CONTROLLER_ID_HEADER\s*:\s*String\s*=\s*"([^"]+)"', source)
+    assert pattern, "could not find CONTROLLER_ID_PATTERN in the Kotlin client"
+    assert header, "could not find CONTROLLER_ID_HEADER in the Kotlin client"
+    assert pattern.group(1) == _EXPECTED_CONTROLLER_ID_PATTERN
+    assert header.group(1) == _EXPECTED_CONTROLLER_ID_HEADER
+
+    try:
+        from animator.models.controller_lease import CONTROLLER_ID_HEADER, CONTROLLER_ID_PATTERN
+    except ImportError:
+        return
+    assert CONTROLLER_ID_PATTERN == _EXPECTED_CONTROLLER_ID_PATTERN
+    assert CONTROLLER_ID_HEADER == _EXPECTED_CONTROLLER_ID_HEADER
+
+
+def test_kotlin_lease_model_names_every_response_field() -> None:
+    """The no-toolchain suite covers the lease model before server integration."""
+    source = _kotlin("ApiModels.kt")
+    payload = _fixture("controller-lease.json")
+    serial_names = _serial_names(source)
+    properties = _property_names(source)
+    missing = sorted(key for key in payload if key not in serial_names and _camel(key) not in properties)
+    assert not missing
+
+
 def test_kotlin_unusable_state_detail_matches_the_server() -> None:
     """The one recoverable corrupt-state detail is compared verbatim.
 
@@ -238,3 +285,12 @@ def test_kotlin_definitive_statuses_match_the_stated_refusals() -> None:
     assert match, "could not find DEFINITIVE_STATUSES in the Kotlin client"
     statuses = {int(value.strip()) for value in match.group(1).split(",") if value.strip()}
     assert statuses == {400, 403, 404, 409, 422}
+
+
+def test_jump_pending_is_wired_through_every_android_layer() -> None:
+    """The server command remains reachable from the Android button pad."""
+    assert 'jumpPending = "$base/jump-pending"' in _kotlin("Urls.kt")
+    assert "suspend fun jumpPending()" in _kotlin("CommandClient.kt")
+    assert "val jumpPendingVisible: Boolean" in _kotlin("Controls.kt")
+    assert "fun jumpPending()" in _kotlin("../ui/RemoteViewModel.kt")
+    assert 'Text("Jump to next pending")' in _kotlin("../ui/CommandPad.kt")

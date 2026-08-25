@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
 {% from "_macros.html" import admin_breadcrumb with context %}
 {% block title_suffix %}— Edit User{% endblock %}
@@ -247,10 +254,6 @@
     {% endwith %}
 {% endblock %}
 {% block extra_script %}
-    {# The photo/audio removal forms declare `data-confirm`; without this listener
-       the confirmation silently never appeared. #}
-    <script src="{{ request.url_for('static_js', path='confirm-submit.js') }}"
-            defer></script>
     <script src="{{ request.url_for('static_vendor', path='cropper.min.js') }}"></script>
     <script src="{{ request.url_for('static_js', path='image-cropper.js') }}?v={{ app_version }}-r3"></script>
     <script src="{{ request.url_for('static_js', path='user-media-preview.js') }}?v={{ app_version }}"></script>

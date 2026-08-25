@@ -9,7 +9,7 @@
  *
  * Shared display logic for contest countdown clocks.
  *
- * Exposes a single global object `ContestClockUtils` with two pure functions:
+ * Exposes a single global object `ContestClockUtils` of pure functions:
  *
  *   ContestClockUtils.formatDuration(ms, showSeconds) -> string
  *     Formats a duration in milliseconds as a human-readable string
@@ -18,6 +18,10 @@
  *   ContestClockUtils.countdownText(nowMs, startMs, endMs) -> string
  *     Returns the appropriate countdown string for the current moment
  *     given contest start/end times (all in epoch milliseconds).
+ *
+ *   ContestClockUtils.countdownUrgency(nowMs, startMs, endMs) -> string
+ *     Returns how pressing the remaining time is: "normal", "warning",
+ *     "critical" or "ended".
  *
  * This file must be loaded before each page-specific contest clock driver.
  */
@@ -28,6 +32,8 @@
 
   const SHORT_THRESHOLD_MS = 5 * 60 * 1000;        // show seconds when < 5 min remain
   const COMING_SOON_MS     = 12 * 60 * 60 * 1000;  // "Coming soon" when > 12 h to start
+  const WARNING_MS         = 30 * 60 * 1000;       // countdown turns amber at 30 min left
+  const CRITICAL_MS        = 5 * 60 * 1000;        // countdown turns red at 5 min left
 
   /**
    * Format a duration (ms) into a human-readable string.
@@ -85,6 +91,34 @@
   }
 
   /**
+   * Return how pressing the time remaining at `nowMs` is, for a contest that
+   * starts at `startMs` and ends at `endMs` (all epoch milliseconds).
+   *
+   * This is deliberately a separate axis from `contestPhase`: freeze and
+   * answer-silence are scheduled moments an organiser chose, while urgency is
+   * only ever "how much time is left". A frozen contest with two hours to run
+   * is not urgent, and a running one with four minutes left is, so neither
+   * value can be derived from the other.
+   *
+   * The boundaries belong to the more urgent state, because a clock reading
+   * exactly 30:00 is already inside the last half hour:
+   *
+   *   upcoming             : "normal"  (the wait to start is never urgent)
+   *   running, > 30 min    : "normal"
+   *   running, ≤ 30 min    : "warning"
+   *   running, ≤ 5 min     : "critical"
+   *   past the end moment  : "ended"
+   */
+  function countdownUrgency(nowMs, startMs, endMs) {
+    if (nowMs < startMs) return "normal";
+    if (nowMs > endMs) return "ended";
+    const remainingMs = endMs - nowMs;
+    if (remainingMs <= CRITICAL_MS) return "critical";
+    if (remainingMs <= WARNING_MS) return "warning";
+    return "normal";
+  }
+
+  /**
    * Return the contest's phase at `nowMs`.
    *
    * Mirrors `contest_clock_state` in web/services/contest_service/presentation.py:
@@ -117,6 +151,7 @@
   global.ContestClockUtils = {
     formatDuration: formatDuration,
     countdownText: countdownText,
+    countdownUrgency: countdownUrgency,
     contestPhase: contestPhase,
     phaseLabel: phaseLabel
   };

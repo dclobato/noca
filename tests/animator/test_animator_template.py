@@ -21,10 +21,12 @@ import pytest
 from fastapi.templating import Jinja2Templates
 from httpx import ASGITransport, AsyncClient
 from jinja2 import ChoiceLoader, FileSystemLoader
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 import animator.main as animator_main
 from tests.animator._feed_seed import make_contest, seed_dataset
+from web.models.site import Site
 from web.models.users import UberAdmin
 
 _ANIMATOR_DIR = Path(animator_main.__file__).resolve().parent
@@ -62,6 +64,12 @@ def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=animator_main.app), base_url="http://test")
 
 
+def _assert_vendor_footer_links_absent(html: str) -> None:
+    """Assert that the footer does not advertise implementation vendors."""
+    for footer_link in ("https://fastapi.tiangolo.com/", "https://python.org/"):
+        assert footer_link not in html
+
+
 @pytest.mark.asyncio
 async def test_page_enabled_renders_dom_hooks(session: AsyncSession, uberadmin: UberAdmin) -> None:
     contest = await make_contest(session, uberadmin, slug="page-enabled")
@@ -90,8 +98,12 @@ async def test_page_enabled_renders_dom_hooks(session: AsyncSession, uberadmin: 
         'id="animator-error"',
         'id="animator-retry"',
         'id="animator-empty"',
+        'id="animator-not-started"',
         'id="animator-problem-header"',
         'id="animator-standings"',
+        'id="team-media-modal"',
+        'id="team-media-photo"',
+        'id="team-media-photo-fallback"',
     ]:
         assert hook in html
     assert 'id="animator-contest-ended"' in html
@@ -103,7 +115,12 @@ async def test_page_enabled_renders_dom_hooks(session: AsyncSession, uberadmin: 
     assert 'data-meta-url="http://test/c/page-enabled/meta"' in html
     assert 'data-snapshot-url="http://test/c/page-enabled/snapshot?scope=global"' in html
     assert 'data-events-url="http://test/c/page-enabled/events"' in html
+    assert 'data-scope="global"' in html
+    assert 'data-photo-base="http://test/c/page-enabled/teams"' in html
     assert 'data-poll-fallback="15"' in html
+    assert 'id="team-media-audio"' not in html
+    assert 'id="team-media-audio-status"' not in html
+    assert "data-audio-base" not in html
     # The asset mount bases let the client build per-problem balloon/star <img>
     # URLs served by the animator's own /assets route.
     assert 'data-balloon-base="http://test/assets/balloon"' in html
@@ -119,6 +136,23 @@ async def test_page_enabled_renders_dom_hooks(session: AsyncSession, uberadmin: 
     assert 'aria-label="Connection disruption duration: 00:00"' in html
     assert html.index('id="animator-pending"') < html.index('id="animator-events"')
     assert html.index('id="animator-events"') < html.index('id="animator-scoreboard"')
+
+
+@pytest.mark.asyncio
+async def test_site_page_wires_canonical_scope_to_team_photo(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """A site scoreboard uses the validated scope for its team-photo requests."""
+    contest = await make_contest(session, uberadmin, slug="page-site-media")
+    await seed_dataset(session, contest, uberadmin, teams=1, problems=1, submissions=1)
+    await session.commit()
+    site_id = (await session.execute(select(Site.id).where(Site.contest_id == contest.id))).scalar_one()
+
+    _wire_app(session.bind)  # type: ignore[arg-type]
+    async with _client() as client:
+        response = await client.get(f"/c/page-site-media/scoreboard?scope={site_id}")
+
+    assert response.status_code == 200
+    assert f'data-scope="{site_id}"' in response.text
+    assert 'data-photo-base="http://test/c/page-site-media/teams"' in response.text
 
 
 @pytest.mark.asyncio
@@ -156,9 +190,11 @@ async def test_page_loads_shared_and_module_assets(session: AsyncSession, uberad
     assert "animator-events.css" in html
     assert "animator.js" in html
     assert "animator-keyed-rows.js" in html
+    assert "animator-team-cell.js" in html
     assert "animator-render.js" in html
     assert "animator-connection-status.js" in html
     assert "animator-events.js" in html
+    assert "team-media-modal.js" in html
     assert "animator-theme-init.js" in html
     assert "bootstrap.bundle.min.js" in html
     assert "theme-toggle.js" in html
@@ -168,12 +204,13 @@ async def test_page_loads_shared_and_module_assets(session: AsyncSession, uberad
     assert "/static/img/ifsp.svg" in html
     for footer_link in [
         "https://sjp.ifsp.edu.br/",
-        "https://fastapi.tiangolo.com/",
-        "https://python.org/",
         "https://x.com/dclobato",
         "https://github.com/dclobato/noca",
     ]:
         assert footer_link in html
+    _assert_vendor_footer_links_absent(html)
+    assert 'aria-label="Switch to dark mode"' in html
+    assert 'title="Switch to dark mode"' in html
 
 
 @pytest.mark.asyncio
@@ -222,6 +259,35 @@ async def test_page_slug_is_escaped(session: AsyncSession, uberadmin: UberAdmin)
     assert contest.login_slug in response.text
 
 
+def test_pre_start_banner_reuses_the_ceremony_banner_style() -> None:
+    """The pre-start banner shares one rule with the ceremony's own banner.
+
+    Both surfaces say "there is nothing to show yet" on a projected screen, so
+    they must look identical. The rule therefore lives in animator.css -- loaded
+    on every animator page -- and ceremony.css must not carry a copy free to
+    drift from it.
+    """
+    shared_css = (_STATIC_DIR / "css" / "animator.css").read_text(encoding="utf-8")
+    ceremony_css = (_STATIC_DIR / "css" / "ceremony.css").read_text(encoding="utf-8")
+    scoreboard_html = (_ANIMATOR_DIR / "template" / "animator.html").read_text(encoding="utf-8")
+    ceremony_html = (_ANIMATOR_DIR / "template" / "ceremony.html").read_text(encoding="utf-8")
+
+    assert ".ceremony-empty {" in shared_css
+    assert ".ceremony-empty {" not in ceremony_css
+    assert 'class="ceremony-empty"' in scoreboard_html
+    assert 'class="ceremony-empty"' in ceremony_html
+
+    # Moving the rule out of ceremony.css is only safe because animator.css
+    # reaches the ceremony page too. Assert that reachability rather than
+    # assuming it: if _base.html ever stopped loading animator.css, or the
+    # ceremony stopped extending it, the banner would silently render unstyled
+    # and nothing else in the suite would notice.
+    base_html = (_ANIMATOR_DIR / "template" / "_base.html").read_text(encoding="utf-8")
+    assert "animator.css" in base_html
+    for template in (scoreboard_html, ceremony_html):
+        assert '{% extends "_base.html" %}' in template
+
+
 def test_static_js_uses_textcontent_not_innerhtml() -> None:
     js_dir = _STATIC_DIR / "js"
     render_js = (js_dir / "animator-render.js").read_text(encoding="utf-8")
@@ -229,6 +295,7 @@ def test_static_js_uses_textcontent_not_innerhtml() -> None:
     # Server-provided labels must never be injected as HTML, in any animator file.
     for name in [
         "animator-render.js",
+        "animator-team-cell.js",
         "animator.js",
         "animator-diff.js",
         "animator-animate.js",
@@ -237,6 +304,7 @@ def test_static_js_uses_textcontent_not_innerhtml() -> None:
         "animator-pending.js",
         "animator-connection-status.js",
         "animator-events.js",
+        "team-media-modal.js",
     ]:
         assert "innerHTML" not in (js_dir / name).read_text(encoding="utf-8"), name
     # Per-problem balloon colors use an SVG fill attribute, not an inline style
@@ -250,6 +318,7 @@ def test_static_js_helpers_load_before_orchestrator() -> None:
     base = (_ANIMATOR_DIR / "template" / "_base.html").read_text(encoding="utf-8")
     order = [
         base.index("animator-keyed-rows.js"),
+        base.index("animator-team-cell.js"),
         base.index("animator-render.js"),
         base.index("animator-diff.js"),
         base.index("animator-animate.js"),
@@ -258,6 +327,7 @@ def test_static_js_helpers_load_before_orchestrator() -> None:
         base.index("animator-pending.js"),
         base.index("animator-connection-status.js"),
         base.index("animator-events.js"),
+        base.index("team-media-modal.js"),
         base.index("animator.js"),  # only the orchestrator matches this exact substring
     ]
     # Every helper module is included, strictly before the orchestrator.

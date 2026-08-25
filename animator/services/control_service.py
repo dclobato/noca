@@ -232,6 +232,8 @@ def _apply(
         return reveal_engine.reset(dataset, current)
     if command == "jump" and team_id is not None:
         return reveal_engine.jump_team(dataset, current, team_id)
+    if command == "jump_pending":
+        return reveal_engine.jump_pending(dataset, current)
 
     # ``jump`` without a target cannot arrive from the route (the body model
     # requires ``team_id``), so this is a programming error, not a client one.
@@ -243,6 +245,7 @@ async def execute_command(
     store: RevealSessionStore,
     contest: ContestRecord,
     *,
+    controller_id: str,
     site_id: str | None,
     command: RevealCommand,
     team_id: str | None = None,
@@ -271,6 +274,7 @@ async def execute_command(
         session: Active database session.
         contest: The animator-enabled contest being revealed.
         store: The durable reveal-session store.
+        controller_id: Opaque id that must own the scope's controller lease.
         site_id: Scope resolved from the operator's credential — never from the
             request body after ``start``.
         command: The operator command to apply.
@@ -298,7 +302,7 @@ async def execute_command(
     """
     dataset = await load_reveal_dataset(session, contest, site_id=site_id)
     rebuilding = command == "start" and restart
-    async with store.mutate(contest, site_id, command=command) as handle:
+    async with store.mutate(contest, site_id, controller_id=controller_id, command=command) as handle:
         current = None if rebuilding else await handle.load()
         replayed = _replay_target(current, idempotency_key=idempotency_key, command=command)
         if replayed is not None:

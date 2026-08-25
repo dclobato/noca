@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Executable
 
 from shared.db_schema import (
+    clarification_reads,
     clarifications,
     contest_languages,
     contests,
@@ -205,6 +206,9 @@ async def _delete_contest_graph(session: AsyncSession, targets: ContestRemovalTa
         )
     )
     await session.execute(delete(solution_test_runs).where(solution_test_runs.c.id.in_(solution_test_ids)))
+    await session.execute(
+        delete(clarification_reads).where(clarification_reads.c.clarification_id.in_(targets.clarification_ids))
+    )
     await session.execute(delete(clarifications).where(clarifications.c.id.in_(targets.clarification_ids)))
     await session.execute(delete(tasks).where(tasks.c.id.in_(targets.task_ids)))
     await session.execute(delete(problem_limit_change_batches).where(problem_limit_change_batches.c.id.in_(batch_ids)))

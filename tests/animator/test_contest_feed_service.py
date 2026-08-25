@@ -20,6 +20,7 @@ from datetime import timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from animator.models.reveal_session import MedalCutoffs
 from animator.services.contest_feed_service import (
     build_meta_response,
     build_snapshot_response,
@@ -526,3 +527,95 @@ async def test_build_meta_problems_sites_and_timing(session: AsyncSession, ubera
     assert meta.sites[0].gold_cutoff == 1
     assert meta.start_time == START.isoformat()
     assert meta.freeze_at == (START + timedelta(minutes=240)).isoformat()
+    assert meta.has_started is True
+
+
+# ---------------------------------------------------------------------------
+# Pre-start gate: the problem set is a contest secret until the contest opens
+# ---------------------------------------------------------------------------
+
+
+async def test_build_meta_withholds_problems_before_start(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """Before the start instant ``/meta`` names no problem and no balloon color.
+
+    Sites stay visible: the launcher is built from them and a venue's name is not
+    part of the secret.
+    """
+    contest = await make_contest(session, uberadmin)
+    site = await make_site(session, contest, sitename="Campus A")
+    team = make_user(contest, uberadmin, "alpha", site_id=site.id)
+    session.add_all([team, make_problem(contest, 1, color="#123456"), make_problem(contest, 2)])
+    await session.commit()
+
+    async with feed_session(session.bind)() as feed:  # type: ignore[arg-type]
+        record = await load_enabled_contest(feed, contest.login_slug)
+        assert record is not None
+        meta = await build_meta_response(feed, record, now=START - timedelta(seconds=1))
+
+    assert meta.has_started is False
+    assert meta.problems == []
+    assert [site_meta.name for site_meta in meta.sites] == ["Campus A"]
+    assert meta.start_time == START.isoformat()
+
+
+async def test_build_snapshot_is_empty_before_start(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """Before the start instant ``/snapshot`` leaks neither problems nor teams."""
+    contest = await make_contest(session, uberadmin)
+    site = await make_site(session, contest, sitename="Campus A")
+    team = make_user(contest, uberadmin, "alpha", site_id=site.id)
+    session.add_all([team, make_problem(contest, 1, color="#123456"), make_problem(contest, 2)])
+    await session.commit()
+
+    async with feed_session(session.bind)() as feed:  # type: ignore[arg-type]
+        record = await load_enabled_contest(feed, contest.login_slug)
+        assert record is not None
+        snapshot = await build_snapshot_response(feed, record, now=START - timedelta(seconds=1))
+
+    assert snapshot.has_started is False
+    assert snapshot.problems == []
+    assert snapshot.balloon_colors == []
+    assert snapshot.standings == []
+    assert snapshot.pending_submissions == []
+
+
+async def test_build_snapshot_site_scope_is_empty_before_start(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """A site scope is gated exactly like the global one, not merely filtered."""
+    contest = await make_contest(session, uberadmin)
+    site = await make_site(session, contest, sitename="Campus A")
+    team = make_user(contest, uberadmin, "alpha", site_id=site.id)
+    session.add_all([team, make_problem(contest, 1)])
+    await session.commit()
+
+    async with feed_session(session.bind)() as feed:  # type: ignore[arg-type]
+        record = await load_enabled_contest(feed, contest.login_slug)
+        assert record is not None
+        snapshot = await build_snapshot_response(
+            feed,
+            record,
+            now=START - timedelta(seconds=1),
+            site_id=site.id,
+            cutoffs=MedalCutoffs(gold=1, silver=2, bronze=3),
+        )
+
+    assert snapshot.has_started is False
+    assert snapshot.problems == []
+    assert snapshot.standings == []
+
+
+async def test_feeds_publish_problems_at_the_start_instant(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """The gate opens exactly at the start instant, not a tick later."""
+    contest = await make_contest(session, uberadmin)
+    session.add(make_problem(contest, 1, color="#123456"))
+    await session.commit()
+
+    async with feed_session(session.bind)() as feed:  # type: ignore[arg-type]
+        record = await load_enabled_contest(feed, contest.login_slug)
+        assert record is not None
+        meta = await build_meta_response(feed, record, now=START)
+        snapshot = await build_snapshot_response(feed, record, now=START)
+
+    assert meta.has_started is True
+    assert [problem.label for problem in meta.problems] == ["A"]
+    assert snapshot.has_started is True
+    assert snapshot.problems == ["A"]
+    assert snapshot.balloon_colors == ["123456"]

@@ -13,6 +13,7 @@ from shared.enumerations import Verdict
 from shared.queue_schema import JudgeJob, ProfilingJob, VerdictEvent
 from web.config import settings
 from web.services.valkey_service import (
+    QUEUE_RESULTS_CHANNEL,
     ValkeyRuntime,
     create_valkey_pool,
     dequeue_job_id,
@@ -247,7 +248,7 @@ async def test_remove_from_inflight_cleans_list_and_sorted_set(valkey_client: ai
 
 async def test_publish_verdict_emits_json_payload_to_results_channel(valkey_client: aivalkey.Valkey) -> None:
     pubsub = valkey_client.pubsub()
-    await pubsub.subscribe(settings.queue_results_channel)
+    await pubsub.subscribe(QUEUE_RESULTS_CHANNEL)
     await pubsub.get_message(ignore_subscribe_messages=False, timeout=1.0)
 
     event = VerdictEvent(
@@ -267,7 +268,7 @@ async def test_publish_verdict_emits_json_payload_to_results_channel(valkey_clie
         await publish_verdict(valkey_client, event)
         message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
     finally:
-        await pubsub.unsubscribe(settings.queue_results_channel)
+        await pubsub.unsubscribe(QUEUE_RESULTS_CHANNEL)
         await pubsub.aclose()
 
     assert message is not None

@@ -143,7 +143,7 @@
                                                     <form method="post"
                                                           action="{{ request.url_for('contest_tasks_release', slug=contest.login_slug, task_id=t.id) }}"
                                                           class="d-inline"
-                                                          onsubmit="return confirm('Force release this task lock? The current holder will lose their hold.');">
+                                                          data-confirm="Force release this task lock? The current holder will lose their hold.">
                                                         <button type="submit"
                                                                 class="btn btn-outline-danger btn-sm noca-icon-btn"
                                                                 aria-label="Force release task"

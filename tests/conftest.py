@@ -10,7 +10,8 @@ import asyncio
 import os
 import sqlite3
 import tempfile
-from collections.abc import Iterable
+from collections import Counter
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
@@ -18,6 +19,7 @@ from typing import Any
 
 _xdist_worker = os.environ.get("PYTEST_XDIST_WORKER", "")
 _storage_label = _xdist_worker or "serial"
+_test_run_id = os.environ.setdefault("NOCA_TEST_RUN_ID", str(os.getpid()))
 _tmp_stmt = tempfile.mkdtemp(prefix=f"noca-test-statements-{_storage_label}-")
 _tmp_tc = tempfile.mkdtemp(prefix=f"noca-testcases-{_storage_label}-")
 
@@ -45,6 +47,10 @@ os.environ.setdefault("NOCA_VALKEY_PORT", "6379")
 # the apps' configured default. This supports up to 14 parallel workers.
 _test_valkey_db = 15 - (int(_xdist_worker[2:]) + 1) % 15 if _xdist_worker.startswith("gw") else 15
 os.environ["NOCA_VALKEY_DB"] = str(_test_valkey_db)
+# Valkey Pub/Sub ignores logical databases, so DB 15 alone cannot prevent a
+# local application on DB 0 from receiving test messages. Give serial and each
+# xdist worker a distinct channel namespace before shared constants are imported.
+os.environ["NOCA_TEST_VALKEY_CHANNEL_NAMESPACE"] = f"noca:test:{_test_run_id}:{_storage_label}"
 
 import aiosqlite.core  # noqa: E402
 import pytest  # noqa: E402
@@ -362,7 +368,7 @@ async def judgeable_contest_problem(session: AsyncSession, contest_problem: Prob
 @pytest_asyncio.fixture
 async def valkey_client():
     """
-    Real Valkey client against DB 15 for integration tests.
+    Real Valkey client against the isolated logical DB for this test worker.
 
     The database is flushed before and after each test so queue assertions stay isolated.
     """
@@ -391,7 +397,7 @@ async def valkey_client():
 @pytest.fixture
 def sync_valkey_client():
     """
-    Synchronous Valkey client against DB 15 for ValkeyRevocationStore integration tests.
+    Synchronous Valkey client against the isolated logical DB for this test worker.
 
     Flushes the database before and after each test for isolation.
     """
@@ -427,3 +433,116 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(pytest.mark.real_db)
         if fixture_names & _REAL_VALKEY_FIXTURES:
             item.add_marker(pytest.mark.real_valkey)
+
+
+# ── Full-suite audit: every skip must be one we sanctioned ───────────────────
+#
+# A skip is indistinguishable from a pass in a summary line. That is not
+# hypothetical here: the animator remote's Kotlin contract test spent a release
+# cycle skipping on a stale image pin while CI stayed green and said nothing.
+#
+# Four groups of tests legitimately cannot run in CI, every one because it needs
+# a credential or a live service deliberately not wired into it:
+#
+#   real_docker           the built judge images and a Docker daemon
+#   real_openai           a paid OpenAI key
+#   real_ipqualityscore   a paid IPQualityScore key
+#   tests/browser/        Playwright driving a *running* Web/Arena instance
+#
+# Everything else must run. Under CI -- or wherever NOCA_REQUIRE_FULL_SUITE is
+# set -- any other skip fails the session and names itself, so a test cannot
+# quietly stop running because a service, a toolchain, or a fixture went away.
+#
+# The browser suite is matched by path rather than by a marker because its skips
+# include a *collection*-level `importorskip`, which produces a report with no
+# markers on it at all.
+_SANCTIONED_SKIP_MARKERS = frozenset({"real_docker", "real_openai", "real_ipqualityscore"})
+_SANCTIONED_SKIP_PREFIXES = ("tests/browser/",)
+_REQUIREMENT_DISABLED_VALUES = frozenset({"", "0", "false", "no"})
+
+_unsanctioned_skips: dict[str, str] = {}
+_sanctioned_skips: dict[str, str] = {}
+
+
+def full_suite_is_required(environ: Mapping[str, str]) -> bool:
+    """Return whether an unsanctioned skip must fail the session.
+
+    `CI` is the default signal. `NOCA_REQUIRE_FULL_SUITE` states the demand
+    explicitly and wins in both directions whenever it is present at all,
+    including when empty: an environment that reports `CI` but genuinely cannot
+    run part of the suite needs a deliberate way out, and a developer machine
+    may want the guarantee without pretending to be CI.
+    """
+    override = environ.get("NOCA_REQUIRE_FULL_SUITE")
+    if override is not None:
+        return override.strip().lower() not in _REQUIREMENT_DISABLED_VALUES
+    return bool(environ.get("CI"))
+
+
+def skip_is_sanctioned(nodeid: str, markers: Iterable[str]) -> bool:
+    """Return whether this skip is one of the four sanctioned groups."""
+    if any(nodeid.startswith(prefix) for prefix in _SANCTIONED_SKIP_PREFIXES):
+        return True
+    return bool(_SANCTIONED_SKIP_MARKERS.intersection(markers))
+
+
+def _skip_reason(report: Any) -> str:
+    """Return a report's skip reason, without pytest's `Skipped: ` prefix."""
+    longrepr = getattr(report, "longrepr", None)
+    if isinstance(longrepr, tuple) and len(longrepr) == 3:
+        return str(longrepr[2]).removeprefix("Skipped: ").strip()
+    return str(longrepr).strip() if longrepr else "no reason given"
+
+
+def _record_skip(nodeid: str, markers: Iterable[str], reason: str) -> None:
+    bucket = _sanctioned_skips if skip_is_sanctioned(nodeid, markers) else _unsanctioned_skips
+    bucket.setdefault(nodeid, reason)
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    """Record every skipped test, sanctioned or not."""
+    # An xfail also reports as skipped; it is a recorded expectation, not a
+    # test that failed to run, so it is not this audit's business.
+    if not report.skipped or getattr(report, "wasxfail", None) is not None:
+        return
+    _record_skip(report.nodeid, report.keywords, _skip_reason(report))
+
+
+def pytest_collectreport(report: pytest.CollectReport) -> None:
+    """Record modules skipped during collection (e.g. a missing `importorskip`)."""
+    if report.skipped:
+        _record_skip(report.nodeid, (), _skip_reason(report))
+
+
+def pytest_terminal_summary(terminalreporter: Any) -> None:
+    """State what was skipped and why, so a summary line cannot hide it."""
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        return
+    if not _sanctioned_skips and not _unsanctioned_skips:
+        return
+
+    terminalreporter.write_sep("=", "skip audit")
+    for reason, count in sorted(Counter(_sanctioned_skips.values()).items()):
+        terminalreporter.write_line(f"  sanctioned  {count:>4} x {reason}")
+    for nodeid, reason in sorted(_unsanctioned_skips.items()):
+        terminalreporter.write_line(f"  UNSANCTIONED  {nodeid}: {reason}")
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Fail the session when a test skipped that this environment requires."""
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        return
+    if not _unsanctioned_skips or not full_suite_is_required(os.environ):
+        return
+
+    session.exitstatus = pytest.ExitCode.TESTS_FAILED
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is None:  # pragma: no cover - terminal plugin is always present
+        return
+    reporter.write_sep("=", "FULL SUITE REQUIRED", red=True, bold=True)
+    reporter.write_line(
+        f"{len(_unsanctioned_skips)} test(s) skipped that this environment requires to run. "
+        "Fix the cause, or -- if the skip is legitimate here -- add its marker to "
+        "_SANCTIONED_SKIP_MARKERS in tests/conftest.py. "
+        "Set NOCA_REQUIRE_FULL_SUITE to an empty value to allow skipping."
+    )

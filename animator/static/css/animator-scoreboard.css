@@ -86,6 +86,30 @@
     white-space: nowrap;
 }
 
+/* Shared team-media trigger and dialog. This stylesheet is loaded by the
+   Animator base shell for both the live scoreboard and reveal ceremony. */
+.team-media-trigger {
+    padding: 0;
+    border: 0;
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    text-decoration: none;
+    color: inherit;
+    background: none;
+}
+
+.team-media-trigger:hover,
+.team-media-trigger:focus-visible {
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+}
+
+.team-media-trigger:focus-visible {
+    outline: 2px solid var(--bs-primary);
+    outline-offset: 2px;
+}
+
 .animator-col-solved,
 .animator-col-time {
     font-variant-numeric: var(--noca-font-variant-numeric-tabular);
@@ -144,6 +168,45 @@
    silver begins without comparing artwork. */
 .animator-row--band-end {
     border-bottom: 3px solid var(--bs-emphasis-color);
+}
+
+/* ── Team-media modal ─────────────────────────────────────────────────── */
+.team-media-dialog {
+    max-width: min(calc(75vw + 2rem), calc(100vw - 2rem));
+}
+
+.team-media-modal-body {
+    max-height: 80vh;
+    overflow-y: auto;
+    text-align: center;
+}
+
+.team-media-photo {
+    max-width: min(75vw, 100%);
+    height: auto;
+    border-radius: 0.5rem;
+}
+
+.team-media-photo--placeholder {
+    width: 75vw;
+}
+
+.team-media-photo-fallback {
+    margin: 2rem 0;
+    font-size: var(--noca-type-body);
+    color: var(--bs-secondary-color);
+}
+
+.team-media-audio {
+    display: block;
+    width: 100%;
+    margin-top: 1rem;
+}
+
+.team-media-audio-status {
+    margin: 0.5rem 0 0;
+    font-size: var(--noca-type-label);
+    color: var(--bs-secondary-color);
 }
 
 .animator-scoreboard tbody tr.animator-row--band-end th,

@@ -7,6 +7,7 @@
 package org.noca.animator.remote.core
 
 import java.io.File
+import kotlinx.coroutines.runBlocking
 
 /**
  * The fake transport and fixtures the contract checks share.
@@ -54,17 +55,24 @@ internal fun fixture(name: String): String {
 
 internal fun projectionJson(): String = fixture("projection.json")
 
+internal fun leaseJson(): String = fixture("controller-lease.json")
+
 /** A client with a deterministic key generator, already holding a credential. */
 internal fun unlockedClient(
     transport: FakeTransport,
     keys: MutableList<String> = mutableListOf(),
 ): CommandClient {
     var counter = 0
-    val client = CommandClient(transport, ENDPOINTS) {
+    val client = CommandClient(transport, ENDPOINTS, controllerId = "controller-00000001") {
         counter += 1
         "key-000000$counter".also { keys += it }
     }
     client.setSecret("operator-token")
+    val responder = transport.responder
+    transport.responder = { HttpResponse(200, leaseJson()) }
+    runBlocking { client.claimLease() }
+    transport.sent.clear()
+    transport.responder = responder
     return client
 }
 

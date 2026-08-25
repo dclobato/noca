@@ -48,6 +48,7 @@ from animator.models.responses import (
     RevealPublicStateResponse,
     RevealReadyPayload,
 )
+from animator.routes.team_media import media_base_url
 from animator.services import control_service
 from animator.services.control_service import MissingSessionError
 from animator.services.public_scope_service import PublicScope
@@ -93,22 +94,13 @@ async def ceremony_page(request: Request, contest: EnabledContest, scope: Public
             "meta_url": str(request.url_for("animator_contest_meta", slug=contest.login_slug)),
             "state_url": _scoped_url(request, "animator_reveal_state", contest.login_slug, scope),
             "events_url": _scoped_url(request, "animator_reveal_events", contest.login_slug, scope),
-            "photo_base": _media_base(request, "animator_team_photo", contest.login_slug),
-            "audio_base": _media_base(request, "animator_team_audio", contest.login_slug),
+            "photo_base": media_base_url(request, "animator_team_photo", contest.login_slug),
+            "audio_base": media_base_url(request, "animator_team_audio", contest.login_slug),
             "balloon_base": str(request.url_for("animator_balloon", color="_")).rsplit("/", 1)[0],
             "star_base": str(request.url_for("animator_star", color="_")).rsplit("/", 1)[0],
             "medal_base": str(request.url_for("animator_medal", band="_")).rsplit("/", 1)[0],
         },
     )
-
-
-def _media_base(request: Request, name: str, slug: str) -> str:
-    """Return the ``/teams`` base URL a client appends ``/{id}/{kind}`` to.
-
-    Derived from the route itself rather than hardcoded, so a prefix change
-    cannot silently desynchronize the page from the router.
-    """
-    return str(request.url_for(name, slug=slug, team_id="_")).rsplit("/", 2)[0]
 
 
 def _scoped_url(request: Request, name: str, slug: str, scope: PublicScope) -> str:

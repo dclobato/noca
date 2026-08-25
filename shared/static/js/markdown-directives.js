@@ -73,7 +73,22 @@
         if (parseDirective(line)) return '\n' + line.trim() + '\n';
       }
 
-      return protectInlineDollars(line, state);
+      var prepared = protectInlineDollars(line, state);
+
+      // A single `$` left open at end-of-line was never closed on this line,
+      // so it was never real inline math (this module never lets inline math
+      // span lines, matching how NocaMathShield's own same-line-only search
+      // decides the same question for `noca-markdown.js`'s pipeline). Without
+      // this, an unmatched prose dollar such as "Price: $10" would otherwise
+      // leave `state.mathDelimiter` set for the rest of the document,
+      // silently suppressing directive recognition and `\$` handling on every
+      // later line. `$$` display math is allowed to span lines and keeps its
+      // open state here.
+      if (state.mathDelimiter === '$') {
+        state.mathDelimiter = null;
+      }
+
+      return prepared;
     }).join('\n');
   }
 
@@ -246,7 +261,10 @@
   window.NocaMarkdownDirectives = Object.freeze({
     apply: apply,
     parseDirective: parseDirective,
-    prepareMarkdown: prepareMarkdown
+    prepareMarkdown: prepareMarkdown,
+    // Exposed so noca-markdown.js's math-span shielding can skip fenced code
+    // blocks with the same rule, instead of duplicating this regex.
+    FENCE_PATTERN: FENCE_PATTERN
   });
 
   if (document.readyState === 'loading') {

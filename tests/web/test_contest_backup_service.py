@@ -45,6 +45,7 @@ from shared.enumerations import (
     Verdict,
 )
 from web.config import settings
+from web.models.clarification import Clarification
 from web.models.contest import Contest
 from web.models.problem import Problem, ProblemTestCase
 from web.models.site import Site
@@ -56,7 +57,11 @@ from web.services.contest_backup_service import (
     import_contest_backup,
 )
 from web.services.contest_backup_service.export import _append_problem_folder
-from web.services.contest_backup_service.models import LEGACY_FORMAT_VERSION, PREVIOUS_FORMAT_VERSION
+from web.services.contest_backup_service.models import (
+    EDITORIAL_FORMAT_VERSION,
+    LEGACY_FORMAT_VERSION,
+    PREVIOUS_FORMAT_VERSION,
+)
 from web.services.problem_service.files import save_md_statement, save_testcase_files
 
 LANGUAGE_ID = "python3"
@@ -952,7 +957,7 @@ async def test_a_v2_backup_omitting_the_strategy_is_refused(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("version", [0, 4, 99])
+@pytest.mark.parametrize("version", [0, 5, 99])
 async def test_an_unknown_backup_version_is_refused(
     session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path, version: int
 ) -> None:
@@ -1095,3 +1100,182 @@ async def test_a_current_backup_round_trips_the_stored_strategy(
         ProblemValidatorType.INTERACTIVE,
         ProblemValidatorType.STANDARD,
     ]
+
+
+async def _seed_clarifications(session: AsyncSession, contest: Contest) -> None:
+    """Add one team question and one judge announcement to a seeded contest."""
+    result = await session.execute(
+        select(User).where(User.contest_id == contest.id, User.role.in_([RoleEnum.TEAM, RoleEnum.JUDGE]))
+    )
+    by_role = {user.role: user for user in result.scalars()}
+    now = datetime.now(UTC)
+    session.add(
+        Clarification(
+            team_id=by_role[RoleEnum.TEAM].id,
+            question="Is the input sorted?",
+            answer="No.",
+            answered_at=now,
+            answered_timestamp_seconds=10,
+            created_at=now,
+            created_timestamp_seconds=5,
+        )
+    )
+    session.add(
+        Clarification(
+            team_id=by_role[RoleEnum.JUDGE].id,
+            judge_id=by_role[RoleEnum.JUDGE].id,
+            question="Announcement",
+            answer="Problem A was restarted.",
+            is_contest_public=True,
+            is_announcement=True,
+            answered_at=now,
+            answered_timestamp_seconds=12,
+            created_at=now,
+            created_timestamp_seconds=12,
+        )
+    )
+    await session.flush()
+
+
+#: The two rows `_seed_clarifications` adds, keyed by their question text.
+_SEEDED_QUESTION = "Is the input sorted?"
+_SEEDED_ANNOUNCEMENT = "Announcement"
+
+
+async def _restored_announcement_flags(session: AsyncSession, contest: Contest) -> dict[str, bool]:
+    """Return the announcement flag of each clarification `_seed_clarifications` added."""
+    result = await session.execute(
+        select(Clarification)
+        .join(User, Clarification.team_id == User.id)
+        .where(
+            User.contest_id == contest.id,
+            Clarification.question.in_([_SEEDED_QUESTION, _SEEDED_ANNOUNCEMENT]),
+        )
+    )
+    return {clarification.question: clarification.is_announcement for clarification in result.scalars()}
+
+
+@pytest.mark.asyncio
+async def test_current_backup_round_trips_the_announcement_flag(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """Version 4 carries `clarifications.is_announcement` explicitly."""
+    contest = await _seed_contest(session, uberadmin)
+    await _seed_clarifications(session, contest)
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    with zipfile.ZipFile(zip_path) as archive:
+        rows = json.loads(archive.read("clarifications.json"))
+    exported = {row["question"]: row["is_announcement"] for row in rows}
+    assert exported[_SEEDED_QUESTION] is False
+    assert exported[_SEEDED_ANNOUNCEMENT] is True
+
+    restored = await _restore(session, zip_path, uberadmin, slug="announce", name="Announce")
+    assert await _restored_announcement_flags(session, restored) == {
+        _SEEDED_QUESTION: False,
+        _SEEDED_ANNOUNCEMENT: True,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [LEGACY_FORMAT_VERSION, PREVIOUS_FORMAT_VERSION, EDITORIAL_FORMAT_VERSION])
+async def test_an_older_backup_infers_the_flag_from_the_archived_author_role(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path, version: int
+) -> None:
+    """Versions 1-3 predate the column; the archived author's role is all they carry."""
+    contest = await _seed_contest(session, uberadmin)
+    await _seed_clarifications(session, contest)
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    older_path = tmp_path / f"version-{version}-clarifications.zip"
+    with zipfile.ZipFile(zip_path) as source, zipfile.ZipFile(older_path, "w") as target:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename == "manifest.json":
+                manifest = json.loads(data)
+                manifest["format_version"] = version
+                data = json.dumps(manifest).encode("utf-8")
+            elif info.filename == "clarifications.json":
+                payload = json.loads(data)
+                for row in payload:
+                    row.pop("is_announcement", None)
+                data = json.dumps(payload).encode("utf-8")
+            elif info.filename.endswith("problems.json") and version < EDITORIAL_FORMAT_VERSION:
+                payload = json.loads(data)
+                for entry in payload:
+                    entry["problem"].pop("editorial", None)
+                    if version == LEGACY_FORMAT_VERSION:
+                        entry["problem"].pop("validator_type", None)
+                        entry["problem"].pop("artifact_generation", None)
+                data = json.dumps(payload).encode("utf-8")
+            target.writestr(info.filename, data)
+
+    restored = await _restore(session, older_path, uberadmin, slug=f"older-{version}", name=f"Older {version}")
+    assert await _restored_announcement_flags(session, restored) == {
+        _SEEDED_QUESTION: False,
+        _SEEDED_ANNOUNCEMENT: True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_an_interim_backup_keeps_its_explicit_announcement_flag(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """An archive labelled version 3 that already carries the flag keeps what it states.
+
+    Explicit wins, infer only on absence: an archive captured after the column landed but
+    before this bump must not have its stated flag re-derived from the author's role.
+    """
+    contest = await _seed_contest(session, uberadmin)
+    await _seed_clarifications(session, contest)
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    interim_path = tmp_path / "interim.zip"
+    with zipfile.ZipFile(zip_path) as source, zipfile.ZipFile(interim_path, "w") as target:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename == "manifest.json":
+                manifest = json.loads(data)
+                manifest["format_version"] = EDITORIAL_FORMAT_VERSION
+                data = json.dumps(manifest).encode("utf-8")
+            elif info.filename == "clarifications.json":
+                payload = json.loads(data)
+                # A judge-authored row the archive explicitly calls an ordinary question.
+                for row in payload:
+                    row["is_announcement"] = False
+                data = json.dumps(payload).encode("utf-8")
+            target.writestr(info.filename, data)
+
+    restored = await _restore(session, interim_path, uberadmin, slug="interim", name="Interim")
+    assert await _restored_announcement_flags(session, restored) == {
+        _SEEDED_QUESTION: False,
+        _SEEDED_ANNOUNCEMENT: False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_current_backup_missing_the_announcement_flag_is_refused(
+    session: AsyncSession, uberadmin: UberAdmin, tmp_path: Path
+) -> None:
+    """A version-4 archive omitting the column is malformed, not quietly defaulted."""
+    contest = await _seed_contest(session, uberadmin)
+    await _seed_clarifications(session, contest)
+    await session.commit()
+    zip_path = await _export(session, contest, tmp_path)
+
+    broken_path = tmp_path / "missing-flag.zip"
+    with zipfile.ZipFile(zip_path) as source, zipfile.ZipFile(broken_path, "w") as target:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename == "clarifications.json":
+                payload = json.loads(data)
+                for row in payload:
+                    row.pop("is_announcement", None)
+                data = json.dumps(payload).encode("utf-8")
+            target.writestr(info.filename, data)
+
+    with pytest.raises(ContestBackupError, match="missing columns: is_announcement"):
+        await _restore(session, broken_path, uberadmin, slug="missing", name="Missing")

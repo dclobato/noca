@@ -22,9 +22,26 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.AnimatorRemote"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="true">
 
         <!--
+          usesCleartextTraffic is true for EVERY build type, release included.
+          This is a deliberate, explicit trade: a contest venue commonly runs the
+          animator as plain http://<lan-ip>:8003, and requiring TLS there would
+          make the shipped remote unusable exactly where it is needed.
+
+          Know what it costs. The operator token is a bearer credential, and
+          taking over a live ceremony is a supported operation of the control
+          API, so anyone able to observe the venue network can capture the token
+          and seize the reveal. Treat the ceremony link as untrusted: prefer an
+          HTTPS animator whenever one exists, and treat a token used over
+          cleartext as disclosed once the contest ends.
+
+          Android imposes no scoping here: the flag is all-or-nothing per app.
+          Narrowing it later means a res/xml/network_security_config.xml naming
+          the permitted hosts, which is stricter but must know each venue address
+          at build time.
+
           allowBackup is false on purpose: the operator token is persisted
           encrypted under an Android Keystore key, and a cloud/adb backup of the
           ciphertext serves no one while widening where a ceremony credential can

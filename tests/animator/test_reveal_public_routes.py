@@ -74,12 +74,21 @@ class FakeValkey(FakeRevealStoreClient):
     def __init__(self, *, subscribe_gate: asyncio.Event | None = None, **kwargs: Any) -> None:
         """Create the fake with an empty subscription queue.
 
+        This suite's contract is spectator scope isolation and late-join
+        recovery, not controller ownership: where a test needs a ceremony at
+        all, the operator command in ``_run`` is *setup*. So it opts into
+        ``bootstrap_controller_leases`` once, here, the way the control-route
+        and store suites opt in at their own construction sites — a test added
+        later that mutates then gets the same treatment instead of failing on a
+        lease it never meant to model.
+
         Args:
             subscribe_gate: When given, the subscription does not complete until
                 this event is set — which is how a test can publish *inside* the
                 window between the response starting and the subscription
                 existing, the race `reveal_ready` exists to close.
         """
+        kwargs.setdefault("bootstrap_controller_leases", True)
         super().__init__(**kwargs)
         self.events: asyncio.Queue[RevealStateChangedEvent] = asyncio.Queue()
         self.subscriptions: list[tuple[str, str]] = []
@@ -159,6 +168,7 @@ async def _run(
         session,
         _store(valkey),
         contest,
+        controller_id="controller-test-0001",
         site_id=site_id,
         command=command,  # type: ignore[arg-type]
     )
@@ -591,7 +601,7 @@ async def test_ceremony_shell_wires_the_resolved_scope_and_no_scoreboard_client(
     # Phase 14 replaced the placeholder boot script with the real projector.
     assert "ceremony.js" in html
     assert "ceremony-render.js" in html
-    assert "ceremony-modal.js" in html
+    assert "team-media-modal.js" in html
     # The live-scoreboard client has no DOM to drive here and must not load.
     assert "animator.js" not in html
     assert "animator-board.js" not in html

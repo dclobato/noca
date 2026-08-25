@@ -27,7 +27,7 @@ const val GLOBAL_SCOPE: String = "global"
 /** Characters allowed in a slug, site id, or team id used as a path segment. */
 private val SAFE_SEGMENT = Regex("^[A-Za-z0-9._~-]+$")
 
-/** The six control endpoints for one contest. */
+/** The control and controller-lease endpoints for one contest. */
 data class ControlEndpoints(
     val state: String,
     val start: String,
@@ -35,6 +35,11 @@ data class ControlEndpoints(
     val back: String,
     val reset: String,
     val jump: String,
+    val jumpPending: String,
+    val leaseClaim: String,
+    val leaseHeartbeat: String,
+    val leaseRelease: String,
+    val leaseTakeover: String,
 )
 
 /** Trims whitespace and any trailing slashes from a base URL. */
@@ -81,13 +86,14 @@ fun revealEventsUrl(baseUrl: String, slug: String, scope: String): String =
     "${contestBaseUrl(baseUrl, slug)}/reveal/events?scope=${requireValidScope(scope)}"
 
 /**
- * Builds the six operator control endpoints.
+ * Builds the seven operator control endpoints.
  *
  * None of them takes a query parameter: every command derives its scope from the
  * credential and the stored session, so no request may redirect a ceremony.
  */
 fun controlEndpoints(baseUrl: String, slug: String): ControlEndpoints {
     val base = "${contestBaseUrl(baseUrl, slug)}/control"
+    val leaseBase = "$base/controller-lease"
     return ControlEndpoints(
         state = "$base/state",
         start = "$base/start-reveal",
@@ -95,5 +101,10 @@ fun controlEndpoints(baseUrl: String, slug: String): ControlEndpoints {
         back = "$base/back",
         reset = "$base/reset",
         jump = "$base/jump-team",
+        jumpPending = "$base/jump-pending",
+        leaseClaim = "$leaseBase/claim",
+        leaseHeartbeat = "$leaseBase/heartbeat",
+        leaseRelease = "$leaseBase/release",
+        leaseTakeover = "$leaseBase/takeover",
     )
 }

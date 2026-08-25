@@ -7,6 +7,7 @@
 package org.noca.animator.remote.core
 
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -44,6 +45,19 @@ internal fun statedRefusalsDoNotLock() = runBlocking {
     }
 }
 
+internal fun mutationConflictLosesLeaseWithoutAmbiguity() = runBlocking {
+    val transport = FakeTransport()
+    transport.responder = { HttpResponse(409, """{"detail":"$CONTROLLER_LEASE_LOST_DETAIL"}""") }
+    val client = unlockedClient(transport)
+
+    assertIs<CommandOutcome.StatedRefusal>(client.step())
+    assertTrue(!client.isBlocked, "409 is definitive, so it must not set the ambiguity lock")
+    assertEquals(ControllerLeaseState.LOST, client.leaseState)
+    val before = transport.sent.size
+    assertIs<CommandOutcome.Suppressed>(client.step())
+    assertEquals(before, transport.sent.size)
+}
+
 internal fun forbiddenForgetsCredential() = runBlocking {
     val transport = FakeTransport()
     transport.responder = { HttpResponse(403, """{"detail":"Invalid operator credential"}""") }
@@ -66,6 +80,130 @@ internal fun forbiddenOnStateLoadForgetsCredential() = runBlocking {
     val client = unlockedClient(transport)
     assertIs<CommandOutcome.AuthFailure>(client.loadState())
     assertTrue(!client.hasSecret)
+}
+
+internal fun claimConflictIsReadOnly() = runBlocking {
+    val transport = FakeTransport()
+    val client = CommandClient(transport, ENDPOINTS, controllerId = "controller-00000001")
+    client.setSecret("operator-token")
+    transport.responder = { HttpResponse(409, """{"detail":"Another controller is active."}""") }
+
+    assertIs<LeaseOutcome.ReadOnly>(client.claimLease())
+    assertEquals(ControllerLeaseState.READ_ONLY, client.leaseState)
+    val before = transport.sent.size
+    assertIs<CommandOutcome.Suppressed>(client.step())
+    assertEquals(before, transport.sent.size)
+}
+
+internal fun heartbeatConflictLosesLease() = runBlocking {
+    val transport = FakeTransport()
+    val client = unlockedClient(transport)
+    transport.responder = { HttpResponse(409, """{"detail":"Controller lease lost."}""") }
+
+    assertIs<LeaseOutcome.Lost>(client.heartbeatLease())
+    assertEquals(ControllerLeaseState.LOST, client.leaseState)
+    assertIs<CommandOutcome.Suppressed>(client.step())
+}
+
+internal fun leaseUnavailableFailsClosed() = runBlocking {
+    val transport = FakeTransport()
+    val client = unlockedClient(transport)
+    transport.responder = { HttpResponse(503, """{"detail":"Lease store unavailable."}""") }
+
+    assertIs<LeaseOutcome.Unavailable>(client.heartbeatLease())
+    assertEquals(ControllerLeaseState.UNAVAILABLE, client.leaseState)
+    assertIs<CommandOutcome.Suppressed>(client.step())
+}
+
+internal fun takeoverRestoresAuthority() = runBlocking {
+    val transport = FakeTransport()
+    val client = CommandClient(transport, ENDPOINTS, controllerId = "controller-00000001")
+    client.setSecret("operator-token")
+    transport.responder = { HttpResponse(409, """{"detail":"Another controller is active."}""") }
+    client.claimLease()
+    assertEquals(ControllerLeaseState.READ_ONLY, client.leaseState)
+
+    transport.responder = { request ->
+        if (request.url == ENDPOINTS.leaseTakeover) HttpResponse(200, leaseJson())
+        else HttpResponse(200, projectionJson())
+    }
+    assertIs<LeaseOutcome.Active>(client.takeoverLease())
+    assertEquals(ENDPOINTS.leaseTakeover, transport.last().url)
+    assertEquals(ControllerLeaseState.ACTIVE, client.leaseState)
+    assertIs<CommandOutcome.Confirmed>(client.step())
+}
+
+internal fun releaseSuppressesLaterMutations() = runBlocking {
+    val transport = FakeTransport()
+    val client = unlockedClient(transport)
+    transport.responder = { HttpResponse(200, leaseJson()) }
+
+    assertIs<LeaseOutcome.Released>(client.releaseLease())
+    assertEquals(ControllerLeaseState.UNCLAIMED, client.leaseState)
+    val before = transport.sent.size
+    assertIs<CommandOutcome.Suppressed>(client.step())
+    assertEquals(before, transport.sent.size)
+}
+
+internal fun renewalRetriesReachTheServerAfterABlip() = runBlocking {
+    // The policy in `heartbeatStep` is only half the rule: the ticker must also
+    // still be able to *send* a renewal after a blip already moved ownership to
+    // UNAVAILABLE. `heartbeatLease` short-circuits there, so a loop built on it
+    // spins forever without ever reaching the server again — the panel keeps
+    // reading "in control" while every command is silently suppressed until the
+    // lease expires. `renewLease` is the bypass; this pins that it works.
+    val transport = FakeTransport()
+    val client = unlockedClient(transport)
+
+    transport.responder = { HttpResponse(503, """{"detail":"Lease store unavailable."}""") }
+    assertIs<LeaseOutcome.Unavailable>(client.renewLease())
+    assertEquals(ControllerLeaseState.UNAVAILABLE, client.leaseState)
+    assertTrue(client.leaseRenewable, "a tolerated blip must leave the lease renewable")
+
+    // The blip clears: the very next renewal must be a real round trip.
+    transport.responder = { HttpResponse(200, leaseJson()) }
+    val before = transport.sent.size
+    assertIs<LeaseOutcome.Active>(client.renewLease())
+    assertEquals(before + 1, transport.sent.size, "a retry must reach the server, not short-circuit")
+    assertEquals(ENDPOINTS.leaseHeartbeat, transport.last().url)
+    assertEquals(ControllerLeaseState.ACTIVE, client.leaseState)
+    assertIs<CommandOutcome.Confirmed>(
+        run {
+            transport.responder = { HttpResponse(200, projectionJson()) }
+            client.step()
+        },
+    )
+
+    // A stated ownership answer ends renewal for good: the loop must stop
+    // instead of ticking against a scope this panel no longer holds.
+    transport.responder = { HttpResponse(409, """{"detail":"Controller lease lost."}""") }
+    assertIs<LeaseOutcome.Lost>(client.renewLease())
+    assertFalse(client.leaseRenewable, "a stated 409 must end renewal")
+    val quiet = transport.sent.size
+    assertIs<LeaseOutcome.Suppressed>(client.renewLease())
+    assertEquals(quiet, transport.sent.size, "a lost lease must not keep polling")
+}
+
+internal fun heartbeatPolicyToleratesBlipsAndSuppression() {
+    // A renewal suppressed by an in-flight command must never terminate the
+    // ticker: with a 10 s cadence and a 45 s lease, colliding with a command
+    // is the common case, not the exotic one.
+    assertEquals(HeartbeatStep.RETRY, heartbeatStep(LeaseOutcome.Suppressed, 0))
+
+    // Transport/store blips ride inside the TTL budget: tolerate up to
+    // MAX_MISSED_HEARTBEATS misses, then surface the failure.
+    assertEquals(HeartbeatStep.RETRY, heartbeatStep(LeaseOutcome.Unavailable("blip"), 0))
+    assertEquals(HeartbeatStep.RETRY, heartbeatStep(LeaseOutcome.Unavailable("blip"), 1))
+    assertEquals(HeartbeatStep.TERMINATE, heartbeatStep(LeaseOutcome.Unavailable("blip"), MAX_MISSED_HEARTBEATS))
+
+    // A confirmed renewal resets nothing here — the caller owns the counter —
+    // but it always continues.
+    assertEquals(HeartbeatStep.CONFIRMED, heartbeatStep(LeaseOutcome.Active(ControllerLeaseResponse("renewed", 45, 10)), 3))
+
+    // Stated ownership answers are terminal immediately; retrying cannot help.
+    assertEquals(HeartbeatStep.TERMINATE, heartbeatStep(LeaseOutcome.Lost, 0))
+    assertEquals(HeartbeatStep.TERMINATE, heartbeatStep(LeaseOutcome.ReadOnly, 0))
+    assertEquals(HeartbeatStep.TERMINATE, heartbeatStep(LeaseOutcome.AuthFailure, 0))
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +236,7 @@ internal fun ambiguousOutcomesLock() = runBlocking {
         assertIs<CommandOutcome.Suppressed>(client.back())
         assertIs<CommandOutcome.Suppressed>(client.reset())
         assertIs<CommandOutcome.Suppressed>(client.jump("t1"))
+        assertIs<CommandOutcome.Suppressed>(client.jumpPending())
         assertIs<CommandOutcome.Suppressed>(client.start(null, false))
         assertEquals(before, transport.sent.size, "a locked client must send nothing")
     }

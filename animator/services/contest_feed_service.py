@@ -15,10 +15,18 @@ re-implements NOCA scoring rules and never imports ``web``.
 ``load_enabled_contest`` is re-exported here so the feed service remains the
 single public entry point for contest resolution.
 
+Both public feeds are gated on the contest having started: until then they carry
+no problem set, no balloon colors, and no standings, because the number of
+problems and their colors are contest secrets the Web layer already withholds
+before the start instant.
+
 Query budget (independent of team/problem/submission/site counts):
 
 * meta:     problems + sites + site team-counts (3 queries; contest already loaded)
 * snapshot: teams + problems + submissions/judgments (3 queries; contest already loaded)
+
+A pre-start request runs fewer: meta skips the problem query, and snapshot runs
+none at all.
 """
 
 from __future__ import annotations
@@ -91,6 +99,39 @@ class _Projection:
     judgments: dict[str, JudgmentRecord | None]
     standings: list[TeamStanding]
     snapshot: ScoreboardSnapshot
+    has_started: bool
+
+
+def _empty_projection(contest: ContestRecord, reference: datetime) -> _Projection:
+    """Build the pre-start projection: identity and timing only, no contest data.
+
+    ``is_frozen`` still comes from the contest clock rather than being forced to
+    ``False``, so the single source of freeze truth stays :meth:`is_frozen_at`;
+    before the start instant it answers ``False`` anyway.
+
+    Args:
+        contest: The enabled contest being projected.
+        reference: The instant the projection is taken at.
+
+    Returns:
+        A projection whose every collection is empty.
+    """
+    return _Projection(
+        teams=[],
+        problem_records=[],
+        submission_records=[],
+        judgments={},
+        standings=[],
+        snapshot=ScoreboardSnapshot(
+            contest_id=contest.id,
+            generated_at=reference.isoformat(),
+            is_frozen=contest.is_frozen_at(reference),
+            standings=[],
+            problems=[],
+            balloon_colors=[],
+        ),
+        has_started=False,
+    )
 
 
 async def _project(
@@ -99,8 +140,17 @@ async def _project(
     now: datetime | None = None,
     site_id: str | None = None,
 ) -> _Projection:
-    """Load contest rows once and compute a global or site projection."""
+    """Load contest rows once and compute a global or site projection.
+
+    Before the contest starts the projection is empty by construction: nothing is
+    loaded and nothing is computed, so no problem count, balloon color, team, or
+    submission can reach the public feed through any downstream builder. The gate
+    lives here rather than in each response builder precisely so a future feed
+    cannot be added that forgets it.
+    """
     reference = _now_utc(now)
+    if not contest.has_started_at(reference):
+        return _empty_projection(contest, reference)
     teams = await load_teams(session, contest.id)
     if site_id is not None:
         teams = [team for team in teams if team.site_id == site_id]
@@ -137,6 +187,7 @@ async def _project(
         judgments=judgments,
         standings=standings,
         snapshot=snapshot,
+        has_started=True,
     )
 
 
@@ -243,6 +294,7 @@ def snapshot_to_response(
     teams: list[TeamRecord],
     wa_penalty: int,
     cutoffs: MedalCutoffs | None = None,
+    has_started: bool,
 ) -> ScoreboardSnapshotResponse:
     """Map a shared snapshot to the typed public response model.
 
@@ -253,6 +305,13 @@ def snapshot_to_response(
         wa_penalty: Minutes added per penalizing attempt.
         cutoffs: Medal cutoffs in force for the requested scope, or ``None`` when
             the scope has none configured.
+        has_started: Whether the contest has begun. A pre-start snapshot carries
+            no problems and no standings, and this flag is what lets a client
+            tell that gate apart from a contest with no teams. Deliberately has
+            **no default**: defaulting it to ``True`` would fail open, so a
+            caller that forgot it would publish a gated contest's empty
+            standings as an ordinary "no teams yet" board instead of the
+            pre-start banner. Callers pass ``projection.has_started``.
 
     Returns:
         The typed snapshot response, each row carrying its medal band.
@@ -297,6 +356,7 @@ def snapshot_to_response(
         generated_at=snapshot.generated_at,
         version=snapshot.generated_at,
         is_frozen=snapshot.is_frozen,
+        has_started=has_started,
         problems=snapshot.problems,
         balloon_colors=snapshot.balloon_colors,
         standings=standings,
@@ -357,6 +417,7 @@ async def build_snapshot_response(
         teams=projection.teams,
         wa_penalty=contest.wa_penalty,
         cutoffs=cutoffs,
+        has_started=projection.has_started,
     )
 
 
@@ -365,9 +426,16 @@ async def build_meta_response(
     contest: ContestRecord,
     now: datetime | None = None,
 ) -> ContestMetaResponse:
-    """Build the public contest metadata response for an enabled contest."""
+    """Build the public contest metadata response for an enabled contest.
+
+    The problem set is withheld until the contest starts -- the response then
+    carries an empty ``problems`` list and ``has_started=False``. Sites stay
+    visible in both states: the launcher is built from them, and a venue's name
+    and team count are not part of the secret the pre-start gate protects.
+    """
     reference = _now_utc(now)
-    problem_records = await load_problems(session, contest.id)
+    has_started = contest.has_started_at(reference)
+    problem_records = await load_problems(session, contest.id) if has_started else []
     site_records = await load_sites(session, contest.id)
 
     problem_meta = [
@@ -398,6 +466,7 @@ async def build_meta_response(
         end_time=contest.end_time_utc.isoformat(),
         freeze_at=contest.freeze_at_utc.isoformat(),
         is_frozen=contest.is_frozen_at(reference),
+        has_started=has_started,
         problems=problem_meta,
         sites=site_meta,
     )

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -59,7 +59,7 @@ rather than redeclaring it, so the persisted state and the published nudge agree
 on the phase vocabulary.
 """
 
-RevealCommand = Literal["start", "step", "back", "jump", "reset"]
+RevealCommand = Literal["start", "step", "back", "jump", "jump_pending", "reset"]
 """The operator command that produced a given state mutation."""
 
 

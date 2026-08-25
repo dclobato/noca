@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -29,11 +29,13 @@ from animator.models.query_records import (
 )
 from animator.models.reveal_session import RevealSessionState, TeamRevealView
 from animator.services.reveal_engine import (
+    NoPendingSubmissionError,
     RevealNotStartedError,
     RevealTransition,
     UnknownTeamError,
     UnreachableTeamError,
     back,
+    jump_pending,
     jump_team,
     next_reveal_id,
     relevant_frozen_submissions,
@@ -485,6 +487,60 @@ async def test_medals_follow_the_scoped_rank_at_every_step(session: AsyncSession
     for current in run_ceremony(dataset, state):
         for view in project(dataset, current).teams:
             assert view.medal == expected_by_rank.get(view.current_rank)
+
+
+# ---------------------------------------------------------------------------
+# jump_pending
+# ---------------------------------------------------------------------------
+
+
+async def test_jump_pending_stops_before_the_next_pending_cell(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    """The jump crosses only cursor moves and remains exactly reversible."""
+    _fixture, dataset, state = await site_a(session, uberadmin)
+    states = run_ceremony(dataset, state)
+    start_index = next(
+        index
+        for index, current in enumerate(states[:-1])
+        if project(dataset, current).next_cell is None
+        and any(project(dataset, later).next_cell is not None for later in states[index + 1 :])
+    )
+    expected = next(later for later in states[start_index + 1 :] if project(dataset, later).next_cell is not None)
+
+    jumped = jump_pending(dataset, states[start_index]).state
+    assert jumped == expected
+    assert jumped.reveal_log == states[start_index].reveal_log
+
+    reversed_state = jumped
+    steps_crossed = len(jumped.step_log) - len(states[start_index].step_log)
+    for _ in range(steps_crossed):
+        reversed_state = back(dataset, reversed_state).state
+    assert reversed_state == states[start_index]
+
+
+async def test_jump_pending_is_a_no_op_when_a_pending_cell_is_already_focused(
+    session: AsyncSession, uberadmin: UberAdmin
+) -> None:
+    _fixture, dataset, state = await site_a(session, uberadmin)
+    pending = next(current for current in run_ceremony(dataset, state) if project(dataset, current).next_cell)
+
+    assert jump_pending(dataset, pending).state == pending
+
+
+async def test_jump_pending_refuses_idle_done_and_exhausted_states(session: AsyncSession, uberadmin: UberAdmin) -> None:
+    fixture = await seed_ceremony(session, uberadmin)
+    dataset = await load(session, fixture.slug, fixture.site_a)
+    idle = initialize_reveal_session(dataset)
+    with pytest.raises(RevealNotStartedError):
+        jump_pending(dataset, idle)
+
+    started = start(dataset, idle).state
+    exhausted = started.with_reveal_log(started.frozen_submission_ids)
+    with pytest.raises(NoPendingSubmissionError):
+        jump_pending(dataset, exhausted)
+
+    done = run_ceremony(dataset, started)[-1]
+    with pytest.raises(NoPendingSubmissionError):
+        jump_pending(dataset, done)
 
 
 # ---------------------------------------------------------------------------

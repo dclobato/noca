@@ -6,12 +6,22 @@
 <footer class="bg-dark text-white-50 py-3 px-4 mt-auto">
     <div class="container-fluid position-relative d-flex justify-content-between align-items-center small">
         <span>&copy; 2026 {{ brand_name }} &mdash; v{{ app_version }}
-            <button id="theme-toggle-btn"
-                    class="btn btn-link text-white-50 p-0 ms-2"
-                    aria-label="Toggle theme"
-                    title="Toggle dark mode">
-                <i class="material-symbols-outlined" aria-hidden="true">dark_mode</i>
-            </button>
+            {# The theme control moved to the navbar identity cluster, which
+               `_base.html` renders only for a signed-in user. It survives here for
+               the anonymous pages that have no navbar at all -- guarded, so no page
+               ever carries two of them and the id-based binding in
+               `shared/static/js/theme-toggle.js` stays unambiguous. The login pages
+               are not affected: they override the footer block with
+               `_auth_footer.html` and its own static-icon toggle. #}
+            {% if not current_user %}
+                <button type="button"
+                        id="theme-toggle-btn"
+                        class="btn btn-link text-white-50 p-0 ms-2"
+                        aria-label="Switch to dark mode"
+                        title="Switch to dark mode">
+                    <i class="material-symbols-outlined" aria-hidden="true">dark_mode</i>
+                </button>
+            {% endif %}
         </span>
         <span class="d-inline-flex align-items-center gap-3">
             {% if healthmon_url %}<a href="{{ healthmon_url }}" class="text-white-50 text-decoration-none">Status</a>{% endif %}

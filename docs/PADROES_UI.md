@@ -313,10 +313,13 @@ Parâmetros:
 
 Regras:
 
-- **A página precisa carregar `confirm-submit.js`** (`static_js`). O macro declara
-  a confirmação como `data-confirm`; o listener delegado desse script é quem a
-  honra. Sem ele, a confirmação simplesmente não aparece — e o clique executa a
-  ação direto.
+- **`confirm-submit.js` é global**: o `_base.html` das duas portas (Web e Arena)
+  carrega o script compartilhado, cujo listener delegado honra o `data-confirm`.
+  Nenhuma página precisa incluí-lo — e nenhuma página *deve* incluí-lo de novo ou
+  registrar seu próprio listener: duas cópias ativas fariam a mesma pergunta duas
+  vezes. Sem o listener, a confirmação simplesmente não aparece — e o clique
+  executa a ação direto (o acoplamento é garantido por
+  `tests/shared/test_confirm_submit_template_coupling.py`).
 - Nunca use `onsubmit="return confirm(...)"`. Além de ser JavaScript inline, a
   mensagem fica escapada como literal JavaScript (um nome de contest interpolado
   ali quebra as aspas) e fora do texto de template que uma futura tradução
@@ -861,9 +864,10 @@ tempo todo, então a página não pode mudar de forma):
   `judgment_testcases_page.html`, `judgment_validator_page.html`,
   `judgment_interactions_page.html`, `testcase_list_table.html`,
   `sample_interaction_list_table.html`
-- **JavaScript:** `shared/static/js/judgment-actions.js` (confirmações, aviso de descarte,
-  gatilho de substituição por linha), `tc-add-row.js`, `si-add-row.js`,
-  `tc-reorder-sortable.js`, `problem-edit-unsaved-guard.js`
+- **JavaScript:** `shared/static/js/judgment-actions.js` (aviso de descarte,
+  gatilho de substituição por linha), `confirm-submit.js` (confirmações
+  `data-confirm`, carregado globalmente pelo `_base.html`), `tc-add-row.js`,
+  `si-add-row.js`, `tc-reorder-sortable.js`, `problem-edit-unsaved-guard.js`
 - **Rotas:** `web/routes/contest_admin_problem_judgment_tc.py` e
   `contest_admin_problem_judgment_pages.py`; `arena/routes/admin_problem_judgment.py`
 - **View models:** `shared/services/problem_definition_view.py` (definição),
@@ -1796,6 +1800,26 @@ Os links textuais da Arena usam um contrato único em
   o web passou a linkar `noca-fonts.css` no `_base.html`.
 - **Não** sobrescreve `--bs-primary` (botões `.btn-primary` são compilados via Sass
   e não reagem à variável em runtime); acentos usam `--noca-brand` diretamente.
+- Dois eixos de estado de prova convivem e **não** se derivam um do outro. Os
+  tokens de fase (`--noca-state-live` / `--noca-state-frozen` /
+  `--noca-state-silence`) descrevem momentos que o organizador agendou; os de
+  urgência (`--noca-urgency-warning` / `--noca-urgency-critical` /
+  `--noca-urgency-ended`) descrevem apenas quanto tempo resta. Uma prova
+  congelada com duas horas pela frente não é urgente, e uma ainda não congelada
+  a quatro minutos do fim é. Hoje ambos resolvem para a mesma rampa semântica;
+  tê-los nomeados em separado é o que permite que um mude sem o outro.
+- O relógio do navbar do web é o consumidor de urgência: o driver escreve
+  `data-urgency` em `#contest-countdown` a cada segundo e
+  `web/static/css/contest/_chrome.css` colore por seletor de atributo. Branco
+  continua sendo o estado de repouso, o texto do contador segue dizendo o tempo
+  restante (a cor nunca é o único sinal) e não há animação, badge nem contêiner.
+  Como o navbar declara `data-bs-theme="dark"` em si mesmo, o mapeamento escuro
+  dos tokens é o que vale nos dois temas de página.
+- O driver só pinta depois de um payload válido: até lá a barra mantém o texto
+  provisório `Updating...` e nenhum `data-urgency`. Sem essa guarda, um primeiro
+  sync que falha deixaria início e fim em 0 — uma prova que terminou em 1970 —,
+  anunciando "The contest is over" na cor de relógio encerrado. Um payload
+  malformado depois disso preserva o último sync bom em vez de propagar `NaN`.
 
 ### Modo escuro
 
@@ -1822,7 +1846,18 @@ Os links textuais da Arena usam um contrato único em
   re-renderiza no toggle e cuida do resize. Todo gráfico novo deve usar esse
   wrapper (carregue o helper logo após `echarts.min.js`, antes do script do
   gráfico); cores por série específicas leem `NocaECharts.tokens()`.
-- O botão de alternância vive no rodapé de cada módulo (`#theme-toggle-btn`).
+- O botão de alternância é sempre `#theme-toggle-btn` — esse id é todo o contrato do
+  script. No **web** ele vive no cluster de identidade da navbar
+  (`.noca-navbar-theme-toggle`, ao lado do pill de papel e do menu de conta), porque é
+  chrome pessoal e o rodapé fica abaixo da dobra em páginas longas; o rodapé
+  (`_partials/_footer.html`) mantém uma cópia **apenas** quando não há usuário logado,
+  já que `_base.html` só renderiza a navbar nesse caso — nenhuma página tem dois
+  botões. As telas de login usam o toggle próprio de `_partials/_auth_footer.html`.
+  Arena, animator e healthmonitor mantêm o deles no topbar/rodapé.
+- `theme-toggle.js` **substitui o `innerHTML`** do botão a cada troca (a menos que ele
+  tenha `data-theme-toggle-static-icons`). Portanto nunca coloque classe de estilo no
+  elemento do ícone: ela sobrevive só até o primeiro clique. Estilize o glifo por um
+  seletor descendente a partir do botão.
 
 ### Marca (`brand_name`)
 

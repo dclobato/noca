@@ -22,7 +22,6 @@ from .lifecycle import (
     answer_clarification,
     create_announcement,
     create_clarification,
-    mark_clarification_answers_read,
     release_clarification,
     toggle_hidden_clarification,
 )
@@ -35,11 +34,15 @@ from .permissions import (
 from .queries import (
     ClarificationSort,
     count_pending_clarifications,
+    count_unread_announcements,
     count_unread_clarification_answers,
+    count_unread_team_clarifications,
     get_clarification,
+    get_read_announcement_ids,
     list_clarifications,
     normalize_clarification_sort,
 )
+from .reads import mark_clarification_answers_read
 from .views import ClarificationView
 
 __all__ = [
@@ -61,10 +64,13 @@ __all__ = [
     "can_force_release_clarifications",
     "can_request_clarification",
     "count_pending_clarifications",
+    "count_unread_announcements",
     "count_unread_clarification_answers",
+    "count_unread_team_clarifications",
     "create_announcement",
     "create_clarification",
     "get_clarification",
+    "get_read_announcement_ids",
     "list_clarifications",
     "mark_clarification_answers_read",
     "normalize_clarification_sort",

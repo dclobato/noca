@@ -35,12 +35,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.noca.animator.remote.core.teamLabel
+import org.noca.animator.remote.core.ControllerLeaseState
 
 /** A destructive or positional action awaiting confirmation. */
 internal sealed interface Confirm {
     data object StartOver : Confirm
     data object Rebuild : Confirm
     data object Reset : Confirm
+    data object Takeover : Confirm
     data class Jump(val teamId: String, val label: String) : Confirm
 }
 
@@ -75,6 +77,11 @@ fun RemoteScreen(
 
         when {
             state.blocked -> AmbiguousBanner(state = state, viewModel = viewModel)
+            state.leaseState != ControllerLeaseState.ACTIVE -> LeaseBanner(
+                state = state,
+                onTakeover = { confirm = Confirm.Takeover },
+                onRetry = viewModel::retryControllerLease,
+            )
             state.error != null -> MessageBanner(
                 text = state.error,
                 container = MaterialTheme.colorScheme.errorContainer,
@@ -105,6 +112,7 @@ fun RemoteScreen(
             onBack = viewModel::back,
             onStepMany = { viewModel.stepMany(10) },
             onBackMany = { viewModel.backMany(10) },
+            onJumpPending = viewModel::jumpPending,
             onStart = { viewModel.start(restart = false) },
             onStartOver = { confirm = Confirm.StartOver },
             onReset = { confirm = Confirm.Reset },
@@ -144,10 +152,49 @@ fun RemoteScreen(
                 when (pending) {
                     Confirm.StartOver, Confirm.Rebuild -> viewModel.start(restart = true)
                     Confirm.Reset -> viewModel.reset()
+                    Confirm.Takeover -> viewModel.takeoverControllerLease()
                     is Confirm.Jump -> viewModel.jump(pending.teamId)
                 }
             },
         )
+    }
+}
+
+/** Shows command authority independently from the last readable projection. */
+@Composable
+private fun LeaseBanner(
+    state: RemoteUiState,
+    onTakeover: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val text = when (state.leaseState) {
+        ControllerLeaseState.READ_ONLY -> "Another controller is active for this ceremony."
+        ControllerLeaseState.LOST -> "Controller lease lost. Control moved or expired."
+        ControllerLeaseState.UNAVAILABLE -> "Controller lease unavailable. Commands remain disabled."
+        ControllerLeaseState.UNCLAIMED -> "Controller authority has not been claimed."
+        ControllerLeaseState.ACTIVE -> return
+    }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(text, style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (state.leaseState == ControllerLeaseState.READ_ONLY ||
+                    state.leaseState == ControllerLeaseState.LOST
+                ) {
+                    OutlinedButton(onClick = onTakeover, enabled = !state.inFlight) {
+                        Text("Take over control…")
+                    }
+                }
+                if (state.leaseState == ControllerLeaseState.UNAVAILABLE ||
+                    state.leaseState == ControllerLeaseState.UNCLAIMED
+                ) {
+                    OutlinedButton(onClick = onRetry, enabled = !state.inFlight) {
+                        Text("Retry lease")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -297,6 +344,12 @@ private fun ConfirmDialog(
             "This clears the reveal progress but preserves the original frozen contest snapshot. " +
                 "Start reveal must be selected again before the ceremony can continue.",
             "Reset to idle",
+        )
+
+        Confirm.Takeover -> Triple(
+            "Take over ceremony control?",
+            "The former panel immediately loses command authority. Its state view remains available.",
+            "Take over control",
         )
 
         is Confirm.Jump -> Triple(

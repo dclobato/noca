@@ -22,13 +22,17 @@ import kotlinx.coroutines.launch
 import org.noca.animator.remote.core.CommandClient
 import org.noca.animator.remote.core.CommandOutcome
 import org.noca.animator.remote.core.ControlVisibility
+import org.noca.animator.remote.core.ControllerLeaseState
 import org.noca.animator.remote.core.GLOBAL_SCOPE
+import org.noca.animator.remote.core.HeartbeatStep
 import org.noca.animator.remote.core.HttpMethod
 import org.noca.animator.remote.core.HttpRequest
+import org.noca.animator.remote.core.LeaseOutcome
 import org.noca.animator.remote.core.RELOAD_REQUIRED
 import org.noca.animator.remote.core.RevealProjection
 import org.noca.animator.remote.core.SequenceOutcome
 import org.noca.animator.remote.core.SiteMeta
+import org.noca.animator.remote.core.heartbeatStep
 import org.noca.animator.remote.core.UNKNOWN_OUTCOME
 import org.noca.animator.remote.core.controlEndpoints
 import org.noca.animator.remote.core.metaUrl
@@ -67,9 +71,11 @@ data class RemoteUiState(
     val restoringSession: Boolean = false,
     /** A token was stored but could not be decrypted, so it must be re-entered. */
     val storedTokenUnreadable: Boolean = false,
+    val leaseState: ControllerLeaseState = ControllerLeaseState.UNCLAIMED,
 ) {
     /** Whether any command may be issued right now. */
-    val commandsEnabled: Boolean get() = hasToken && !inFlight && !blocked
+    val commandsEnabled: Boolean
+        get() = hasToken && leaseState == ControllerLeaseState.ACTIVE && !inFlight && !blocked
 }
 
 /**
@@ -93,6 +99,8 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
 
     private var client: CommandClient? = null
     private var streamJob: Job? = null
+    private var heartbeatJob: Job? = null
+    private var foreground = false
     private var settings = RemoteSettings()
 
     init {
@@ -145,6 +153,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             settings = updated
             client = null
             streamJob?.cancel()
+            heartbeatJob?.cancel()
             _state.update {
                 it.copy(
                     settings = updated,
@@ -157,6 +166,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                     status = "",
                     sites = emptyList(),
                     contestName = "",
+                    leaseState = ControllerLeaseState.UNCLAIMED,
                 )
             }
             if (updated.isComplete) {
@@ -183,6 +193,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             settingsStore.save(updated)
             settings = updated
             streamJob?.cancel()
+            heartbeatJob?.cancel()
             _state.update {
                 it.copy(settings = updated, error = null, status = "", storedTokenUnreadable = false)
             }
@@ -223,6 +234,9 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             vault.save(token)
         }
         applyOutcome(outcome)
+        if (active.hasSecret && outcome.validatesCredential()) {
+            applyLeaseOutcome(active.claimLease())
+        }
         if (active.hasSecret) {
             restartStream()
         }
@@ -230,22 +244,73 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Forgets the token, in memory and on disk. */
     fun forgetToken() {
-        vault.clear()
-        client?.forgetSecret()
-        streamJob?.cancel()
-        _state.update {
-            it.copy(
-                hasToken = false,
-                projection = null,
-                visibility = ControlVisibility.NONE,
-                blocked = false,
-                streaming = false,
-                canRetry = false,
-                noCeremony = false,
-                status = "",
-                error = null,
-            )
+        val active = client
+        viewModelScope.launch {
+            heartbeatJob?.cancel()
+            active?.releaseLease()
+            vault.clear()
+            active?.forgetSecret()
+            streamJob?.cancel()
+            _state.update {
+                it.copy(
+                    hasToken = false,
+                    projection = null,
+                    visibility = ControlVisibility.NONE,
+                    blocked = false,
+                    streaming = false,
+                    canRetry = false,
+                    noCeremony = false,
+                    status = "",
+                    error = null,
+                    leaseState = ControllerLeaseState.UNCLAIMED,
+                )
+            }
         }
+    }
+
+    /** Claims an empty lease again; this never takes control from another panel. */
+    fun retryControllerLease() {
+        val active = client ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(inFlight = true, error = null) }
+            val outcome = active.claimLease()
+            _state.update { it.copy(inFlight = false) }
+            applyLeaseOutcome(outcome)
+        }
+    }
+
+    /** Explicit takeover after the UI's warning has been confirmed. */
+    fun takeoverControllerLease() {
+        val active = client ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(inFlight = true, error = null) }
+            val outcome = active.takeoverLease()
+            _state.update { it.copy(inFlight = false) }
+            applyLeaseOutcome(outcome)
+        }
+    }
+
+    /** Starts prompt renewal and periodic heartbeats while the app is foregrounded. */
+    fun onForeground() {
+        foreground = true
+        val active = client ?: return
+        if (!active.hasSecret) return
+        viewModelScope.launch {
+            val outcome = if (active.leaseState == ControllerLeaseState.ACTIVE) {
+                active.heartbeatLease()
+            } else {
+                active.claimLease()
+            }
+            applyLeaseOutcome(outcome)
+        }
+    }
+
+    /** Stops heartbeats and releases ownership best-effort in the background. */
+    fun onBackground() {
+        foreground = false
+        heartbeatJob?.cancel()
+        val active = client ?: return
+        viewModelScope.launch { applyLeaseOutcome(active.releaseLease()) }
     }
 
     fun start(restart: Boolean) {
@@ -261,6 +326,8 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     fun reset() = command { it.reset() }
 
     fun jump(teamId: String) = command { it.jump(teamId) }
+
+    fun jumpPending() = command { it.jumpPending() }
 
     fun stepMany(count: Int) = sequence("Advancing", count) { it.stepMany(count) }
 
@@ -380,6 +447,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             current.copy(
                 hasToken = active?.hasSecret == true,
                 blocked = active?.isBlocked == true,
+                leaseState = active?.leaseState ?: ControllerLeaseState.UNCLAIMED,
                 projection = active?.projection,
                 visibility = active?.visibility ?: ControlVisibility.NONE,
                 stateUnusable = active?.stateUnusable == true,
@@ -391,6 +459,97 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             )
         }
     }
+
+    /**
+     * Mirrors client ownership into the UI without disturbing the ticker.
+     *
+     * [applyLeaseOutcome] cancels the heartbeat job on any non-active outcome,
+     * so the retry path — which must keep ticking — cannot use it just to make
+     * a transient state visible.
+     */
+    private fun syncLeaseState() {
+        val active = client ?: return
+        _state.update { it.copy(leaseState = active.leaseState) }
+    }
+
+    /** Maps lease ownership onto command authority without discarding projection state. */
+    private fun applyLeaseOutcome(outcome: LeaseOutcome) {
+        val active = client ?: return
+        val message = when (outcome) {
+            is LeaseOutcome.Active -> null
+            LeaseOutcome.ReadOnly -> "Another controller is active for this ceremony."
+            LeaseOutcome.Lost -> "Controller lease lost. Control moved or expired."
+            is LeaseOutcome.Unavailable -> outcome.cause
+            LeaseOutcome.AuthFailure -> "Invalid or expired operator token. Enter it again."
+            LeaseOutcome.Released, LeaseOutcome.Suppressed -> null
+        }
+        if (outcome is LeaseOutcome.AuthFailure) {
+            vault.clear()
+            streamJob?.cancel()
+        }
+        _state.update {
+            it.copy(
+                hasToken = active.hasSecret,
+                leaseState = active.leaseState,
+                // Success and no-op outcomes keep any visible command error:
+                // a heartbeat landing mid-banner must not erase what the
+                // operator is reading.
+                error = message ?: it.error,
+            )
+        }
+        if (outcome is LeaseOutcome.Active && foreground) {
+            if (heartbeatJob?.isActive != true) {
+                heartbeatJob = viewModelScope.launch {
+                    var missed = 0
+                    // `leaseRenewable` stops the loop once the server has stated
+                    // an ownership answer elsewhere (a command's `409`, a
+                    // release): renewal would answer `Suppressed` forever.
+                    while (isActive && foreground && active.leaseRenewable) {
+                        delay(active.heartbeatIntervalSeconds * 1_000L)
+                        // `renewLease`, not `heartbeatLease`: a tolerated blip
+                        // has already moved ownership to UNAVAILABLE, and the
+                        // one-shot guard would never reach the server again.
+                        val heartbeat = active.renewLease()
+                        when (heartbeatStep(heartbeat, missed)) {
+                            HeartbeatStep.CONFIRMED -> {
+                                // Recovered from a tolerated blip: republish
+                                // ownership or the panel stays fail-closed on a
+                                // lease that is demonstrably alive again.
+                                if (missed > 0) {
+                                    syncLeaseState()
+                                }
+                                missed = 0
+                            }
+                            // Only a real missed renewal spends the budget. One
+                            // suppressed by an in-flight command must not, or a
+                            // burst of commands leaves no tolerance at all.
+                            HeartbeatStep.RETRY -> if (heartbeat is LeaseOutcome.Unavailable) {
+                                missed += 1
+                                // Fail closed while retrying — but not through
+                                // applyLeaseOutcome, which cancels this ticker.
+                                syncLeaseState()
+                            }
+                            HeartbeatStep.TERMINATE -> {
+                                heartbeatJob = null
+                                applyLeaseOutcome(heartbeat)
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (outcome is LeaseOutcome.Active) {
+            viewModelScope.launch { applyLeaseOutcome(active.releaseLease()) }
+        } else {
+            heartbeatJob?.cancel()
+            heartbeatJob = null
+        }
+    }
+
+    private fun CommandOutcome.validatesCredential(): Boolean =
+        this is CommandOutcome.Confirmed ||
+            this is CommandOutcome.NoCeremony ||
+            this is CommandOutcome.StateUnusable
 
     /** Loads the public meta feed, which supplies the site list for the picker. */
     private suspend fun loadMeta() {
@@ -464,6 +623,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
 
     override fun onCleared() {
         streamJob?.cancel()
+        heartbeatJob?.cancel()
         super.onCleared()
     }
 }

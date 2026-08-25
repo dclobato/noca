@@ -9,7 +9,7 @@ Related references:
 - [autojudge/docs/AUTOJUDGE_INFRA.md](../autojudge/docs/AUTOJUDGE_INFRA.md) for worker isolation, queue protocol, and container execution details
 - [DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md](DATA_FLOW_FROM_SUBMISSION_TO_VERDICT.md) for the submission lifecycle
 - [CONTEST_BACKUP_FORMAT.md](CONTEST_BACKUP_FORMAT.md) for the contest
-  backup/restore ZIP format (version 3, restoring 1, 2, and 3) and fidelity notes
+  backup/restore ZIP format (version 4, restoring 1, 2, 3, and 4) and fidelity notes
 - [Interactive validator guide](custom-validator/INTERACTIVE_VALIDATOR.md) for
   authoring, exit codes, and applicable limits
 - [Output checker validator rationale](custom-validator/OUTPUT_CHECKER_VALIDATOR.md)
@@ -199,6 +199,36 @@ junction table. The web layer uses `get_contest_languages(session, contest)` as 
 authoritative query for contest-scoped language lists; the autojudge continues to use
 all active languages from the registry.
 
+Clarifications carry **two** kinds of team notification, and they cannot share one
+storage shape. An answer belongs to the team that asked, so its read state is the
+row's own `clarifications.answer_read_at`. A judge or admin **announcement** is one row
+read by *many* teams, so a per-row scalar cannot express it: read state lives in
+`clarification_reads(clarification_id, user_id, read_at)`, a composite-PK junction where
+absence means unread. No marker is ever seeded on an ongoing basis — not at contest start,
+not when a team is created — which is what makes a team created after publication (a late
+registration, a mid-contest addition) correctly see the announcements it missed rather
+than being silently caught up. The one exception is a single backfill in the migration
+that introduced the table, which marked every announcement then existing read by every
+team then existing: without it, deploying the feature would have badged the entire
+installed base with the whole announcement history at once, exactly as the earlier
+`answer_read_at` migration backfilled from `answered_at` for the same reason. The table is
+append-only
+(written once at first render, never updated, removed only with its contest or by FK
+cascade), so it stays on the server-wide autovacuum defaults with no per-table tuning.
+It is deliberately **not** archived in a contest backup: read state is per-team UI state,
+and "unread" is the safe default for a restored contest.
+
+Which rows are announcements is **stored**, in `clarifications.is_announcement`
+(`Boolean`, NOT NULL, server default `false`), set by `create_announcement()` and never
+flipped afterwards. Deriving it from the author's role would have been free — the
+contest-scoping join already loads that row — but wrong: `update_user()` can change a
+role, which would reclassify historical clarifications in both directions, a promoted
+team's old questions becoming announcements and a demoted judge's announcements becoming
+questions. The stored flag also makes the team dashboard's two counters *disjoint by
+construction* rather than by coincidence: an announcement stores `team_id` as its author,
+so the own-answers counter must exclude the flag or a demoted author would be counted
+twice in the merged number.
+
 The animator module (public reveal/scoreboard presentation) is gated per contest by
 `contests.animator_enabled` (`Boolean`, default and server default `false`, NOT NULL): only
 enabled contests may expose animator snapshot/events/reveal, so a disabled contest is never
@@ -353,13 +383,19 @@ also discards that contest's cached archive, so a later re-release cannot serve
 an archive built before the problems were edited; the gate, not the discard, is
 what makes the withdrawal effective everywhere.
 
-Contest **backups** are versioned independently. Version 3 adds the nullable
-problem editorial column, while version 2 introduced the stored strategy. Strict
+Contest **backups** are versioned independently. Version 4 adds the stored
+`clarifications.is_announcement` flag, version 3 added the nullable problem
+editorial column, and version 2 introduced the stored strategy. Strict
 row validation compares each archived row against the *live* table: a new column
 would otherwise make every existing archive unrestorable the day it lands. The
-restorer accepts versions 1, 2, and 3. Editorial is optional for versions 1 and
-2 and required as a row key in version 3; the strategy is required from version
-2 onward. Crucially,
+restorer accepts versions 1, 2, 3, and 4. The announcement flag is optional for
+versions 1 to 3 and required as a row key in version 4; editorial is optional for
+versions 1 and 2 and required in version 3; the strategy is required from version
+2 onward. An archive that predates the announcement flag carries exactly one signal
+about it — the role its own `users.json` recorded for the row's author — so that is
+what the restorer replays, through the same shared predicate the integrity checker
+consults, and an older archive that *does* state the flag keeps what it states.
+Crucially,
 version 1 covers **two** archive shapes — those captured before the column existed, and those
 captured after it landed but before this bump, which carry the strategy under a version-1 label — so
 the rule is *explicit wins, infer only on absence*. One shared predicate serves both the restorer
@@ -768,9 +804,27 @@ The animator exposes a read-only public feed for one enabled contest:
 `GET /c/{slug}/meta` (contest identity, problem labels and balloon
 colors, start/end/freeze timing, freeze state, and per-site medal-cutoff
 summaries only) and `GET /c/{slug}/snapshot?scope=...` (a shared
-`ScoreboardSnapshot` plus a server-generated refresh version). The snapshot
-defaults to the global scope; a validated site scope filters teams and
-submissions before scoring. Animator loads `release_scoreboard_after_end` into
+`ScoreboardSnapshot` plus a server-generated refresh version).
+
+Both feeds are **gated on the contest having started**, and this is a
+confidentiality boundary rather than a cosmetic one. Web already withholds the
+scoreboard, clarifications, and runs before the start instant so that how many
+problems a contest has -- and which balloon colors they carry -- stays secret
+until it opens; an anonymous animator feed that answered the same question would
+simply be the way around that gate. Before `contests.start_time` the meta feed
+therefore returns an empty `problems` list and the snapshot returns empty
+`problems`, `balloon_colors`, `standings`, and `pending_submissions`, both
+carrying `has_started=false`. Sites stay visible in both states: the launcher is
+built from them, and a venue's name and team count are not part of the secret.
+The gate lives inside the feed service's shared projection helper -- which
+queries nothing at all before the start -- rather than in each response builder,
+so a feed added later cannot forget it. The scoreboard page renders the
+ceremony projector's own "not started yet" banner in place of the board, keeps
+the countdown and the live connection badge running, and re-reads `/meta` on a
+capped timer because no SSE event marks the start instant.
+
+The snapshot defaults to the global scope; a validated site scope filters teams
+and submissions before scoring. Animator loads `release_scoreboard_after_end` into
 its immutable contest record: post-freeze submissions stay hidden while the
 contest runs and after an unreleased end, while an ended, released contest
 scores every final result and reports `is_frozen=false`, matching Web. The
@@ -848,9 +902,10 @@ ambiguous outcome without one still requires reloading state instead of
 retrying.
 
 Spectators watch that ceremony through a **credential-free** public feed under
-`GET /c/{slug}/ceremony`, `/reveal/state`, and `/reveal/events`, plus
-the scoped team photo at `GET /c/{slug}/teams/{team_id}/photo`. A
-ceremony is selected by a validated `?scope=` query value — `global` or a site id
+`GET /c/{slug}/ceremony`, `/reveal/state`, and `/reveal/events`. Both the
+ceremony and live scoreboard use the scoped team photo at
+`GET /c/{slug}/teams/{team_id}/photo`. A presentation scope is selected by a
+validated `?scope=` query value — `global` or a site id
 of that contest — which grants nothing and is resolved *after* the enabled-contest
 gate, so an unknown site, another contest's site, and garbage all answer the same
 bare `404` an unknown slug does (a pattern-validated parameter would answer `422`
@@ -870,6 +925,11 @@ so a transient failure cannot strand a projector. Team photos fall back photo �
 explicit pixel limits (serving the validated format, never the stored MIME
 claim, so a truncated blob falls through instead of rendering broken), and are
 conditional on an `ETag` derived from the media kind and `dta_foto`.
+
+The live scoreboard opens the same Bootstrap modal on a team name in photo-only
+mode. Its keyed renderer preserves the exact trigger button across live
+refreshes so Bootstrap can restore keyboard focus after close. The scoreboard
+contains no audio element, audio URL, playback binding, or audio request.
 
 The projector page itself (`GET /c/{slug}/ceremony`) renders the frozen
 standings, the focused team, medal bands, and pending cells, and opens a single
@@ -904,12 +964,25 @@ double reveal.
 
 Operators drive that ceremony through the authenticated control API under
 `GET|POST /c/{slug}/control/*` (`start-reveal`, `step`, `back`, `reset`,
-`jump-team`, `state`). Three gates apply in a fixed order: the per-contest
+`jump-team`, `jump-pending`, `state`). **Jump to next pending** replays only
+cursor moves until the next `?` is focused and stops before revealing it; both
+the web panel and Android remote expose it only when no `next_cell` is already
+selected. Four gates apply in a fixed order: the per-contest
 `animator_enabled` gate, then the process-wide `NOCA_ANIMATOR_ENABLE_CONTROL`
 kill switch, then an `Authorization: Bearer` operator token resolved through
-`shared.services.animator_access_service` — the first two answer the same bare
-`404` an unknown slug does, so neither can be used to probe the others, and
-every credential failure is one generic `403`. Every attempt, accepted or
+`shared.services.animator_access_service`, then — on every mutating command —
+active controller ownership: a Valkey-backed per-`(contest_id, scope)` lease
+(`NOCA_ANIMATOR_CONTROLLER_LEASE_TTL_SECONDS`/`NOCA_ANIMATOR_CONTROLLER_HEARTBEAT_SECONDS`,
+default 45 s/10 s) claimed, renewed, released, and taken over through
+`POST /c/{slug}/control/controller-lease/*`. The first two answer the same bare
+`404` an unknown slug does — they run before the credential is consulted, so
+neither can be used to probe the other — while a credential failure is one
+generic `403`. Ownership failures are stated:
+another controller or a lost lease is `409`; an unavailable store fails closed
+with `503`. Every mutating request must carry an opaque `X-Animator-Controller-Id`
+header matching the lease owner, verified atomically with the per-scope mutation
+lock so a controller that lost ownership can never slip a command past a
+takeover; read-only state stays lease-independent, and every attempt, accepted or
 rejected, is audited in one token-free structured log line. A site token authorizes exactly
 its own site and a global token (`site_secrets.site_id IS NULL`) exactly the
 global ceremony; only `start-reveal` reads a `site_id`, and only to require exact
@@ -921,6 +994,16 @@ focus, derived team views), never the persisted `reveal_log` or
 `frozen_submission_ids`. See
 [animator/docs/ROUTES.md](../animator/docs/ROUTES.md) and
 [animator/docs/SERVICES.md](../animator/docs/SERVICES.md).
+
+`jump_pending` widens the strict `RevealCommand` literal used by both persisted
+`CommandReceipt.command` values (`state_version=3`) and published
+`RevealStateChangedEvent.command` values (`event_version=1`) without changing
+either version. Animator replicas must therefore be deployed together. An older
+replica drops an unknown event nudge; after the first idempotency-keyed
+`jump_pending`, it also rejects the whole stored session as unusable because it
+cannot validate the receipt. After a rollback, the operator uses **Rebuild
+state**, whose `start-reveal` request with `restart=true` deliberately replaces
+the payload without reading it.
 
 ### `landingpage/`
 

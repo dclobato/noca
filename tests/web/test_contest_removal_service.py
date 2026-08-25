@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -16,6 +17,7 @@ from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.db_schema import (
+    clarification_reads,
     clarifications,
     contests,
     human_submission_confirmations,
@@ -241,6 +243,13 @@ async def _seed_complete_graph(session: AsyncSession, *, contest_id: str, uberad
             hidden=False,
         )
     )
+    await session.execute(
+        insert(clarification_reads).values(
+            clarification_id=GENERAL_CLARIFICATION_ID,
+            user_id=USER_ID,
+            read_at=datetime.now(UTC),
+        )
+    )
 
 
 def _write_problem_files(statement_dir: Path, testcase_dir: Path) -> tuple[Path, Path, Path]:
@@ -344,6 +353,10 @@ async def test_removal_deletes_complete_graph_and_keeps_global_data(
             )
         )
         assert (await session.execute(select(func.count()).select_from(table).where(condition))).scalar_one() == 0
+
+    # Per-team announcement read markers leave with the contest they belong to.
+    remaining_reads = await session.execute(select(func.count()).select_from(clarification_reads))
+    assert remaining_reads.scalar_one() == 0
 
     events = (await session.execute(select(security_events).order_by(security_events.c.created_at))).mappings().all()
     assert len(events) == 2

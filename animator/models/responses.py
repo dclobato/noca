@@ -49,7 +49,15 @@ class SiteMeta(BaseModel):
 
 
 class ContestMetaResponse(BaseModel):
-    """Contest identity, problem labels/colors, timing, freeze state, sites."""
+    """Contest identity, problem labels/colors, timing, freeze state, sites.
+
+    ``problems`` is **empty** until the contest starts. How many problems a
+    contest has and which balloon colors they carry are secrets the Web layer
+    already withholds before the start instant, and this anonymous feed must not
+    be the way around that gate. ``has_started`` is what tells a client the
+    difference between "no problems yet published" and "this contest has none",
+    so it can show the pre-start banner instead of an empty board.
+    """
 
     contest_id: str
     slug: str
@@ -58,6 +66,7 @@ class ContestMetaResponse(BaseModel):
     end_time: str
     freeze_at: str
     is_frozen: bool
+    has_started: bool
     problems: list[ProblemMeta]
     sites: list[SiteMeta]
 
@@ -106,12 +115,20 @@ class PendingSubmissionResponse(BaseModel):
 
 
 class ScoreboardSnapshotResponse(BaseModel):
-    """Full scoreboard snapshot plus a refresh version token."""
+    """Full scoreboard snapshot plus a refresh version token.
+
+    Before the contest starts every payload field is empty -- no problem labels,
+    no balloon colors, no standings, no pending submissions -- because the
+    problem set is a contest secret until then. ``has_started`` carries that
+    state explicitly so a client renders the pre-start banner rather than
+    mistaking the gate for a contest with no teams.
+    """
 
     contest_id: str
     generated_at: str
     version: str
     is_frozen: bool
+    has_started: bool
     problems: list[str]
     balloon_colors: list[str]
     standings: list[TeamStandingResponse]

@@ -89,7 +89,7 @@
                 {% endif %}
                 {# Clarifications - admin, uberadmin, judge, team #}
                 {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value, RoleEnum.TEAM.value] %}
-                    {{ dashboard_card(request.url_for('contest_clarifications', slug=contest.login_slug) , "chat", "Clarifications", "Q & A", True, filled=True, counter=counters.clarifications_attention if counters and counters.clarifications_attention else none, counter_label="unread answers" if current_user.role == RoleEnum.TEAM.value else "unanswered clarifications") }}
+                    {{ dashboard_card(request.url_for('contest_clarifications', slug=contest.login_slug) , "chat", "Clarifications", "Q & A", True, filled=True, counter=counters.clarifications_attention if counters and counters.clarifications_attention else none, counter_label="unread clarifications" if current_user.role == RoleEnum.TEAM.value else "unanswered clarifications") }}
                 {% endif %}
                 {# Runs - admin, uberadmin, judge, team #}
                 {% if current_user.role in [RoleEnum.ADMIN.value, RoleEnum.UBERADMIN.value, RoleEnum.JUDGE.value, RoleEnum.TEAM.value] %}

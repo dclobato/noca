@@ -60,6 +60,7 @@ Purpose:
 
 Internal structure:
 - `errors.py` — service exception types
+- `reads.py` — acknowledgement of everything a team was shown, across both read-state shapes
 - `views.py` — `ClarificationView` plus lock-merging helpers
 - `queries.py` — contest-scoped reads and role-filtered listing
 - `lifecycle.py` — creation, acquisition, answering, release, announcement, and hide/unhide flows
@@ -82,8 +83,11 @@ Main entrypoints:
 - `get_clarification(session, contest, clarification_id) -> Clarification | None` — contest-scoped lookup; no actor; caller is responsible for authorization
 - `list_clarifications(session, contest, actor, lock_client, sort_by="time_desc") -> tuple[list[ClarificationView], bool]` — orders Time or Problem in SQL (general clarifications group last in both problem directions), merges PostgreSQL rows with Valkey lock state, and returns whether lock coordination is available for the UI
 - `count_pending_clarifications(session, contest, team_id=None) -> int` — counts visible unanswered clarifications for the judge/admin dashboard badge; optional `team_id` narrows the query to one requester
-- `count_unread_clarification_answers(session, contest, team_id) -> int` — counts visible answers that the requesting team has not acknowledged for the team dashboard badge
-- `mark_clarification_answers_read(session, contest, actor, clarification_ids) -> int` — TEAM only; marks only the supplied, answered, visible clarifications owned by that team and returns the number changed; callers pass IDs actually rendered to avoid acknowledging a concurrent unseen answer
+- `count_unread_clarification_answers(session, contest, team_id) -> int` — counts visible answers to the team's **own** questions that it has not acknowledged. Announcements are excluded even though they are answered rows: they store `team_id` as their *author*, so a judge later changed to TEAM would otherwise be counted here and by `count_unread_announcements` at once
+- `count_unread_announcements(session, contest, team_id) -> int` — counts visible announcements with no `clarification_reads` marker for that team. An announcement matches *every* team, so unlike the answer counter the query cannot scope the caller through the row: it checks the target user's own TEAM membership of the contest explicitly, or a `team_id` from another contest would be handed these announcements
+- `count_unread_team_clarifications(session, contest, team_id) -> int` — the merged number the team dashboard badge shows: the two disjoint counts above
+- `get_read_announcement_ids(session, team_id, clarification_ids) -> frozenset[str]` — which of the given announcements that team has already read; used by `list_clarifications` to project `unread` without a join or a lazy load
+- `mark_clarification_answers_read(session, contest, actor, clarification_ids) -> int` — TEAM only (`reads.py`); acknowledges both kinds in one call, so a caller can never record half of what it rendered: the team's own answered questions get `answer_read_at`, and the contest's visible announcements get a `clarification_reads` row inserted `ON CONFLICT DO NOTHING`, since a page load racing the 60 s HTMX refresh is normal traffic rather than an error. Returns the number newly marked across both. Callers pass IDs actually rendered, to avoid acknowledging a concurrent unseen answer
 - `acquire_clarification(session, contest, actor, clarification, lock_client) -> Clarification` — JUDGE or ADMIN; acquires a Valkey TTL lock keyed by contest and clarification id
 - `release_clarification(session, contest, actor, clarification, lock_client) -> Clarification` — JUDGE may release own lock; ADMIN/UBERADMIN may force-release any lock through Valkey
 - `answer_clarification(session, contest, actor, clarification, lock_client, *, answer, is_contest_public) -> Clarification` — JUDGE or ADMIN; enforces the Valkey lock when available; in degraded mode the DB remains authoritative for answer validity and judge identity
@@ -108,6 +112,8 @@ Notes:
 - there is no contest FK on `Clarification`, and `problem_id` is nullable for general clarifications, so contest scoping joins through the author (`Clarification.team_id` → `users.contest_id`) — the same total scoping path the SOS-task queries use; every contest-scoped consumer (reaper, dashboards, counters, timeline export, backup export, contest removal) must scope this way or it silently drops general rows
 - `is_contest_public` is the only public-visibility flag on the model; setting it `True` when answering makes the Q&A visible to all teams
 - `answer_read_at` records when the requesting team acknowledges an answer; new answers leave it null, the team dashboard counts those null markers, and the Clarifications page highlights only rows rendered before acknowledgement
+- announcement read state does **not** live in `answer_read_at`. An announcement is one row read by many teams, so a per-row scalar cannot express it; it lives in `clarification_reads(clarification_id, user_id, read_at)`, where absence means unread. That is why a team created after an announcement correctly sees what it missed
+- `is_announcement` is stored, not derived from the author's role. `update_user()` can change a role, which would otherwise reclassify historical rows in both directions
 - active clarification locks live only in Valkey; PostgreSQL now keeps the durable clarification state and answering judge identity
 
 ---
@@ -297,7 +303,10 @@ Purpose:
 
 - permanently remove one inactive contest across PostgreSQL, Valkey, and the
   problem-artifact filesystem
-- collect the complete contest-owned identifier set before cleanup
+- collect the complete contest-owned identifier set before cleanup, including the
+  per-team announcement read markers in `clarification_reads`, which are deleted
+  explicitly just before their clarifications rather than left to the FK cascade,
+  so the deletion graph stays readable and testable
 - quarantine PDF, Markdown, and test-case artifacts until the database
   transaction commits
 - retain global languages, global problem categories, UberAdmins, unrelated
@@ -824,15 +833,21 @@ Internal structure:
 Main entrypoints:
 
 - `build_contest_backup(...)` — writes a temporary archive off the event loop at
-  `FORMAT_VERSION` 3, carrying each problem's `validator_type`,
-  `artifact_generation`, and optional `editorial` in the payload rows and
+  `FORMAT_VERSION` 4, carrying each problem's `validator_type`,
+  `artifact_generation`, and optional `editorial`, plus each clarification's
+  `is_announcement`, in the payload rows and
   embedding version-2 problem packages. It builds those packages with
   `require_importable=False`, so a
   contest holding an interactive problem whose validator source was removed stays
   backupable; restore never parses the embedded `problem.json`, and the validator
   row is preserved verbatim in `problems.json`
 - `import_contest_backup(...) -> ContestImportResult` — validates, then restores
-  versions **1, 2, and 3**, refusing anything else. Version 3 requires the
+  versions **1, 2, 3, and 4**, refusing anything else. Version 4 requires
+  `clarifications.is_announcement`; versions 1-3 treat it as absent and derive it
+  from the *archived* author's role through the shared
+  `announcement_flag_for_backup_row()`, which the integrity checker and the
+  restorer both call so an archive cannot validate as one kind of row and restore
+  as another. Version 3 requires the
   nullable `editorial` column. Versions 1 and 2 treat it as absent; version 2
   requires `validator_type` and `artifact_generation`, while version 1 treats
   them as optional and applies *explicit wins, infer only on absence*, because archives written

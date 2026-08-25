@@ -1216,14 +1216,37 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
   include Flatpickr vendor assets.
 - `highlight-row.js`: highlights a list row/item matching the URL hash fragment
   after a CRUD redirect. Used by web and arena admin list pages.
+- `noca-math-shield.js`: shields LaTeX math bodies from Marked, and restores
+  them afterward. Marked applies CommonMark's generic backslash-escape rule to
+  `$…$`/`$$…$$` content exactly like any other text -- `\{` becomes `{`, a
+  matrix row's `\\` becomes `\` -- which silently corrupted LaTeX before KaTeX
+  ever saw it. `shieldMathSpans(rawMarkdown)` finds each `$…$`/`$$…$$` span
+  with a genuine matching close (an inline `$…$` search is confined to one
+  line; a `$$…$$` search may cross lines but never a fenced code block; an
+  unmatched opening delimiter is left completely untouched, so a stray prose
+  dollar such as "Price: $10" never disables Markdown formatting for the rest
+  of the document) and replaces its body with an opaque, single-line,
+  Private-Use-Area-guarded placeholder token before Marked ever parses the
+  source -- opaque so Marked cannot misinterpret any character inside it, and
+  single-line so `noca-markdown.js`'s `breaks: true` cannot split a multiline
+  body across a `<br>`. `restoreMathSpans(html, spans)` puts every body back
+  after `marked.parse()` and `DOMPurify.sanitize()` have both run, HTML-escaping
+  only `&`, `<`, and `>` (nothing else needs escaping in text content) and using a
+  collision-free global replace since each shielded occurrence gets its own
+  token. Used exclusively by `noca-markdown.js`'s `toHtml()`; every page that
+  loads `noca-markdown.js` must load this module first (see below), and its
+  absence degrades `toHtml()` back to the pre-shielding behavior rather than
+  failing.
 - `noca-markdown.js`: **the single Markdown rendering pipeline for every NOCA
   surface** -- problem statements (Web and Arena, page and print), sample
   test-case explanations, Arena editorials, legal documents, AI reviews, and
-  class batch feedback. It runs, in order: `NocaMarkdownDirectives.prepareMarkdown()`
-  -> `marked.parse()` -> `DOMPurify.sanitize()` -> DOM injection -> Mermaid ->
-  KaTeX `renderMathInElement()` -> `NocaMarkdownDirectives.apply()`. Pages never
-  ship their own copy of that sequence; they bind declaratively and the module
-  renders every match on load:
+  class batch feedback. It runs, in order: `NocaMathShield.shieldMathSpans()`
+  -> `NocaMarkdownDirectives.prepareMarkdown()` -> `marked.parse()` ->
+  `DOMPurify.sanitize()` -> `NocaMathShield.restoreMathSpans()` -> DOM
+  injection -> Mermaid -> KaTeX `renderMathInElement()` ->
+  `NocaMarkdownDirectives.apply()`. Pages never ship their own copy of that
+  sequence; they bind declaratively and the module renders every match on
+  load:
 
   ```html
   <!-- external source: entity-escaped inside a text/plain script blob -->
@@ -1248,19 +1271,29 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
   and `renderAll()` for callers that own their own element -- which is how the
   EasyMDE preview stays on this pipeline (see `problem-statement-editor-core.js`).
 
-  `_base.html` in both web and arena loads this module, so pages that extend it
-  need only the container markup plus the vendor libraries they use; the
-  standalone full-HTML pages (problem print views, the Arena editorial viewer)
-  include it themselves.
+  `_base.html` in both web and arena loads `noca-math-shield.js` immediately
+  before this module, so pages that extend it need only the container markup
+  plus the vendor libraries they use; the standalone full-HTML pages (problem
+  print views, the Arena editorial viewer) include both scripts themselves, in
+  that order.
 - `problem-edit-unsaved-guard.js`: warns before leaving with unsaved changes --
   the definition editor's Save form, and each judgment page's typed-rows form,
   which is the only state on those pages the server has not already seen.
-- `judgment-actions.js`: the three courtesies the judgment-data pages need from
-  the browser -- `data-confirm` on a form, a `data-clears-typed-rows` warning when
-  an upload would discard typed rows, and the per-row replace trigger that opens
-  its row's hidden file input and submits that row's form. Everything on those
-  pages is an ordinary form that posts immediately, so there is no client-side
-  model to maintain.
+- `confirm-submit.js`: the single home of the `data-confirm` courtesy -- a form
+  carrying the attribute asks before a destructive or wholesale action. The
+  listener is delegated on the document, so fragments swapped in later (htmx
+  refreshes, reordered list partials) keep it with no per-page wiring. Both
+  modules load it from their `_base.html`; no page may include a second copy or
+  register its own `data-confirm` submit listener (two live copies would ask the
+  same question twice), a coupling pinned by
+  `tests/shared/test_confirm_submit_template_coupling.py`.
+- `judgment-actions.js`: the two remaining courtesies the judgment-data pages
+  need from the browser -- a `data-clears-typed-rows` warning when an upload
+  would discard typed rows, and the per-row replace trigger that opens its row's
+  hidden file input and submits that row's form. Everything on those pages is an
+  ordinary form that posts immediately, so there is no client-side model to
+  maintain. (`data-confirm` used to be the third courtesy; it moved to
+  `confirm-submit.js` so pages outside the judgment editor get it too.)
 - `tc-reorder-sortable.js`: shared drag-to-reorder for the admin test-case list
   (and the Web problem list), driven by `data-reorder-*` attributes and
   `.noca-drag-handle` / `.noca-sortable-*`; posts the move and swaps the refreshed
@@ -1299,9 +1332,12 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
   Markdown and EasyMDE previews, converting supported directives into presentation
   classes and removing the directive paragraph; unsupported or misplaced directives
   remain visible so authors can correct them. It also owns `prepareMarkdown()`,
-  the pre-parse pass `noca-markdown.js` runs first. Directives are recognized
-  inside `.noca-markdown` and `.editor-preview` containers -- the same hook the
-  renderer and the shared CSS use, so the three cannot drift apart.
+  the pre-parse pass `noca-markdown.js` runs after `noca-math-shield.js`'s math
+  shielding. Its `FENCE_PATTERN` export is reused by `noca-math-shield.js` so a
+  fenced code block is recognized identically by both passes instead of
+  duplicating the regex. Directives are recognized inside `.noca-markdown` and
+  `.editor-preview` containers -- the same hook the renderer and the shared CSS
+  use, so the three cannot drift apart.
 - `print-page.js`: binds any `[data-print-page]` control to the browser's print
   dialog; used by the standalone print-friendly problem pages in web and arena.
 - `row-href.js`: makes list/table rows navigable through their row link, skipping
@@ -1317,6 +1353,22 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
   localStorage key.
 - `contest-clock-utils.js`: shared display logic for contest countdown clocks
   (`ContestClockUtils` pure formatting helpers); used by web and the animator.
+  `formatDuration` / `countdownText` own the wording, `contestPhase` /
+  `phaseLabel` name the scheduled phase (upcoming / running / frozen / silence /
+  past), and `countdownUrgency(nowMs, startMs, endMs)` returns how pressing the
+  remaining time is -- `normal`, `warning` (≤ 30 min left), `critical` (≤ 5 min
+  left, through the end moment itself) or `ended` (past it). Urgency is a
+  separate axis from phase and is not derivable from it: freeze and
+  answer-silence are moments an organiser scheduled, while urgency is only the
+  clock running down, so a frozen contest with hours to run is `normal` and a
+  never-frozen one in its last minutes is `critical`. An upcoming contest is
+  always `normal` -- the wait to start is not the contest's own deadline. Each
+  boundary belongs to the more urgent state, because a clock reading exactly
+  30:00 is already inside the last half hour. Consumers apply it as a hook
+  rather than as text (Web's navbar driver writes `data-urgency` on
+  `#contest-countdown` on the one-second tick, which the
+  `--noca-urgency-*` tokens colour); the countdown wording remains the
+  non-colour cue, so urgency is never signalled by colour alone.
 - `noca-echarts-theme.js`: registers the `noca-light` / `noca-dark` ECharts themes
   (axes, legend, tooltip, text, dataZoom, categorical palette) and hands out a
   managed wrapper via `NocaECharts.create(el)`; consumed arena-side.
@@ -2108,13 +2160,20 @@ Worker pause/resume commands (`worker_commands.py` + `worker_pause_state.py`):
   AsyncConnection.
 
 Verdict pub/sub channels (live feeds):
+
+Valkey Pub/Sub is independent of logical databases. Pytest therefore prefixes
+these channel names with `noca:test:<run>:<worker>:` before importing the shared
+constants. This prevents serial tests on DB 15 and parallel workers on DBs 1–14
+from publishing messages to applications listening on the production channel
+names in DB 0.
+
 - `QUEUE_RESULTS_CHANNEL = "judge:results"` — contest (web) verdicts. Produced by autojudge/web; consumed by `ValkeyRuntime.iter_verdict_events()` (web runs SSE and the public contest live feed).
 - `QUEUE_SUBMISSIONS_CHANNEL = "judge:submissions"` — contest new-submission nudges. Produced by the web submit route via `publish_submission` after the submission commits; consumed by `ValkeyRuntime.iter_submission_events()` (the animator live feed). `SubmissionEvent` (`shared/queue_schema.py`) is the `{submission_id, contest_id, team_id, problem_id}` payload (all fields required so malformed messages fail validation at parse). It is a low-latency signal only: the animator flashes the pending cell and refetches the authoritative `/snapshot`. Ordering vs. `judge:results` is **not** guaranteed; snapshot reconciliation corrects a verdict that arrives before its submission signal.
 - `ARENA_RESULTS_CHANNEL = "arena:results"` — Arena verdicts. Produced **only** by the autojudge worker via `publish_arena_verdict_with_client` (exported as `_publish_arena_verdict_with_client`); consumed by `ValkeyRuntime.iter_arena_verdict_events()` (Arena public live feed). The channel name has a single source of truth in this constant so the autojudge producer and Arena subscriber cannot drift.
 - `ArenaVerdictEvent` (`shared/queue_schema.py`) is the minimal `{submission_id, judgment_id, verdict}` payload on `arena:results`. It is a "changed" signal only: the Arena live feed refetches a server-side snapshot rather than rendering event fields. There is deliberately no runtime publish path / `PendingCommand` operation for it, since nothing publishes Arena verdicts through `ValkeyRuntime`.
 
 Reveal ceremony persistence and projection pub/sub (`revelation.py` + `reveal_schema.py`):
-- **Validated key/channel builders.** `reveal_state_key(contest_id, scope)`, `reveal_lock_key(contest_id, scope)`, and `revelation_channel(contest_id, scope)` build every key/channel from two components validated by `validate_component` against `^[A-Za-z0-9_-]{1,64}$`. The guard forbids `:` (so a component can never inject an extra key segment or a different channel) and matches the shapes actually used — contest UUIDs and the `scope` value, which is a site id or the `GLOBAL_SCOPE = "global"` constant. An invalid component raises `InvalidRevelationScopeError` before any Valkey call. Key prefixes: `REVEAL_STATE_KEY_PREFIX = "animator:reveal"`, `REVEAL_LOCK_KEY_PREFIX = "animator:reveal:lock"`, `REVELATION_CHANNEL_PREFIX = "revelation:events"`.
+- **Validated key/channel builders.** `reveal_state_key(contest_id, scope)`, `reveal_lock_key(contest_id, scope)`, `reveal_controller_key(contest_id, scope)`, and `revelation_channel(contest_id, scope)` build every key/channel from two components validated by `validate_component` against `^[A-Za-z0-9_-]{1,64}$`. The guard forbids `:` (so a component can never inject an extra key segment or a different channel) and matches the shapes actually used — contest UUIDs and the `scope` value, which is a site id or the `GLOBAL_SCOPE = "global"` constant. An invalid component raises `InvalidRevelationScopeError` before any Valkey call. Key prefixes: `REVEAL_STATE_KEY_PREFIX = "animator:reveal"`, `REVEAL_LOCK_KEY_PREFIX = "animator:reveal:lock"`, `REVEAL_CONTROLLER_KEY_PREFIX = "animator:reveal:controller"`, `REVELATION_CHANNEL_PREFIX = "revelation:events"`. The controller key holds one ceremony scope's active controller id — an opaque per-panel value only; it never carries tokens, token digests, or client addresses.
 - **Fenced state write.** `fenced_save_state_script()` returns the single Lua source used by `ValkeyRuntime.fenced_save_reveal_state(lock_key, state_key, token, state_json, ttl_seconds)`: it writes the state with `EX` **only while the lock still holds the caller's token**, returning `1` on a fenced write, `0` on lost ownership, and `None` when Valkey is unavailable. This is what lets the animator reveal store keep a single writer per scope safely even if a lock lease expires; the lock's compare-and-delete release only guards *release*, not the write.
 - **`RevealStateChangedEvent`** (`shared/reveal_schema.py`) is a versioned (`event_version: Literal[1]`), `extra="forbid"` **invalidation nudge**, not a projection payload: `{contest_id, scope, command, phase, focused_team_id, revealed_count, frozen_count, published_at}`. `shared` cannot import the animator's derived team/problem views, and broadcasting them would give subscribers a second, race-prone source of truth — so every event means only "the ceremony under this `contest_id`/`scope` changed; refetch the authoritative projection/state." Consumers must **never** render the event's own fields as authoritative state. Missed events are harmless because state is always reloadable. `RevealPhase` and `RevealCommand` literals live here too; `animator.models.reveal_session` re-imports `RevealPhase` rather than redeclaring it.
 - **Publish semantics.** `ValkeyRuntime.publish_revelation(event) -> bool` and the raw `publish_revelation_with_client(client, event) -> int`. The bool `True` means **the `PUBLISH` command reached Valkey**, explicitly *including* the case where it reached zero subscribers (Valkey's integer subscriber count, `0` included, is success); `False` is returned only on a recoverable transport error or when no client is connected. Unlike `publish_verdict`, revelation publishes are deliberately **not** buffered through `PendingCommand`: replaying a stale ceremony frame after a reconnect is worse than dropping it, since every event is only an invalidation signal.
@@ -2589,7 +2648,8 @@ Notes:
 - both modules add `shared/template` to their Jinja `ChoiceLoader` search path; the shared
   edit-form body (`shared/template/_partials/testcase_edit_form.html`) and the shared TC
   scripts (`tc-reorder-sortable.js`, `tc-add-row.js`, `judgment-actions.js`) complete the
-  unified test-case editing UI
+  unified test-case editing UI, with row-action confirmations (`data-confirm`) handled by
+  the globally loaded `confirm-submit.js`
 
 ---
 

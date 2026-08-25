@@ -7,3 +7,8 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+
+# Release signing material: never committed.
+keystore.properties
+*.jks
+*.keystore

@@ -48,8 +48,17 @@ val DEFINITIVE_STATUSES: Set<Int> = setOf(400, 403, 404, 409, 422)
 /** The server's own `Idempotency-Key` contract; a v4 UUID satisfies it. */
 val IDEMPOTENCY_KEY_PATTERN: Regex = Regex("^[A-Za-z0-9_-]{8,128}$")
 
+/** Header carrying this in-memory controller process's identity. */
+const val CONTROLLER_ID_HEADER: String = "X-Animator-Controller-Id"
+
+/** The server's controller-id contract; a UUID satisfies it. */
+val CONTROLLER_ID_PATTERN: Regex = Regex("^[A-Za-z0-9_-]{8,128}$")
+
 /** The one recoverable corrupt-state detail, answered with `Rebuild state`. */
 const val UNUSABLE_STATE_DETAIL: String = "The stored reveal session is unusable."
+
+/** The authored `409` detail that specifically means controller ownership ended. */
+const val CONTROLLER_LEASE_LOST_DETAIL: String = "This controller no longer owns the ceremony."
 
 /** Operator-facing copy, mirroring the web panel's wording. */
 const val UNKNOWN_OUTCOME: String =
@@ -98,18 +107,30 @@ internal data class Attempt(
  * Drives one reveal ceremony through the animator control API.
  *
  * @param transport The HTTP port; see [HttpTransport].
- * @param endpoints The six control endpoints, from [controlEndpoints].
+ * @param endpoints The seven control endpoints, from [controlEndpoints].
  * @param newKey Generates one `Idempotency-Key` per attempt. Injectable so a
  *   test can assert key behavior deterministically.
  */
 class CommandClient(
     private val transport: HttpTransport,
     private val endpoints: ControlEndpoints,
+    controllerId: String = UUID.randomUUID().toString(),
     private val newKey: () -> String = { UUID.randomUUID().toString() },
 ) {
 
     private var secret: String? = null
     private var lastAttempt: Attempt? = null
+    private val controllerId: String = controllerId.also {
+        require(CONTROLLER_ID_PATTERN.matches(it)) { "controller id does not satisfy the server's pattern" }
+    }
+
+    /** Current controller ownership. The id itself is intentionally never exposed. */
+    var leaseState: ControllerLeaseState = ControllerLeaseState.UNCLAIMED
+        private set
+
+    /** Heartbeat cadence stated by the server after a successful lease operation. */
+    var heartbeatIntervalSeconds: Int = 10
+        private set
 
     /** Whether a request is in flight; single-flight protection for the UI. */
     var isBusy: Boolean = false
@@ -152,6 +173,7 @@ class CommandClient(
         secret = token
         isBlocked = false
         lastAttempt = null
+        leaseState = ControllerLeaseState.UNCLAIMED
     }
 
     /**
@@ -167,7 +189,61 @@ class CommandClient(
         stateUnusable = false
         stateLoadFailed = false
         lastAttempt = null
+        leaseState = ControllerLeaseState.UNCLAIMED
     }
+
+    /** Claims an empty lease after the credential has been validated. */
+    suspend fun claimLease(): LeaseOutcome = leaseOperation(endpoints.leaseClaim, LeaseAction.CLAIM)
+
+    /** Renews this process's active lease. */
+    suspend fun heartbeatLease(): LeaseOutcome =
+        if (leaseState == ControllerLeaseState.ACTIVE) {
+            leaseOperation(endpoints.leaseHeartbeat, LeaseAction.HEARTBEAT)
+        } else {
+            LeaseOutcome.Suppressed
+        }
+
+    /**
+     * The ticker's renewal round trip, callable while a tolerated blip has
+     * already moved ownership to [ControllerLeaseState.UNAVAILABLE].
+     *
+     * [heartbeatLease] deliberately short-circuits when ownership is not
+     * `ACTIVE`, which is right for a one-shot caller but fatal for the retry
+     * loop: the first blip sets `UNAVAILABLE`, and every later tick would then
+     * answer `Suppressed` without ever reaching the server again — spinning
+     * forever while the panel still reads "in control" and every command is
+     * silently suppressed. The browser panel bypasses its own `active` guard
+     * for exactly this reason (`sendHeartbeat` in `control-lease.js`); this is
+     * that bypass. Ownership answers the server actually stated
+     * (`LOST`/`READ_ONLY`) stay terminal.
+     */
+    suspend fun renewLease(): LeaseOutcome =
+        if (leaseRenewable) {
+            leaseOperation(endpoints.leaseHeartbeat, LeaseAction.HEARTBEAT)
+        } else {
+            LeaseOutcome.Suppressed
+        }
+
+    /**
+     * Whether the ticker still has something to renew: ownership is held, or
+     * held-but-unverified after a blip. A stated `LOST`/`READ_ONLY`, or a
+     * released `UNCLAIMED`, means renewal is over — the loop must stop rather
+     * than tick against a scope it no longer holds.
+     */
+    val leaseRenewable: Boolean
+        get() = leaseState == ControllerLeaseState.ACTIVE || leaseState == ControllerLeaseState.UNAVAILABLE
+
+    /** Best-effort owner release; TTL expiry remains authoritative. */
+    suspend fun releaseLease(): LeaseOutcome =
+        if (leaseState == ControllerLeaseState.ACTIVE) {
+            leaseOperation(endpoints.leaseRelease, LeaseAction.RELEASE)
+        } else {
+            LeaseOutcome.Suppressed
+        }
+
+    /** Explicitly fences the former controller and acquires command authority. */
+    suspend fun takeoverLease(): LeaseOutcome =
+        leaseOperation(endpoints.leaseTakeover, LeaseAction.TAKEOVER)
 
     /** Loads authoritative state; a `404` means "no ceremony yet", not an error. */
     suspend fun loadState(): CommandOutcome = guarded {
@@ -242,6 +318,10 @@ class CommandClient(
         return runCommand(Attempt(HttpMethod.POST, endpoints.jump, body, nextKey()))
     }
 
+    /** `POST /control/jump-pending`; sends no body. */
+    suspend fun jumpPending(): CommandOutcome =
+        runCommand(Attempt(HttpMethod.POST, endpoints.jumpPending, null, nextKey()))
+
     /**
      * Sends [count] separate `step` commands, stopping at the first that is not
      * confirmed.
@@ -305,7 +385,7 @@ class CommandClient(
 
     /** Refuses to send while locked, then dispatches one mutating command. */
     private suspend fun runCommand(attempt: Attempt): CommandOutcome {
-        if (isBusy || isBlocked || secret == null) {
+        if (isBusy || isBlocked || secret == null || leaseState != ControllerLeaseState.ACTIVE) {
             return CommandOutcome.Suppressed
         }
         isBusy = true
@@ -351,6 +431,10 @@ class CommandClient(
         val detail = parseErrorDetail(response.body)
         if (isDefinitive(response.status)) {
             isBlocked = false
+            if (response.status == 409 && detail == CONTROLLER_LEASE_LOST_DETAIL) {
+                leaseState = ControllerLeaseState.LOST
+                lastAttempt = null
+            }
             return CommandOutcome.StatedRefusal(response.status, detail)
         }
 
@@ -461,7 +545,12 @@ class CommandClient(
     private fun Attempt.toRequest(token: String): HttpRequest = HttpRequest(
         method = method,
         url = url,
-        headers = buildHeaders(token, withBody = body != null, idempotencyKey = key),
+        headers = buildHeaders(
+            token,
+            withBody = body != null,
+            idempotencyKey = key,
+            withControllerId = true,
+        ),
         body = body,
     )
 
@@ -469,6 +558,7 @@ class CommandClient(
         token: String,
         withBody: Boolean,
         idempotencyKey: String?,
+        withControllerId: Boolean = false,
     ): Map<String, String> = buildMap {
         put("Accept", "application/json")
         put("Authorization", "Bearer $token")
@@ -477,6 +567,72 @@ class CommandClient(
         }
         if (idempotencyKey != null) {
             put("Idempotency-Key", idempotencyKey)
+        }
+        if (withControllerId) {
+            put(CONTROLLER_ID_HEADER, controllerId)
+        }
+    }
+
+    private enum class LeaseAction { CLAIM, HEARTBEAT, RELEASE, TAKEOVER }
+
+    /** Sends one authenticated lease request without exposing the controller id. */
+    private suspend fun leaseOperation(url: String, action: LeaseAction): LeaseOutcome {
+        if (isBusy || secret == null) {
+            return LeaseOutcome.Suppressed
+        }
+        isBusy = true
+        try {
+            val token = secret ?: return LeaseOutcome.Suppressed
+            val response = try {
+                transport.send(
+                    HttpRequest(
+                        method = HttpMethod.POST,
+                        url = url,
+                        headers = buildHeaders(
+                            token,
+                            withBody = false,
+                            idempotencyKey = null,
+                            withControllerId = true,
+                        ),
+                    ),
+                )
+            } catch (failure: TransportFailure) {
+                leaseState = ControllerLeaseState.UNAVAILABLE
+                return LeaseOutcome.Unavailable(failure.message ?: "Controller lease is unavailable.")
+            }
+
+            if (response.status in 200..299) {
+                if (action == LeaseAction.RELEASE) {
+                    leaseState = ControllerLeaseState.UNCLAIMED
+                    return LeaseOutcome.Released
+                }
+                val lease = parseControllerLeaseResponse(response.body)
+                if (lease == null) {
+                    leaseState = ControllerLeaseState.UNAVAILABLE
+                    return LeaseOutcome.Unavailable("The controller lease response could not be read.")
+                }
+                heartbeatIntervalSeconds = lease.heartbeatIntervalSeconds
+                leaseState = ControllerLeaseState.ACTIVE
+                return LeaseOutcome.Active(lease)
+            }
+            if (response.status == 403) {
+                forgetSecret()
+                return LeaseOutcome.AuthFailure
+            }
+            if (response.status == 409) {
+                leaseState = if (action == LeaseAction.CLAIM) {
+                    ControllerLeaseState.READ_ONLY
+                } else {
+                    ControllerLeaseState.LOST
+                }
+                return if (action == LeaseAction.CLAIM) LeaseOutcome.ReadOnly else LeaseOutcome.Lost
+            }
+            leaseState = ControllerLeaseState.UNAVAILABLE
+            return LeaseOutcome.Unavailable(
+                parseErrorDetail(response.body) ?: "Controller lease is unavailable.",
+            )
+        } finally {
+            isBusy = false
         }
     }
 }

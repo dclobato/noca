@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -47,6 +47,11 @@ from pydantic import ValidationError
 
 from animator.models.query_records import ContestRecord, ensure_utc
 from animator.models.reveal_session import RevealSessionState, RevealStateVersionError
+from animator.services.controller_lease_service import (
+    ControllerLeaseContendedError,
+    ControllerLeaseUnavailableError,
+    acquire_controller_mutation_lock,
+)
 from shared.reveal_schema import GLOBAL_SCOPE, RevealCommand, RevealStateChangedEvent
 from shared.services.valkey_service.revelation import reveal_lock_key, reveal_state_key
 
@@ -134,10 +139,6 @@ class RevealStoreClient(Protocol):
     Declaring it as a Protocol lets unit tests substitute a fake without a real
     Valkey, while ``ValkeyRuntime`` satisfies it structurally.
     """
-
-    async def set_if_absent(self, key: str, value: str, *, ex: int | None = ...) -> bool | None:
-        """Set only when absent; ``None`` on a recoverable error."""
-        ...
 
     async def eval(self, script: str, numkeys: int, *args: str) -> object | None:
         """Run a Lua script; ``None`` on a recoverable error."""
@@ -276,6 +277,7 @@ class RevealSessionStore:
         contest: ContestRecord,
         site_id: str | None,
         *,
+        controller_id: str,
         command: RevealCommand,
         now: datetime | None = None,
     ) -> AsyncIterator[MutationHandle]:
@@ -289,6 +291,7 @@ class RevealSessionStore:
         Args:
             contest: The contest being revealed (supplies id and TTL horizon).
             site_id: Site scope, or ``None`` for the global ceremony.
+            controller_id: Opaque id that must own the controller lease.
             command: The operator command driving this mutation, recorded in the
                 published nudge.
             now: Reference instant for the TTL; defaults to the current UTC time.
@@ -306,11 +309,19 @@ class RevealSessionStore:
         state_key = reveal_state_key(contest.id, scope)
         token = secrets.token_hex(16)
 
-        acquired = await self._client.set_if_absent(lock_key, token, ex=self._lock_ttl_seconds)
-        if acquired is None:
-            raise RevealStoreUnavailableError(f"reveal session {contest.id}:{scope} lock is unavailable")
-        if not acquired:
-            raise RevealStoreLockedError(contest.id, scope)
+        try:
+            await acquire_controller_mutation_lock(
+                self._client,
+                contest_id=contest.id,
+                scope=scope,
+                controller_id=controller_id,
+                lock_token=token,
+                lock_ttl_seconds=self._lock_ttl_seconds,
+            )
+        except ControllerLeaseUnavailableError as exc:
+            raise RevealStoreUnavailableError(f"reveal session {contest.id}:{scope} lock is unavailable") from exc
+        except ControllerLeaseContendedError as exc:
+            raise RevealStoreLockedError(contest.id, scope) from exc
 
         handle = MutationHandle(_store=self, _contest_id=contest.id, _site_id=site_id)
         try:

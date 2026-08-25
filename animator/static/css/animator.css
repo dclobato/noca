@@ -31,10 +31,7 @@
     flex: 0 0 auto;
 }
 
-.icon-github,
-.icon-x,
-.icon-fastapi,
-.icon-python {
+.icon-github, .icon-x {
     display: inline-block;
     width: 24px;
     height: 24px;
@@ -55,16 +52,6 @@
 .icon-x {
     mask-image: url("../img/x.svg");
     -webkit-mask-image: url("../img/x.svg");
-}
-
-.icon-fastapi {
-    mask-image: url("../img/fastapi.svg");
-    -webkit-mask-image: url("../img/fastapi.svg");
-}
-
-.icon-python {
-    mask-image: url("../img/python.svg");
-    -webkit-mask-image: url("../img/python.svg");
 }
 
 .animator-skip-link {
@@ -198,7 +185,6 @@
     align-items: center;
     column-gap: 0.35rem;
     row-gap: 0.05rem;
-    position: relative;
     padding: 0.15rem 0.6rem;
     border-radius: 999px;
     font-size: var(--noca-type-label);
@@ -207,27 +193,18 @@
     color: var(--noca-on-surface-variant);
 }
 
-.animator-connection::before {
-    content: "\1F5A7";
-    grid-area: icon;
-    display: inline-block;
-    /* Relative to the pill's own label step, so the mark scales with the text
-       it belongs to instead of pinning a second absolute size next to it. */
-    font-size: 1.15em;
-    line-height: 1;
-    position: relative;
-    z-index: 1;
-}
-
 .animator-connection::after {
     content: "";
-    width: 0.5rem;
-    height: 0.5rem;
+    grid-area: icon;
+    display: inline-block;
+    width: 0.55rem;
+    height: 0.55rem;
     border-radius: 50%;
-    left: 1.05rem;
-    position: absolute;
-    top: 50%;
-    transform: translate(-50%, -50%);
+    /* Solid core in every state: the dot stays legible when the glow is
+       neutralized by prefers-reduced-motion or washed out by a projector.
+       The dot itself is the icon (same size and shape as the home-page live
+       dot), so the badge never depends on a pictograph font to render. */
+    background: currentColor;
 }
 
 .animator-connection-label {
@@ -252,7 +229,11 @@
 }
 
 .animator-connection[data-status="live"]::after {
-    animation: animator-live-dot-glow 1.2s ease-in-out infinite;
+    background: var(--bs-success);
+    /* Resting halo matches the home-page live dot; the animation overrides
+       it while running, so it only shows when motion is reduced. */
+    box-shadow: 0 0 0 0.28rem rgb(var(--bs-success-rgb) / 14%);
+    animation: animator-live-dot-glow 2s ease-in-out infinite;
 }
 
 .animator-connection[data-status="reconnecting"] {
@@ -268,11 +249,13 @@
 @keyframes animator-live-dot-glow {
     0%,
     100% {
-        box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%, transparent);
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--bs-success) 0%, transparent);
     }
 
     50% {
-        box-shadow: 0 0 0 0.5rem color-mix(in srgb, currentColor 22%, transparent);
+        box-shadow:
+            0 0 0.35rem 0.25rem
+            color-mix(in srgb, var(--bs-success) 22%, transparent);
     }
 }
 
@@ -283,6 +266,17 @@
     text-align: center;
     color: var(--noca-on-surface-variant);
     font-size: var(--noca-type-body);
+}
+
+/* Projector "nothing to show yet" banner, standing in for a whole board rather
+   than annotating one: the ceremony uses it before an operator opens a session,
+   and the live scoreboard before the contest starts. It lives here, in the
+   stylesheet every animator page loads, so both surfaces share one definition
+   instead of drifting into two near-identical looks. */
+.ceremony-empty {
+    padding: 2rem 0;
+    font-size: var(--noca-type-title);
+    color: var(--bs-secondary-color);
 }
 
 .animator-error {

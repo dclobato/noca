@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Table
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, String, Table
 
 from ._base import _created_at_column, _id_column, _updated_at_column, metadata
 
@@ -34,6 +34,17 @@ clarifications = Table(
         nullable=False,
         default=False,
         comment="Should the clarification be visible to all teams in the contest",
+    ),
+    Column(
+        "is_announcement",
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment=(
+            "True for a judge/admin announcement, which is one row read by many teams. "
+            "Stored rather than derived from the author's role, which is mutable."
+        ),
     ),
     Column("answer", String(1024), nullable=True, comment="Text of the clarification answer"),
     Column(
@@ -92,4 +103,36 @@ clarifications = Table(
         "hidden_by_judge_id IS NULL OR hidden_by_admin_id IS NULL",
         name="ck_clarifications_hidden_by_judge_xor_admin",
     ),
+)
+
+#: Per-team read markers for announcements.
+#:
+#: An announcement is one row read by many teams, so the single
+#: ``clarifications.answer_read_at`` scalar cannot express its read state. A team has read
+#: an announcement exactly when the matching row exists here; absence means unread, which
+#: is why a team created after publication correctly sees what it missed.
+clarification_reads = Table(
+    "clarification_reads",
+    metadata,
+    Column(
+        "clarification_id",
+        String(36),
+        ForeignKey("clarifications.id", ondelete="CASCADE"),
+        primary_key=True,
+        comment="FK to the announcement that was read.",
+    ),
+    Column(
+        "user_id",
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        comment="FK to the team that read it.",
+    ),
+    Column(
+        "read_at",
+        DateTime(timezone=True),
+        nullable=False,
+        comment="Time when the announcement was first rendered to this team.",
+    ),
+    Index("ix_clarification_reads_user_id", "user_id"),
 )

@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -25,6 +25,7 @@ from shared.services.valkey_service.constants import (
     QUEUE_RESULTS_CHANNEL,
     QUEUE_SUBMISSIONS_CHANNEL,
     QUEUE_UNKNOWN_CONTEST,
+    REVEAL_CONTROLLER_KEY_PREFIX,
     REVEAL_LOCK_KEY_PREFIX,
     REVEAL_STATE_KEY_PREFIX,
     REVELATION_CHANNEL_PREFIX,
@@ -132,6 +133,7 @@ from shared.services.valkey_service.queue_ops import (
 from shared.services.valkey_service.revelation import (
     InvalidRevelationScopeError,
     publish_revelation_with_client,
+    reveal_controller_key,
     reveal_lock_key,
     reveal_state_key,
     revelation_channel,
@@ -197,6 +199,7 @@ __all__ = [
     "QUEUE_RESULTS_CHANNEL",
     "QUEUE_SUBMISSIONS_CHANNEL",
     "QUEUE_UNKNOWN_CONTEST",
+    "REVEAL_CONTROLLER_KEY_PREFIX",
     "REVEAL_LOCK_KEY_PREFIX",
     "REVEAL_STATE_KEY_PREFIX",
     "REVELATION_CHANNEL_PREFIX",
@@ -255,6 +258,7 @@ __all__ = [
     "publish_revelation_with_client",
     "publish_submission",
     "publish_verdict",
+    "reveal_controller_key",
     "reveal_lock_key",
     "reveal_state_key",
     "revelation_channel",

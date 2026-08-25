@@ -6,6 +6,7 @@
   "end_time": "2026-09-12T18:00:00Z",
   "freeze_at": "2026-09-12T17:00:00Z",
   "is_frozen": true,
+  "has_started": true,
   "problems": [
     {
       "problem_id": "p-a",

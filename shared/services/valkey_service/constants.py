@@ -1,5 +1,5 @@
 #  NOCA -- Next Online Contest Administrator
-#  Copyright (c) 2026 Daniel Correa Lobato <daniel@lobato.org>
+#  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
 #  This program is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -8,18 +8,30 @@
 
 from __future__ import annotations
 
+import os
+
+_TEST_CHANNEL_NAMESPACE = os.environ.get("NOCA_TEST_VALKEY_CHANNEL_NAMESPACE", "").strip(":")
+
+
+def _channel_name(name: str) -> str:
+    """Return a production channel name or its test-isolated equivalent."""
+    if not _TEST_CHANNEL_NAMESPACE:
+        return name
+    return f"{_TEST_CHANNEL_NAMESPACE}:{name}"
+
+
 QUEUE_PENDING_KEY = "judge:queue:pending"
 QUEUE_PRIORITY_KEY = "judge:queue:priority"
 QUEUE_PROFILING_KEY = "judge:queue:profiling"
 QUEUE_INFLIGHT_KEY = "judge:queue:inflight"
 QUEUE_INFLIGHT_TIMES_KEY = "judge:queue:inflight:times"
-QUEUE_RESULTS_CHANNEL = "judge:results"
+QUEUE_RESULTS_CHANNEL = _channel_name("judge:results")
 # New-submission nudges are published on their own channel so animator
 # subscribers can react to submissions without touching the verdict channel.
-QUEUE_SUBMISSIONS_CHANNEL = "judge:submissions"
+QUEUE_SUBMISSIONS_CHANNEL = _channel_name("judge:submissions")
 # Arena verdicts are published on a dedicated channel so Arena live-feed subscribers
 # never receive contest (web) verdict events and vice versa.
-ARENA_RESULTS_CHANNEL = "arena:results"
+ARENA_RESULTS_CHANNEL = _channel_name("arena:results")
 QUEUE_JOB_HASH_PREFIX = "judge:job"
 QUEUE_KEYS = (
     QUEUE_PRIORITY_KEY,
@@ -35,7 +47,8 @@ QUEUE_UNKNOWN_CONTEST = "unknown_contest"
 # raw, unvalidated strings.
 REVEAL_STATE_KEY_PREFIX = "animator:reveal"
 REVEAL_LOCK_KEY_PREFIX = "animator:reveal:lock"
-REVELATION_CHANNEL_PREFIX = "revelation:events"
+REVEAL_CONTROLLER_KEY_PREFIX = "animator:reveal:controller"
+REVELATION_CHANNEL_PREFIX = _channel_name("revelation:events")
 
 # AI review queue — separate namespace from the autojudge pipeline
 QUEUE_AI_REVIEW_PENDING_KEY = "ai:queue:pending"

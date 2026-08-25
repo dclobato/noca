@@ -22,6 +22,7 @@ data class ControlVisibility(
     val stepVisible: Boolean,
     val backVisible: Boolean,
     val jumpVisible: Boolean,
+    val jumpPendingVisible: Boolean,
 ) {
     companion object {
         /** Nothing is actionable — an unreadable or unloadable ceremony state. */
@@ -32,6 +33,7 @@ data class ControlVisibility(
             stepVisible = false,
             backVisible = false,
             jumpVisible = false,
+            jumpPendingVisible = false,
         )
     }
 }
@@ -71,5 +73,6 @@ fun controlsForState(
         stepVisible = revealing,
         backVisible = true,
         jumpVisible = revealing,
+        jumpPendingVisible = revealing && projection.nextCell == null,
     )
 }

@@ -27,6 +27,7 @@ const URLS = {
   back: "/c/x/control/back",
   reset: "/c/x/control/reset",
   jump: "/c/x/control/jump-team",
+  jumpPending: "/c/x/control/jump-pending",
 };
 
 const PROJECTION = {
@@ -65,6 +66,11 @@ function makeHarness(plan) {
       return Promise.resolve(next);
     },
     urls: URLS,
+    ownership: {
+      canCommand: () => true,
+      controllerHeader: () => "controller-test-id",
+      markLost: () => events.statuses.push("lease-lost"),
+    },
     onState: (p) => events.states.push(p),
     onStatus: (s) => events.statuses.push(s),
     onError: (m) => events.errors.push(m),
@@ -122,11 +128,13 @@ async function testScopeFreeCommandsSendNoBody() {
     [URLS.step]: [jsonResponse(200, PROJECTION)],
     [URLS.back]: [jsonResponse(200, PROJECTION)],
     [URLS.reset]: [jsonResponse(200, PROJECTION)],
+    [URLS.jumpPending]: [jsonResponse(200, PROJECTION)],
   });
   h.client.setSecret("s");
   await h.client.step();
   await h.client.back();
   await h.client.reset();
+  await h.client.jumpPending();
   // The server's models forbid extra fields; sending nothing keeps them 200s.
   h.calls.forEach((call) => assert.strictEqual(call.init.body, undefined));
 }
@@ -167,6 +175,11 @@ async function testTenStepSequenceNeverOverlapsRequests() {
       });
     },
     urls: URLS,
+    ownership: {
+      canCommand: () => true,
+      controllerHeader: () => "controller-test-id",
+      markLost() {},
+    },
     onState() {},
     onStatus() {},
     onError() {},
@@ -255,6 +268,29 @@ async function testDefinitiveRefusalsReEnable() {
   assert.strictEqual(h.events.busy[h.events.busy.length - 1], false, "controls re-enable at once");
   assert.strictEqual(h.client.isBlocked(), false);
   assert.strictEqual(h.calls.length, 1, "a stated refusal needs no reconciliation");
+}
+
+async function testLeaseLostRefusalDoesNotEngageTheAmbiguityLock() {
+  // A lease-lost `409` is *stated*: nothing was applied. Treating it like an
+  // ambiguous outcome used to leave a panel that re-took control silently
+  // no-oping every press until someone thought to hit Reload state.
+  const h = makeHarness({
+    [URLS.step]: [
+      jsonResponse(409, { detail: controlApi.LEASE_LOST_DETAIL }),
+      jsonResponse(200, PROJECTION),
+    ],
+  });
+  h.client.setSecret("s");
+  await h.client.step();
+
+  assert.strictEqual(h.client.isBlocked(), false, "a stated ownership refusal is not ambiguous");
+  assert.ok(h.events.statuses.includes("lease-lost"), "ownership loss reached the ownership controller");
+  assert.deepStrictEqual(h.events.errors, [controlApi.LEASE_LOST_DETAIL]);
+
+  // After the operator takes over again (canCommand true once more), the very
+  // same client must actually send the next command instead of no-oping.
+  await h.client.step();
+  assert.strictEqual(h.calls.filter((call) => call.url === URLS.step).length, 2, "commands fire after takeover");
 }
 
 // ── Ambiguous outcomes stay locked until reconciliation ──────────────────────
@@ -399,6 +435,7 @@ function testControlsForState() {
     stepVisible: false,
     backVisible: false,
     jumpVisible: false,
+    jumpPendingVisible: false,
   });
 
   // A *stored* idle ceremony (reset to idle, or freshly created) preserves the
@@ -412,6 +449,7 @@ function testControlsForState() {
     stepVisible: false,
     backVisible: false,
     jumpVisible: false,
+    jumpPendingVisible: false,
   });
 
   // An unreadable stored session cannot use ordinary ceremony commands.
@@ -423,6 +461,7 @@ function testControlsForState() {
     stepVisible: false,
     backVisible: false,
     jumpVisible: false,
+    jumpPendingVisible: false,
   });
 
   // A transient or unknown load failure offers read-only Reload state through
@@ -434,6 +473,7 @@ function testControlsForState() {
     stepVisible: false,
     backVisible: false,
     jumpVisible: false,
+    jumpPendingVisible: false,
   });
 
   // Revealing with nothing revealed yet: Back stays visible — a step can be a
@@ -445,16 +485,23 @@ function testControlsForState() {
     stepVisible: true,
     backVisible: true,
     jumpVisible: true,
+    jumpPendingVisible: true,
   });
 
   // Mid-ceremony: everything but Start.
-  assert.deepStrictEqual(controls({ phase: "revealing", revealed_count: 3, frozen_count: 7 }), {
+  assert.deepStrictEqual(controls({
+    phase: "revealing",
+    revealed_count: 3,
+    frozen_count: 7,
+    next_cell: { team_id: "t1", problem_id: "p1", label: "A" },
+  }), {
     startVisible: false,
     startOverVisible: true,
     resetVisible: true,
     stepVisible: true,
     backVisible: true,
     jumpVisible: true,
+    jumpPendingVisible: false,
   });
 
   // Done: nothing left to step to or jump to, but the ceremony can still be
@@ -466,6 +513,7 @@ function testControlsForState() {
     stepVisible: false,
     backVisible: true,
     jumpVisible: false,
+    jumpPendingVisible: false,
   });
 }
 
@@ -536,6 +584,7 @@ async function testMutatingCommandsCarryAFreshIdempotencyKey() {
     [URLS.reset]: [jsonResponse(200, PROJECTION)],
     [URLS.start]: [jsonResponse(200, PROJECTION)],
     [URLS.jump]: [jsonResponse(200, PROJECTION)],
+    [URLS.jumpPending]: [jsonResponse(200, PROJECTION)],
   });
   h.client.setSecret("s");
 
@@ -545,6 +594,7 @@ async function testMutatingCommandsCarryAFreshIdempotencyKey() {
   await h.client.back();
   await h.client.reset();
   await h.client.jump("team-1");
+  await h.client.jumpPending();
 
   const read = h.calls[0];
   assert.strictEqual(
@@ -552,13 +602,17 @@ async function testMutatingCommandsCarryAFreshIdempotencyKey() {
     undefined,
     "a read carries no key: there is nothing to apply twice",
   );
+  assert.strictEqual(read.init.headers["X-Animator-Controller-Id"], undefined);
 
   const keys = h.calls.slice(1).map((call) => call.init.headers["Idempotency-Key"]);
-  assert.strictEqual(keys.length, 5, "all five mutating commands were sent");
+  assert.strictEqual(keys.length, 6, "all six mutating commands were sent");
   keys.forEach((key) => {
     assert.ok(KEY_PATTERN.test(key), "the key must satisfy the server pattern, got " + key);
   });
   assert.strictEqual(new Set(keys).size, keys.length, "each attempt gets its own key");
+  h.calls.slice(1).forEach((call) => {
+    assert.strictEqual(call.init.headers["X-Animator-Controller-Id"], "controller-test-id");
+  });
 }
 
 async function testEachRepeatedStepGetsItsOwnKey() {
@@ -610,6 +664,7 @@ function testNoPersistentStorage() {
   await testSequenceStopsAfterAmbiguousOutcomeReconciliation();
   await testInitialStateLoadAndMissingSession();
   await testDefinitiveRefusalsReEnable();
+  await testLeaseLostRefusalDoesNotEngageTheAmbiguityLock();
   await testNetworkFailureBlocksUntilReconciled();
   await test503IsTreatedAsAmbiguous();
   await testNoSecondCommandDuringReconciliation();

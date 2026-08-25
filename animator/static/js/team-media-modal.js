@@ -4,8 +4,8 @@
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-// The reusable team modal: one dialog, reused for every team, showing that
-// team's photo and attempting to play its optional audio clip.
+// Reusable team-media modal for the live scoreboard and reveal ceremony. Both
+// show the scoped image; only the ceremony opts into the optional audio clip.
 //
 // Four behaviors here are deliberate, and each exists because the obvious
 // implementation is wrong:
@@ -29,7 +29,7 @@
 //      generation guard a previous team's teardown would hide the next team's
 //      working player (observed in preflight).
 //
-// Exported as UMD: `window.CeremonyModal` / `module.exports`.
+// Exported as UMD: `window.AnimatorTeamModal` / `module.exports`.
 (function (root, factory) {
   "use strict";
   var api = factory();
@@ -37,20 +37,22 @@
     module.exports = api;
   }
   if (root) {
-    root.CeremonyModal = api;
+    root.AnimatorTeamModal = api;
   }
 })(typeof window !== "undefined" ? window : null, function () {
   "use strict";
 
   var BLOCKED_MESSAGE = "Autoplay was blocked — press play to hear this team.";
 
-  // deps: { photoEl, audioEl, titleEl, statusEl, photoFallbackEl, photoBase,
-  //         audioBase, scope, fetchImpl, urlApi, AbortControllerCtor }
+  // Common deps: { photoEl, titleEl, photoFallbackEl, photoBase, scope,
+  //                fetchImpl, urlApi, AbortControllerCtor, audioEnabled }
+  // Audio-enabled mode also requires { audioEl, statusEl, audioBase }.
   function createTeamModal(deps) {
     var photoEl = deps.photoEl;
-    var audioEl = deps.audioEl;
+    var audioEnabled = deps.audioEnabled === true;
+    var audioEl = audioEnabled ? deps.audioEl : null;
     var titleEl = deps.titleEl;
-    var statusEl = deps.statusEl;
+    var statusEl = audioEnabled ? deps.statusEl : null;
     var photoFallbackEl = deps.photoFallbackEl;
     var generation = 0;
     var pending = null;
@@ -80,11 +82,14 @@
 
     function mediaUrl(base, teamId, kind) {
       // The scope is the canonical one the server already resolved for this
-      // page, so the media request is inside the ceremony's own scope.
+      // page, so the media request stays inside that presentation's scope.
       return base + "/" + encodeURIComponent(teamId) + "/" + kind + "?scope=" + encodeURIComponent(deps.scope);
     }
 
     function showPlayer(visible) {
+      if (!audioEnabled || !audioEl) {
+        return;
+      }
       if (visible) {
         audioEl.removeAttribute("hidden");
       } else {
@@ -128,7 +133,7 @@
           }
           releasePhotoObjectUrl();
           photoObjectUrl = deps.urlApi.createObjectURL(result.blob);
-          photoEl.classList.toggle("ceremony-team-photo--placeholder", result.kind === "placeholder");
+          photoEl.classList.toggle("team-media-photo--placeholder", result.kind === "placeholder");
           photoEl.onload = function () {
             if (mine === generation) {
               showPhoto("visible");
@@ -185,7 +190,7 @@
     // always resolves (never rejects), reporting which of the three outcomes
     // occurred: "played", "blocked", "unavailable", or "skipped".
     function onShown() {
-      if (!pending) {
+      if (!audioEnabled || !pending) {
         return Promise.resolve("skipped");
       }
       // One open is one generation: it was assigned by onShow (which also armed
@@ -272,13 +277,15 @@
       });
     }
 
-    // Idempotent teardown: stops playback *and* any in-flight download, so
-    // closing the modal never leaves audio playing over the next team.
+    // Idempotent teardown: stops playback and any in-flight media download, so
+    // closing the modal never leaks one team's work into the next open.
     function teardown() {
       generation += 1; // Invalidate listeners belonging to the media being torn down.
       pending = null;
-      audioEl.onerror = null;
-      audioEl.onloadedmetadata = null;
+      if (audioEnabled && audioEl) {
+        audioEl.onerror = null;
+        audioEl.onloadedmetadata = null;
+      }
       photoEl.onload = null;
       photoEl.onerror = null;
       if (photoAbortController) {
@@ -286,17 +293,19 @@
         photoAbortController = null;
       }
       photoEl.removeAttribute("src");
-      photoEl.classList.remove("ceremony-team-photo--placeholder");
+      photoEl.classList.remove("team-media-photo--placeholder");
       releasePhotoObjectUrl();
       showPhoto("loading");
-      try {
-        audioEl.pause();
-        audioEl.currentTime = 0;
-      } catch (ignored) {
-        // A media element with no source can refuse currentTime; harmless.
+      if (audioEnabled && audioEl) {
+        try {
+          audioEl.pause();
+          audioEl.currentTime = 0;
+        } catch (ignored) {
+          // A media element with no source can refuse currentTime; harmless.
+        }
+        audioEl.removeAttribute("src");
+        audioEl.load();
       }
-      audioEl.removeAttribute("src");
-      audioEl.load();
       showPlayer(false);
       setStatus("");
     }

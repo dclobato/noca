@@ -1,3 +1,10 @@
+{#
+  NOCA -- Next Online Contest Administrator
+  Copyright (c) 2026 The NOCA Authors (see AUTHORS)
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#}
 {% extends "_base.html" %}
 {% from "_macros.html" import admin_breadcrumb, dashboard_action_card, dashboard_card with context %}
 {% block title_suffix %}
@@ -83,9 +90,3 @@
         {# /row #}
     </div>
 {% endblock content %}
-{% block extra_script %}
-    {# The action cards declare their confirmation as `data-confirm`; this is the
-       delegated listener that honours it. #}
-    <script src="{{ request.url_for('static_js', path='confirm-submit.js') }}"
-            defer></script>
-{% endblock extra_script %}

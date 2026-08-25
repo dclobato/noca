@@ -8,9 +8,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection
-
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.enumerations import RoleEnum
@@ -252,49 +250,6 @@ async def answer_clarification(
     return clarification
 
 
-async def mark_clarification_answers_read(
-    session: AsyncSession,
-    contest: Contest,
-    actor: User,
-    clarification_ids: Collection[str],
-) -> int:
-    """Mark rendered answers as read by their requesting team.
-
-    Args:
-        session: Active database session.
-        contest: Contest containing the clarifications.
-        actor: Team acknowledging its own answers.
-        clarification_ids: Answer identifiers that were rendered to the team.
-
-    Returns:
-        The number of answers newly marked as read.
-
-    Raises:
-        ForbiddenClarificationActionError: If the actor is not a team in the
-            supplied contest.
-    """
-    if actor.role != RoleEnum.TEAM or actor.contest_id != contest.id:
-        raise ForbiddenClarificationActionError("Only the requesting team may acknowledge clarification answers.")
-
-    unique_ids = frozenset(clarification_ids)
-    if not unique_ids:
-        return 0
-
-    result = await session.execute(
-        update(Clarification)
-        .where(
-            Clarification.id.in_(unique_ids),
-            Clarification.team_id == actor.id,
-            Clarification.answered_at.is_not(None),
-            Clarification.answer_read_at.is_(None),
-            Clarification.hidden.is_(False),
-        )
-        .values(answer_read_at=_utcnow())
-    )
-    await session.flush()
-    return int(result.rowcount or 0)  # type: ignore[attr-defined]
-
-
 async def create_announcement(
     session: AsyncSession,
     contest: Contest,
@@ -344,6 +299,7 @@ async def create_announcement(
         question="Announcement",
         answer=announcement.strip(),
         is_contest_public=True,
+        is_announcement=True,
         created_at=now,
         created_timestamp_seconds=compute_timestamp_seconds(contest.start_time, now),
         answered_at=now,

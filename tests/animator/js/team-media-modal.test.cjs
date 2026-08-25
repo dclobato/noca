@@ -4,7 +4,7 @@
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
 //  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-// Browser-independent contract test for ceremony-modal.js. A fake media
+// Browser-independent contract test for team-media-modal.js. A fake media
 // element drives the three playback outcomes that a real browser produces —
 // played, blocked (NotAllowedError), and unusable media (error event +
 // NotSupportedError) — plus teardown and the stale-generation guard.
@@ -14,7 +14,7 @@
 const assert = require("assert");
 const path = require("path");
 
-const modalApi = require(path.join(__dirname, "..", "..", "..", "animator", "static", "js", "ceremony-modal.js"));
+const modalApi = require(path.join(__dirname, "..", "..", "..", "animator", "static", "js", "team-media-modal.js"));
 
 function makeEl() {
   const classes = new Set();
@@ -98,7 +98,7 @@ function makeAudio(behavior) {
   return el;
 }
 
-function build(behavior, photoKind = "photo", photoBehavior = "ok") {
+function build(behavior, photoKind = "photo", photoBehavior = "ok", audioEnabled = true) {
   const photoEl = makeEl();
   const originalSetAttribute = photoEl.setAttribute;
   photoEl.setAttribute = function (name, value) {
@@ -114,14 +114,12 @@ function build(behavior, photoKind = "photo", photoBehavior = "ok") {
   const revokedUrls = [];
   const fetchCalls = [];
   photoFallbackEl.setAttribute("hidden", "hidden");
-  const modal = modalApi.createTeamModal({
+  const deps = {
+    audioEnabled,
     photoEl,
-    audioEl,
     titleEl,
-    statusEl,
     photoFallbackEl,
     photoBase: "/c/x/teams",
-    audioBase: "/c/x/teams",
     scope: "site-42",
     fetchImpl(url, options) {
       fetchCalls.push({ url, options });
@@ -148,7 +146,13 @@ function build(behavior, photoKind = "photo", photoBehavior = "ok") {
         revokedUrls.push(url);
       },
     },
-  });
+  };
+  if (audioEnabled) {
+    deps.audioEl = audioEl;
+    deps.statusEl = statusEl;
+    deps.audioBase = "/c/x/teams";
+  }
+  const modal = modalApi.createTeamModal(deps);
   return {
     modal,
     photoEl,
@@ -345,11 +349,28 @@ async function testPlaceholderUsesProjectorWidthAndObjectUrlIsReleased() {
   modal.onShow(trigger("t1"));
   await flushPromises();
 
-  assert.ok(photoEl.classList.contains("ceremony-team-photo--placeholder"));
+  assert.ok(photoEl.classList.contains("team-media-photo--placeholder"));
   const photoUrl = photoEl.getAttribute("src");
   modal.teardown();
   assert.deepStrictEqual(revokedUrls, [photoUrl]);
-  assert.ok(!photoEl.classList.contains("ceremony-team-photo--placeholder"));
+  assert.ok(!photoEl.classList.contains("team-media-photo--placeholder"));
+}
+
+// ── Live scoreboard mode is image-only ─────────────────────────────────────
+async function testPhotoOnlyModeNeverTouchesAudio() {
+  const { modal, photoEl, fetchCalls, revokedUrls } = build(null, "placeholder", "ok", false);
+  modal.onShow(trigger("scoreboard-team", "Image Only"));
+  await flushPromises();
+
+  assert.strictEqual(await modal.onShown(), "skipped");
+  assert.deepStrictEqual(
+    fetchCalls.map((call) => call.url),
+    ["/c/x/teams/scoreboard-team/photo?scope=site-42"],
+  );
+  assert.ok(photoEl.classList.contains("team-media-photo--placeholder"));
+  const photoUrl = photoEl.getAttribute("src");
+  modal.teardown();
+  assert.deepStrictEqual(revokedUrls, [photoUrl]);
 }
 
 // ── A trigger without a team is ignored ──────────────────────────────────────
@@ -374,8 +395,9 @@ async function testMissingTriggerIsIgnored() {
   await testStalePhotoErrorIsIgnored();
   await testPhotoHandlerSurvivesShown();
   await testPlaceholderUsesProjectorWidthAndObjectUrlIsReleased();
+  await testPhotoOnlyModeNeverTouchesAudio();
   await testMissingTriggerIsIgnored();
-  console.log("ceremony-modal contract: OK");
+  console.log("team-media-modal contract: OK");
 })().catch((error) => {
   console.error(error);
   process.exit(1);

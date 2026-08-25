@@ -19,7 +19,7 @@ from web.models.submission import Submission, SubmissionJudgment
 from web.models.users import User
 from web.services.clarification_service import (
     count_pending_clarifications,
-    count_unread_clarification_answers,
+    count_unread_team_clarifications,
 )
 from web.services.contest_service import build_contest_clock_payload, build_contest_rules_summary
 
@@ -100,7 +100,7 @@ async def dashboard(request: Request, ctx: ContestContext = Depends(get_contest_
         elif role == RoleEnum.STAFF:
             tasks_pending = await _build_tasks_pending_count(ctx)
         elif role == RoleEnum.TEAM:
-            clarifications_attention = await count_unread_clarification_answers(
+            clarifications_attention = await count_unread_team_clarifications(
                 ctx.session,
                 ctx.contest,
                 actor.id,
