@@ -9,7 +9,6 @@
 import logging
 import uuid
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
@@ -17,9 +16,6 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
 from jwtservice import JWTService, load_token_config_from_dict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -42,14 +38,8 @@ from arena.routes.root import router as arena_root_router
 from arena.routes.user_public_profile import router as arena_user_public_profile_router
 from arena.routes.user_submission_status import router as arena_user_submission_status_router
 from arena.routes.users import router as arena_users_router
-from arena.services.ranking_medals import arena_medal_band
 from arena.services.session_service import missing_profile_fields
 from arena.services.token_service import ArenaTokenAction
-from arena.services.user_timezone_service import (
-    datetime_local_value,
-    format_user_datetime,
-    timezone_name_for_user,
-)
 from shared.db_schema.arena import (
     arena_ai_credit_transactions,
     arena_problem_categories,
@@ -66,8 +56,6 @@ from shared.db_schema.arena import (
 )
 from shared.enumerations import (
     ARENA_BADGE_METADATA,
-    VERDICT_BADGE_CLASSES,
-    VERDICT_LABELS,
     ArenaBadge,
     ArenaRole,
     JudgmentStatus,
@@ -75,6 +63,7 @@ from shared.enumerations import (
     Verdict,
 )
 from shared.services.network_utils import NetworkService
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-arena-profile-tests-only-32bytes"
@@ -112,21 +101,8 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     app.add_middleware(ArenaAuthMiddleware)
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
-    arena_dir = Path(__file__).resolve().parents[2] / "arena"
-    templates = Jinja2Templates(directory=arena_dir / "template")
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["next_rating_update_text"] = lambda request: None
-    from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
-
-    templates.env.globals["arena_role_labels"] = ARENA_ROLE_DISPLAY
-    templates.env.globals["arena_datetime_local_value"] = datetime_local_value
-    templates.env.globals["arena_format_datetime"] = format_user_datetime
-    templates.env.globals["arena_user_timezone_name"] = timezone_name_for_user
-    templates.env.globals["verdict_badge_classes"] = VERDICT_BADGE_CLASSES
-    templates.env.globals["verdict_labels"] = VERDICT_LABELS
-    templates.env.globals["arena_medal_band"] = arena_medal_band
-    setup_flash(templates)
-    app.state.arena_templates = templates
+    install_arena_templates(app)
+    mount_arena_base_routes(app)
 
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
     app.state.jwt_service = JWTService(
@@ -142,13 +118,6 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     )
     app.state.reverse_geocoder_network_service = _ReverseGeocoderStub()
     app.state.reverse_geocoder_user_agent = "noca-test"
-
-    app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
-    app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")
-    app.mount("/static/img", StaticFiles(directory=arena_dir / "static" / "img"), name="arena_static_img")
-    shared_dir = Path(__file__).resolve().parents[2] / "shared"
-    app.mount("/static/vendor", StaticFiles(directory=shared_dir / "static" / "vendor"), name="static_vendor")
-    app.mount("/static/shared-js", StaticFiles(directory=shared_dir / "static" / "js"), name="static_shared_js")
 
     @app.get("/auth/login", name="arena_login")
     async def _arena_login() -> Response:

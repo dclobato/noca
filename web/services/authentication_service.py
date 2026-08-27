@@ -17,6 +17,7 @@ from werkzeug.security import check_password_hash
 
 from shared.enumerations import RoleEnum
 from shared.services.geolocation import GeolocationIP
+from shared.session_keepalive import refresh_window_seconds
 from web.config import settings
 from web.models.users import Login_History, UberAdmin, User
 from web.services.contest_user_service import normalize_username
@@ -119,8 +120,7 @@ class AuthenticationService:
         expires_in = result.expires_in
         if expires_in is None:
             return False
-        refresh_threshold = max(1, settings.JWT_EXPIRE_SECONDS // 2)
-        return cast(bool, expires_in <= refresh_threshold)
+        return cast(bool, expires_in <= refresh_window_seconds(settings.JWT_EXPIRE_SECONDS))
 
     def is_absolute_session_cap_exceeded(self, result: TokenVerificationResult) -> bool:
         """Return whether the optional sliding-session cap has been exceeded."""

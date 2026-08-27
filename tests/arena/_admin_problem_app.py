@@ -17,14 +17,9 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import date
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
-from jinja2 import ChoiceLoader, FileSystemLoader
 from jwtservice import JWTService, load_token_config_from_dict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
@@ -44,10 +39,9 @@ from arena.routes.admin_problem_validator import router as arena_admin_problem_v
 from arena.routes.admin_problems import router as arena_admin_problems_router
 from arena.routes.legal import router as arena_legal_router
 from arena.routes.ranking import router as arena_ranking_router
-from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
 from shared.enumerations import ArenaRole
-from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-admin-problem-tests-32b!"
@@ -59,21 +53,8 @@ def build_admin_app(session: AsyncSession) -> FastAPI:
     app.add_middleware(ArenaAuthMiddleware)
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
-    arena_dir = Path(__file__).resolve().parents[2] / "arena"
-    shared_dir = Path(__file__).resolve().parents[2] / "shared"
-    templates = Jinja2Templates(directory=arena_dir / "template")
-    templates.env.loader = ChoiceLoader(
-        [
-            FileSystemLoader(str(arena_dir / "template")),
-            FileSystemLoader(str(shared_dir / "template")),
-        ]
-    )
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["next_rating_update_text"] = lambda request: None
-    templates.env.globals["arena_role_labels"] = ARENA_ROLE_DISPLAY
-    templates.env.globals["MAX_INLINE_TESTCASE_BYTES"] = MAX_INLINE_TESTCASE_BYTES
-    setup_flash(templates)
-    app.state.arena_templates = templates
+    install_arena_templates(app)
+    mount_arena_base_routes(app)
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
     app.state.jwt_service = JWTService(
         config=load_token_config_from_dict(
@@ -86,13 +67,6 @@ def build_admin_app(session: AsyncSession) -> FastAPI:
         logger=logging.getLogger(__name__),
         action_enum=ArenaTokenAction,
     )
-
-    shared_dir = Path(__file__).resolve().parents[2] / "shared"
-    app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
-    app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")
-    app.mount("/static/img", StaticFiles(directory=arena_dir / "static" / "img"), name="arena_static_img")
-    app.mount("/static/vendor", StaticFiles(directory=shared_dir / "static" / "vendor"), name="static_vendor")
-    app.mount("/static/shared-js", StaticFiles(directory=shared_dir / "static" / "js"), name="static_shared_js")
 
     @app.get("/", name="arena_dashboard")
     async def _dashboard() -> Response:

@@ -28,10 +28,9 @@ from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
 from jinja2 import ChoiceLoader, FileSystemLoader
 from secrets_manager import SecretsConfig, SecretsManager
 from starlette.middleware.sessions import SessionMiddleware
@@ -40,7 +39,7 @@ from arena.config import settings
 from arena.database import create_engine, create_session_factory
 from arena.dependencies.access_control import enforce_arena_authentication
 from arena.error_handlers import register_error_handlers
-from arena.image_upload_limits import ARENA_LOGO_MAX_FILE_SIZE, arena_image_upload_rules
+from arena.image_upload_limits import arena_image_upload_rules
 from arena.middleware.auth_middleware import ArenaAuthMiddleware
 from arena.routes.admin_affiliations import router as arena_admin_affiliations_router
 from arena.routes.admin_categories import router as arena_admin_categories_router
@@ -88,27 +87,18 @@ from arena.routes.user_public_profile import router as arena_user_public_profile
 from arena.routes.user_security import router as arena_user_security_router
 from arena.routes.user_submission_status import router as arena_user_submission_status_router
 from arena.routes.users import router as arena_users_router
-from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.qrcode_service import QRCodeService
-from arena.services.ranking_medals import arena_medal_band
-from arena.services.session_service import ARENA_REMEMBER_ME_MAX_AGE, get_session_started_at, is_remembered_login
 from arena.services.startup_seeds import ensure_sem_afiliacao
 from arena.services.token_service import ArenaTokenAction, JWTService, load_token_config_from_dict
-from arena.services.user_timezone_service import (
-    datetime_local_value,
-    format_relative_datetime,
-    format_user_datetime,
-    timezone_name_for_user,
-)
 from arena.services.valkey_service import create_arena_valkey_runtime
+from arena.template_globals import register_arena_template_globals
 from shared.app_logging import configure_logging, log_settings
 from shared.db_schema.custom_types import init_encrypted_string
-from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_LABELS, Environment
+from shared.enumerations import Environment
 from shared.services.arena_rating import (
     NEXT_RATING_UPDATE_KEY,
     RATING_AFFILIATION_FACTOR_KEY,
     RATING_INTERVAL_TEXT_KEY,
-    format_next_rating_update,
 )
 from shared.services.email_reputation import EmailReputationService
 from shared.services.email_service import EmailConfig, EmailService
@@ -117,11 +107,6 @@ from shared.services.imageprocessing_service import ImageProcessingConfig, Image
 from shared.services.multipart_file_size import MultipartFileSizeLimitMiddleware
 from shared.services.network_utils import NetworkService
 from shared.services.network_utils.ip_reputation import IPQualityScoreIPReputationService
-from shared.services.problem_image import (
-    MAX_PROBLEM_IMAGE_BYTES,
-    MAX_PROBLEM_IMAGE_HEIGHT,
-    MAX_PROBLEM_IMAGE_WIDTH,
-)
 from shared.services.problem_package.reconcile import reconcile_import_journals
 from shared.services.security_events_reaper import run_security_events_reaper
 from shared.services.security_headers import SecurityHeaderSettings, SecurityHeadersMiddleware
@@ -136,8 +121,6 @@ from shared.services.valkey_service import (
     worker_presence_loop,
 )
 from shared.static_files import RevalidatedStaticFiles
-from shared.tc_zip import MAX_INLINE_TESTCASE_BYTES
-from shared.timing import format_compact_duration
 
 try:
     APP_VERSION = version("noca-arena")
@@ -167,82 +150,6 @@ def validate_crypto_environment() -> None:
         logger.error("- SecretsManager environment variables not found or invalid.")
         logger.error("  Create or fix the '%s' file before starting Arena.", crypto_env_file)
         sys.exit(1)
-
-
-def _next_rating_update_text(request: Request) -> str | None:
-    """Return the footer-ready next rating update text for a request.
-
-    Args:
-        request: Current FastAPI request whose app state stores scheduler data.
-
-    Returns:
-        Relative duration text, or ``None`` when the scheduler has no active deadline.
-    """
-    return format_next_rating_update(getattr(request.app.state, "next_rating_update", None))
-
-
-def _arena_online_user_count(request: Request) -> int | None:
-    """Return the cached count of online Arena users for footer rendering.
-
-    Reads the value refreshed by ``_online_users_count_poller`` so the
-    synchronous template helper needs no per-request Valkey access. Returns
-    ``None`` when presence is disabled or the poller has not produced a value.
-
-    Args:
-        request: Current FastAPI request whose app state stores the count.
-
-    Returns:
-        The online-user count, or ``None`` when unavailable.
-    """
-    return getattr(request.app.state, "arena_online_user_count", None)
-
-
-def _token_expiry_text(request: Request) -> str | None:
-    """Return a human-readable description of how long the current session is still valid.
-
-    For regular (non-remembered) sessions, reads the current JWT's ``expires_in``
-    (time until the token itself expires).
-
-    For remembered sessions, shows the time remaining until the **absolute 30-day cap**
-    (``session_started_at + ARENA_REMEMBER_ME_MAX_AGE``) instead of the 1-hour token
-    expiry, because the token is silently rotated by middleware and the user should see
-    their actual session lifetime, not the short-lived token's TTL.
-
-    Args:
-        request: Current FastAPI request whose state carries the validated token.
-
-    Returns:
-        A human-readable duration string (e.g. ``"29d 23h"``, ``"2h 30m"``, ``"< 1 min"``),
-        or ``None`` when no authenticated session is active.
-    """
-    validation = getattr(request.state, "validated_token", None)
-    if validation is None:
-        return None
-
-    remaining: int | None
-    if is_remembered_login(validation):
-        session_started_at = get_session_started_at(validation)
-        if session_started_at is not None:
-            abs_deadline = session_started_at + ARENA_REMEMBER_ME_MAX_AGE
-            remaining = abs_deadline - int(datetime.now(UTC).timestamp())
-        else:
-            remaining = ARENA_REMEMBER_ME_MAX_AGE
-    else:
-        remaining = getattr(validation, "expires_in", None)
-
-    if remaining is None or remaining <= 0:
-        return None
-
-    days, rem = divmod(int(remaining), 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes = rem // 60
-    if days > 0:
-        return f"{days}d {hours}h" if hours else f"{days}d"
-    if hours > 0:
-        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
-    if minutes > 0:
-        return f"{minutes}m"
-    return "< 1 min"
 
 
 async def _next_rating_update_poller(app: FastAPI, stop_event: asyncio.Event) -> None:
@@ -439,12 +346,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         settings.ARENA_REVERSE_GEOCODER_ENABLED,
     )
 
-    def _fmt_shell_cmd(cmd: list[str] | None) -> str:
-        """Join a command list and split on && for readable display."""
-        if not cmd:
-            return ""
-        return " && \\\n".join(" ".join(cmd).split(" && "))
-
     arena_templates = Jinja2Templates(directory=_ARENA_DIR / "template")
     arena_templates.env.loader = ChoiceLoader(
         [
@@ -452,33 +353,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             FileSystemLoader(str(_SHARED_DIR / "template")),
         ]
     )
-    arena_templates.env.globals["MAX_INLINE_TESTCASE_BYTES"] = MAX_INLINE_TESTCASE_BYTES
-    arena_templates.env.filters["fmt_shell_cmd"] = _fmt_shell_cmd
-    arena_templates.env.globals["arena_datetime_local_value"] = datetime_local_value
-    arena_templates.env.globals["arena_format_datetime"] = format_user_datetime
-    arena_templates.env.globals["arena_format_relative_datetime"] = format_relative_datetime
-    arena_templates.env.globals["format_compact_duration"] = format_compact_duration
-    arena_templates.env.globals["arena_user_timezone_name"] = timezone_name_for_user
-    arena_templates.env.globals["arena_medal_band"] = arena_medal_band
-    arena_templates.env.globals["app_version"] = APP_VERSION
-    arena_templates.env.globals["brand_name"] = settings.BRAND_NAME
-    arena_templates.env.globals["healthmon_url"] = settings.HEALTHMON_URL
-    arena_templates.env.globals["image_max_file_size_mib"] = settings.IMAGE_MAX_FILE_SIZE / (1024 * 1024)
-    arena_templates.env.globals["image_max_width"] = settings.IMAGE_MAX_WIDTH
-    arena_templates.env.globals["image_max_height"] = settings.IMAGE_MAX_HEIGHT
-    arena_templates.env.globals["affiliation_logo_max_file_size_mib"] = ARENA_LOGO_MAX_FILE_SIZE / (1024 * 1024)
-    arena_templates.env.globals["problem_image_max_file_size_mib"] = MAX_PROBLEM_IMAGE_BYTES / (1024 * 1024)
-    arena_templates.env.globals["problem_image_max_width"] = MAX_PROBLEM_IMAGE_WIDTH
-    arena_templates.env.globals["problem_image_max_height"] = MAX_PROBLEM_IMAGE_HEIGHT
-    arena_templates.env.globals["presence_enabled"] = settings.PRESENCE_ENABLED
-    arena_templates.env.globals["presence_heartbeat_seconds"] = settings.PRESENCE_HEARTBEAT_SECONDS
-    arena_templates.env.globals["arena_online_user_count"] = _arena_online_user_count
-    arena_templates.env.globals["next_rating_update_text"] = _next_rating_update_text
-    arena_templates.env.globals["token_expiry_text"] = _token_expiry_text
-    arena_templates.env.globals["verdict_badge_classes"] = VERDICT_BADGE_CLASSES
-    arena_templates.env.globals["verdict_labels"] = VERDICT_LABELS
-    setup_flash(arena_templates)
-    arena_templates.env.globals["arena_role_labels"] = ARENA_ROLE_DISPLAY
+    register_arena_template_globals(arena_templates, app_version=APP_VERSION)
     app.state.arena_templates = arena_templates
     logger.info("- Jinja2 templates initialised (directory=%s)", _ARENA_DIR / "template")
 

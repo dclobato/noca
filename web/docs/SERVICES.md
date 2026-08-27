@@ -1440,6 +1440,12 @@ Notes:
 - uses route names via `request.url_for(...)`
 - respects the middleware-populated cached JWT validation result when available
 - sends contest users back to their contest login page when possible
+- `mark_auth_refresh_eligible` is what makes the sliding session slide, and the
+  app-wide `enforce_web_default_auth` dependency calls it for every authenticated
+  non-public path. That is the whole mechanism behind `POST /session/heartbeat`
+  (`web/routes/session.py`), the keepalive an open page pings so a long edit does
+  not end at the login page with the form discarded; the interval comes from
+  `web/template_globals.py::session_heartbeat_config`
 
 ---
 

@@ -15,6 +15,35 @@ All arena services live in `arena/services/` and follow the same conventions:
 
 ---
 
+## `arena/template_globals.py`
+
+The single definition of what Arena templates may read. `_base.html` and its
+partials resolve a fixed set of names, and
+`register_arena_template_globals(templates, *, app_version)` is where that set is
+declared -- called by `arena/main.py` when it builds the environment, and by
+`tests/arena/conftest.py::install_arena_templates` when a test builds one.
+
+That sharing is the point. The block used to live inline in `arena/main.py`, so
+each test application re-declared whichever subset its page happened to touch;
+those subsets drifted (27 set `app_version`, 25 `next_rating_update_text`, 3
+`token_expiry_text`, 1 `brand_name`) and the templates papered over the gaps with
+`is defined` guards, which hid a genuine omission just as readily as a test-only
+one. Those guards are gone: a template global missing from a rendering
+application is now a loud failure.
+
+The module also owns the request-scoped helpers the templates call:
+
+| Function | Description |
+|----------|-------------|
+| `heartbeat_config(request)` | Heartbeat URLs, interval, and presence flag for the `_base.html` keepalive client. Raises `NoMatchFound` when the presence routes are absent, rather than rendering a page whose session will silently expire. |
+| `session_heartbeat_seconds()` | `PRESENCE_HEARTBEAT_SECONDS` when presence is enabled, else `JWT_EXPIRE_SECONDS / 4` (minimum 60 s) -- enough to land inside the token refresh window. |
+| `token_expiry_text(request)` | Absolute-cap deadline as a display string, or `None` when no cap is configured. |
+| `next_rating_update_text(request)` | Footer text for the next rating cycle, read from `app.state`. |
+| `arena_online_user_count(request)` | Cached online-user count, read from `app.state`. |
+| `fmt_shell_cmd(cmd)` | Jinja filter joining a command list and splitting on `&&`. |
+
+---
+
 ## Service files
 
 ### `startup_seeds.py`
@@ -259,9 +288,10 @@ when present, `get_details_by_ip` resolves the client IP into structured geoloca
 `ArenaLoginHistory`. Display names are derived on the model via `LocationMixin`
 (`country_name` / `subdivision_name`) and `detailed_location`.
 JWT issuance for the full session (LOGIN action) is performed by the route.
-The route now always issues 1-hour LOGIN JWTs. When `remember_me` is enabled it also stores
-`remember_me=true` plus the original `session_started_at` marker so middleware can rotate the cookie
-near half-life up to the 30-day absolute cap.
+The route always issues 1-hour LOGIN JWTs stamped with a `session_started_at` marker, so middleware
+can rotate the cookie near half-life for any session and apply the optional
+`NOCA_JWT_REFRESH_MAX_SESSION_SECONDS` cap. `remember_me=true` is stored alongside it and controls
+cookie persistence only: a 30-day `max_age` instead of a browser-session cookie.
 Login refuses accounts with missing date of birth, under-13 age status, or
 pending parental consent before issuing a session token.
 
@@ -269,8 +299,9 @@ pending parental consent before issuing a session token.
 
 ### `session_service.py`
 
-Helpers for Arena session cookies, safe login redirects, and remembered-login
-token rotation.
+Helpers for Arena session cookies, safe login redirects, and sliding-session
+token rotation. Every authenticated session rotates at half-life; "remember me"
+affects cookie persistence only.
 
 | Function | Description |
 |----------|-------------|
@@ -280,8 +311,8 @@ token rotation.
 | `post_login_redirect_url(user, next_url, request)` | Sends users with incomplete profiles to the completion notice; otherwise returns the safe next destination. |
 | `build_login_redirect_response(request, next_url, status_code)` | Builds a `303` login redirect and includes `next` only when the value is safe. |
 | `write_flash_message(request, message, category)` | Writes a `fastapi_flash`-compatible message directly into the Starlette session. |
-| `build_login_token_extra_data(tid, remember_me, session_started_at)` | Builds `LOGIN` JWT extra data for session identity and remembered-session rotation. |
-| `build_refreshed_login_token(jwt_service, validation)` | Issues a replacement `LOGIN` token for remembered sessions inside the refresh window. |
+| `build_login_token_extra_data(tid, remember_me, session_started_at)` | Builds `LOGIN` JWT extra data for session identity and rotation. Always stamps `session_started_at`, so the absolute cap can be applied to any session. |
+| `build_refreshed_login_token(jwt_service, validation)` | Issues a replacement `LOGIN` token for any active session inside the refresh window, unless the configured absolute cap has been exceeded. |
 
 The login redirect helpers are used by protected browser pages and by the
 Arena `HTTPException` handler. They keep redirect targets same-origin-only:

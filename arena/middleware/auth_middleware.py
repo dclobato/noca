@@ -4,17 +4,17 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Pure ASGI middleware for Arena session validation and remembered-session refresh.
+"""Pure ASGI middleware for Arena session validation and sliding-session refresh.
 
 Reads the ``arena_access_token`` HttpOnly cookie on every HTTP request,
 validates the JWT signature and expiry (no database access), and stores
 the result in ``request.state.validated_token``.
 
 On the response side, if a cookie was present but the token is invalid,
-expired, or a remembered session exceeded its 30-day cap, a ``Set-Cookie``
+expired, or the session exceeded the configured absolute cap, a ``Set-Cookie``
 header is appended to clear the stale cookie from the browser automatically.
-Remembered sessions near token half-life are rotated only after downstream
-code resolved a real authenticated user.
+Any session near token half-life is rotated, but only after downstream code
+resolved a real authenticated user.
 
 Downstream code (routes and dependencies) may consult
 ``request.state.validated_token`` to determine the session state without
@@ -41,7 +41,7 @@ _ARENA_COOKIE_NAME = "arena_access_token"
 
 
 class ArenaAuthMiddleware:
-    """Cache validated Arena JWTs, rotate remembered sessions, and clear stale cookies.
+    """Cache validated Arena JWTs, rotate active sessions, and clear stale cookies.
 
     For every HTTP request the middleware:
 
@@ -52,10 +52,10 @@ class ArenaAuthMiddleware:
        (a ``TokenVerificationResult`` or ``None`` when no cookie is present).
     4. After the downstream response is ready, appends a ``delete_cookie``
        ``Set-Cookie`` header when a cookie was present but its token is
-       invalid, has the wrong action claim, or exceeded the remember-me
+       invalid, has the wrong action claim, or exceeded the configured
        absolute session cap.
-    5. Appends a refreshed cookie for remembered sessions near expiry, but
-       only after downstream dependencies marked the request as refreshable.
+    5. Appends a refreshed cookie for any session near expiry, but only after
+       downstream dependencies marked the request as refreshable.
     """
 
     def __init__(self, app: ASGIApp) -> None:

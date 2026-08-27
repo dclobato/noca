@@ -12,16 +12,13 @@ import logging
 import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 from _tc_helpers import make_arena_test_case
 from fastapi import FastAPI
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import FlashCategory, setup_flash
+from fastapi_flash import FlashCategory
 from httpx import ASGITransport, AsyncClient
 from jwtservice import JWTService, load_token_config_from_dict
 from sqlalchemy import select
@@ -57,11 +54,6 @@ from arena.routes.problem_sets_report import router as arena_problem_sets_report
 from arena.services import arena_problem_set_service
 from arena.services.arena_class_service import create_class
 from arena.services.token_service import ArenaTokenAction
-from arena.services.user_timezone_service import (
-    datetime_local_value,
-    format_user_datetime,
-    timezone_name_for_user,
-)
 from shared.db_schema.arena import (
     arena_class_memberships,
     arena_notifications,
@@ -75,6 +67,7 @@ from shared.enumerations import (
     ProblemValidatorType,
     Verdict,
 )
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-class-route-tests-32b!"
@@ -92,20 +85,10 @@ def _build_app(session: AsyncSession) -> FastAPI:
     app.add_middleware(ArenaAuthMiddleware)
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
-    root_dir = Path(__file__).resolve().parents[2]
-    arena_dir = root_dir / "arena"
-    shared_dir = root_dir / "shared"
-    templates = Jinja2Templates(directory=arena_dir / "template")
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["next_rating_update_text"] = lambda request: None
-    templates.env.globals["token_expiry_text"] = lambda request: None
+    templates = install_arena_templates(app)
     templates.env.globals["verdict_badge_classes"] = {Verdict.AC.value: "bg-success", Verdict.WA.value: "bg-danger"}
     templates.env.globals["verdict_labels"] = {Verdict.AC.value: "Accepted", Verdict.WA.value: "Wrong Answer"}
-    templates.env.globals["arena_datetime_local_value"] = datetime_local_value
-    templates.env.globals["arena_format_datetime"] = format_user_datetime
-    templates.env.globals["arena_user_timezone_name"] = timezone_name_for_user
-    setup_flash(templates)
-    app.state.arena_templates = templates
+    mount_arena_base_routes(app)
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
     app.state.email_service = _mock_email_svc()
     app.state.jwt_service = JWTService(
@@ -119,12 +102,6 @@ def _build_app(session: AsyncSession) -> FastAPI:
         logger=logging.getLogger(__name__),
         action_enum=ArenaTokenAction,
     )
-
-    app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
-    app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")
-    app.mount("/static/img", StaticFiles(directory=arena_dir / "static" / "img"), name="arena_static_img")
-    app.mount("/static/vendor", StaticFiles(directory=shared_dir / "static" / "vendor"), name="static_vendor")
-    app.mount("/static/shared-js", StaticFiles(directory=shared_dir / "static" / "js"), name="static_shared_js")
 
     @app.get("/", name="arena_dashboard")
     async def _dashboard() -> Response:

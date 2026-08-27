@@ -49,6 +49,20 @@ trusted local health-check CIDRs bypass this limit.
 
 ---
 
+## Session keepalive (`web/routes/session.py`)
+
+Web sessions slide, but the cookie only rotates on a request that arrives inside
+the token's half-life window, and a page left open makes none. `_base.html` loads
+`shared/static/js/noca-presence.js` for every live session so an open page keeps
+pinging; without it a long edit ends at the login page and the redirect discards
+the form body.
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| `POST` | `/session/heartbeat` | Rotates the caller's sliding session and returns `{"ok": true}`. Deliberately inert — no database, no Valkey, no request body — because the rotation is a side effect of the request being authenticated: the app-wide `enforce_web_default_auth` dependency marks every authenticated non-public path refresh-eligible, so the path staying off the public allowlist is the whole of this route's authentication. The refreshed cookie, when one is due, travels on the response headers. |
+
+---
+
 ## Authentication (`web/routes/auth.py`)
 
 All non-public Web routes require a valid `noca_access_token` by default. The

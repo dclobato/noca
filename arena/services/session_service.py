@@ -4,7 +4,17 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Helpers for Arena login-session redirects and token rotation."""
+"""Helpers for Arena login-session redirects and token rotation.
+
+Every authenticated Arena session slides: a LOGIN token is rotated once the
+remaining lifetime reaches half of ``NOCA_JWT_EXPIRE_SECONDS``, so an active
+user is never logged out mid-task. ``NOCA_JWT_REFRESH_MAX_SESSION_SECONDS``
+optionally caps the total session length (``0``, the default, disables it).
+
+"Remember me" is orthogonal and governs cookie *persistence* only: it sets a
+``max_age`` on the cookie so the session survives a browser restart, where a
+plain login uses a browser-session cookie.
+"""
 
 from __future__ import annotations
 
@@ -17,10 +27,15 @@ from fastapi_flash import FlashCategory
 
 from arena.config import settings
 from arena.services.token_service import ArenaTokenAction, JWTService, TokenVerificationResult
+from shared.session_keepalive import refresh_window_seconds
 
 if TYPE_CHECKING:
     from arena.models.arena_users import ArenaUser
 
+#: ``max_age`` for the "remember me" cookie. This governs cookie *persistence*
+#: only -- how long the browser keeps sending the cookie across restarts -- and
+#: is no longer a session lifetime. The absolute session cap is
+#: ``NOCA_JWT_REFRESH_MAX_SESSION_SECONDS`` and applies to every session.
 ARENA_REMEMBER_ME_MAX_AGE = 30 * 24 * 3600
 SESSION_STARTED_AT_CLAIM = "session_started_at"
 # Must match fastapi_flash/service.py:_SESSION_KEY.
@@ -143,10 +158,11 @@ def build_login_token_extra_data(
     session_started_at: int | None = None,
 ) -> dict[str, object]:
     """Build the Arena LOGIN token extra-data payload."""
-    data: dict[str, object] = {"tid": tid, "remember_me": remember_me}
-    if remember_me:
-        data[SESSION_STARTED_AT_CLAIM] = session_started_at if session_started_at is not None else _now_epoch_seconds()
-    return data
+    return {
+        "tid": tid,
+        "remember_me": remember_me,
+        SESSION_STARTED_AT_CLAIM: (session_started_at if session_started_at is not None else _now_epoch_seconds()),
+    }
 
 
 def is_remembered_login(validation: TokenVerificationResult | None) -> bool:
@@ -156,7 +172,7 @@ def is_remembered_login(validation: TokenVerificationResult | None) -> bool:
 
 
 def get_session_started_at(validation: TokenVerificationResult | None) -> int | None:
-    """Return the original remembered-session start timestamp when present."""
+    """Return the session start timestamp stamped into the token when present."""
     extra_data = getattr(validation, "extra_data", None)
     if not isinstance(extra_data, dict):
         return None
@@ -165,26 +181,29 @@ def get_session_started_at(validation: TokenVerificationResult | None) -> int | 
 
 
 def should_refresh_login_token(validation: TokenVerificationResult | None) -> bool:
-    """Return whether a remembered Arena LOGIN token is inside the refresh window."""
+    """Return whether a valid Arena LOGIN token is inside the half-life refresh window."""
     if validation is None or not validation.valid or validation.action != ArenaTokenAction.LOGIN:
-        return False
-    if not is_remembered_login(validation):
         return False
     expires_in = validation.expires_in
     if expires_in is None:
         return False
-    refresh_threshold = max(1, settings.JWT_EXPIRE_SECONDS // 2)
-    return bool(expires_in <= refresh_threshold)
+    return bool(expires_in <= refresh_window_seconds(settings.JWT_EXPIRE_SECONDS))
 
 
 def is_absolute_session_cap_exceeded(validation: TokenVerificationResult | None) -> bool:
-    """Return whether a remembered Arena session has exceeded its 30-day cap."""
-    if validation is None or not validation.valid or not is_remembered_login(validation):
+    """Return whether the optional absolute session cap has been exceeded.
+
+    The cap is ``NOCA_JWT_REFRESH_MAX_SESSION_SECONDS`` and applies to every
+    session, remembered or not. ``0`` disables it, keeping active users signed
+    in for as long as they keep making requests.
+    """
+    max_session_seconds = settings.JWT_REFRESH_MAX_SESSION_SECONDS
+    if max_session_seconds <= 0 or validation is None or not validation.valid:
         return False
     session_started_at = get_session_started_at(validation)
     if session_started_at is None:
         return False
-    return _now_epoch_seconds() - session_started_at >= ARENA_REMEMBER_ME_MAX_AGE
+    return _now_epoch_seconds() - session_started_at >= max_session_seconds
 
 
 def build_refreshed_login_token(
@@ -192,7 +211,7 @@ def build_refreshed_login_token(
     jwt_service: JWTService,
     validation: TokenVerificationResult | None,
 ) -> str | None:
-    """Return a fresh Arena LOGIN token for a remembered active session."""
+    """Return a fresh Arena LOGIN token for any active session inside the refresh window."""
     if not should_refresh_login_token(validation):
         return None
     if is_absolute_session_cap_exceeded(validation):
@@ -201,7 +220,7 @@ def build_refreshed_login_token(
         return None
 
     extra_data = dict(validation.extra_data or {})
-    if get_session_started_at(validation) is None:
+    if settings.JWT_REFRESH_MAX_SESSION_SECONDS > 0 and get_session_started_at(validation) is None:
         return None
     return str(
         jwt_service.criar(

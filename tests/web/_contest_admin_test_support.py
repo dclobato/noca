@@ -33,6 +33,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from shared.enumerations import RoleEnum
 from web.models.contest import Contest
 from web.models.users import UberAdmin, User
+from web.routes.session import router as session_router
 from web.services.authentication_service import AuthAction, AuthenticationService
 from web.template_globals import register_template_globals
 
@@ -94,6 +95,8 @@ def build_contest_admin_app(
     templates.env.globals["app_version"] = "test"
     templates.env.globals["brand_name"] = "NOCA"
     register_template_globals(templates)
+    # `_base.html` resolves the keepalive route on every authenticated page.
+    app.include_router(session_router)
     setup_flash(templates)
     app.state.templates = templates
     app.state.db_session = async_sessionmaker(session.bind, expire_on_commit=False)

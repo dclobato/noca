@@ -1372,9 +1372,22 @@ them via `request.url_for('static_shared_js', path='<file>.js')`.
 - `noca-echarts-theme.js`: registers the `noca-light` / `noca-dark` ECharts themes
   (axes, legend, tooltip, text, dataZoom, categorical palette) and hands out a
   managed wrapper via `NocaECharts.create(el)`; consumed arena-side.
-- `noca-presence.js`: online-presence client — heartbeat POST to keep the current
-  user marked online, plus online-dot polling over `.avatar-wrapper[data-user-id]`
-  elements; consumed arena-side (paired with `shared/static/css/presence.css`).
+- `noca-presence.js`: presence and session-keepalive client — heartbeat POST to
+  keep the current user marked online, plus online-dot polling over
+  `.avatar-wrapper[data-user-id]` elements; consumed by **both** arena (paired
+  with `shared/static/css/presence.css`) and web. The heartbeat runs
+  unconditionally because it is also what keeps a sliding auth session alive on a
+  page that sits open without navigating; `data-presence-enabled="false"`
+  disables the dot polling alone (an absent attribute means enabled, so existing
+  consumers are unaffected).
+
+  The two consumers configure it differently, through
+  `[data-noca-presence]`. Arena points it at both endpoints and runs both jobs.
+  Web has no presence domain and configures the keepalive alone: only
+  `data-heartbeat-url` is required, and a config with no `data-status-url`
+  polls no dots even were presence enabled. Web's element is emitted by
+  `_base.html` from `web/template_globals.py::session_heartbeat_config`, aimed at
+  `POST /session/heartbeat`, at `NOCA_JWT_EXPIRE_SECONDS / 4` (minimum 60 s).
 - `submission-status-watcher.js`: the SSE + poll + reconcile engine behind Arena's
   two live submission-status surfaces (the profile submissions tab and the
   submission detail page), which previously implemented the same protocol twice.
@@ -2742,6 +2755,53 @@ Notes:
 - Arena wiring: `arena/routes/presence.py` (heartbeat + status endpoints),
   `arena/dependencies/auth.py` (best-effort mark-online per page view),
   `shared/static/js/noca-presence.js` + `shared/static/css/presence.css` (client)
+- the heartbeat endpoint carries a second, load-bearing responsibility: it runs
+  `get_current_arena_user`, which marks the request eligible for sliding-session
+  cookie rotation, *before* the `PRESENCE_ENABLED` early return. This is why
+  `arena/main.py::_heartbeat_config` emits the client configuration for every
+  logged-in user rather than only when presence is enabled — gating it on the
+  flag made Arena session lifetime depend on whether the green-dot feature
+  happened to be on, and ended long problem edits at the login page with the
+  form discarded. Cadence is `PRESENCE_HEARTBEAT_SECONDS` when presence is
+  enabled and `JWT_EXPIRE_SECONDS / 4` (minimum 60 s) otherwise
+
+---
+
+## `session_keepalive.py`
+
+Purpose:
+- the arithmetic behind sliding sessions, shared by Web and Arena
+
+Canonical location:
+- `shared/session_keepalive.py`
+
+Main entrypoints:
+- `refresh_window_seconds(token_lifetime_seconds)` — the remaining lifetime at
+  which a valid token starts being rotated (half the lifetime, never zero)
+- `derived_keepalive_seconds(token_lifetime_seconds)` — the browser cadence when
+  nothing else sets one: a quarter of the lifetime, floored at
+  `KEEPALIVE_MIN_INTERVAL_SECONDS` (60)
+- `keepalive_lands_inside_refresh_window(...)` — whether a cadence actually
+  rotates the cookie
+- `keepalive_window_error(...)` — the operator-facing refusal message, whose
+  remedy adapts to whether the cadence is configured or derived
+
+Consumers:
+- web: `web/config.py` (startup validator), `web/template_globals.py`,
+  `web/services/authentication_service.py`
+- arena: `arena/config.py` (startup validator), `arena/template_globals.py`,
+  `arena/services/session_service.py`
+
+Notes:
+- the window was previously written out once per module, in each module's
+  session service. That is why this exists: a startup validator has to reject a
+  cadence landing *outside* the window, so the validator and the middleware must
+  agree on where the window starts. Two copies of `lifetime // 2` are two chances
+  to disagree, and a disagreement would be silent — the validator would accept a
+  configuration whose heartbeat rotates nothing
+- each module keeps its own `session_keepalive_seconds` config property, since
+  the *effective* cadence differs: Arena's follows the presence heartbeat when
+  the green dot is on, Web's is always derived
 
 ---
 
@@ -2840,7 +2900,11 @@ git+https://github.com/dclobato/jwtservice.git@v2.1.0` in `arena/pyproject.toml`
 
 Notes:
 - the issuer comes from `NOCA_ARENA_APP_NAME` (default `"noca-arena"`) and must differ from the web module's `NOCA_WEB_APP_NAME` (default `"noca"`), preventing cross-server token acceptance
-- uses the same `NOCA_JWT_SECRET_KEY`, `NOCA_JWT_ALGORITHM`, and `NOCA_JWT_EXPIRE_SECONDS` env vars as the web module by default; configure separate values for stronger isolation
+- uses the same `NOCA_JWT_SECRET_KEY`, `NOCA_JWT_ALGORITHM`, `NOCA_JWT_EXPIRE_SECONDS`, and
+  `NOCA_JWT_REFRESH_MAX_SESSION_SECONDS` env vars as the web module by default; configure
+  separate values for stronger isolation. Both modules now apply them the same way: every
+  active session slides at half-life, capped only by `NOCA_JWT_REFRESH_MAX_SESSION_SECONDS`
+  (`0` disables the cap)
 
 ### `EmailService` (arena instance)
 

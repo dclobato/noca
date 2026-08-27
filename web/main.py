@@ -109,6 +109,7 @@ from web.routes.health import router as health_router
 from web.routes.problem_set import router as problem_set_router
 from web.routes.profile import router as profile_router
 from web.routes.root import router as root_router
+from web.routes.session import router as session_router
 from web.routes.uberadmin_contest_backup import router as uberadmin_contest_backup_router
 from web.routes.uberadmin_contest_removal import router as uberadmin_contest_removal_router
 from web.routes.uberadmin_dashboard import router as uberadmin_dashboard_router
@@ -515,6 +516,7 @@ app.include_router(login_logout_router)
 app.include_router(root_router)
 app.include_router(problem_set_router)
 app.include_router(health_router)
+app.include_router(session_router)
 
 # ###################################################################
 # Dashboard routes

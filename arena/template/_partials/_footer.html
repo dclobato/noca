@@ -5,8 +5,8 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. #}
 {# ── Arena shared footer partial ── #}
 {% from "_macros.html" import render_icon %}
-{% set next_rating_update = next_rating_update_text(request) if next_rating_update_text is defined else none %}
-{% set session_expiry = token_expiry_text(request) if token_expiry_text is defined else none %}
+{% set next_rating_update = next_rating_update_text(request) %}
+{% set session_expiry = token_expiry_text(request) %}
 <footer class="arena-footer">
     <div class="arena-footer-inner">
         <div class="arena-footer-meta">
@@ -23,7 +23,7 @@
         </div>
         <nav class="arena-footer-links" aria-label="Footer links">
             {% if current_user %}
-                {% set online_count = arena_online_user_count(request) if arena_online_user_count is defined else none %}
+                {% set online_count = arena_online_user_count(request) %}
                 {% if online_count is not none %}
                     <span class="arena-footer-online"
                           title="Users active in the last few minutes">

@@ -76,8 +76,10 @@ Arena authentication is production-grade and already covers more than simple ema
 - Session cookie: `arena_access_token`
 - Session validation happens in `ArenaAuthMiddleware`
 - Default LOGIN JWT lifetime: 1 hour
-- "Remember me" opt-in sessions keep a 30-day persistent cookie, use 1-hour LOGIN JWTs, and rotate those tokens at half-life while the user remains active
-- Remembered sessions stop rotating after an absolute 30-day cap from the original login time
+- **Every** session slides: the middleware rotates the LOGIN JWT at half-life for as long as the user keeps making requests, so an active user is never logged out mid-task
+- The client heartbeat in `shared/static/js/noca-presence.js` is what keeps a page that sits open without navigating (a long problem edit) inside that rotation window. It runs for every logged-in user regardless of `NOCA_ARENA_PRESENCE_ENABLED`, which governs only the green-dot refresh
+- "Remember me" governs cookie **persistence** only: a 30-day `max_age` so the session survives a browser restart, versus a browser-session cookie that ends with the browser. It does not affect whether or for how long a session slides
+- `NOCA_JWT_REFRESH_MAX_SESSION_SECONDS` optionally caps total session length for every session; `0` (the default) disables the cap
 - `get_current_arena_user` re-checks the token against live DB state using `user.get_token_id()`
 - Any password change or admin-triggered session invalidation forces logout on the next request
 - Logout revokes the JWT through Valkey
@@ -98,7 +100,7 @@ The `/auth/*` routes currently implement:
 
 | Flow | Current behavior |
 |---|---|
-| Login | email/password login, password-age warning, and optional remember-me sessions that rotate 1-hour LOGIN JWTs while active, capped at 30 days total |
+| Login | email/password login, password-age warning, and sliding sessions that rotate 1-hour LOGIN JWTs while the user is active; remember-me additionally persists the cookie across browser restarts for 30 days |
 | Email confirmation | activation link via `/auth/activate` |
 | Parental consent | guardian email flow via `/auth/parental-consent` |
 | Terms gate | users who have not accepted ToS/Privacy are redirected to `/auth/accept-terms` after login |
@@ -249,12 +251,13 @@ The Arena admin area is already substantial:
 | `admin_problem_service.py` | problem CRUD, filtering, category binding, and owner lookup |
 | `admin_problem_tc_service.py` | test case CRUD and ZIP replacement |
 | `problem_tc_export_service.py` | ZIP export of sample test cases |
-| `session_service.py` | login-session token rotation for remember-me flows |
+| `session_service.py` | sliding login-session token rotation and safe login redirects |
 | `submission_list_service.py` | paginated submission history for user profiles |
 | `submission_service.py` | submission row creation + autojudge job payload generation |
 | `arena_class_service.py` | class creation/update, UI listings, teacher autocomplete, and class discovery |
 | `arena_class_membership_service.py` | class membership (dated history) and registration-request workflow |
 | `valkey_service.py` | Arena-specific Valkey runtime wiring |
+| `../template_globals.py` | the single definition of what Arena templates may read, shared by `arena/main.py` and the test app builders |
 
 ---
 

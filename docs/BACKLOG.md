@@ -7,7 +7,7 @@ contract lives in its Gitea issue, linked from each entry below; amend the
 issue, then regenerate this file with `uv run python
 scripts/generate_backlog_index.py`.
 
-18 open, 12 implemented.
+13 open, 17 implemented.
 
 ## Autojudge
 
@@ -107,41 +107,6 @@ The core immutability guarantee for this contract is already implemented
 /problem-set/{slug}.zip` archive per contest so a burst of downloads costs one
 build instead of rebuilding on every hit (see `docs/ARCHITECTURE.md` and
 `web/docs/SERVICES.md`).
-
-### [`data-confirm` silently does nothing outside the judgment pages](https://git.lobato.org:10880/dclobato/noca/issues/32)
-
-**#32** -- Pending
-
-The delegated `data-confirm` handler lives in
-`shared/static/js/judgment-actions.js`.
-
-### [Color contest countdown by remaining-time urgency](https://git.lobato.org:10880/dclobato/noca/issues/75)
-
-**#75** -- Pending
-
-Make the authenticated Web navbar countdown communicate remaining-time urgency
-through semantic color while preserving its current wording, phase indicator,
-and one-second local updates.
-
-### [Add persistent role-aware live counts to Web contest navigation](https://git.lobato.org:10880/dclobato/noca/issues/77)
-
-**#77** -- Pending
-
-Issue #38 keeps every contest destination visible in a scrollable navigation
-band, but persistent counts and notifications were deliberately deferred.
-
-### [Add a Web contest rules and contact affordance](https://git.lobato.org:10880/dclobato/noca/issues/78)
-
-**#78** -- Pending
-
-A discoverable rules/contact entry was considered during #38 but excluded from
-the navbar closure.
-
-### [Move the Web theme control into the application chrome](https://git.lobato.org:10880/dclobato/noca/issues/79)
-
-**#79** -- Pending
-
-The Web theme control remains in the footer after the chrome work in #38.
 
 ## Document rendering
 
@@ -256,6 +221,13 @@ Symbols ligature.
 Scoreboard, Release Problem Set, and the released/scheduled problem-set state
 with its Revoke/Cancel action.
 
+### [`data-confirm` silently does nothing outside the judgment pages](https://git.lobato.org:10880/dclobato/noca/issues/32)
+
+**#32** -- Implemented
+
+The delegated `data-confirm` handler lives in
+`shared/static/js/judgment-actions.js`.
+
 ### [Cropper `#cropImage` on admin/users/edit.html has no src/placeholder before JS populates it](https://git.lobato.org:10880/dclobato/noca/issues/36)
 
 **#36** -- Implemented
@@ -276,9 +248,37 @@ an empty/missing `src` as a broken-image...
 same "watch N submissions via SSE + a low-frequency poll fallback, reconcile
 against a JSON status snapshot" core.
 
+### [Color contest countdown by remaining-time urgency](https://git.lobato.org:10880/dclobato/noca/issues/75)
+
+**#75** -- Implemented
+
+Make the authenticated Web navbar countdown communicate remaining-time urgency
+through semantic color while preserving its current wording, phase indicator,
+and one-second local updates.
+
 ### [Add a contest switcher to the Web application chrome](https://git.lobato.org:10880/dclobato/noca/issues/76)
 
 **#76** -- Implemented
 
 Issue #38 finalized the contest-day Web chrome without a contest switcher.
 Track the switcher separately so the navbar closure remains bounded.
+
+### [Add persistent role-aware live counts to Web contest navigation](https://git.lobato.org:10880/dclobato/noca/issues/77)
+
+**#77** -- Implemented
+
+Issue #38 keeps every contest destination visible in a scrollable navigation
+band, but persistent counts and notifications were deliberately deferred.
+
+### [Add a Web contest rules and contact affordance](https://git.lobato.org:10880/dclobato/noca/issues/78)
+
+**#78** -- Implemented
+
+A discoverable rules/contact entry was considered during #38 but excluded from
+the navbar closure.
+
+### [Move the Web theme control into the application chrome](https://git.lobato.org:10880/dclobato/noca/issues/79)
+
+**#79** -- Implemented
+
+The Web theme control remains in the footer after the chrome work in #38.

@@ -45,6 +45,7 @@ from web.routes.contest_admin_problem_judgment_tc import router as problem_judgm
 from web.routes.contest_admin_problem_limits import router as problem_limits_router
 from web.routes.contest_admin_problem_new import router as problem_new_router
 from web.routes.contest_admin_problem_validator import router as problem_validator_router
+from web.routes.session import router as session_router
 from web.template_globals import register_template_globals
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -83,6 +84,8 @@ def _build_app(session: AsyncSession, contest: Contest, actor: UberAdmin) -> Fas
     templates.env.globals["app_version"] = "test"
     templates.env.globals["brand_name"] = "NOCA Contest"
     register_template_globals(templates)
+    # `_base.html` resolves the keepalive route on every authenticated page.
+    app.include_router(session_router)
     templates.env.globals["contest_minutes"] = lambda seconds: None if seconds is None else seconds // 60
     setup_flash(templates)
     app.state.templates = templates

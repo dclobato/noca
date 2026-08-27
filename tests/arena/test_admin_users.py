@@ -14,9 +14,6 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
 from jwtservice import JWTService, load_token_config_from_dict
 from sqlalchemy import select
@@ -43,14 +40,13 @@ from arena.routes.admin_users_actions import router as arena_admin_users_actions
 from arena.routes.legal import router as arena_legal_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.services import admin_login_history_service
-from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
-from arena.services.user_timezone_service import format_user_datetime
 from shared.db_schema.arena import arena_user_statistics
 from shared.db_schema.arena.arena_rating_history import arena_user_rating_history
-from shared.enumerations import VERDICT_BADGE_CLASSES, VERDICT_LABELS, ArenaBadge, ArenaRole
+from shared.enumerations import ArenaBadge, ArenaRole
 from shared.services.email_providers import EmailProviderError
 from shared.services.email_service import EmailConfig, EmailService
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 
 TEST_JWT_SECRET = "test-secret-key-for-admin-user-tests-32bytes!!"
 # Password-confirmed admin actions verify this against the acting admin's hash.
@@ -63,16 +59,8 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
     app.add_middleware(ArenaAuthMiddleware)
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
-    arena_dir = Path(__file__).resolve().parents[2] / "arena"
-    templates = Jinja2Templates(directory=arena_dir / "template")
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["next_rating_update_text"] = lambda request: None
-    templates.env.globals["arena_role_labels"] = ARENA_ROLE_DISPLAY
-    templates.env.globals["arena_format_datetime"] = format_user_datetime
-    templates.env.globals["verdict_badge_classes"] = VERDICT_BADGE_CLASSES
-    templates.env.globals["verdict_labels"] = VERDICT_LABELS
-    setup_flash(templates)
-    app.state.arena_templates = templates
+    install_arena_templates(app)
+    mount_arena_base_routes(app)
     app.state.email_service = EmailService(
         config=EmailConfig(
             send_email=False,
@@ -100,13 +88,6 @@ def _build_admin_app(session: AsyncSession) -> FastAPI:
         logger=logging.getLogger(__name__),
         action_enum=ArenaTokenAction,
     )
-
-    shared_dir = Path(__file__).resolve().parents[2] / "shared"
-    app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
-    app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")
-    app.mount("/static/img", StaticFiles(directory=arena_dir / "static" / "img"), name="arena_static_img")
-    app.mount("/static/vendor", StaticFiles(directory=shared_dir / "static" / "vendor"), name="static_vendor")
-    app.mount("/static/shared-js", StaticFiles(directory=shared_dir / "static" / "js"), name="static_shared_js")
 
     @app.get("/", name="arena_dashboard")
     async def _dashboard() -> Response:

@@ -30,6 +30,7 @@ from web.models.submission import Submission, SubmissionJudgment
 from web.models.users import UberAdmin, User
 from web.routes import generaluser_dashboard
 from web.routes.contest_submissions import download_all_sources
+from web.routes.session import router as session_router
 from web.services.submission_service import build_team_submissions_zip
 from web.template_globals import register_template_globals
 
@@ -158,6 +159,8 @@ def _build_dashboard_app(ctx: ContestContext) -> FastAPI:
     templates.env.globals["app_version"] = "test"
     templates.env.globals["contest_minutes"] = lambda seconds: None if seconds is None else seconds // 60
     register_template_globals(templates)
+    # `_base.html` resolves the keepalive route on every authenticated page.
+    app.include_router(session_router)
     templates.env.globals["get_flashed_messages"] = lambda with_categories=False: []
     app.state.templates = templates
 

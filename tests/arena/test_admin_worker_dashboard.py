@@ -11,15 +11,12 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
@@ -31,6 +28,7 @@ from shared.db_schema.arena import arena_worker_command_audit
 from shared.enumerations import ArenaRole
 from shared.services.valkey_service import WorkerClass, worker_last_jobs_key, worker_live_key, worker_registry_key
 from shared.services.worker_pause_state import read_worker_pause_state
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 
 _SECRET = "test-command-secret"
 
@@ -144,12 +142,10 @@ def _build_app(
     app.add_middleware(SessionMiddleware, secret_key="test-session-secret")
     app.state.valkey_runtime = valkey or _FakeValkeyRuntime()
 
-    arena_dir = Path(__file__).resolve().parents[2] / "arena"
-    templates = Jinja2Templates(directory=arena_dir / "template")
+    templates = install_arena_templates(app)
     templates.env.globals["arena_format_datetime"] = lambda value, user, fmt=None: value.isoformat()
     templates.env.globals["arena_format_relative_datetime"] = lambda value: "5 minutes ago"
-    setup_flash(templates)
-    app.state.arena_templates = templates
+    mount_arena_base_routes(app)
     app.include_router(router)
 
     async def _get_db_override() -> Any:

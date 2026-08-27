@@ -41,6 +41,17 @@ parameters.
 | `POST /c/{slug}/login` | `contest_login_post` | `slug=` | `auth.py` |
 | `GET /problem-set/{slug}.zip` | `problem_set_download` | `slug=` | `problem_set.py` |
 
+## Session Keepalive (`session.py`)
+
+Resolved by `web/template_globals.py::session_heartbeat_config` and rendered into
+the `[data-noca-presence]` element in `_base.html`. Unguarded: an application
+that fails to mount this router fails at render time rather than quietly
+dropping every open page's session keepalive.
+
+| Hardcoded path | Endpoint name | Path params | File |
+|---|---|---|---|
+| `POST /session/heartbeat` | `web_session_heartbeat` | — | `session.py` |
+
 ## Health Route (`health.py`)
 
 The endpoint returns `200` when PostgreSQL and Valkey are available, or `503`

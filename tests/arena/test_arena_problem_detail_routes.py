@@ -14,9 +14,6 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
 from jinja2 import ChoiceLoader, FileSystemLoader
 from jwtservice import JWTService, load_token_config_from_dict
@@ -39,9 +36,7 @@ from arena.routes.problem_editorial import router as arena_problem_editorial_rou
 from arena.routes.problem_problem_sets import router as arena_problem_problem_sets_router
 from arena.routes.problems import router as arena_problems_router
 from arena.services import admin_problem_interaction_service, admin_problem_service, admin_problem_tc_service
-from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
-from arena.services.user_timezone_service import format_user_datetime
 from shared.db_schema.arena import arena_problem_set_problems, arena_problem_solvers
 from shared.enumerations import (
     ArenaEditorialReleasePolicy,
@@ -51,6 +46,7 @@ from shared.enumerations import (
     StatementLanguage,
 )
 from shared.services.sample_interactions import parse_interaction_text
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-problem-detail-tests"
@@ -64,7 +60,7 @@ def _build_problem_detail_app(session: AsyncSession) -> FastAPI:
 
     repo_root = Path(__file__).resolve().parents[2]
     arena_dir = repo_root / "arena"
-    templates = Jinja2Templates(directory=arena_dir / "template")
+    templates = install_arena_templates(app)
     # Mirror arena/main.py so shared/_partials (e.g. the problem image figure) resolve.
     templates.env.loader = ChoiceLoader(
         [
@@ -72,12 +68,7 @@ def _build_problem_detail_app(session: AsyncSession) -> FastAPI:
             FileSystemLoader(repo_root / "shared" / "template"),
         ]
     )
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["next_rating_update_text"] = lambda request: None
-    templates.env.globals["arena_role_labels"] = ARENA_ROLE_DISPLAY
-    templates.env.globals["arena_format_datetime"] = format_user_datetime
-    setup_flash(templates)
-    app.state.arena_templates = templates
+    mount_arena_base_routes(app)
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
     app.state.jwt_service = JWTService(
         config=load_token_config_from_dict(
@@ -90,13 +81,6 @@ def _build_problem_detail_app(session: AsyncSession) -> FastAPI:
         logger=logging.getLogger(__name__),
         action_enum=ArenaTokenAction,
     )
-
-    shared_dir = Path(__file__).resolve().parents[2] / "shared"
-    app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
-    app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")
-    app.mount("/static/img", StaticFiles(directory=arena_dir / "static" / "img"), name="arena_static_img")
-    app.mount("/static/vendor", StaticFiles(directory=shared_dir / "static" / "vendor"), name="static_vendor")
-    app.mount("/static/shared-js", StaticFiles(directory=shared_dir / "static" / "js"), name="static_shared_js")
 
     @app.get("/", name="arena_dashboard")
     async def _dashboard() -> Response:

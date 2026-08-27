@@ -4,21 +4,17 @@
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-"""Tests for remembered Arena session token refresh."""
+"""Tests for Arena sliding-session token refresh."""
 
 import logging
 import time
 import uuid
 from datetime import date
 from http.cookies import SimpleCookie
-from pathlib import Path
 
 import pytest
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
 from jwtservice import JWTService, load_token_config_from_dict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -34,6 +30,7 @@ from arena.services.token_service import ArenaTokenAction
 from shared.enumerations import ArenaRole
 from shared.services.email_service import EmailConfig, EmailService
 from shared.services.imageprocessing_service import ImageProcessingConfig, ImageProcessingService
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 
 _TEST_JWT_SECRET = "test-secret-key-for-arena-refresh-tests-only!"
 
@@ -53,13 +50,8 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     app.add_middleware(ArenaAuthMiddleware)
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
-    arena_dir = Path(__file__).resolve().parents[2] / "arena"
-    templates = Jinja2Templates(directory=arena_dir / "template")
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["next_rating_update_text"] = lambda request: None
-    setup_flash(templates)
-
-    app.state.arena_templates = templates
+    install_arena_templates(app)
+    mount_arena_base_routes(app)
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
     app.state.jwt_service = JWTService(
         config=load_token_config_from_dict(
@@ -106,8 +98,6 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
             return RedirectResponse(url=str(request.url_for("arena_login")), status_code=303)
         return HTMLResponse(current_user.id)
 
-    app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
-    app.mount("/static/img", StaticFiles(directory=arena_dir / "static" / "img"), name="arena_static_img")
     return app
 
 
@@ -197,16 +187,63 @@ async def test_remembered_request_inside_half_life_refreshes_cookie_and_preserve
 
 
 @pytest.mark.asyncio
-async def test_non_remembered_request_inside_half_life_does_not_refresh_cookie(
+async def test_non_remembered_request_inside_half_life_refreshes_cookie_without_max_age(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Regular Arena sessions stay fixed-lifetime and are not rotated by the middleware."""
+    """Plain sessions slide too, but stay browser-session cookies with no Max-Age.
+
+    This is the regression that logged an author out mid-edit: rotation used to
+    be gated on remember-me, so a plain session died a fixed hour after login no
+    matter how active the user was.
+    """
+    monkeypatch.setattr(settings, "JWT_EXPIRE_SECONDS", 10)
+    current_time = int(time.time())
+    monkeypatch.setattr(session_service, "_now_epoch_seconds", lambda: current_time)
+    app = _build_arena_app(session)
+    user = await _create_active_user(session)
+    await session.commit()
+    session_started_at = current_time - 5
+    token = _build_login_token(
+        app,
+        user,
+        expires_in=4,
+        remember_me=False,
+        session_started_at=session_started_at,
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/protected")
+
+    assert response.status_code == 200
+    refreshed_token = _extract_cookie_value(response, "arena_access_token")
+    assert refreshed_token is not None
+    refreshed = app.state.jwt_service.validar(refreshed_token)
+    assert refreshed.valid is True
+    assert refreshed.extra_data == {
+        "tid": user.get_token_id(),
+        "remember_me": False,
+        "session_started_at": session_started_at,
+    }
+    assert refreshed.expires_in is not None
+    assert refreshed.expires_in > 4
+    # Remember-me governs cookie persistence only, so a plain session must not
+    # gain a Max-Age from being rotated.
+    assert "Max-Age" not in response.headers.get("set-cookie", "")
+
+
+@pytest.mark.asyncio
+async def test_request_outside_half_life_does_not_refresh_cookie(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A token with most of its lifetime left is left alone."""
     monkeypatch.setattr(settings, "JWT_EXPIRE_SECONDS", 10)
     app = _build_arena_app(session)
     user = await _create_active_user(session)
     await session.commit()
-    token = _build_login_token(app, user, expires_in=4, remember_me=False)
+    token = _build_login_token(app, user, expires_in=9, remember_me=False)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         client.cookies.set("arena_access_token", token)
@@ -217,12 +254,13 @@ async def test_non_remembered_request_inside_half_life_does_not_refresh_cookie(
 
 
 @pytest.mark.asyncio
-async def test_remembered_request_past_absolute_cap_redirects_and_clears_cookie(
+async def test_old_session_survives_when_absolute_cap_is_disabled(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Remembered Arena sessions expire once the 30-day absolute cap is exceeded."""
+    """With the cap at 0 an active user stays signed in regardless of session age."""
     monkeypatch.setattr(settings, "JWT_EXPIRE_SECONDS", 10)
+    monkeypatch.setattr(settings, "JWT_REFRESH_MAX_SESSION_SECONDS", 0)
     current_time = 1_700_100_000
     monkeypatch.setattr(session_service, "_now_epoch_seconds", lambda: current_time)
     app = _build_arena_app(session)
@@ -233,7 +271,38 @@ async def test_remembered_request_past_absolute_cap_redirects_and_clears_cookie(
         user,
         expires_in=4,
         remember_me=True,
-        session_started_at=current_time - session_service.ARENA_REMEMBER_ME_MAX_AGE - 1,
+        session_started_at=current_time - 10 * 365 * 24 * 3600,
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        client.cookies.set("arena_access_token", token)
+        response = await client.get("/protected", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert _extract_cookie_value(response, "arena_access_token") is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("remember_me", [True, False])
+async def test_request_past_configured_absolute_cap_redirects_and_clears_cookie(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    remember_me: bool,
+) -> None:
+    """A configured cap ends the session, remembered or not."""
+    monkeypatch.setattr(settings, "JWT_EXPIRE_SECONDS", 10)
+    monkeypatch.setattr(settings, "JWT_REFRESH_MAX_SESSION_SECONDS", 3600)
+    current_time = 1_700_100_000
+    monkeypatch.setattr(session_service, "_now_epoch_seconds", lambda: current_time)
+    app = _build_arena_app(session)
+    user = await _create_active_user(session)
+    await session.commit()
+    token = _build_login_token(
+        app,
+        user,
+        expires_in=4,
+        remember_me=remember_me,
+        session_started_at=current_time - 3601,
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
@@ -245,3 +314,12 @@ async def test_remembered_request_past_absolute_cap_redirects_and_clears_cookie(
     deleted_cookie_header = response.headers.get("set-cookie", "")
     assert "arena_access_token=" in deleted_cookie_header
     assert "Max-Age=0" in deleted_cookie_header
+
+
+@pytest.mark.parametrize("remember_me", [True, False])
+def test_login_token_extra_data_always_stamps_session_start(remember_me: bool) -> None:
+    """Every LOGIN token carries a session start, so the cap can be applied to any session."""
+    data = session_service.build_login_token_extra_data(tid="tid", remember_me=remember_me)
+
+    assert data["remember_me"] is remember_me
+    assert isinstance(data[session_service.SESSION_STARTED_AT_CLAIM], int)

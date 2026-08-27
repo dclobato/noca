@@ -25,9 +25,7 @@ import pytest
 from _tc_helpers import make_arena_test_case
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import get_flash_service, setup_flash
+from fastapi_flash import get_flash_service
 from httpx import ASGITransport, AsyncClient
 from jinja2 import ChoiceLoader, FileSystemLoader
 from jwtservice import JWTService, load_token_config_from_dict
@@ -46,13 +44,7 @@ from arena.routes.legal import router as arena_legal_router
 from arena.routes.problems import router as arena_problems_router
 from arena.routes.ranking import router as arena_ranking_router
 from arena.routes.submissions import router as arena_submissions_router
-from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.token_service import ArenaTokenAction
-from arena.services.user_timezone_service import (
-    datetime_local_value,
-    format_user_datetime,
-    timezone_name_for_user,
-)
 from shared.db_schema.arena import (
     arena_ai_batch_jobs,
     arena_submission_ai_reviews,
@@ -62,7 +54,7 @@ from shared.db_schema.arena import (
 )
 from shared.enumerations import ArenaRole, ProblemValidatorType, Verdict
 from shared.queue_schema import AIBatchTurnaroundStats
-from shared.timing import format_compact_duration
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-submission-route-tests!!"
@@ -89,7 +81,7 @@ def _build_app(session: AsyncSession, *, valkey_runtime: object | None = None) -
     app.add_middleware(ArenaAuthMiddleware)
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
-    templates = Jinja2Templates(directory=_ARENA_DIR / "template")
+    templates = install_arena_templates(app)
     # Mirror arena/main.py: shared `_partials/` live in shared/template.
     templates.env.loader = ChoiceLoader(
         [
@@ -97,35 +89,7 @@ def _build_app(session: AsyncSession, *, valkey_runtime: object | None = None) -
             FileSystemLoader(str(_SHARED_DIR / "template")),
         ]
     )
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["next_rating_update_text"] = lambda request: None
-    templates.env.globals["arena_role_labels"] = ARENA_ROLE_DISPLAY
-    templates.env.globals["verdict_badge_classes"] = {
-        Verdict.AC.value: "bg-success",
-        Verdict.WA.value: "bg-danger",
-        Verdict.CE.value: "bg-secondary",
-        Verdict.RE.value: "bg-warning text-dark",
-        Verdict.TLE.value: "bg-warning text-dark",
-        Verdict.MLE.value: "bg-warning text-dark",
-        Verdict.OLE.value: "bg-warning text-dark",
-        Verdict.PE.value: "bg-danger",
-    }
-    templates.env.globals["verdict_labels"] = {
-        Verdict.AC.value: "Accepted",
-        Verdict.WA.value: "Wrong Answer",
-        Verdict.TLE.value: "Time Limit Exceeded",
-        Verdict.MLE.value: "Memory Limit Exceeded",
-        Verdict.OLE.value: "Output Limit Exceeded",
-        Verdict.RE.value: "Runtime Error",
-        Verdict.CE.value: "Compilation Error",
-        Verdict.PE.value: "Presentation Error",
-    }
-    templates.env.globals["arena_datetime_local_value"] = datetime_local_value
-    templates.env.globals["arena_format_datetime"] = format_user_datetime
-    templates.env.globals["format_compact_duration"] = format_compact_duration
-    templates.env.globals["arena_user_timezone_name"] = timezone_name_for_user
-    setup_flash(templates)
-    app.state.arena_templates = templates
+    mount_arena_base_routes(app)
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
     app.state.jwt_service = JWTService(
         config=load_token_config_from_dict(
@@ -144,12 +108,6 @@ def _build_app(session: AsyncSession, *, valkey_runtime: object | None = None) -
     elif isinstance(valkey_runtime, MagicMock) and not isinstance(valkey_runtime.get, AsyncMock):
         valkey_runtime.get = AsyncMock(return_value=None)
     app.state.valkey_runtime = valkey_runtime
-
-    app.mount("/static/vendor", StaticFiles(directory=_SHARED_DIR / "static" / "vendor"), name="static_vendor")
-    app.mount("/static/shared-js", StaticFiles(directory=_SHARED_DIR / "static" / "js"), name="static_shared_js")
-    app.mount("/static/css", StaticFiles(directory=_ARENA_DIR / "static" / "css"), name="arena_static_css")
-    app.mount("/static/js", StaticFiles(directory=_ARENA_DIR / "static" / "js"), name="arena_static_js")
-    app.mount("/static/img", StaticFiles(directory=_ARENA_DIR / "static" / "img"), name="arena_static_img")
 
     # Named-route stubs required by templates / redirects
     @app.get("/auth/login", name="arena_login")

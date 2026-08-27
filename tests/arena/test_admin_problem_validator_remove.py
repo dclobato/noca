@@ -17,15 +17,10 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, date, datetime
-from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
-from jinja2 import ChoiceLoader, FileSystemLoader
 from jwtservice import JWTService, load_token_config_from_dict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
@@ -46,6 +41,7 @@ from shared.enumerations import (
     ProblemValidatorType,
 )
 from shared.services.sample_interactions import parse_interaction_text
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 from web.models.language import Language
 
 TEST_JWT_SECRET = "test-secret-key-for-validator-remove-tests"
@@ -57,18 +53,8 @@ def _build_app(session: AsyncSession) -> FastAPI:
     app.add_middleware(ArenaAuthMiddleware)
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
-    repo_root = Path(__file__).resolve().parents[2]
-    templates = Jinja2Templates(directory=repo_root / "arena" / "template")
-    templates.env.loader = ChoiceLoader(
-        [
-            FileSystemLoader(repo_root / "arena" / "template"),
-            FileSystemLoader(repo_root / "shared" / "template"),
-        ]
-    )
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["brand_name"] = "NOCA Arena"
-    setup_flash(templates)
-    app.state.arena_templates = templates
+    install_arena_templates(app)
+    mount_arena_base_routes(app)
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
     app.state.jwt_service = JWTService(
         config=load_token_config_from_dict(
@@ -81,12 +67,6 @@ def _build_app(session: AsyncSession) -> FastAPI:
         logger=logging.getLogger(__name__),
         action_enum=ArenaTokenAction,
     )
-    shared_dir = repo_root / "shared"
-    arena_dir = repo_root / "arena"
-    app.mount("/static/vendor", StaticFiles(directory=shared_dir / "static" / "vendor"), name="static_vendor")
-    app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
-    app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")
-    app.mount("/static/img", StaticFiles(directory=arena_dir / "static" / "img"), name="arena_static_img")
 
     @app.get("/admin/problems/{problem_id}/edit", name="arena_admin_problem_edit")
     async def _edit(problem_id: str) -> Response:

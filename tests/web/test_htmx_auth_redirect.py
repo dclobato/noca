@@ -14,6 +14,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from shared.services.geolocation import GeolocationDetails, GeolocationIP
 from web.routes.profile import router as profile_router
+from web.routes.session import router as session_router
 from web.services.authentication_service import AuthAction, AuthenticationService
 from web.template_globals import register_template_globals
 
@@ -34,6 +35,8 @@ def _build_app(session: AsyncSession) -> FastAPI:
     templates = Jinja2Templates(directory=web_dir / "template")
     templates.env.globals["app_version"] = "test"
     register_template_globals(templates)
+    # `_base.html` resolves the keepalive route on every authenticated page.
+    app.include_router(session_router)
     setup_flash(templates)
     app.state.templates = templates
 

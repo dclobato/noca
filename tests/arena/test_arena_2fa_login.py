@@ -17,15 +17,11 @@ Covers the following scenarios:
 import logging
 import uuid
 from datetime import date
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
 from jwtservice import JWTService, load_token_config_from_dict
 from sqlalchemy import select
@@ -44,6 +40,7 @@ from arena.services.user_2fa_service import Autenticacao2FA, TwoFAValidationResu
 from shared.enumerations import ArenaRole
 from shared.services.email_service import EmailConfig, EmailService
 from shared.services.imageprocessing_service import ImageProcessingConfig, ImageProcessingService
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 
 _TEST_JWT_SECRET = "test-secret-key-for-arena-2fa-tests-only-32bytes!"
 _DEFAULT_LOGIN_SECONDS = 3600
@@ -64,13 +61,8 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     app = FastAPI()
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
-    arena_dir = Path(__file__).resolve().parents[2] / "arena"
-    templates = Jinja2Templates(directory=arena_dir / "template")
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["next_rating_update_text"] = lambda request: None
-    setup_flash(templates)
-
-    app.state.arena_templates = templates
+    install_arena_templates(app)
+    mount_arena_base_routes(app)
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
     app.state.source_port_header = "X-Client-Source-Port"
     app.state.jwt_service = JWTService(
@@ -155,12 +147,6 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
         return HTMLResponse("avatar")
 
     app.include_router(stubs)
-    shared_dir = arena_dir.parent / "shared"
-    app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
-    app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")
-    app.mount("/static/img", StaticFiles(directory=arena_dir / "static" / "img"), name="arena_static_img")
-    app.mount("/static/vendor", StaticFiles(directory=shared_dir / "static" / "vendor"), name="static_vendor")
-    app.mount("/static/shared-js", StaticFiles(directory=shared_dir / "static" / "js"), name="static_shared_js")
     app.include_router(arena_auth_router)
     app.include_router(arena_auth_2fa_router)
     app.include_router(arena_auth_password_router)

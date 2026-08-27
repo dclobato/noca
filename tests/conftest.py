@@ -29,6 +29,21 @@ os.environ.setdefault("NOCA_DB_SERVER", "localhost")
 os.environ.setdefault("NOCA_DB_NAME", "test")
 os.environ.setdefault("NOCA_JWT_SECRET_KEY", "0a2b72ba8dc0cf8798d19b8e9fd5ae5361d294588cc8c5056abc5af1eb4b17a6d")
 os.environ.setdefault("NOCA_WEB_ENABLE_CLARIFICATION_REAPER", "false")
+
+# Settings that reach rendered HTML are pinned to their documented defaults so a
+# developer's `.env` cannot change what a render assertion sees. `arena/config.py`
+# and `web/config.py` both declare `env_file=".env"`, and pydantic-settings ranks
+# environment variables above that file, so these win. Without them a local
+# `NOCA_IMAGE_MAX_FILE_SIZE=5242880` silently rewrites every upload-limit
+# assertion, and a local `NOCA_ARENA_BRAND_NAME` every footer one.
+os.environ.setdefault("NOCA_ARENA_BRAND_NAME", "NOCA Arena")
+os.environ.setdefault("NOCA_WEB_BRAND_NAME", "NOCA Contest")
+os.environ.setdefault("NOCA_IMAGE_MAX_FILE_SIZE", str(2 * 1024 * 1024))
+os.environ.setdefault("NOCA_IMAGE_MAX_WIDTH", "2048")
+os.environ.setdefault("NOCA_IMAGE_MAX_HEIGHT", "2048")
+os.environ.setdefault("NOCA_JWT_REFRESH_MAX_SESSION_SECONDS", "0")
+os.environ.setdefault("NOCA_ARENA_PRESENCE_ENABLED", "true")
+os.environ.setdefault("NOCA_ARENA_PRESENCE_HEARTBEAT_SECONDS", "30")
 if _xdist_worker:
     # The controller's environment is inherited by every xdist worker. Override
     # shared application paths inside each worker so parallel tests cannot see or

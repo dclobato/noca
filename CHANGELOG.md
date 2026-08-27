@@ -4,7 +4,35 @@ Todas as mudanças relevantes deste projeto são documentadas aqui.
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e o projeto adota o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [18.0.1] - 2026-08-26
+
+### Bug Fixes
+
+- **arena:** Slide every authenticated session, not just remember-me
+- **web:** Keep an open Web page's session alive
+- **config:** Refuse a keepalive cadence that would never rotate a session
+
+### Refactoring
+
+- **arena:** One definition of what templates may read
+
+### Documentation
+
+- **changelog:** Record the animator breaking change in v18.0.0
+
+
+
 ## [18.0.0] - 2026-08-25
+
+### Breaking Changes
+
+- **animator:** `jump_pending` widens the `RevealCommand` literal without bumping
+  `state_version` (3) or `event_version` (1). Animator replicas must be deployed
+  together: a stale replica drops an unknown event nudge and, after the first
+  idempotency-keyed `jump_pending`, rejects the whole stored session because it
+  cannot validate the receipt. Recover after a rollback with **Rebuild state**
+  (`start-reveal` with `restart=true`), which replaces the payload without
+  reading it.
 
 ### Features
 

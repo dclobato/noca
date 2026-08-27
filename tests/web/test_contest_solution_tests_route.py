@@ -32,6 +32,7 @@ from web.models.problem import Problem, ProblemTestCase
 from web.models.submission import Submission
 from web.models.users import UberAdmin, User
 from web.routes.contest_solution_tests import router as solution_tests_router
+from web.routes.session import router as session_router
 from web.template_globals import register_template_globals
 
 pytestmark = pytest.mark.asyncio
@@ -68,6 +69,8 @@ def _build_app(session: AsyncSession, ctx: ContestContext) -> FastAPI:
     templates = Jinja2Templates(directory=[web_dir / "template", shared_dir / "template"])
     templates.env.globals["app_version"] = "test"
     register_template_globals(templates)
+    # `_base.html` resolves the keepalive route on every authenticated page.
+    app.include_router(session_router)
     templates.env.globals["contest_minutes"] = lambda seconds: None if seconds is None else seconds // 60
     setup_flash(templates)
     app.state.templates = templates

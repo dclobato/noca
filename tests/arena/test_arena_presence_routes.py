@@ -12,15 +12,22 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.routing import NoMatchFound
 
 import arena.dependencies.auth as auth_module
 import arena.routes.presence as presence_module
+from arena.config import settings as arena_settings
 from arena.dependencies.auth import _refresh_presence, get_current_arena_user
+from arena.main import app as arena_app
 from arena.routes.presence import ARENA_PRESENCE_DOMAIN
 from arena.routes.presence import router as arena_presence_router
+from arena.template_globals import heartbeat_config, session_heartbeat_seconds
+from shared.enumerations import ArenaRole
 from shared.services.user_presence import user_live_key
+from tests.arena._admin_problem_app import build_admin_app, create_user, login_token
 
 
 class _RecordingRuntime:
@@ -172,3 +179,171 @@ async def test_endpoints_are_inert_when_presence_disabled(monkeypatch: pytest.Mo
     assert status.json() == {"enabled": False, "online": []}
     assert runtime.eval_calls == []
     assert runtime.mget_calls == []
+
+
+def _request_for(app: FastAPI) -> Request:
+    """Build a minimal request bound to `app`, enough for `url_for` resolution."""
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "http",
+            "server": ("testserver", 80),
+            "path": "/",
+            "query_string": b"",
+            "headers": [],
+            "app": app,
+            "router": app.router,
+        }
+    )
+
+
+class TestHeartbeatKeepaliveDecoupling:
+    """The heartbeat is the sliding session's keepalive, so it must not follow the presence flag.
+
+    A page open for a long edit makes no other request. Gating the heartbeat on
+    ``NOCA_ARENA_PRESENCE_ENABLED`` made session lifetime depend on whether the
+    green-dot feature happened to be on, which ended long edits at the login
+    page with the form discarded.
+    """
+
+    def test_config_is_emitted_even_when_presence_is_disabled(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With presence off the client is still configured, with dots switched off."""
+        monkeypatch.setattr(arena_settings, "PRESENCE_ENABLED", False)
+        app = FastAPI()
+        app.include_router(arena_presence_router)
+
+        config = heartbeat_config(_request_for(app))
+
+        assert config is not None
+        assert config["presence_enabled"] is False
+        assert config["heartbeat_url"].endswith("/arena/presence/heartbeat")
+
+    def test_keepalive_interval_lands_inside_the_refresh_window(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With presence off the interval must still refresh the token before half-life."""
+        monkeypatch.setattr(arena_settings, "PRESENCE_ENABLED", False)
+        monkeypatch.setattr(arena_settings, "JWT_EXPIRE_SECONDS", 3600)
+
+        interval = session_heartbeat_seconds()
+
+        assert interval < arena_settings.JWT_EXPIRE_SECONDS // 2
+        assert interval >= 60
+
+    def test_presence_cadence_wins_when_presence_is_enabled(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With presence on the dots set the cadence, so no extra requests are added."""
+        monkeypatch.setattr(arena_settings, "PRESENCE_ENABLED", True)
+        monkeypatch.setattr(arena_settings, "PRESENCE_HEARTBEAT_SECONDS", 30)
+
+        assert session_heartbeat_seconds() == 30
+
+    def test_the_real_app_registers_every_route_the_heartbeat_block_resolves(self) -> None:
+        """`_base.html` resolves these three names unguarded, so a missing one is a
+        render-time failure on every logged-in page. The guarantee is
+        `arena/main.py`'s unconditional `include_router`, and this test is what keeps
+        it from silently becoming conditional -- otherwise the heartbeat, and with it
+        every open page's session keepalive, would vanish.
+        """
+        assert arena_app.url_path_for("arena_presence_heartbeat")
+        assert arena_app.url_path_for("arena_presence_status")
+        assert arena_app.url_path_for("static_shared_js", path="noca-presence.js")
+
+    def test_config_raises_when_the_presence_routes_are_absent(self) -> None:
+        """An application missing the presence routes must fail loudly, not render without them.
+
+        This used to degrade to ``None`` so that stub applications mounting a
+        subset of the routers could still render ``_base.html``. Every test
+        application now goes through `tests/arena/conftest.py`, so the
+        degradation has no remaining caller -- and silence here would mean an
+        open page quietly losing its session keepalive.
+        """
+        app = FastAPI()
+
+        with pytest.raises(NoMatchFound):
+            heartbeat_config(_request_for(app))
+
+
+class TestKeepaliveRendersOnAnAuthenticatedPage:
+    """The template binding itself, which the unit tests above cannot reach.
+
+    Every other test here calls `heartbeat_config` directly. That pins the
+    configuration but says nothing about `_base.html` actually emitting it, so
+    deleting the block -- or renaming the variable it sets -- would leave a page
+    with no keepalive and no failing test. This renders a real authenticated page
+    and asserts the element the browser needs is on it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_authenticated_page_carries_the_heartbeat_element(
+        self,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A logged-in Arena page ships the config element and the shared script."""
+        monkeypatch.setattr(arena_settings, "PRESENCE_ENABLED", True)
+        monkeypatch.setattr(arena_settings, "PRESENCE_HEARTBEAT_SECONDS", 30)
+        app = build_admin_app(session)
+        user = await create_user(
+            session,
+            email="keepalive-admin@test.example",
+            role=ArenaRole.ARENA_ADMIN,
+            can_edit=True,
+        )
+        token = login_token(app, user)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://testserver",
+            cookies={"arena_access_token": token},
+        ) as client:
+            response = await client.get("/admin/problems")
+
+        assert response.status_code == 200
+        assert "data-noca-presence" in response.text
+        assert 'data-heartbeat-url="http://testserver/arena/presence/heartbeat"' in response.text
+        assert 'data-status-url="http://testserver/arena/presence/status"' in response.text
+        assert 'data-interval-seconds="30"' in response.text
+        assert 'data-presence-enabled="true"' in response.text
+        assert "noca-presence.js" in response.text
+
+    @pytest.mark.asyncio
+    async def test_the_element_survives_presence_being_disabled(
+        self,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With the green dot off the page still ships the keepalive, dots disabled.
+
+        This is the decoupling of #122 asserted where it actually matters -- on a
+        rendered page rather than on the helper that feeds it.
+        """
+        monkeypatch.setattr(arena_settings, "PRESENCE_ENABLED", False)
+        monkeypatch.setattr(arena_settings, "JWT_EXPIRE_SECONDS", 3600)
+        app = build_admin_app(session)
+        user = await create_user(
+            session,
+            email="keepalive-admin-2@test.example",
+            role=ArenaRole.ARENA_ADMIN,
+            can_edit=True,
+        )
+        token = login_token(app, user)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://testserver",
+            cookies={"arena_access_token": token},
+        ) as client:
+            response = await client.get("/admin/problems")
+
+        assert response.status_code == 200
+        assert "data-noca-presence" in response.text
+        assert 'data-presence-enabled="false"' in response.text
+        assert 'data-interval-seconds="900"' in response.text

@@ -8,14 +8,10 @@
 
 import logging
 from datetime import date
-from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
 from jwtservice import JWTService, load_token_config_from_dict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -32,12 +28,12 @@ from arena.models.arena_users import ArenaUser
 from arena.routes.admin_users import router as arena_admin_users_router
 from arena.routes.admin_users_actions import router as arena_admin_users_actions_router
 from arena.routes.user_profile_api import router as user_profile_api_router
-from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from arena.services.leaderboard_service import get_top_rated_users
 from arena.services.ranking_service import get_ranked_users_paginated
 from arena.services.token_service import ArenaTokenAction
 from shared.enumerations import ArenaRole
 from shared.services.email_service import EmailConfig, EmailService
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 
 TEST_JWT_SECRET = "test-secret-key-for-ranking-visible-32bytes!!"
 _TEST_PASSWORD = "TestPass1!"
@@ -49,14 +45,8 @@ def _build_app(session: AsyncSession) -> FastAPI:
     app.add_middleware(ArenaAuthMiddleware)
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
-    arena_dir = Path(__file__).resolve().parents[2] / "arena"
-    shared_dir = Path(__file__).resolve().parents[2] / "shared"
-    templates = Jinja2Templates(directory=arena_dir / "template")
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["next_rating_update_text"] = lambda request: None
-    templates.env.globals["arena_role_labels"] = ARENA_ROLE_DISPLAY
-    setup_flash(templates)
-    app.state.arena_templates = templates
+    install_arena_templates(app)
+    mount_arena_base_routes(app)
     app.state.email_service = EmailService(
         config=EmailConfig(
             send_email=False,
@@ -79,9 +69,6 @@ def _build_app(session: AsyncSession) -> FastAPI:
         logger=logging.getLogger(__name__),
         action_enum=ArenaTokenAction,
     )
-    app.mount("/static/vendor", StaticFiles(directory=shared_dir / "static" / "vendor"), name="static_vendor")
-    app.mount("/static/shared-js", StaticFiles(directory=shared_dir / "static" / "js"), name="static_shared_js")
-    app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")
     app.include_router(arena_admin_users_router)
     app.include_router(arena_admin_users_actions_router)
     app.include_router(user_profile_api_router)

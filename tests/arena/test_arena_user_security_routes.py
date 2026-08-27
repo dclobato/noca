@@ -26,15 +26,11 @@ TypeDecorator only fires when the ORM writes the ``_otp_secret`` column).
 import logging
 import uuid
 from datetime import date
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
 from jwtservice import JWTService, load_token_config_from_dict
 from sqlalchemy import select
@@ -55,6 +51,7 @@ from arena.services.qrcode_service import QRCodeService
 from arena.services.token_service import ArenaTokenAction
 from arena.services.user_2fa_service import Autenticacao2FA, TwoFASetupResult
 from shared.enumerations import ArenaRole
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 
 _TEST_JWT_SECRET = "test-secret-key-for-arena-security-tests!32bytes"
 
@@ -77,13 +74,8 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     app.add_middleware(ArenaAuthMiddleware)
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
-    arena_dir = Path(__file__).resolve().parents[2] / "arena"
-    templates = Jinja2Templates(directory=arena_dir / "template")
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["next_rating_update_text"] = lambda request: None
-    setup_flash(templates)
-
-    app.state.arena_templates = templates
+    install_arena_templates(app)
+    mount_arena_base_routes(app)
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
     app.state.jwt_service = JWTService(
         config=load_token_config_from_dict(
@@ -98,13 +90,6 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     )
     app.state.qrcode_service = QRCodeService.create_default()
     app.state.email_service = MagicMock(send_email=MagicMock(return_value=MagicMock(success=True)))
-
-    shared_dir = arena_dir.parent / "shared"
-    app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
-    app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")
-    app.mount("/static/img", StaticFiles(directory=arena_dir / "static" / "img"), name="arena_static_img")
-    app.mount("/static/vendor", StaticFiles(directory=shared_dir / "static" / "vendor"), name="static_vendor")
-    app.mount("/static/shared-js", StaticFiles(directory=shared_dir / "static" / "js"), name="static_shared_js")
 
     # ---- Named stubs required for redirects / templates ----
 

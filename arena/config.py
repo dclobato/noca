@@ -24,6 +24,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from shared.enumerations import Environment
 from shared.services.imageprocessing_service import MAX_IMAGE_FILE_SIZE
 from shared.services.testcase_files import ARENA_TC_SUBDIR
+from shared.session_keepalive import (
+    derived_keepalive_seconds,
+    keepalive_lands_inside_refresh_window,
+    keepalive_window_error,
+)
 
 
 class Settings(BaseSettings):
@@ -606,6 +611,20 @@ class Settings(BaseSettings):
         """
         return Path(self.PROBLEM_TESTCASE_DIR_ROOT) / ARENA_TC_SUBDIR
 
+    @property
+    def session_keepalive_seconds(self) -> int:
+        """Effective browser heartbeat cadence, in seconds.
+
+        One timer serves two purposes. With presence enabled it must run at the
+        presence cadence, since that is what keeps the green dot lit. With
+        presence disabled it still has to run, because the same request is what
+        rotates the sliding auth cookie for someone reading or typing without
+        navigating, and then only needs to land inside the refresh window.
+        """
+        if self.PRESENCE_ENABLED:
+            return int(self.PRESENCE_HEARTBEAT_SECONDS)
+        return derived_keepalive_seconds(self.JWT_EXPIRE_SECONDS)
+
     @model_validator(mode="after")
     def validate_presence_settings(self) -> Settings:
         """Ensure the heartbeat interval stays below the presence TTL."""
@@ -618,6 +637,32 @@ class Settings(BaseSettings):
             raise ValueError(
                 "NOCA_ARENA_WORKER_PRESENCE_TTL_SECONDS must be greater than "
                 "NOCA_ARENA_WORKER_PRESENCE_INTERVAL_SECONDS."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_session_keepalive(self) -> Settings:
+        """Refuse a heartbeat cadence that would never rotate the session.
+
+        The cadence is load-bearing for how long a session lives: a page left
+        open makes no other request, so a ping slower than the refresh window
+        rotates nothing and the session dies mid-edit. With presence enabled the
+        cadence is an operator setting bounded only against the presence TTL, so
+        nothing else relates it to the token lifetime -- a short
+        NOCA_JWT_EXPIRE_SECONDS and a slow NOCA_ARENA_PRESENCE_HEARTBEAT_SECONDS
+        are each individually valid and together silently broken.
+        """
+        keepalive_seconds = self.session_keepalive_seconds
+        if not keepalive_lands_inside_refresh_window(
+            keepalive_seconds=keepalive_seconds,
+            token_lifetime_seconds=self.JWT_EXPIRE_SECONDS,
+        ):
+            raise ValueError(
+                keepalive_window_error(
+                    keepalive_seconds=keepalive_seconds,
+                    token_lifetime_seconds=self.JWT_EXPIRE_SECONDS,
+                    cadence_setting=("NOCA_ARENA_PRESENCE_HEARTBEAT_SECONDS" if self.PRESENCE_ENABLED else None),
+                )
             )
         return self
 

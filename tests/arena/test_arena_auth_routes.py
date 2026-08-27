@@ -8,15 +8,11 @@
 
 import logging
 from io import BytesIO
-from pathlib import Path
 from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
 from jwtservice import JWTService, load_token_config_from_dict
 from PIL import Image
@@ -38,7 +34,7 @@ from arena.services.token_service import ArenaTokenAction
 from shared.db_schema import security_events
 from shared.services.email_service import EmailConfig, EmailService
 from shared.services.imageprocessing_service import ImageProcessingConfig, ImageProcessingService
-from tests.arena.conftest import attach_reputation_services
+from tests.arena.conftest import attach_reputation_services, install_arena_templates, mount_arena_base_routes
 
 TEST_JWT_SECRET = "test-secret-key-for-arena-tests-only-32bytes"
 
@@ -48,12 +44,8 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
     app = FastAPI()
     app.add_middleware(SessionMiddleware, secret_key="test-secret-key")
 
-    arena_dir = Path(__file__).resolve().parents[2] / "arena"
-    templates = Jinja2Templates(directory=arena_dir / "template")
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["next_rating_update_text"] = lambda request: None
-    setup_flash(templates)
-    app.state.arena_templates = templates
+    install_arena_templates(app)
+    mount_arena_base_routes(app)
 
     app.state.arena_db_session = async_sessionmaker(session.bind, expire_on_commit=False)
     app.state.jwt_service = JWTService(
@@ -86,13 +78,6 @@ def _build_arena_app(session: AsyncSession) -> FastAPI:
         logger=logging.getLogger(__name__),
     )
     attach_reputation_services(app)
-
-    shared_dir = arena_dir.parent / "shared"
-    app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
-    app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")
-    app.mount("/static/img", StaticFiles(directory=arena_dir / "static" / "img"), name="arena_static_img")
-    app.mount("/static/vendor", StaticFiles(directory=shared_dir / "static" / "vendor"), name="static_vendor")
-    app.mount("/static/shared-js", StaticFiles(directory=shared_dir / "static" / "js"), name="static_shared_js")
 
     @app.get("/problems", name="arena_problem_list")
     async def _problem_list() -> Response:

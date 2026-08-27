@@ -27,6 +27,7 @@ from web.models.problem import Problem
 from web.models.users import UberAdmin, User
 from web.routes.contest_tasks import router as tasks_router
 from web.routes.contest_tasks_staff import router as tasks_staff_router
+from web.routes.session import router as session_router
 from web.services.task_service import create_print_task, create_sos_task
 from web.template_globals import register_template_globals
 
@@ -74,6 +75,8 @@ def _build_app(session: AsyncSession, ctx: ContestContext, valkey_client: aivalk
     templates.env.globals["app_version"] = "test"
     templates.env.globals["TaskType"] = TaskType
     register_template_globals(templates)
+    # `_base.html` resolves the keepalive route on every authenticated page.
+    app.include_router(session_router)
     templates.env.globals["contest_minutes"] = lambda seconds: None if seconds is None else seconds // 60
     setup_flash(templates)
     app.state.templates = templates

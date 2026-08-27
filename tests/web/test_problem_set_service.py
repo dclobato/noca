@@ -27,6 +27,7 @@ from web.models.contest import Contest
 from web.models.problem import Problem, ProblemTestCase
 from web.models.users import UberAdmin
 from web.routes.problem_set import router as problem_set_router
+from web.routes.session import router as session_router
 from web.services.problem_service.files import save_md_statement, save_testcase_files
 from web.services.problem_set_cache import (
     cached_archive_path,
@@ -293,6 +294,8 @@ async def test_contests_page_shows_problem_set_button_only_after_release(
     templates.env.globals["app_version"] = "test"
     templates.env.globals["brand_name"] = "NOCA"
     register_template_globals(templates)
+    # `_base.html` resolves the keepalive route on every authenticated page.
+    app.include_router(session_router)
     templates.env.globals["get_flashed_messages"] = lambda with_categories=False: []
     app.state.templates = templates
     app.include_router(root_router)

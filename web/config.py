@@ -15,6 +15,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from shared.enumerations import Environment
 from shared.services.imageprocessing_service import MAX_IMAGE_FILE_SIZE
 from shared.services.testcase_files import CONTEST_TC_SUBDIR
+from shared.session_keepalive import (
+    derived_keepalive_seconds,
+    keepalive_lands_inside_refresh_window,
+    keepalive_window_error,
+)
 from web.audio_upload_limits import DEFAULT_AUDIO_MAX_FILE_SIZE, MAX_AUDIO_FILE_SIZE
 
 
@@ -524,6 +529,40 @@ class Settings(BaseSettings):
         """Validate production security settings."""
         if self.ENVIRONMENT == Environment.PRODUCTION and not self.COOKIE_SECURE:
             raise ValueError("NOCA_COOKIE_SECURE must be true when NOCA_ENVIRONMENT=production.")
+        return self
+
+    @property
+    def session_keepalive_seconds(self) -> int:
+        """Effective browser heartbeat cadence, in seconds.
+
+        Web has no presence feature, so the keepalive is all this timer does and
+        the cadence is derived from the token lifetime rather than configured.
+        """
+        return derived_keepalive_seconds(self.JWT_EXPIRE_SECONDS)
+
+    @model_validator(mode="after")
+    def validate_session_keepalive(self) -> Settings:
+        """Refuse a token lifetime too short for the keepalive to rotate it.
+
+        The cadence is derived, so it tracks the lifetime on its own -- except at
+        the floor under it, which bounds request volume and stops tracking below
+        roughly two minutes of lifetime. Past that point the ping arrives outside
+        the refresh window, rotates nothing, and open pages are logged out
+        mid-edit. Refuse rather than clamp: a clamped cadence is not the one the
+        operator configured, and silence is the failure mode being fixed here.
+        """
+        keepalive_seconds = self.session_keepalive_seconds
+        if not keepalive_lands_inside_refresh_window(
+            keepalive_seconds=keepalive_seconds,
+            token_lifetime_seconds=self.JWT_EXPIRE_SECONDS,
+        ):
+            raise ValueError(
+                keepalive_window_error(
+                    keepalive_seconds=keepalive_seconds,
+                    token_lifetime_seconds=self.JWT_EXPIRE_SECONDS,
+                    cadence_setting=None,
+                )
+            )
         return self
 
     @model_validator(mode="after")

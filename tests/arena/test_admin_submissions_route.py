@@ -11,7 +11,6 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import UTC, date, datetime
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
@@ -19,9 +18,6 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,19 +34,17 @@ from arena.routes.admin_dashboard_history import router
 from arena.routes.admin_dashboard_security import router as security_events_router
 from arena.routes.legal import router as arena_legal_router
 from arena.services import admin_submission_service
-from arena.services.admin_user_service import ARENA_ROLE_DISPLAY
 from shared.db_schema.arena.arena_submissions import (
     arena_submission_ai_reviews,
     arena_submission_judgments,
     arena_submissions,
 )
 from shared.enumerations import (
-    VERDICT_BADGE_CLASSES,
-    VERDICT_LABELS,
     ArenaRole,
     JudgmentStatus,
     ProblemValidatorType,
 )
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 from web.models.language import Language
 
 # ---------------------------------------------------------------------------
@@ -617,24 +611,10 @@ def _build_app(session: Any, *, authorized: bool = True) -> FastAPI:
     app = FastAPI()
     app.add_middleware(SessionMiddleware, secret_key="test-session-secret")
 
-    arena_dir = Path(__file__).resolve().parents[2] / "arena"
-    shared_dir = Path(__file__).resolve().parents[2] / "shared"
-    templates = Jinja2Templates(directory=arena_dir / "template")
+    templates = install_arena_templates(app)
     templates.env.globals["arena_format_datetime"] = lambda value, user, fmt=None: str(value)
     templates.env.globals["arena_format_relative_datetime"] = lambda value: "just now"
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["next_rating_update_text"] = lambda request: None
-    templates.env.globals["verdict_badge_classes"] = VERDICT_BADGE_CLASSES
-    templates.env.globals["verdict_labels"] = VERDICT_LABELS
-    templates.env.globals["arena_role_labels"] = ARENA_ROLE_DISPLAY
-    setup_flash(templates)
-    app.state.arena_templates = templates
-
-    app.mount("/static/vendor", StaticFiles(directory=shared_dir / "static" / "vendor"), name="static_vendor")
-    app.mount("/static/shared-js", StaticFiles(directory=shared_dir / "static" / "js"), name="static_shared_js")
-    app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
-    app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")
-    app.mount("/static/img", StaticFiles(directory=arena_dir / "static" / "img"), name="arena_static_img")
+    mount_arena_base_routes(app)
 
     for path, name in [
         ("/", "arena_dashboard"),

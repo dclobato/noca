@@ -36,6 +36,7 @@ from web.models.users import UberAdmin, User
 from web.routes import contest_admin_animator as contest_admin_animator_routes
 from web.routes.assets import router as assets_router
 from web.routes.contest_admin_animator import router as animator_router
+from web.routes.session import router as session_router
 from web.services.authentication_service import AuthAction, AuthenticationService
 from web.template_globals import register_template_globals
 
@@ -60,6 +61,8 @@ def _build_app(session: AsyncSession) -> tuple[FastAPI, AuthenticationService]:
     templates = Jinja2Templates(directory=web_dir / "template")
     templates.env.globals["app_version"] = "test"
     register_template_globals(templates)
+    # `_base.html` resolves the keepalive route on every authenticated page.
+    app.include_router(session_router)
     setup_flash(templates)
     app.state.templates = templates
     app.state.db_session = async_sessionmaker(session.bind, expire_on_commit=False)

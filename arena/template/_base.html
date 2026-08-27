@@ -317,14 +317,18 @@
         {% if current_user %}
             <script src="{{ request.url_for("arena_static_js", path="arena-notifications.js") }}?v={{ app_version }}"></script>
             <script src="{{ request.url_for("arena_static_js", path="arena-user-menu.js") }}?v={{ app_version }}"></script>
-            {% if presence_enabled %}
-                <div data-noca-presence
-                     data-heartbeat-url="{{ request.url_for("arena_presence_heartbeat") }}"
-                     data-status-url="{{ request.url_for("arena_presence_status") }}"
-                     data-interval-seconds="{{ presence_heartbeat_seconds }}"
-                     hidden></div>
-                <script src="{{ request.url_for('static_shared_js', path='noca-presence.js') }}?v={{ app_version }}"></script>
-            {% endif %}
+            {# Rendered for every logged-in user, not only when presence is on: the
+               heartbeat is also what keeps the sliding session alive while the user
+               reads or types without navigating. `data-presence-enabled` governs the
+               green-dot refresh alone. #}
+            {% set heartbeat = heartbeat_config(request) %}
+            <div data-noca-presence
+                 data-heartbeat-url="{{ heartbeat.heartbeat_url }}"
+                 data-status-url="{{ heartbeat.status_url }}"
+                 data-interval-seconds="{{ heartbeat.interval_seconds }}"
+                 data-presence-enabled="{{ "true" if heartbeat.presence_enabled else "false" }}"
+                 hidden></div>
+            <script src="{{ request.url_for('static_shared_js', path='noca-presence.js') }}?v={{ app_version }}"></script>
         {% endif %}
         {% block extra_script %}{% endblock %}
     </body>

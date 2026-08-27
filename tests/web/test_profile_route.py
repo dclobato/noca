@@ -27,6 +27,7 @@ from web.audio_upload_limits import DEFAULT_AUDIO_MAX_FILE_SIZE, MAX_AUDIO_FILE_
 from web.models.site import Site
 from web.models.users import UberAdmin, User, UserMedia
 from web.routes.profile import router as profile_router
+from web.routes.session import router as session_router
 from web.routes.user_media import router as user_media_router
 from web.services.authentication_service import AuthAction, AuthenticationService
 from web.services.site_service import normalize_site_name_key
@@ -62,6 +63,8 @@ def _build_profile_app(session: AsyncSession) -> tuple[FastAPI, AuthenticationSe
     templates = Jinja2Templates(directory=web_dir / "template")
     templates.env.globals["app_version"] = "test"
     register_template_globals(templates)
+    # `_base.html` resolves the keepalive route on every authenticated page.
+    app.include_router(session_router)
     setup_flash(templates)
     app.state.templates = templates
 

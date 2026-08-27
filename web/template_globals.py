@@ -18,6 +18,10 @@ It also exposes the small amount of request context the navigation needs to mark
 its current destination, and -- under ``role_matrix`` -- the declared access and
 capability matrices from ``web/access_matrix/``, so any page that helps someone
 choose a role can render them without a route passing them in.
+
+``session_heartbeat_config`` belongs here for the same reason: ``_base.html``
+renders the keepalive on every authenticated page, so its configuration has to
+come from the environment rather than from each of the routes that render one.
 """
 
 from __future__ import annotations
@@ -40,6 +44,7 @@ from web.access_matrix import (
     UBERADMIN_ATTRIBUTION_NOTE,
     MatrixActor,
 )
+from web.config import settings
 from web.services.chief_judge_permissions import is_chief_judge
 from web.services.clarification_service.permissions import (
     can_answer_clarifications,
@@ -185,6 +190,59 @@ def nav_url(request: Request, endpoint: str, **params: object) -> str:
         return ""
 
 
+def session_heartbeat_seconds() -> int:
+    """Return the client keepalive interval, in seconds.
+
+    The cadence itself is `web.config.Settings.session_keepalive_seconds`, so the
+    value rendered into the page is the same one the startup validator checked
+    against the token refresh window.
+
+    Returns:
+        int: Interval in seconds for the client-side heartbeat timer.
+    """
+    return settings.session_keepalive_seconds
+
+
+def session_heartbeat_config(request: Request) -> dict[str, object] | None:
+    """Return the keepalive configuration for ``_base.html``, or ``None``.
+
+    The gate is the validated token rather than ``current_user``: routes pass
+    that context key individually and some authenticated pages simply omit it,
+    where ``{% if current_user %}`` is silently false. How long a session lives
+    must not depend on which key a route happened to pass.
+
+    Args:
+        request: The request being rendered, carrying the token the
+            ``AuthTokenRefreshMiddleware`` validated once for it.
+
+    Returns:
+        The heartbeat URL and interval, or ``None`` when no live session exists
+        and there is nothing to keep alive.
+
+    Raises:
+        NoMatchFound: When the keepalive route is not registered on the running
+            application. This is deliberately loud: the heartbeat is what keeps
+            an open page's session alive, so an application missing the route
+            must fail rather than quietly render without it.
+    """
+    # A request with no state carries no session either -- the template-render
+    # tests pass a stand-in that has none -- so read it defensively. This does
+    # shadow a missing keepalive route in an application that never authenticates
+    # anyone, since the return below is reached first; what it cannot shadow is
+    # the case that matters, an authenticated page, where the unguarded
+    # resolution runs.
+    state = getattr(request, "state", None)
+    validation = getattr(state, "validated_token", None)
+    if validation is None or not validation.valid:
+        return None
+    if getattr(state, "token_cap_exceeded", False):
+        return None
+    return {
+        "heartbeat_url": str(request.url_for("web_session_heartbeat")),
+        "interval_seconds": session_heartbeat_seconds(),
+    }
+
+
 def template_globals() -> dict[str, object]:
     """Return the globals every web template surface relies on.
 
@@ -207,6 +265,7 @@ def template_globals() -> dict[str, object]:
         "noca_confirmation_is_decisive": confirmation_is_decisive,
         "is_current_destination": is_current_destination,
         "nav_url": nav_url,
+        "session_heartbeat_config": session_heartbeat_config,
     }
 
 

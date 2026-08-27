@@ -23,6 +23,7 @@ from shared.services.valkey_service import ContestValkeyPurgeResult
 from web.routes.auth import router as auth_router
 from web.routes.generaluser_dashboard import router as contest_dashboard_router
 from web.routes.root import router as root_router
+from web.routes.session import router as session_router
 from web.routes.uberadmin_contest_backup import router as uberadmin_contest_backup_router
 from web.routes.uberadmin_contest_removal import router as uberadmin_contest_removal_router
 from web.routes.uberadmin_dashboard import router as uberadmin_dashboard_router
@@ -78,6 +79,8 @@ def _build_app(session: AsyncSession) -> tuple[FastAPI, AuthenticationService]:
     templates = Jinja2Templates(directory=web_dir / "template")
     templates.env.globals["app_version"] = "test"
     register_template_globals(templates)
+    # `_base.html` resolves the keepalive route on every authenticated page.
+    app.include_router(session_router)
     setup_flash(templates)
     app.state.templates = templates
     app.state.db_session = async_sessionmaker(session.bind, expire_on_commit=False)

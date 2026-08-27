@@ -113,6 +113,21 @@
             <script src="{{ request.url_for('static_js', path='contest-nav.js') }}?v={{ app_version }}"
                     defer></script>
         {% endif %}
+        {# Rendered for every live session, not only for pages that pass
+           `current_user`: this ping is what rotates the sliding auth cookie while
+           someone reads or types without navigating, and a page whose session
+           dies mid-edit loses the form body to the login redirect. The web module
+           has no presence domain, so `data-presence-enabled="false"` keeps the
+           shared script's green-dot half switched off. #}
+        {% set heartbeat = session_heartbeat_config(request) %}
+        {% if heartbeat %}
+            <div data-noca-presence
+                 data-heartbeat-url="{{ heartbeat.heartbeat_url }}"
+                 data-interval-seconds="{{ heartbeat.interval_seconds }}"
+                 data-presence-enabled="false"
+                 hidden></div>
+            <script src="{{ request.url_for('static_shared_js', path='noca-presence.js') }}?v={{ app_version }}"></script>
+        {% endif %}
         {% block extra_script %}{% endblock %}
     </body>
 </html>

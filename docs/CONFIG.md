@@ -295,8 +295,8 @@ These variables are shared by the application modules identified below.
 |----------|---------|-------------|
 | `NOCA_JWT_SECRET_KEY` | *(required)* | Secret key used to sign JWT tokens. Use a long, random string (e.g. `import os; os.urandom(32).hex()`). |
 | `NOCA_JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
-| `NOCA_JWT_EXPIRE_SECONDS` | `3600` | Per-token JWT lifetime in seconds. Active authenticated web sessions rotate the cookie automatically when the remaining lifetime reaches half of this value. Arena also uses this as the LOGIN token lifetime; remembered Arena sessions rotate those 1-hour tokens at half-life while preserving a separate 30-day absolute cap. |
-| `NOCA_JWT_REFRESH_MAX_SESSION_SECONDS` | `0` | Optional absolute cap for sliding web sessions in seconds. Set to `0` to disable the cap and keep active users signed in indefinitely while they remain active. |
+| `NOCA_JWT_EXPIRE_SECONDS` | `3600` | Per-token JWT lifetime in seconds. Active authenticated web and Arena sessions rotate the cookie automatically when the remaining lifetime reaches half of this value. It also derives the client keepalive cadence: `/4` in web, and in Arena when presence is disabled (see below). |
+| `NOCA_JWT_REFRESH_MAX_SESSION_SECONDS` | `0` | Optional absolute cap for sliding web and Arena sessions in seconds. Set to `0` to disable the cap and keep active users signed in indefinitely while they remain active. |
 
 Sliding-session notes:
 
@@ -307,11 +307,59 @@ Sliding-session notes:
   1800 seconds or less remaining.
 - `NOCA_JWT_REFRESH_MAX_SESSION_SECONDS` applies to the whole login session, not
   to one token instance. When the cap is exceeded, the user must log in again.
-- The Arena layer refreshes `arena_access_token` only for remembered sessions
-  after `get_current_arena_user()` resolves a real authenticated user.
-- Arena remembered sessions keep a 30-day persistent cookie, rotate 1-hour
-  LOGIN JWTs at half-life, and stop rotating after 30 days from the original
-  login timestamp.
+- The Arena layer refreshes `arena_access_token` for **every** session — not
+  only remembered ones — after `get_current_arena_user()` resolves a real
+  authenticated user, and honours the same
+  `NOCA_JWT_REFRESH_MAX_SESSION_SECONDS` cap. Rotation used to be limited to
+  remembered sessions, which meant a plain login died a fixed hour after it
+  started no matter how active the user was: a long edit ended at the login page
+  with the form contents discarded.
+- Arena "remember me" governs cookie **persistence** only. It sets a 30-day
+  `max_age` so the session survives a browser restart, where a plain login uses
+  a browser-session cookie that ends with the browser. It no longer affects
+  whether or for how long a session slides.
+- Because rotation happens on a request inside the refresh window, a page that
+  sits open without navigating keeps its session alive through the client-side
+  heartbeat in `shared/static/js/noca-presence.js`, which **both** modules load
+  from `_base.html`.
+- In Arena that heartbeat runs for every logged-in user regardless of
+  `NOCA_ARENA_PRESENCE_ENABLED`; the flag governs only the green-dot refresh.
+  Its cadence is `NOCA_ARENA_PRESENCE_HEARTBEAT_SECONDS` when presence is
+  enabled, and `NOCA_JWT_EXPIRE_SECONDS / 4` (minimum 60 s) otherwise.
+- In web it pings `POST /session/heartbeat` every
+  `NOCA_JWT_EXPIRE_SECONDS / 4` (minimum 60 s), for any request carrying a live
+  session. Web has no presence feature, so the keepalive is all it does. The
+  cadence is derived rather than configurable on purpose: a value set past the
+  half-life window would rotate nothing and would silently restore the expiry it
+  exists to prevent.
+- A web session therefore ends on: an explicit logout, a browser restart, a
+  password change, the configured absolute cap, or roughly 30–60 minutes with no
+  web page open and pinging — the same range, for the same reason, as Arena's
+  below.
+- An Arena session therefore ends on: an explicit logout, a browser restart
+  without "remember me", a password change or session-version bump (which
+  invalidates every outstanding token), an access-gate change (deactivated,
+  email unconfirmed, forced password change), the configured absolute cap, or
+  roughly 30–60 minutes with no Arena page open and sending heartbeats. The
+  window is a range because rotation only fires inside the refresh window: at
+  best a full token lifetime remains, at worst half of one.
+- The Arena footer's "Session expires in" indicator reports the absolute-cap
+  deadline, and is hidden when no cap is configured, since a sliding session
+  with no cap has no expiry to announce.
+- **Both modules refuse to start** when the effective heartbeat cadence is not
+  strictly inside the refresh window, because such a configuration pings without
+  ever rotating anything and silently restores the mid-edit expiry the heartbeat
+  exists to prevent. The error names both settings, the window, and the remedy.
+  Two combinations trip it, and each setting is individually within its own
+  documented range:
+  - Arena with presence enabled, where the cadence is
+    `NOCA_ARENA_PRESENCE_HEARTBEAT_SECONDS` (5-300 s) and is otherwise validated
+    only against `NOCA_ARENA_PRESENCE_TTL_SECONDS`: a 120 s cadence against
+    `NOCA_JWT_EXPIRE_SECONDS=200` pings every 120 s into a 100 s window.
+  - Either module on the derived cadence, whose 60 s floor bounds request volume
+    and therefore stops tracking the lifetime below about 120 s. Here the only
+    remedy is raising `NOCA_JWT_EXPIRE_SECONDS`; there is no cadence setting to
+    lower.
 
 ### Email Service
 

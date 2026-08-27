@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
@@ -18,9 +17,6 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi_flash import setup_flash
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,7 +37,7 @@ from shared.db_schema.arena.arena_ai_credit_transactions import arena_ai_credit_
 from shared.db_schema.arena.arena_submissions import arena_submission_ai_reviews, arena_submissions
 from shared.enumerations import ArenaRole
 from shared.queue_schema import AIBatchTurnaroundStats
-from shared.timing import format_compact_duration
+from tests.arena.conftest import install_arena_templates, mount_arena_base_routes
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -498,25 +494,13 @@ def _build_app(
     app = FastAPI()
     app.add_middleware(SessionMiddleware, secret_key="test-session-secret")
 
-    arena_dir = Path(__file__).resolve().parents[2] / "arena"
-    shared_dir = Path(__file__).resolve().parents[2] / "shared"
-    templates = Jinja2Templates(directory=arena_dir / "template")
+    templates = install_arena_templates(app)
     templates.env.globals["arena_format_datetime"] = lambda value, user, fmt=None: value.isoformat()
     templates.env.globals["arena_format_relative_datetime"] = lambda value: "just now"
-    templates.env.globals["format_compact_duration"] = format_compact_duration
-    templates.env.globals["app_version"] = "test"
-    templates.env.globals["next_rating_update_text"] = lambda request: None
-    setup_flash(templates)
-    app.state.arena_templates = templates
+    mount_arena_base_routes(app)
     app.state.valkey_runtime = SimpleNamespace(
         get=AsyncMock(return_value=turnaround_stats.model_dump_json() if turnaround_stats else None)
     )
-
-    app.mount("/static/vendor", StaticFiles(directory=shared_dir / "static" / "vendor"), name="static_vendor")
-    app.mount("/static/shared-js", StaticFiles(directory=shared_dir / "static" / "js"), name="static_shared_js")
-    app.mount("/static/css", StaticFiles(directory=arena_dir / "static" / "css"), name="arena_static_css")
-    app.mount("/static/js", StaticFiles(directory=arena_dir / "static" / "js"), name="arena_static_js")
-    app.mount("/static/img", StaticFiles(directory=arena_dir / "static" / "img"), name="arena_static_img")
 
     # Stub routes required by _base.html navigation
     @app.get("/", name="arena_dashboard")

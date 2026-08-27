@@ -7,14 +7,21 @@
  */
 
 /*
- * Online-presence client. Two jobs, both on the same interval:
- *   1. Heartbeat: POST to keep the current user marked online.
+ * Presence and session-keepalive client. Two jobs on the same interval:
+ *   1. Heartbeat: POST to keep the current user marked online. This request is
+ *      also what keeps the sliding auth session alive while the user reads or
+ *      types without navigating, so it runs unconditionally -- a page open for
+ *      an hour must not lose its session, and an unsaved form with it.
  *   2. Dots: collect every `.avatar-wrapper[data-user-id]` on the page, ask the
- *      status endpoint which are online, and toggle the `online` class.
+ *      status endpoint which are online, and toggle the `online` class. This
+ *      half is the green-dot feature proper and is skipped when
+ *      `data-presence-enabled="false"` or when no status endpoint is configured.
  *
  * Module-neutral: endpoint URLs and the interval come from a config element
- * (`[data-noca-presence]`), so the web module can reuse this file by pointing it
- * at its own routes. Fails silently when offline or when config is absent.
+ * (`[data-noca-presence]`), so a module reuses this file by pointing it at its
+ * own routes. Arena configures both jobs; web configures the heartbeat alone,
+ * having no presence domain -- which is why only `data-heartbeat-url` is
+ * required. Fails silently when offline or when config is absent.
  */
 (() => {
   "use strict";
@@ -25,13 +32,18 @@
   }
 
   const heartbeatUrl = config.dataset.heartbeatUrl;
+  // Optional: a consumer that only needs the keepalive (the web module) has no
+  // status endpoint to point at, and must still heartbeat.
   const statusUrl = config.dataset.statusUrl;
-  if (!heartbeatUrl || !statusUrl) {
+  if (!heartbeatUrl) {
     return;
   }
 
   const intervalSeconds = Number(config.dataset.intervalSeconds) || 30;
   const intervalMs = Math.max(5, intervalSeconds) * 1000;
+  // Absent means enabled, so a consumer that predates this attribute (or one
+  // that never disables presence) keeps its dots.
+  const presenceEnabled = config.dataset.presenceEnabled !== "false";
 
   const collectIds = () => {
     const ids = new Set();
@@ -90,7 +102,9 @@
 
   const tick = () => {
     void sendHeartbeat();
-    void refreshDots();
+    if (presenceEnabled && statusUrl) {
+      void refreshDots();
+    }
   };
 
   tick();
